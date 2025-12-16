@@ -3683,12 +3683,9 @@ func (x *CreateDurabilityPolicyRequest) GetQuorumRule() *clustermetadata.QuorumR
 }
 
 // CreateDurabilityPolicyResponse confirms policy creation
+// Errors are returned via gRPC status codes, not in the response body
 type CreateDurabilityPolicyResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether the policy was created successfully
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Error message if creation failed
-	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3721,20 +3718,6 @@ func (x *CreateDurabilityPolicyResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateDurabilityPolicyResponse.ProtoReflect.Descriptor instead.
 func (*CreateDurabilityPolicyResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{60}
-}
-
-func (x *CreateDurabilityPolicyResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *CreateDurabilityPolicyResponse) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
-	}
-	return ""
 }
 
 var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
@@ -3952,10 +3935,8 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\vpolicy_name\x18\x01 \x01(\tR\n" +
 	"policyName\x12<\n" +
 	"\vquorum_rule\x18\x02 \x01(\v2\x1b.clustermetadata.QuorumRuleR\n" +
-	"quorumRule\"_\n" +
-	"\x1eCreateDurabilityPolicyResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage*\x98\x01\n" +
+	"quorumRule\" \n" +
+	"\x1eCreateDurabilityPolicyResponse*\x98\x01\n" +
 	"\x14ReplicationPauseMode\x12&\n" +
 	"\"REPLICATION_PAUSE_MODE_REPLAY_ONLY\x10\x00\x12(\n" +
 	"$REPLICATION_PAUSE_MODE_RECEIVER_ONLY\x10\x01\x12.\n" +

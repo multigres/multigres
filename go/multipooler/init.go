@@ -17,6 +17,7 @@ package multipooler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -25,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/grpcconsensusservice"
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
@@ -55,6 +57,8 @@ type MultiPooler struct {
 	// TopoConfig holds topology configuration
 	topoConfig *topoclient.TopoConfig
 	telemetry  *telemetry.Telemetry
+	// connPoolConfig holds connection pool configuration (manager created inside MultiPoolerManager)
+	connPoolConfig *connpoolmanager.Config
 
 	ts           topoclient.Store
 	tr           *toporeg.TopoReg
@@ -126,10 +130,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-stanza",
 			Dynamic:  false,
 		}),
-		grpcServer: servenv.NewGrpcServer(reg),
-		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
-		telemetry:  telemetry,
-		topoConfig: topoclient.NewTopoConfig(reg),
+		grpcServer:     servenv.NewGrpcServer(reg),
+		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
+		telemetry:      telemetry,
+		topoConfig:     topoclient.NewTopoConfig(reg),
+		connPoolConfig: connpoolmanager.NewConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
 			Links: []Link{
@@ -176,6 +181,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.grpcServer.RegisterFlags(flags)
 	mp.senv.RegisterFlags(flags)
 	mp.topoConfig.RegisterFlags(flags)
+	mp.connPoolConfig.RegisterFlags(flags)
 }
 
 // Init initializes the multipooler. If any services fail to start,
@@ -249,6 +255,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgctldAddr:          mp.pgctldAddr.Get(),
 		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConnPoolConfig:      mp.connPoolConfig,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -263,10 +270,48 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
 	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
 
+	// Validate immutable fields if MultiPooler already exists in topology
+	existingMP, err := mp.ts.GetMultiPooler(startCtx, multipooler.Id)
+	if err != nil && !errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+		return fmt.Errorf("failed to get existing multipooler: %w", err)
+	}
+	if existingMP != nil {
+		if existingMP.Database != "" && existingMP.Database != multipooler.Database {
+			logger.ErrorContext(startCtx, "database mismatch: existing value does not match new value (database is immutable after creation)",
+				"existing_database", existingMP.Database,
+				"new_database", multipooler.Database)
+			return fmt.Errorf("database mismatch: existing value does not match new value (database is immutable after creation)")
+		}
+		if existingMP.TableGroup != "" && existingMP.TableGroup != multipooler.TableGroup {
+			logger.ErrorContext(startCtx, "table group mismatch: existing value does not match new value (table group is immutable after creation)",
+				"existing_table_group", existingMP.TableGroup,
+				"new_table_group", multipooler.TableGroup)
+			return fmt.Errorf("table group mismatch: existing value does not match new value (table group is immutable after creation)")
+		}
+		if existingMP.Shard != "" && existingMP.Shard != multipooler.Shard {
+			logger.ErrorContext(startCtx, "shard mismatch: existing value does not match new value (shard is immutable after creation)",
+				"existing_shard", existingMP.Shard,
+				"new_shard", multipooler.Shard)
+			return fmt.Errorf("shard mismatch: existing value does not match new value (shard is immutable after creation)")
+		}
+	}
+
 	mp.senv.OnRun(
 		func() {
 			registerFunc := func(ctx context.Context) error {
-				return mp.ts.RegisterMultiPooler(ctx, multipooler, true /* allowUpdate */)
+				if existingMP == nil {
+					// First time registration - create the multipooler with all fields
+					return mp.ts.RegisterMultiPooler(ctx, multipooler, false /* allowUpdate */)
+				}
+				// Subsequent starts - only update mutable fields (immutable fields already validated above)
+				_, err := mp.ts.UpdateMultiPoolerFields(ctx, multipooler.Id,
+					func(mp *clustermetadatapb.MultiPooler) error {
+						mp.PortMap = multipooler.PortMap
+						mp.Hostname = multipooler.Hostname
+						mp.ServingStatus = multipooler.ServingStatus
+						return nil
+					})
+				return err
 			}
 			// For poolers, we don't un-register them on shutdown (they are persistent component)
 			// If they are actually deleted, they need to be cleaned up outside the lifecycle of starting / stopping.
