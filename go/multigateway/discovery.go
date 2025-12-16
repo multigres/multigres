@@ -47,6 +47,9 @@ type PoolerDiscovery struct {
 	mu          sync.Mutex
 	poolers     map[string]*topoclient.MultiPoolerInfo // pooler ID -> pooler info
 	lastRefresh time.Time
+
+	// Cross-zone PRIMARY tracking (updated from watching all cells)
+	primaryPooler *topoclient.MultiPoolerInfo
 }
 
 // NewPoolerDiscovery creates a new pooler discovery service.
@@ -64,71 +67,94 @@ func NewPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, cell st
 }
 
 // Start begins the discovery process using topology watch.
+// It watches the local cell for all poolers, and remote cells for PRIMARY poolers only.
 func (pd *PoolerDiscovery) Start() {
-	pd.wg.Go(func() {
-		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
+	// Discover all cells
+	allCells, err := pd.topoStore.GetCellNames(pd.ctx)
+	if err != nil {
+		pd.logger.Warn("Failed to get all cells, watching local cell only", "error", err)
+		allCells = []string{pd.cell}
+	}
 
-		r := retry.New(100*time.Millisecond, 30*time.Second)
-		for attempt, err := range r.Attempts(pd.ctx) {
+	pd.logger.Info("Starting pooler discovery with multi-cell support",
+		"local_cell", pd.cell,
+		"all_cells", allCells)
+
+	// Start a watch goroutine for each cell
+	for _, cell := range allCells {
+		pd.wg.Go(func() {
+			pd.watchCell(cell)
+		})
+	}
+}
+
+// watchCell watches a single cell for pooler changes.
+// For the local cell, it tracks all poolers. For remote cells, only PRIMARY.
+func (pd *PoolerDiscovery) watchCell(cell string) {
+	isLocalCell := cell == pd.cell
+
+	pd.logger.Info("Starting pooler watch for cell", "cell", cell, "is_local", isLocalCell)
+
+	r := retry.New(100*time.Millisecond, 30*time.Second)
+	for attempt, err := range r.Attempts(pd.ctx) {
+		if err != nil {
+			// Context cancelled
+			pd.logger.Info("Pooler discovery shutting down for cell", "cell", cell)
+			return
+		}
+
+		if attempt > 0 {
+			pd.logger.Info("Restarting pooler watch for cell", "cell", cell)
+		}
+
+		// Establish watch and process changes
+		func() {
+			// Get connection for the cell
+			conn, err := pd.topoStore.ConnForCell(pd.ctx, cell)
 			if err != nil {
-				// Context cancelled
-				pd.logger.Info("Pooler discovery shutting down")
+				pd.logger.Error("Failed to get connection for cell", "cell", cell, "error", err)
 				return
 			}
 
-			if attempt > 0 {
-				pd.logger.Info("Restarting pooler discovery with topology watch", "cell", pd.cell)
+			// Start watching the poolers directory
+			poolersPath := "poolers" // This matches the PoolersPath constant from store.go
+			initial, changes, err := conn.WatchRecursive(pd.ctx, poolersPath)
+			if err != nil {
+				pd.logger.Error("Failed to start recursive watch on poolers", "cell", cell, "path", poolersPath, "error", err)
+				return
 			}
 
-			// Establish watch and process changes
-			func() {
-				// Get connection for the cell
-				conn, err := pd.topoStore.ConnForCell(pd.ctx, pd.cell)
-				if err != nil {
-					pd.logger.Error("Failed to get connection for cell", "cell", pd.cell, "error", err)
+			// Process initial values
+			pd.processInitialPoolers(cell, initial)
+
+			// Reset backoff after watch has been stable for 30s
+			resetTimer := time.AfterFunc(30*time.Second, func() {
+				r.Reset()
+			})
+			defer resetTimer.Stop()
+
+			// Process changes as they come in
+			for {
+				select {
+				case <-pd.ctx.Done():
 					return
-				}
-
-				// Start watching the poolers directory
-				poolersPath := "poolers" // This matches the PoolersPath constant from store.go
-				initial, changes, err := conn.WatchRecursive(pd.ctx, poolersPath)
-				if err != nil {
-					pd.logger.Error("Failed to start recursive watch on poolers", "path", poolersPath, "error", err)
-					return
-				}
-
-				// Process initial values
-				pd.processInitialPoolers(initial)
-
-				// Reset backoff after watch has been stable for 30s
-				resetTimer := time.AfterFunc(30*time.Second, func() {
-					r.Reset()
-				})
-				defer resetTimer.Stop()
-
-				// Process changes as they come in
-				for {
-					select {
-					case <-pd.ctx.Done():
+				case watchData, ok := <-changes:
+					if !ok {
+						pd.logger.Info("Watch channel closed, will reconnect", "cell", cell)
 						return
-					case watchData, ok := <-changes:
-						if !ok {
-							pd.logger.Info("Watch channel closed, will reconnect")
-							return
-						}
-
-						if watchData.Err != nil {
-							pd.logger.Error("Watch error received", "error", watchData.Err)
-							// Continue watching despite the error
-							continue
-						}
-
-						pd.processPoolerChange(watchData)
 					}
+
+					if watchData.Err != nil {
+						pd.logger.Error("Watch error received", "cell", cell, "error", watchData.Err)
+						// Continue watching despite the error
+						continue
+					}
+
+					pd.processPoolerChange(cell, watchData)
 				}
-			}()
-		}
-	})
+			}
+		}()
+	}
 }
 
 // Stop stops the discovery service.
@@ -137,92 +163,155 @@ func (pd *PoolerDiscovery) Stop() {
 	pd.wg.Wait()
 }
 
-// processInitialPoolers processes the initial set of poolers from the watch
-func (pd *PoolerDiscovery) processInitialPoolers(initial []*topoclient.WatchDataRecursive) {
+// processInitialPoolers processes the initial set of poolers from the watch.
+// For local cell: stores all poolers. For remote cells: only tracks PRIMARY.
+func (pd *PoolerDiscovery) processInitialPoolers(cell string, initial []*topoclient.WatchDataRecursive) {
+	isLocalCell := cell == pd.cell
+	var primaryCandidates []*topoclient.MultiPoolerInfo
+
+	// Process pooler data under lock
+	func() {
+		pd.mu.Lock()
+		defer pd.mu.Unlock()
+
+		// Only clear local poolers map for local cell
+		if isLocalCell {
+			pd.poolers = make(map[string]*topoclient.MultiPoolerInfo)
+		}
+
+		// Process initial pooler data
+		for _, watchData := range initial {
+			if watchData.Err != nil {
+				pd.logger.Warn("Error in initial watch data", "cell", cell, "path", watchData.Path, "error", watchData.Err)
+				continue
+			}
+
+			// Parse the pooler from watch data
+			pooler, err := pd.parsePoolerFromWatchData(watchData)
+			if err != nil {
+				pd.logger.Warn("Failed to parse pooler from initial data", "cell", cell, "path", watchData.Path, "error", err)
+				continue
+			}
+
+			if pooler != nil {
+				poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+
+				// Local cell: store all poolers
+				if isLocalCell {
+					pd.poolers[poolerID] = pooler
+					pd.logger.Info("Initial pooler discovered",
+						"cell", cell,
+						"id", poolerID,
+						"hostname", pooler.Hostname,
+						"addr", pooler.Addr(),
+						"database", pooler.Database,
+						"shard", pooler.Shard,
+						"type", pooler.Type.String())
+				}
+
+				// Collect PRIMARY candidates from any cell
+				if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
+					primaryCandidates = append(primaryCandidates, pooler)
+				}
+			}
+		}
+
+		pd.lastRefresh = time.Now()
+		if isLocalCell {
+			pd.logger.Info("Initial pooler discovery completed",
+				"cell", cell,
+				"pooler_count", len(pd.poolers))
+		}
+	}()
+
+	// Evaluate PRIMARY candidates after releasing lock.
+	// Called serially so primaryPooler is set before this function returns.
+	for _, candidate := range primaryCandidates {
+		pd.considerPrimaryCandidate(cell, candidate)
+	}
+}
+
+// processPoolerChange processes a single pooler change from the watch.
+// For local cell: stores all poolers. For remote cells: only tracks PRIMARY.
+func (pd *PoolerDiscovery) processPoolerChange(cell string, watchData *topoclient.WatchDataRecursive) {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 
-	// Clear existing poolers
-	pd.poolers = make(map[string]*topoclient.MultiPoolerInfo)
+	isLocalCell := cell == pd.cell
 
-	// Process initial pooler data
-	for _, watchData := range initial {
-		if watchData.Err != nil {
-			pd.logger.Warn("Error in initial watch data", "path", watchData.Path, "error", watchData.Err)
-			continue
-		}
+	// Parse the pooler from watch data
+	pooler, err := pd.parsePoolerFromWatchData(watchData)
+	if err != nil {
+		pd.logger.Warn("Failed to parse pooler from change data", "cell", cell, "path", watchData.Path, "error", err)
+		return
+	}
 
-		// Parse the pooler from watch data
-		pooler, err := pd.parsePoolerFromWatchData(watchData)
-		if err != nil {
-			pd.logger.Warn("Failed to parse pooler from initial data", "path", watchData.Path, "error", err)
-			continue
-		}
+	if pooler == nil {
+		// This might be a deletion or non-pooler file
+		pd.logger.Debug("Skipping non-pooler file or deletion", "cell", cell, "path", watchData.Path)
+		return
+	}
 
-		if pooler != nil {
-			poolerID := topoclient.MultiPoolerIDString(pooler.Id)
-			pd.poolers[poolerID] = pooler
-			pd.logger.Info("Initial pooler discovered",
+	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+
+	// Local cell: store all poolers
+	if isLocalCell {
+		_, existed := pd.poolers[poolerID]
+		pd.poolers[poolerID] = pooler
+		pd.lastRefresh = time.Now()
+
+		if !existed {
+			pd.logger.Info("New pooler discovered",
+				"cell", cell,
 				"id", poolerID,
 				"hostname", pooler.Hostname,
 				"addr", pooler.Addr(),
+				"tableGroup", pooler.TableGroup,
+				"database", pooler.Database,
+				"shard", pooler.Shard,
+				"type", pooler.Type.String())
+		} else {
+			pd.logger.Info("Pooler updated",
+				"cell", cell,
+				"id", poolerID,
+				"hostname", pooler.Hostname,
+				"addr", pooler.Addr(),
+				"tableGroup", pooler.TableGroup,
 				"database", pooler.Database,
 				"shard", pooler.Shard,
 				"type", pooler.Type.String())
 		}
 	}
 
-	pd.lastRefresh = time.Now()
-	pd.logger.Info("Initial pooler discovery completed",
-		"cell", pd.cell,
-		"pooler_count", len(pd.poolers))
+	// If this pooler claims to be PRIMARY, consider it as a candidate
+	// Run in goroutine so verification doesn't block watch processing
+	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
+		go pd.considerPrimaryCandidate(cell, pooler)
+	}
 }
 
-// processPoolerChange processes a single pooler change from the watch
-func (pd *PoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDataRecursive) {
+// considerPrimaryCandidate evaluates a pooler that claims to be PRIMARY.
+// Phase 1: Trust etcd and accept the candidate.
+// Future phases: Verify reachability, check term numbers, confirm agreement.
+func (pd *PoolerDiscovery) considerPrimaryCandidate(cell string, candidate *topoclient.MultiPoolerInfo) {
+	// TODO(phase3): Add verification logic:
+	// 1. Verify pooler is reachable (gRPC dial with timeout)
+	// 2. Call ConsensusStatus to confirm it agrees it's PRIMARY
+	// 3. Check term number is >= current primary's term
+	// 4. Only then update primaryPooler
+
+	// Phase 1: Trust etcd - if etcd says it's PRIMARY, accept it
 	pd.mu.Lock()
-	defer pd.mu.Unlock()
-
-	// Parse the pooler from watch data
-	pooler, err := pd.parsePoolerFromWatchData(watchData)
-	if err != nil {
-		pd.logger.Warn("Failed to parse pooler from change data", "path", watchData.Path, "error", err)
-		return
-	}
-
-	if pooler == nil {
-		// This might be a deletion or non-pooler file
-		pd.logger.Debug("Skipping non-pooler file or deletion", "path", watchData.Path)
-		return
-	}
-
-	// Add or update the pooler
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
-
-	// Check if this is a new pooler
-	_, existed := pd.poolers[poolerID]
-	pd.poolers[poolerID] = pooler
+	pd.primaryPooler = candidate
 	pd.lastRefresh = time.Now()
+	pd.mu.Unlock()
 
-	if !existed {
-		pd.logger.Info("New pooler discovered",
-			"id", poolerID,
-			"hostname", pooler.Hostname,
-			"addr", pooler.Addr(),
-			"tableGroup", pooler.TableGroup,
-			"database", pooler.Database,
-			"shard", pooler.Shard,
-			"type", pooler.Type.String())
-	} else {
-		pd.logger.Info("Pooler updated",
-			"id", poolerID,
-			"hostname", pooler.Hostname,
-			"addr", pooler.Addr(),
-			"tableGroup", pooler.TableGroup,
-			"database", pooler.Database,
-			"shard", pooler.Shard,
-			"type", pooler.Type.String())
-	}
+	poolerID := topoclient.MultiPoolerIDString(candidate.Id)
+	pd.logger.Info("PRIMARY pooler updated",
+		"cell", cell,
+		"id", poolerID,
+		"hostname", candidate.Hostname,
+		"addr", candidate.Addr())
 }
 
 // GetPoolers returns a list of all discovered poolers.
@@ -240,6 +329,10 @@ func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
 // GetPooler returns a pooler matching the target specification.
 // Target specifies the tablegroup, shard, and pooler type to route to.
 // Returns nil if no matching pooler is found.
+//
+// Routing strategy:
+// - PRIMARY: Returns the cross-zone primaryPooler (can be in any cell)
+// - REPLICA: Returns a pooler from the local cell only
 //
 // Filtering logic:
 // - TableGroup: Required, must match exactly
@@ -270,7 +363,27 @@ func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.Mu
 			"type", pooler.Type.String())
 	}
 
-	// Find matching pooler
+	// PRIMARY: Use cross-zone primaryPooler
+	if targetType == clustermetadatapb.PoolerType_PRIMARY {
+		if pd.primaryPooler != nil {
+			pooler := pd.primaryPooler
+			// Verify it matches the target
+			if pooler.TableGroup == target.TableGroup &&
+				(target.Shard == "" || pooler.Shard == target.Shard) {
+				pd.logger.Debug("selected PRIMARY pooler (cross-zone)",
+					"pooler_id", topoclient.MultiPoolerIDString(pooler.Id),
+					"tablegroup", pooler.TableGroup,
+					"shard", pooler.Shard)
+				return proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler)
+			}
+		}
+		pd.logger.Warn("no PRIMARY pooler found",
+			"tablegroup", target.TableGroup,
+			"shard", target.Shard)
+		return nil
+	}
+
+	// REPLICA/other: Search local cell poolers only
 	for _, pooler := range pd.poolers {
 		// TableGroup must match
 		if pooler.TableGroup != target.TableGroup {
