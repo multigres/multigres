@@ -62,6 +62,11 @@ type MultiPoolerServiceClient interface {
 	Describe(ctx context.Context, in *DescribeRequest, opts ...grpc.CallOption) (*DescribeResponse, error)
 	// GetAuthCredentials retrieves authentication credentials for a user.
 	// Used by multigateway to get SCRAM password hashes for client authentication.
+	//
+	// NOTE: This API may change. Currently fetches credentials one user at a time.
+	// Future iterations could switch to a streaming model where multigateway maintains
+	// an up-to-date cache of all password hashes and by real-time updates from multipooler
+	// when any credentials change.
 	GetAuthCredentials(ctx context.Context, in *GetAuthCredentialsRequest, opts ...grpc.CallOption) (*GetAuthCredentialsResponse, error)
 }
 
@@ -160,6 +165,11 @@ type MultiPoolerServiceServer interface {
 	Describe(context.Context, *DescribeRequest) (*DescribeResponse, error)
 	// GetAuthCredentials retrieves authentication credentials for a user.
 	// Used by multigateway to get SCRAM password hashes for client authentication.
+	//
+	// NOTE: This API may change. Currently fetches credentials one user at a time.
+	// Future iterations could switch to a streaming model where multigateway maintains
+	// an up-to-date cache of all password hashes and by real-time updates from multipooler
+	// when any credentials change.
 	GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error)
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
