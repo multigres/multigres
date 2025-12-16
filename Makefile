@@ -24,10 +24,11 @@ export ADDLICENSE_VER
 ETCD_VER = v3.6.4
 export ETCD_VER
 
+# List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin
 BIN_DIR = bin
 
-.PHONY: all build build-all clean install test proto tools parser help
+.PHONY: all build build-all clean install test test-coverage proto tools parser help
 
 ##@ General
 
@@ -83,6 +84,15 @@ build: ## Build Go binaries (debug, with symbols).
 		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
 	done
 
+# Build Go binaries with coverage
+build-coverage:
+	mkdir -p bin/cov/
+	cp external/pico/pico.* go/common/web/templates/css/
+	@for cmd in $(CMDS); do \
+		echo "Building $$cmd (coverage)"; \
+		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
+	done
+
 # Build Go binaries only (release, static, stripped)
 build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
@@ -113,6 +123,9 @@ test-short: ## Run short tests.
 
 test-race: ## Run tests with race detection.
 	go test -short -v -race ./...
+
+test-coverage: build-coverage ## Run tests with comprehensive coverage.
+	./scripts/go_test_coverage.sh ./...
 
 ##@ Maintenance
 
