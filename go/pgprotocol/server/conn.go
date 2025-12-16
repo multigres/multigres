@@ -405,9 +405,11 @@ func (c *Conn) handleQuery() error {
 		return nil
 	})
 	if err != nil {
-		// Send error response.
+		// Send error response with the actual error in the message for better visibility.
+		// lib/pq and other clients often only show the message field, not the detail field.
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
-		if err := c.writeErrorResponse("ERROR", "42000", "query execution failed", err.Error(), ""); err != nil {
+		errMsg := fmt.Sprintf("query execution failed: %v", err)
+		if err := c.writeErrorResponse("ERROR", "42000", errMsg, "", ""); err != nil {
 			return err
 		}
 	}
