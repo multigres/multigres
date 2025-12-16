@@ -314,7 +314,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 	server.SetRPCClient(fakeClient)
 
 	t.Run("force_primary=true uses primary pooler", func(t *testing.T) {
-		fakeClient.CallLog = nil // Reset call log
+		fakeClient.ResetCallLog()
 
 		req := &multiadminpb.BackupRequest{
 			Database:     "testdb",
@@ -331,11 +331,11 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 
 		// Verify the primary pooler was called
-		require.Contains(t, fakeClient.CallLog, "Backup(multipooler-cell1-primary-pooler)")
+		require.Contains(t, fakeClient.GetCallLog(), "Backup(multipooler-cell1-primary-pooler)")
 	})
 
 	t.Run("force_primary=false uses replica pooler", func(t *testing.T) {
-		fakeClient.CallLog = nil // Reset call log
+		fakeClient.ResetCallLog()
 
 		req := &multiadminpb.BackupRequest{
 			Database:     "testdb",
@@ -352,7 +352,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 
 		// Verify the replica pooler was called
-		require.Contains(t, fakeClient.CallLog, "Backup(multipooler-cell1-replica-pooler)")
+		require.Contains(t, fakeClient.GetCallLog(), "Backup(multipooler-cell1-replica-pooler)")
 	})
 
 	t.Run("force_primary=false with no replicas returns error", func(t *testing.T) {

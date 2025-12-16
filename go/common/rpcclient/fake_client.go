@@ -149,6 +149,22 @@ func (f *FakeClient) logCall(method string, poolerID string) {
 	f.CallLog = append(f.CallLog, fmt.Sprintf("%s(%s)", method, poolerID))
 }
 
+// GetCallLog returns a copy of the call log in a thread-safe manner.
+func (f *FakeClient) GetCallLog() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	result := make([]string, len(f.CallLog))
+	copy(result, f.CallLog)
+	return result
+}
+
+// ResetCallLog clears the call log in a thread-safe manner.
+func (f *FakeClient) ResetCallLog() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallLog = nil
+}
+
 func (f *FakeClient) checkError(poolerID string) error {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
