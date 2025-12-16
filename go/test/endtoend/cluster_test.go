@@ -813,8 +813,8 @@ func TestClusterLifecycle(t *testing.T) {
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
-		clusterSetup := setupTestCluster(t)
-		t.Cleanup(clusterSetup.Cleanup)
+		clusterSetup, cleanup := setupTestCluster(t)
+		t.Cleanup(cleanup)
 		tempDir := clusterSetup.TempDir
 		configFile := clusterSetup.ConfigFile
 		testPorts := clusterSetup.PortConfig
@@ -1315,18 +1315,19 @@ func stringHash(s string) int {
 
 // testClusterSetup holds the resources for a test cluster
 type testClusterSetup struct {
-	TempDir    string
-	PortConfig *testPortConfig
-	ConfigFile string
-	Database   string
-	Cleanup    func()
+	TempDir     string
+	PortConfig  *testPortConfig
+	ConfigFile  string
+	Database    string
+	ReadyPGPort int // Multigateway PG port that has access to the PRIMARY pooler
 }
 
 // setupTestCluster sets up a complete test cluster with all services running.
 // This includes building binaries, creating configuration, starting the cluster,
 // and verifying all services are up and responding. Returns a testClusterSetup
-// with resources and a cleanup function that must be called when done.
-func setupTestCluster(t *testing.T) *testClusterSetup {
+// with resources and a cleanup function that must be called when done (typically
+// via t.Cleanup).
+func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 	t.Helper()
 
 	// Setup test directory
@@ -1415,11 +1416,24 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 
 	t.Log("Test cluster setup completed successfully")
 
-	return &testClusterSetup{
-		TempDir:    tempDir,
-		PortConfig: testPorts,
-		ConfigFile: configFile,
-		Database:   database,
-		Cleanup:    cleanup,
+	// Find a multigateway that has access to the PRIMARY pooler.
+	// TODO: In the long term, all multigateways should have access to the PRIMARY.
+	// We want zone-local reads from replicas, but writes always go to the single
+	// PRIMARY regardless of zone.
+	pgPorts := []int{
+		testPorts.Zones[0].MultigatewayPGPort,
+		testPorts.Zones[1].MultigatewayPGPort,
 	}
+	findCtx, findCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer findCancel()
+	readyPort, err := findReadyMultigateway(t, findCtx, pgPorts)
+	require.NoError(t, err, "should find a ready multigateway after bootstrap")
+
+	return &testClusterSetup{
+		TempDir:     tempDir,
+		PortConfig:  testPorts,
+		ConfigFile:  configFile,
+		Database:    database,
+		ReadyPGPort: readyPort,
+	}, cleanup
 }
