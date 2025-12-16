@@ -130,6 +130,9 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		},
 	)
 	if err != nil {
+		// Note: When PortalStreamExecute returns an error, it also releases any reserved
+		// connection and returns an empty ReservedState. So we don't need to send a
+		// reserved connection ID in the error case.
 		return err
 	}
 

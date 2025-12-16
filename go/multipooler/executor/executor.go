@@ -91,7 +91,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// Get a connection from the pool for this user
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "failed to get connection", "error", err, "user", user)
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
@@ -140,7 +139,6 @@ func (e *Executor) StreamExecute(
 		}
 
 		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
-			e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
 			return fmt.Errorf("query execution failed: %w", err)
 		}
 		return nil
@@ -155,14 +153,12 @@ func (e *Executor) StreamExecute(
 	// Get a connection from the pool for this user
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "failed to get connection", "error", err, "user", user)
 		return fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
 
 	// Use streaming query execution
 	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
-		e.logger.ErrorContext(ctx, "query execution failed", "error", err, "query", sql)
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 
@@ -394,11 +390,11 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	psi := e.consolidator.GetPreparedStatementInfo(0, stmt.Name)
 	if psi == nil {
 		// Add to consolidator to get/create canonical name
-		if err := e.consolidator.AddPreparedStatement(0, stmt.Name, stmt.Query, stmt.ParamTypes); err != nil {
+		var err error
+		psi, err = e.consolidator.AddPreparedStatement(0, stmt.Name, stmt.Query, stmt.ParamTypes)
+		if err != nil {
 			return "", fmt.Errorf("failed to consolidate prepared statement: %w", err)
 		}
-		// This will be not-nil because we just added it.
-		psi = e.consolidator.GetPreparedStatementInfo(0, stmt.Name)
 	}
 	canonicalName := psi.Name
 

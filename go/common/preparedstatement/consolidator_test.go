@@ -27,13 +27,15 @@ func TestConsolidator_AddAndGetPreparedStatement(t *testing.T) {
 	consolidator := NewConsolidator()
 	connID := uint32(1)
 
-	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	psi, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
 	require.NoError(t, err)
-
-	psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
 	require.NotNil(t, psi)
 	require.Equal(t, "SELECT 1", psi.Query)
 	require.Equal(t, "stmt0", psi.Name) // Internal name should be generated
+
+	psi2 := consolidator.GetPreparedStatementInfo(connID, "stmt1")
+	require.NotNil(t, psi2)
+	require.Equal(t, psi, psi2)
 }
 
 func TestConsolidator_ConsolidatesDuplicateQueries(t *testing.T) {
@@ -42,16 +44,13 @@ func TestConsolidator_ConsolidatesDuplicateQueries(t *testing.T) {
 	connID2 := uint32(2)
 
 	// Add the same query with different names on different connections
-	err := consolidator.AddPreparedStatement(connID1, "stmt_a", "SELECT * FROM users", nil)
+	psi1, err := consolidator.AddPreparedStatement(connID1, "stmt_a", "SELECT * FROM users", nil)
 	require.NoError(t, err)
 
-	err = consolidator.AddPreparedStatement(connID2, "stmt_b", "SELECT * FROM users", nil)
+	psi2, err := consolidator.AddPreparedStatement(connID2, "stmt_b", "SELECT * FROM users", nil)
 	require.NoError(t, err)
 
 	// Both should point to the same underlying prepared statement
-	psi1 := consolidator.GetPreparedStatementInfo(connID1, "stmt_a")
-	psi2 := consolidator.GetPreparedStatementInfo(connID2, "stmt_b")
-
 	require.NotNil(t, psi1)
 	require.NotNil(t, psi2)
 	require.Equal(t, psi1.Name, psi2.Name) // Should have the same internal name
@@ -66,11 +65,11 @@ func TestConsolidator_DuplicateNameOnSameConnectionReturnsError(t *testing.T) {
 	consolidator := NewConsolidator()
 	connID := uint32(1)
 
-	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	_, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
 	require.NoError(t, err)
 
 	// Try to add another statement with the same name on the same connection
-	err = consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 2", nil)
+	_, err = consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 2", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Prepared statement with this name exists")
 }
@@ -80,10 +79,10 @@ func TestConsolidator_EmptyNameAllowsDuplicates(t *testing.T) {
 	connID := uint32(1)
 
 	// Empty names should be allowed multiple times
-	err := consolidator.AddPreparedStatement(connID, "", "SELECT 1", nil)
+	_, err := consolidator.AddPreparedStatement(connID, "", "SELECT 1", nil)
 	require.NoError(t, err)
 
-	err = consolidator.AddPreparedStatement(connID, "", "SELECT 2", nil)
+	_, err = consolidator.AddPreparedStatement(connID, "", "SELECT 2", nil)
 	require.NoError(t, err)
 }
 
@@ -91,10 +90,8 @@ func TestConsolidator_RemovePreparedStatement(t *testing.T) {
 	consolidator := NewConsolidator()
 	connID := uint32(1)
 
-	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	psi, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
 	require.NoError(t, err)
-
-	psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
 	require.NotNil(t, psi)
 
 	consolidator.RemovePreparedStatement(connID, "stmt1")
@@ -110,13 +107,12 @@ func TestConsolidator_RemoveDecrementsUsageCount(t *testing.T) {
 	query := "SELECT * FROM users"
 
 	// Add same query on two connections
-	err := consolidator.AddPreparedStatement(connID1, "stmt1", query, nil)
+	psi, err := consolidator.AddPreparedStatement(connID1, "stmt1", query, nil)
 	require.NoError(t, err)
 
-	err = consolidator.AddPreparedStatement(connID2, "stmt2", query, nil)
+	_, err = consolidator.AddPreparedStatement(connID2, "stmt2", query, nil)
 	require.NoError(t, err)
 
-	psi := consolidator.GetPreparedStatementInfo(connID1, "stmt1")
 	require.Equal(t, 2, consolidator.usageCount[psi])
 
 	// Remove from first connection
@@ -151,7 +147,7 @@ func TestConsolidator_InvalidSQL(t *testing.T) {
 	connID := uint32(1)
 
 	// Test with invalid SQL that the parser cannot handle
-	err := consolidator.AddPreparedStatement(connID, "stmt1", "THIS IS NOT VALID SQL @@##", nil)
+	_, err := consolidator.AddPreparedStatement(connID, "stmt1", "THIS IS NOT VALID SQL @@##", nil)
 	require.Error(t, err)
 }
 
@@ -160,7 +156,7 @@ func TestConsolidator_MultipleStatementsInQuery(t *testing.T) {
 	connID := uint32(1)
 
 	// Prepared statements should only contain a single query
-	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1; SELECT 2", nil)
+	_, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1; SELECT 2", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "more than 1 query")
 }
@@ -176,10 +172,8 @@ func TestConsolidator_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			connID := uint32(id)
-			err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+			psi, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
 			require.NoError(t, err)
-
-			psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
 			require.NotNil(t, psi)
 
 			consolidator.RemovePreparedStatement(connID, "stmt1")
@@ -207,14 +201,11 @@ func TestConsolidator_DifferentConnectionsIndependentNamespaces(t *testing.T) {
 	connID2 := uint32(2)
 
 	// Same name on different connections should work
-	err := consolidator.AddPreparedStatement(connID1, "stmt1", "SELECT 1", nil)
+	psi1, err := consolidator.AddPreparedStatement(connID1, "stmt1", "SELECT 1", nil)
 	require.NoError(t, err)
 
-	err = consolidator.AddPreparedStatement(connID2, "stmt1", "SELECT 2", nil)
+	psi2, err := consolidator.AddPreparedStatement(connID2, "stmt1", "SELECT 2", nil)
 	require.NoError(t, err)
-
-	psi1 := consolidator.GetPreparedStatementInfo(connID1, "stmt1")
-	psi2 := consolidator.GetPreparedStatementInfo(connID2, "stmt1")
 
 	require.NotNil(t, psi1)
 	require.NotNil(t, psi2)
@@ -226,10 +217,8 @@ func TestNewPortalInfo(t *testing.T) {
 	consolidator := NewConsolidator()
 	connID := uint32(1)
 
-	err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	psi, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
 	require.NoError(t, err)
-
-	psi := consolidator.GetPreparedStatementInfo(connID, "stmt1")
 	require.NotNil(t, psi)
 
 	portal := &querypb.Portal{

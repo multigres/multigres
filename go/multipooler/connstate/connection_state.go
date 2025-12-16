@@ -32,7 +32,9 @@ type ConnectionState struct {
 	mu sync.Mutex
 
 	// User is the current role set via SET ROLE.
-	// This is NOT used for pool bucket routing - only for RLS enforcement.
+	// This is tracked separately from Settings and is NOT used for pool bucket routing.
+	// The role affects PostgreSQL's role-based access control (RLS policies, object
+	// permissions, stored procedure access, etc.).
 	// Empty string means no role has been set (using connection's default role).
 	User string
 

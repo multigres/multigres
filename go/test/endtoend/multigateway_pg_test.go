@@ -210,7 +210,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable",
 		cluster.PortConfig.Zones[0].MultigatewayPGPort)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, connStr)

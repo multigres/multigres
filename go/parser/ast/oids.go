@@ -39,6 +39,7 @@ const (
 	CHAROID    Oid = 18   // "char" (single byte)
 	NAMEOID    Oid = 19   // name (63-byte type for storing system identifiers)
 	TEXTOID    Oid = 25   // text
+	BPCHAROID  Oid = 1042 // bpchar (blank-padded char)
 	VARCHAROID Oid = 1043 // varchar
 )
 
@@ -70,6 +71,7 @@ const (
 	DATEOID        Oid = 1082 // date
 	TIMEOID        Oid = 1083 // time without time zone
 	TIMESTAMPOID   Oid = 1114 // timestamp without time zone
+	INTERVALOID    Oid = 1186 // interval
 	TIMESTAMPTZOID Oid = 1184 // timestamp with time zone
 	TIMETZOID      Oid = 1266 // time with time zone
 )
@@ -207,7 +209,7 @@ func (o Oid) String() string {
 		return "TEXT"
 	case VARCHAROID:
 		return "VARCHAR"
-	case 1042: // bpchar
+	case BPCHAROID:
 		return "BPCHAR"
 
 	// Integer types
@@ -293,7 +295,7 @@ func (o Oid) String() string {
 		return "TIMESTAMPTZ"
 	case TIMETZOID:
 		return "TIMETZ"
-	case 1186: // interval
+	case INTERVALOID:
 		return "INTERVAL"
 
 	// Bit string types

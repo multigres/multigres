@@ -156,36 +156,34 @@ func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration)
 	defer conn.Close()
 
 	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-	deadline := time.Now().Add(timeout)
 
-	for time.Now().Before(deadline) {
+	var poolerType clustermetadatapb.PoolerType
+	require.Eventually(t, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		resp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		cancel()
 
 		if err != nil {
 			t.Logf("Waiting for pooler type at %s... (Status RPC error: %v)", addr, err)
-			time.Sleep(500 * time.Millisecond)
-			continue
+			return false
 		}
 
 		if resp == nil || resp.Status == nil {
 			t.Logf("Waiting for pooler type at %s... (nil status response)", addr)
-			time.Sleep(500 * time.Millisecond)
-			continue
+			return false
 		}
 
-		poolerType := resp.Status.PoolerType
-		if poolerType != clustermetadatapb.PoolerType_UNKNOWN {
-			t.Logf("Pooler type at %s is now %s", addr, poolerType.String())
-			return poolerType, nil
+		poolerType = resp.Status.PoolerType
+		if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
+			t.Logf("Waiting for pooler type at %s... (currently UNKNOWN)", addr)
+			return false
 		}
 
-		t.Logf("Waiting for pooler type at %s... (currently UNKNOWN)", addr)
-		time.Sleep(500 * time.Millisecond)
-	}
+		t.Logf("Pooler type at %s is now %s", addr, poolerType.String())
+		return true
+	}, timeout, 500*time.Millisecond, "pooler type was not assigned within %v", timeout)
 
-	return clustermetadatapb.PoolerType_UNKNOWN, fmt.Errorf("pooler type was not assigned within %v", timeout)
+	return poolerType, nil
 }
 
 // Test helper functions

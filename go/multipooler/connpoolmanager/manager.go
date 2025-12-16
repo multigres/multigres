@@ -137,6 +137,8 @@ func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPo
 	}
 
 	// Check max users limit
+	// TODO: Consider garbage collecting user pools after a period of inactivity
+	// to reduce the odds of reaching the user pool maximum.
 	if maxUsers := m.config.MaxUsers(); maxUsers > 0 && int64(len(m.userPools)) >= maxUsers {
 		return nil, fmt.Errorf("maximum number of user pools (%d) reached", maxUsers)
 	}
