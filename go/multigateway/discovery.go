@@ -291,16 +291,15 @@ func (pd *PoolerDiscovery) processPoolerChange(cell string, watchData *topoclien
 }
 
 // considerPrimaryCandidate evaluates a pooler that claims to be PRIMARY.
-// Phase 1: Trust etcd and accept the candidate.
-// Future phases: Verify reachability, check term numbers, confirm agreement.
+// Currently trusts etcd - if etcd says it's PRIMARY, accept it.
 func (pd *PoolerDiscovery) considerPrimaryCandidate(cell string, candidate *topoclient.MultiPoolerInfo) {
-	// TODO(phase3): Add verification logic:
+	// TODO: Add verification logic.
 	// 1. Verify pooler is reachable (gRPC dial with timeout)
 	// 2. Call ConsensusStatus to confirm it agrees it's PRIMARY
 	// 3. Check term number is >= current primary's term
 	// 4. Only then update primaryPooler
 
-	// Phase 1: Trust etcd - if etcd says it's PRIMARY, accept it
+	// Trust etcd - if etcd says it's PRIMARY, accept it
 	pd.mu.Lock()
 	pd.primaryPooler = candidate
 	pd.lastRefresh = time.Now()

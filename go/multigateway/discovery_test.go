@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 )
 
 // Test configuration constants
@@ -429,4 +430,307 @@ func TestPoolerDiscovery_ReconnectsAfterWatchClosed(t *testing.T) {
 	names := []string{poolers[0].Id.Name, poolers[1].Id.Name}
 	assert.Contains(t, names, "pooler1")
 	assert.Contains(t, names, "pooler2")
+}
+
+// Cross-zone PRIMARY routing tests
+
+func TestPoolerDiscovery_GetPooler_PRIMARY_CrossZone(t *testing.T) {
+	ctx := context.Background()
+	// Create a store with two cells
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create a PRIMARY pooler in zone2 (remote cell)
+	primaryPooler := createTestPooler("primary", "zone2", "primary.zone2.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, primaryPooler))
+
+	// Create a REPLICA pooler in zone1 (local cell)
+	replicaPooler := createTestPooler("replica", "zone1", "replica.zone1.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, replicaPooler))
+
+	// Start discovery from zone1's perspective
+	pd := NewPoolerDiscovery(ctx, store, "zone1", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for discovery to find the local replica
+	waitForPoolerCount(t, pd, 1)
+
+	// Wait for primaryPooler to be set from zone2
+	waitForCondition(t, func() bool {
+		pd.mu.Lock()
+		defer pd.mu.Unlock()
+		return pd.primaryPooler != nil
+	}, "Expected primaryPooler to be set from zone2")
+
+	// GetPooler for PRIMARY should return the cross-zone primaryPooler
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "shard1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	result := pd.GetPooler(target)
+
+	require.NotNil(t, result, "GetPooler for PRIMARY should return cross-zone primaryPooler")
+	assert.Equal(t, "primary", result.Id.Name)
+	assert.Equal(t, "zone2", result.Id.Cell)
+	assert.Equal(t, "primary.zone2.example.com", result.Hostname)
+}
+
+func TestPoolerDiscovery_GetPooler_REPLICA_LocalOnly(t *testing.T) {
+	ctx := context.Background()
+	// Create a store with two cells
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create a REPLICA pooler in zone1 (local cell)
+	localReplica := createTestPooler("local-replica", "zone1", "replica.zone1.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, localReplica))
+
+	// Create a REPLICA pooler in zone2 (remote cell) - should NOT be returned
+	remoteReplica := createTestPooler("remote-replica", "zone2", "replica.zone2.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, remoteReplica))
+
+	// Start discovery from zone1's perspective
+	pd := NewPoolerDiscovery(ctx, store, "zone1", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for discovery to find the local replica
+	waitForPoolerCount(t, pd, 1)
+
+	// GetPooler for REPLICA should only return local cell poolers
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "shard1",
+		PoolerType: clustermetadatapb.PoolerType_REPLICA,
+	}
+	result := pd.GetPooler(target)
+
+	require.NotNil(t, result, "GetPooler for REPLICA should return local pooler")
+	assert.Equal(t, "local-replica", result.Id.Name)
+	assert.Equal(t, "zone1", result.Id.Cell)
+
+	// Verify the remote replica is NOT in our poolers map
+	poolers := pd.GetPoolers()
+	for _, p := range poolers {
+		assert.NotEqual(t, "remote-replica", p.Id.Name, "Remote REPLICA should not be in local poolers map")
+	}
+}
+
+func TestPoolerDiscovery_MultiCell_OnlyStoresPrimaryFromRemote(t *testing.T) {
+	ctx := context.Background()
+	// Create a store with two cells
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create poolers in zone2 (remote cell)
+	remotePrimary := createTestPooler("remote-primary", "zone2", "primary.zone2.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, remotePrimary))
+
+	remoteReplica := createTestPooler("remote-replica", "zone2", "replica.zone2.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, remoteReplica))
+
+	// Start discovery from zone1's perspective
+	pd := NewPoolerDiscovery(ctx, store, "zone1", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for primaryPooler to be set
+	waitForCondition(t, func() bool {
+		pd.mu.Lock()
+		defer pd.mu.Unlock()
+		return pd.primaryPooler != nil
+	}, "Expected primaryPooler to be set from zone2")
+
+	// Local poolers map should be empty (no local cell poolers created)
+	assert.Equal(t, 0, pd.PoolerCount(), "Local poolers map should be empty - remote poolers should not be stored")
+
+	// But primaryPooler should be set to the remote PRIMARY
+	pd.mu.Lock()
+	assert.NotNil(t, pd.primaryPooler)
+	assert.Equal(t, "remote-primary", pd.primaryPooler.Id.Name)
+	pd.mu.Unlock()
+}
+
+func TestPoolerDiscovery_PrimaryPooler_SetBeforeReturn(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create a PRIMARY pooler before starting discovery
+	primaryPooler := createTestPooler("primary", "test-cell", "primary.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, primaryPooler))
+
+	pd := NewPoolerDiscovery(ctx, store, "test-cell", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for initial discovery to complete
+	waitForPoolerCount(t, pd, 1)
+
+	// primaryPooler should be set immediately after initial discovery
+	// (not eventually via goroutine - this is the race fix)
+	pd.mu.Lock()
+	primary := pd.primaryPooler
+	pd.mu.Unlock()
+
+	require.NotNil(t, primary, "primaryPooler should be set synchronously after initial discovery")
+	assert.Equal(t, "primary", primary.Id.Name)
+}
+
+func TestPoolerDiscovery_WatchesAllCells(t *testing.T) {
+	ctx := context.Background()
+	// Create a store with three cells
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2", "zone3")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create poolers in each zone
+	zone1Pooler := createTestPooler("pooler-z1", "zone1", "host.zone1.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, zone1Pooler))
+
+	zone2Primary := createTestPooler("primary-z2", "zone2", "primary.zone2.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, zone2Primary))
+
+	zone3Pooler := createTestPooler("pooler-z3", "zone3", "host.zone3.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, zone3Pooler))
+
+	// Start discovery from zone1's perspective
+	pd := NewPoolerDiscovery(ctx, store, "zone1", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for local pooler discovery
+	waitForPoolerCount(t, pd, 1)
+
+	// Wait for primaryPooler from zone2
+	waitForCondition(t, func() bool {
+		pd.mu.Lock()
+		defer pd.mu.Unlock()
+		return pd.primaryPooler != nil && pd.primaryPooler.Id.Name == "primary-z2"
+	}, "Expected primaryPooler to be set from zone2")
+
+	// Verify only local pooler is in the poolers map
+	poolers := pd.GetPoolers()
+	require.Len(t, poolers, 1)
+	assert.Equal(t, "pooler-z1", poolers[0].Id.Name)
+
+	// Verify primaryPooler is from zone2
+	pd.mu.Lock()
+	assert.Equal(t, "primary-z2", pd.primaryPooler.Id.Name)
+	assert.Equal(t, "zone2", pd.primaryPooler.Id.Cell)
+	pd.mu.Unlock()
+}
+
+func TestPoolerDiscovery_PrimaryFailover_UpdatesViaWatch(t *testing.T) {
+	ctx := context.Background()
+	// Create a store with two cells
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create initial PRIMARY in zone1
+	initialPrimary := createTestPooler("primary-z1", "zone1", "primary.zone1.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, initialPrimary))
+
+	// Start discovery from zone1's perspective
+	pd := NewPoolerDiscovery(ctx, store, "zone1", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for initial PRIMARY to be discovered
+	waitForCondition(t, func() bool {
+		pd.mu.Lock()
+		defer pd.mu.Unlock()
+		return pd.primaryPooler != nil && pd.primaryPooler.Id.Name == "primary-z1"
+	}, "Expected initial primaryPooler to be set from zone1")
+
+	// Verify initial state
+	pd.mu.Lock()
+	assert.Equal(t, "primary-z1", pd.primaryPooler.Id.Name)
+	assert.Equal(t, "zone1", pd.primaryPooler.Id.Cell)
+	pd.mu.Unlock()
+
+	// Simulate failover: new PRIMARY appears in zone2
+	newPrimary := createTestPooler("primary-z2", "zone2", "primary.zone2.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, newPrimary))
+
+	// Wait for watch to pick up the new PRIMARY
+	waitForCondition(t, func() bool {
+		pd.mu.Lock()
+		defer pd.mu.Unlock()
+		return pd.primaryPooler != nil && pd.primaryPooler.Id.Name == "primary-z2"
+	}, "Expected primaryPooler to be updated to zone2 after failover")
+
+	// Verify failover completed
+	pd.mu.Lock()
+	assert.Equal(t, "primary-z2", pd.primaryPooler.Id.Name)
+	assert.Equal(t, "zone2", pd.primaryPooler.Id.Cell)
+	assert.Equal(t, "primary.zone2.example.com", pd.primaryPooler.Hostname)
+	pd.mu.Unlock()
+
+	// GetPooler should return the new PRIMARY
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "shard1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	result := pd.GetPooler(target)
+	require.NotNil(t, result)
+	assert.Equal(t, "primary-z2", result.Id.Name)
+}
+
+func TestPoolerDiscovery_GetPooler_MismatchedTableGroup(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create PRIMARY with tablegroup "default"
+	primary := createTestPooler("primary", "test-cell", "primary.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, primary))
+
+	pd := NewPoolerDiscovery(ctx, store, "test-cell", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	waitForPoolerCount(t, pd, 1)
+
+	// Request different tablegroup - should return nil
+	target := &query.Target{
+		TableGroup: "other-tablegroup",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	result := pd.GetPooler(target)
+	assert.Nil(t, result, "GetPooler should return nil for mismatched tablegroup")
+}
+
+func TestPoolerDiscovery_GetPooler_DefaultsToPRIMARY(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+	logger := slog.Default()
+
+	primary := createTestPooler("primary", "test-cell", "primary.example.com", "mydb", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, primary))
+
+	pd := NewPoolerDiscovery(ctx, store, "test-cell", logger)
+	pd.Start()
+	defer pd.Stop()
+
+	waitForPoolerCount(t, pd, 1)
+
+	// Request with UNKNOWN type - should default to PRIMARY
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
+	}
+	result := pd.GetPooler(target)
+	require.NotNil(t, result)
+	assert.Equal(t, "primary", result.Id.Name)
 }
