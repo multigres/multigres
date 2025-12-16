@@ -150,14 +150,10 @@ func (p *UserPool) Close() {
 	p.closed = true
 
 	// Close reserved pool first (it has its own internal regular pool)
-	if p.reservedPool != nil {
-		p.reservedPool.Close()
-	}
+	p.reservedPool.Close()
 
 	// Close regular pool
-	if p.regularPool != nil {
-		p.regularPool.Close()
-	}
+	p.regularPool.Close()
 
 	p.logger.Info("user pool closed")
 }
