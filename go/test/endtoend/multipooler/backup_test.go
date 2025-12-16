@@ -63,9 +63,11 @@ func removeDataDirectory(t *testing.T, dataDir string) {
 }
 
 func TestBackup_CreateListAndRestore(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 	setupPoolerTest(t, setup)
@@ -467,9 +469,11 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 }
 
 func TestBackup_ValidationErrors(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 	setupPoolerTest(t, setup)
@@ -530,9 +534,11 @@ func TestBackup_ValidationErrors(t *testing.T) {
 }
 
 func TestBackup_FromStandby(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 	setupPoolerTest(t, setup)

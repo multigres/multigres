@@ -45,12 +45,11 @@ import (
 )
 
 func TestBootstrapInitialization(t *testing.T) {
-	if testing.Short() {
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
 		t.Skip("Skipping end-to-end bootstrap test (short mode)")
 	}
-	if utils.ShouldSkipRealPostgres() {
-		t.Skip("Skipping end-to-end bootstrap test (short mode or no postgres binaries)")
-	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	// Setup test environment using shared helper
 	env := setupMultiOrchTestEnv(t, testEnvConfig{

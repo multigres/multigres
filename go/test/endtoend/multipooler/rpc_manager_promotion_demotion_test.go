@@ -36,10 +36,10 @@ import (
 // and that we can restore the original state at the end
 func TestDemoteAndPromote(t *testing.T) {
 	skip, err := utils.ShouldSkipRealPostgres()
-	require.NoError(t, err, "postgres binaries must be available")
 	if skip {
 		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 

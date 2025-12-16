@@ -32,12 +32,11 @@ import (
 // TestMultiGateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
 // and execute queries. This is a true end-to-end test that uses the full cluster setup.
 func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping PostgreSQLConnection test in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping multigateway PostgreSQL connection test (short mode)")
 	}
-	if utils.ShouldSkipRealPostgres() {
-		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
-	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	// Setup full test cluster with all services (includes waiting for bootstrap)
 	cluster := setupTestCluster(t)
@@ -195,12 +194,11 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 // TestMultiGateway_ExtendedQueryProtocol tests the Extended Query Protocol (prepared statements, parameterized queries)
 // using pgx which uses extended protocol by default.
 func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping ExtendedQueryProtocol test in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping extended query protocol test (short mode)")
 	}
-	if utils.ShouldSkipRealPostgres() {
-		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
-	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	// Setup full test cluster with all services
 	cluster := setupTestCluster(t)

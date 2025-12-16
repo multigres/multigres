@@ -36,9 +36,11 @@ import (
 
 // TestReplicationAPIs tests the replication-related API functionality (SetPrimaryConnInfo, WaitForLSN, etc.)
 func TestReplicationAPIs(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -1009,9 +1011,11 @@ func TestReplicationAPIs(t *testing.T) {
 
 // TestReplicationStatus tests the ReplicationStatus API
 func TestStandbyReplicationStatus(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -1189,9 +1193,11 @@ func TestStandbyReplicationStatus(t *testing.T) {
 
 // TestStopReplicationAndGetStatus tests the StopReplicationAndGetStatus API
 func TestStopReplicationAndGetStatus(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -1371,9 +1377,11 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 
 // TestConfigureSynchronousReplication tests the ConfigureSynchronousReplication API
 func TestConfigureSynchronousReplication(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -1908,9 +1916,11 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 }
 
 func TestUpdateSynchronousStandbyList(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -2406,9 +2416,11 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 }
 
 func TestReplicationStatus(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
+	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
