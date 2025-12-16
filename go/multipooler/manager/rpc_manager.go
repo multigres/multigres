@@ -32,7 +32,6 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
-	pm.logger.InfoContext(ctx, "WaitForLSN called", "target_lsn", targetLsn)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
@@ -82,14 +81,6 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 		return err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "SetPrimaryConnInfo called",
-		"host", host,
-		"port", port,
-		"stop_replication_before", stopReplicationBefore,
-		"start_replication_after", startReplicationAfter,
-		"current_term", currentTerm,
-		"force", force)
 
 	// Validate and update consensus term following consensus rules
 	if err = pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
@@ -187,8 +178,6 @@ func (pm *MultiPoolerManager) StartReplication(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "StartReplication called")
-
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
@@ -216,8 +205,6 @@ func (pm *MultiPoolerManager) StopReplication(ctx context.Context, mode multipoo
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "StopReplication called", "mode", mode, "wait", wait)
-
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
@@ -237,7 +224,6 @@ func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
-	pm.logger.InfoContext(ctx, "StandbyReplicationStatus called")
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
@@ -266,8 +252,6 @@ func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 // database access will be nil/empty in that case. This allows callers to always get
 // initialization status without needing a separate RPC.
 func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.Status, error) {
-	pm.logger.InfoContext(ctx, "Status called")
-
 	// Build status with initialization fields (always available)
 	poolerStatus := &multipoolermanagerdatapb.Status{
 		PoolerType:       pm.getPoolerType(),
@@ -353,8 +337,6 @@ func (pm *MultiPoolerManager) ResetReplication(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "ResetReplication called")
-
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
@@ -382,13 +364,6 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 		return err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "ConfigureSynchronousReplication called",
-		"synchronous_commit", synchronousCommit,
-		"synchronous_method", synchronousMethod,
-		"num_sync", numSync,
-		"standby_ids", standbyIDs,
-		"reload_config", reloadConfig)
 
 	// Validate input parameters
 	if err = validateSyncReplicationParams(numSync, standbyIDs); err != nil {
@@ -434,13 +409,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList called",
-		"operation", operation,
-		"standby_ids", standbyIDs,
-		"reload_config", reloadConfig,
-		"consensus_term", consensusTerm,
-		"force", force)
 
 	// === Validation ===
 	// TODO: We need to validate consensus term here.
@@ -587,8 +555,6 @@ func (pm *MultiPoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 		return nil, err
 	}
 
-	pm.logger.InfoContext(ctx, "PrimaryStatus called")
-
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return nil, err
@@ -608,8 +574,6 @@ func (pm *MultiPoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 	if err := pm.checkReady(); err != nil {
 		return "", err
 	}
-
-	pm.logger.InfoContext(ctx, "PrimaryPosition called")
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
@@ -632,8 +596,6 @@ func (pm *MultiPoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus called", "mode", mode, "wait", wait)
 
 	// Check REPLICA guardrails (pooler type and recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
@@ -661,8 +623,6 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
-
-	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
 
 	// Update the multipooler record in topology
 	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
@@ -723,8 +683,6 @@ func (pm *MultiPoolerManager) ChangeType(ctx context.Context, poolerType string)
 			fmt.Sprintf("invalid pooler type: %s, must be PRIMARY or REPLICA", poolerType))
 	}
 
-	pm.logger.InfoContext(ctx, "ChangeType called", "pooler_type", poolerType, "service_id", pm.serviceID.String())
-
 	// Call the locked version
 	return pm.changeTypeLocked(ctx, newType)
 }
@@ -751,8 +709,6 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
-
-	pm.logger.InfoContext(ctx, "GetFollowers called")
 
 	// Check PRIMARY guardrails (only primary can have followers)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
@@ -839,10 +795,6 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
-
-	pm.logger.InfoContext(ctx, "demoteLocked called",
-		"consensus_term", consensusTerm,
-		"drain_timeout", drainTimeout)
 
 	// === Validation & State Check ===
 
@@ -945,7 +897,6 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "UndoDemote called")
 	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
 
@@ -965,11 +916,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "Promote called",
-		"consensus_term", consensusTerm,
-		"expected_lsn", expectedLSN,
-		"force", force)
 
 	// Validation & Readiness
 
@@ -1079,8 +1025,6 @@ func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermana
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "SetTerm called", "current_term", term.GetTermNumber())
-
 	// Initialize consensus state if needed
 	pm.mu.Lock()
 	if pm.consensusState == nil {
@@ -1105,8 +1049,6 @@ func (pm *MultiPoolerManager) createDurabilityPolicyLocked(ctx context.Context, 
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
-
-	pm.logger.InfoContext(ctx, "createDurabilityPolicyLocked called", "policy_name", policyName)
 
 	// Validate inputs
 	if policyName == "" {
@@ -1147,8 +1089,6 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
-
-	pm.logger.InfoContext(ctx, "CreateDurabilityPolicy called", "policy_name", req.PolicyName)
 
 	// Validate inputs
 	if req.PolicyName == "" {

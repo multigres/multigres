@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
+	"github.com/multigres/multigres/go/multipooler/metrics"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
 
@@ -66,6 +67,7 @@ type MultiPoolerManager struct {
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
+	metrics      *metrics.Collector
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
 	connPoolMgr connpoolmanager.PoolManager
@@ -193,6 +195,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		connPoolMgr = config.ConnPoolConfig.NewManager()
 	}
 
+	// Initialize metrics collector
+	metricsCollector, err := metrics.NewCollector()
+	if err != nil {
+		logger.WarnContext(ctx, "failed to initialize some metrics", "error", err)
+	}
+
 	pm := &MultiPoolerManager{
 		logger:                   logger,
 		config:                   config,
@@ -208,12 +216,23 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		pgctldClient:             pgctldClient,
 		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
+		metrics:                  metricsCollector,
 	}
 
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
 
 	return pm, nil
+}
+
+// Metrics returns the metrics collector for this manager.
+func (pm *MultiPoolerManager) Metrics() *metrics.Collector {
+	return pm.metrics
+}
+
+// Logger returns the logger for this manager.
+func (pm *MultiPoolerManager) Logger() *slog.Logger {
+	return pm.logger
 }
 
 // connectDB establishes a connection to PostgreSQL (reuses the shared logic)
