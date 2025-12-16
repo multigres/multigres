@@ -19,19 +19,24 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/multigres/multigres/go/pb/query"
 )
 
 // ConnectionState represents the cumulative state of a connection.
-// This includes all state modifiers like session settings, prepared statements,
-// and portals.
+// This includes all state modifiers like session settings and prepared statements.
 //
 // All methods are thread-safe.
 type ConnectionState struct {
 	// mu protects all mutable fields in this struct.
 	mu sync.Mutex
+
+	// User is the current role set via SET ROLE.
+	// This is tracked separately from Settings and is NOT used for pool bucket routing.
+	// The role affects PostgreSQL's role-based access control (RLS policies, object
+	// permissions, stored procedure access, etc.).
+	// Empty string means no role has been set (using connection's default role).
+	User string
 
 	// Settings contains session variables (SET commands).
 	// This is the key for connection pool bucket assignment.
@@ -40,17 +45,12 @@ type ConnectionState struct {
 	// PreparedStatements stores prepared statements by name.
 	// The unnamed statement uses the empty string "" as the key.
 	PreparedStatements map[string]*query.PreparedStatement
-
-	// Portals stores portals (bound prepared statements) by name.
-	// The unnamed portal uses the empty string "" as the key.
-	Portals map[string]*query.Portal
 }
 
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
 func NewConnectionState() *ConnectionState {
 	return &ConnectionState{
 		PreparedStatements: make(map[string]*query.PreparedStatement),
-		Portals:            make(map[string]*query.Portal),
 	}
 }
 
@@ -59,7 +59,6 @@ func NewConnectionStateWithSettings(settings *Settings) *ConnectionState {
 	return &ConnectionState{
 		Settings:           settings,
 		PreparedStatements: make(map[string]*query.PreparedStatement),
-		Portals:            make(map[string]*query.Portal),
 	}
 }
 
@@ -95,8 +94,8 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	defer s.mu.Unlock()
 
 	clone := &ConnectionState{
+		User:               s.User,
 		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
-		Portals:            make(map[string]*query.Portal, len(s.Portals)),
 	}
 
 	if s.Settings != nil {
@@ -104,7 +103,6 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	}
 
 	maps.Copy(clone.PreparedStatements, s.PreparedStatements)
-	maps.Copy(clone.Portals, s.Portals)
 
 	return clone
 }
@@ -118,9 +116,9 @@ func (s *ConnectionState) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.User = ""
 	s.Settings = nil
 	s.PreparedStatements = nil
-	s.Portals = nil
 }
 
 // GetSettings returns the current settings. Returns nil if no settings.
@@ -141,6 +139,46 @@ func (s *ConnectionState) SetSettings(settings *Settings) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Settings = settings
+}
+
+// --- User/Role Methods ---
+
+// GetUser returns the current user role set via SET ROLE.
+// Returns empty string if no role has been set.
+func (s *ConnectionState) GetUser() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.User
+}
+
+// SetUser sets the current user role.
+// This should be called after executing SET ROLE on the connection.
+func (s *ConnectionState) SetUser(user string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.User = user
+}
+
+// ClearUser clears the current user role.
+// This should be called after executing RESET ROLE on the connection.
+func (s *ConnectionState) ClearUser() {
+	s.SetUser("")
+}
+
+// HasUser returns true if a user role has been set.
+func (s *ConnectionState) HasUser() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.User != ""
 }
 
 // --- Prepared Statement Methods ---
@@ -181,82 +219,9 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 	delete(s.PreparedStatements, name)
 }
 
-// --- Portal Methods ---
-
-// StorePortal stores a portal.
-func (s *ConnectionState) StorePortal(portal *query.Portal) {
-	if s == nil {
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.Portals[portal.Name] = portal
-}
-
-// GetPortal retrieves a portal by name.
-func (s *ConnectionState) GetPortal(name string) *query.Portal {
-	if s == nil {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.Portals[name]
-}
-
-// DeletePortal removes a portal by name.
-func (s *ConnectionState) DeletePortal(name string) {
-	if s == nil {
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.Portals, name)
-}
-
-// --- SQL Generation Methods ---
-
-// GenerateResetSQL generates SQL statements to reset a connection to clean state.
-func (s *ConnectionState) GenerateResetSQL() []string {
-	if s == nil || s.IsClean() {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var statements []string
-
-	// Reset settings
-	if s.Settings != nil && !s.Settings.IsEmpty() {
-		statements = append(statements, "RESET ALL")
-	}
-
-	// Deallocate prepared statements
-	if len(s.PreparedStatements) > 0 {
-		statements = append(statements, "DEALLOCATE ALL")
-	}
-
-	// Close portals
-	if len(s.Portals) > 0 {
-		statements = append(statements, "CLOSE ALL")
-	}
-
-	return statements
-}
-
 // =============================================================================
 // Settings - Session variables with Vitess-style bucket management
 // =============================================================================
-
-// globalSettingsCounter is used to assign unique bucket numbers to Settings.
-// This follows the Vitess pattern for distributing connections across pool stacks.
-var globalSettingsCounter atomic.Uint32
 
 // Settings contains session variables (SET commands) and a bucket number
 // for connection pool distribution.
@@ -272,20 +237,18 @@ type Settings struct {
 	// Vars maps variable names to their values.
 	Vars map[string]string
 
-	// bucket is assigned from globalSettingsCounter when Settings is created.
-	// Used by connection pool for stack distribution.
+	// bucket is used by connection pool for stack distribution.
 	bucket uint32
 }
 
-// NewSettings creates a new Settings with the given variables.
-// A unique bucket number is assigned from the global counter.
+// NewSettings creates a new Settings with the given variables and bucket number.
 //
 // NOTE: For connection pooling, prefer using SettingsCache.GetOrCreate() instead
 // to ensure settings are properly interned (same settings = same pointer).
-func NewSettings(vars map[string]string) *Settings {
+func NewSettings(vars map[string]string, bucket uint32) *Settings {
 	return &Settings{
 		Vars:   vars,
-		bucket: globalSettingsCounter.Add(1),
+		bucket: bucket,
 	}
 }
 

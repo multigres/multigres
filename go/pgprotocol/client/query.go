@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
@@ -97,38 +98,40 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 // - On CommandComplete: remaining rows + CommandTag sent together (signals end of result set)
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
 // For large result sets, multiple callbacks with rows, final one includes CommandTag.
+//
+// IMPORTANT: This function always reads until ReadyForQuery to keep the connection
+// in a clean state. Callback errors are captured but do not stop message processing.
+// Context cancellation should be handled by the caller (e.g., by killing the query
+// on the server side) rather than here, to avoid leaving unread messages on the wire.
 func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	// Track state for current result set.
 	var currentFields []*query.Field
 	var batchedRows []*query.Row
 	var batchedSize int
 
+	// Track the first error encountered. We continue processing messages to drain
+	// the connection, then return this error after ReadyForQuery.
+	var firstErr error
+
 	// flushBatch sends accumulated rows via callback and resets the batch.
 	// Does not reset currentFields as they may be needed for subsequent batches.
-	flushBatch := func() error {
+	// Captures errors but does not return them - we continue draining.
+	flushBatch := func() {
 		if len(batchedRows) == 0 || callback == nil {
-			return nil
+			return
 		}
 		result := &query.QueryResult{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
-		if err := callback(ctx, result); err != nil {
-			return err
+		if firstErr == nil {
+			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
-		return nil
 	}
 
 	for {
-		// Check context.
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
 		// Read message.
 		msgType, body, err := c.readMessage()
 		if err != nil {
@@ -157,9 +160,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 
 			// Flush batch if size threshold exceeded.
 			if batchedSize >= DefaultStreamingBatchSize {
-				if err := flushBatch(); err != nil {
-					return err
-				}
+				flushBatch()
 			}
 
 		case protocol.MsgCommandComplete:
@@ -170,16 +171,14 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 
 			// Send final batch with CommandTag (signals end of result set).
 			// This combines any remaining rows with the command completion.
-			if callback != nil {
+			if callback != nil && firstErr == nil {
 				result := &query.QueryResult{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
 				}
-				if err := callback(ctx, result); err != nil {
-					return err
-				}
+				firstErr = callback(ctx, result)
 			}
 
 			// Reset for next result set.
@@ -189,36 +188,45 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 
 		case protocol.MsgEmptyQueryResponse:
 			// Empty query, call callback with empty result.
-			if callback != nil {
-				if err := callback(ctx, &query.QueryResult{}); err != nil {
-					return err
-				}
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &query.QueryResult{})
 			}
 
 		case protocol.MsgReadyForQuery:
-			// Query complete.
+			// Query complete. Return any error that was captured.
 			c.txnStatus = body[0]
-			return nil
+			return firstErr
 
 		case protocol.MsgErrorResponse:
-			return c.handleErrorAndWaitForReady(body)
+			// Capture the error but continue draining until ReadyForQuery.
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices for now.
 
 		case protocol.MsgParameterStatus:
-			// Handle parameter status updates.
-			if err := c.handleParameterStatus(body); err != nil {
-				return err
+			// Handle parameter status updates. Capture error but continue draining.
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return fmt.Errorf("unexpected message type in query response: %c (0x%02x)", msgType, msgType)
+			// Unexpected message type. Capture error but continue draining.
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type in query response: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
 
 // parseRowDescription parses a RowDescription message.
+//
+// TODO: Migrate errors in parseRowDescription, parseDataRow, parseCommandComplete, and readMessage
+// to use the mterrors package with proper error codes. These errors indicate connection-level failures
+// (truncated/incomplete messages) and should be categorized so that isConnectionError() in
+// regular_conn.go can detect them using error codes instead of string matching.
 func (c *Conn) parseRowDescription(body []byte, result *query.QueryResult) error {
 	reader := NewMessageReader(body)
 
@@ -254,6 +262,7 @@ func (c *Conn) parseRowDescription(body []byte, result *query.QueryResult) error
 			return fmt.Errorf("failed to read data type OID: %w", err)
 		}
 		field.DataTypeOid = dataTypeOID
+		field.Type = ast.Oid(dataTypeOID).String()
 
 		dataTypeSize, err := reader.ReadInt16()
 		if err != nil {
@@ -314,12 +323,18 @@ func (c *Conn) parseCommandComplete(body []byte) (string, error) {
 }
 
 // parseRowsAffected extracts the row count from a command tag.
+// Returns 0 for SELECT statements since they don't "affect" rows (they only read).
 func parseRowsAffected(tag string) uint64 {
 	// Command tags have formats like:
-	// - "SELECT 5" (5 rows)
+	// - "SELECT 5" (5 rows returned, but not "affected" since SELECT is read-only)
 	// - "INSERT 0 1" (1 row inserted)
 	// - "UPDATE 10" (10 rows updated)
 	// - "DELETE 3" (3 rows deleted)
+
+	// SELECT doesn't affect rows, only reads them
+	if len(tag) >= 6 && tag[:6] == "SELECT" {
+		return 0
+	}
 
 	// Find the last space-separated number.
 	var count uint64
@@ -349,24 +364,6 @@ func parseRowsAffected(tag string) uint64 {
 		return count
 	}
 	return 0
-}
-
-// handleErrorAndWaitForReady parses an error and waits for ReadyForQuery.
-// This ensures the connection remains in a consistent state after an error.
-func (c *Conn) handleErrorAndWaitForReady(body []byte) error {
-	pgErr := c.parseError(body)
-	// Wait for ReadyForQuery before returning the error.
-	for {
-		msgType, body, err := c.readMessage()
-		if err != nil {
-			return fmt.Errorf("failed to read message after error: %w", err)
-		}
-		if msgType == protocol.MsgReadyForQuery {
-			c.txnStatus = body[0]
-			return pgErr
-		}
-		// Ignore other messages (e.g., additional errors, notices).
-	}
 }
 
 // parseError parses an ErrorResponse message into an error.

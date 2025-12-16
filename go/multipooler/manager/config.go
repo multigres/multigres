@@ -17,6 +17,7 @@ package manager
 
 import (
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -32,7 +33,8 @@ type Config struct {
 	TopoClient          topoclient.Store
 	ServiceID           *clustermetadatapb.ID
 	HeartbeatIntervalMs int
-	PgctldAddr          string // Address of pgctld gRPC service
-	PgBackRestStanza    string // pgBackRest stanza name (defaults to service ID if empty)
-	ConsensusEnabled    bool   // Whether consensus gRPC service is enabled
+	PgctldAddr          string                  // Address of pgctld gRPC service
+	PgBackRestStanza    string                  // pgBackRest stanza name (defaults to service ID if empty)
+	ConsensusEnabled    bool                    // Whether consensus gRPC service is enabled
+	ConnPoolConfig      *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
 }
