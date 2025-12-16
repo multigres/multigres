@@ -22,8 +22,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testCacheSize is the default cache size used in tests.
+const testCacheSize = 1024
+
 func TestSettingsCacheGetOrCreate(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	vars := map[string]string{
 		"timezone":    "UTC",
@@ -45,7 +48,7 @@ func TestSettingsCacheGetOrCreate(t *testing.T) {
 }
 
 func TestSettingsCacheDifferentSettings(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	vars1 := map[string]string{"timezone": "UTC"}
 	vars2 := map[string]string{"timezone": "America/New_York"}
@@ -64,7 +67,7 @@ func TestSettingsCacheDifferentSettings(t *testing.T) {
 }
 
 func TestSettingsCacheEmptyVars(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	// Empty vars should return nil
 	assert.Nil(t, cache.GetOrCreate(map[string]string{}))
@@ -77,7 +80,7 @@ func TestSettingsCacheEmptyVars(t *testing.T) {
 }
 
 func TestSettingsCacheKeyOrder(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	// Different order of keys in map should still match
 	vars1 := map[string]string{"a": "1", "b": "2", "c": "3"}
@@ -91,7 +94,7 @@ func TestSettingsCacheKeyOrder(t *testing.T) {
 }
 
 func TestSettingsCacheConcurrent(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 	vars := map[string]string{"timezone": "UTC"}
 
 	var wg sync.WaitGroup
@@ -119,7 +122,7 @@ func TestSettingsCacheConcurrent(t *testing.T) {
 }
 
 func TestSettingsCacheClear(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	cache.GetOrCreate(map[string]string{"a": "1"})
 	cache.GetOrCreate(map[string]string{"b": "2"})
@@ -134,7 +137,7 @@ func TestSettingsCacheClear(t *testing.T) {
 }
 
 func TestSettingsCacheLRUEviction(t *testing.T) {
-	cache := NewSettingsCacheWithSize(3)
+	cache := NewSettingsCache(3)
 
 	// Fill the cache
 	s1 := cache.GetOrCreate(map[string]string{"a": "1"})
@@ -163,7 +166,7 @@ func TestSettingsCacheLRUEviction(t *testing.T) {
 }
 
 func TestSettingsCacheLRUAccess(t *testing.T) {
-	cache := NewSettingsCacheWithSize(3)
+	cache := NewSettingsCache(3)
 
 	// Fill the cache
 	s1 := cache.GetOrCreate(map[string]string{"a": "1"})
@@ -181,7 +184,7 @@ func TestSettingsCacheLRUAccess(t *testing.T) {
 }
 
 func TestSettingsCacheMetrics(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	// First access is a miss
 	cache.GetOrCreate(map[string]string{"a": "1"})
@@ -204,20 +207,15 @@ func TestSettingsCacheMetrics(t *testing.T) {
 }
 
 func TestSettingsCacheMaxSize(t *testing.T) {
-	cache := NewSettingsCacheWithSize(100)
+	cache := NewSettingsCache(100)
 	assert.Equal(t, 100, cache.MaxSize())
 
-	// Test default size
-	defaultCache := NewSettingsCache()
-	assert.Equal(t, DefaultSettingsCacheSize, defaultCache.MaxSize())
-
-	// Test invalid size falls back to default
-	invalidCache := NewSettingsCacheWithSize(0)
-	assert.Equal(t, DefaultSettingsCacheSize, invalidCache.MaxSize())
+	cache2 := NewSettingsCache(500)
+	assert.Equal(t, 500, cache2.MaxSize())
 }
 
 func TestSettingsQueries(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	vars := map[string]string{
 		"timezone":    "UTC",
@@ -238,7 +236,7 @@ func TestSettingsQueries(t *testing.T) {
 }
 
 func TestSettingsPointerEqualityForPooling(t *testing.T) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 
 	vars := map[string]string{"timezone": "UTC"}
 
@@ -258,7 +256,7 @@ func TestSettingsPointerEqualityForPooling(t *testing.T) {
 }
 
 func BenchmarkSettingsCacheGetOrCreate(b *testing.B) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 	vars := map[string]string{
 		"timezone":    "UTC",
 		"search_path": "public",
@@ -276,7 +274,7 @@ func BenchmarkSettingsCacheGetOrCreate(b *testing.B) {
 }
 
 func BenchmarkSettingsPointerEquality(b *testing.B) {
-	cache := NewSettingsCache()
+	cache := NewSettingsCache(testCacheSize)
 	vars := map[string]string{"timezone": "UTC"}
 	s := cache.GetOrCreate(vars)
 

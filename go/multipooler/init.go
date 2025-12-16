@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/grpcconsensusservice"
 	"github.com/multigres/multigres/go/multipooler/grpcmanagerservice"
 	"github.com/multigres/multigres/go/multipooler/grpcpoolerservice"
@@ -56,6 +57,8 @@ type MultiPooler struct {
 	// TopoConfig holds topology configuration
 	topoConfig *topoclient.TopoConfig
 	telemetry  *telemetry.Telemetry
+	// connPoolConfig holds connection pool configuration (manager created inside MultiPoolerManager)
+	connPoolConfig *connpoolmanager.Config
 
 	ts           topoclient.Store
 	tr           *toporeg.TopoReg
@@ -127,10 +130,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-stanza",
 			Dynamic:  false,
 		}),
-		grpcServer: servenv.NewGrpcServer(reg),
-		senv:       servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
-		telemetry:  telemetry,
-		topoConfig: topoclient.NewTopoConfig(reg),
+		grpcServer:     servenv.NewGrpcServer(reg),
+		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
+		telemetry:      telemetry,
+		topoConfig:     topoclient.NewTopoConfig(reg),
+		connPoolConfig: connpoolmanager.NewConfig(reg),
 		serverStatus: Status{
 			Title: "Multipooler",
 			Links: []Link{
@@ -177,6 +181,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.grpcServer.RegisterFlags(flags)
 	mp.senv.RegisterFlags(flags)
 	mp.topoConfig.RegisterFlags(flags)
+	mp.connPoolConfig.RegisterFlags(flags)
 }
 
 // Init initializes the multipooler. If any services fail to start,
@@ -250,6 +255,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgctldAddr:          mp.pgctldAddr.Get(),
 		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConnPoolConfig:      mp.connPoolConfig,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)

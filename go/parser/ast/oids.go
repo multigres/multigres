@@ -39,6 +39,7 @@ const (
 	CHAROID    Oid = 18   // "char" (single byte)
 	NAMEOID    Oid = 19   // name (63-byte type for storing system identifiers)
 	TEXTOID    Oid = 25   // text
+	BPCHAROID  Oid = 1042 // bpchar (blank-padded char)
 	VARCHAROID Oid = 1043 // varchar
 )
 
@@ -70,6 +71,7 @@ const (
 	DATEOID        Oid = 1082 // date
 	TIMEOID        Oid = 1083 // time without time zone
 	TIMESTAMPOID   Oid = 1114 // timestamp without time zone
+	INTERVALOID    Oid = 1186 // interval
 	TIMESTAMPTZOID Oid = 1184 // timestamp with time zone
 	TIMETZOID      Oid = 1266 // time with time zone
 )
@@ -185,3 +187,198 @@ const (
 
 // InvalidOid represents an invalid object identifier.
 const InvalidOid = Oid(0)
+
+// String returns the canonical PostgreSQL type name for this OID.
+// Returns an empty string if the OID is not recognized.
+func (o Oid) String() string {
+	switch o {
+	// Boolean type
+	case BOOLOID:
+		return "BOOL"
+
+	// Binary types
+	case BYTEAOID:
+		return "BYTEA"
+
+	// Character types
+	case CHAROID:
+		return "CHAR"
+	case NAMEOID:
+		return "NAME"
+	case TEXTOID:
+		return "TEXT"
+	case VARCHAROID:
+		return "VARCHAR"
+	case BPCHAROID:
+		return "BPCHAR"
+
+	// Integer types
+	case INT2OID:
+		return "INT2"
+	case INT4OID:
+		return "INT4"
+	case INT8OID:
+		return "INT8"
+
+	// System types
+	case REGPROCOID:
+		return "REGPROC"
+	case OIDOID:
+		return "OID"
+	case TIDOID:
+		return "TID"
+	case XIDOID:
+		return "XID"
+	case CIDOID:
+		return "CID"
+	case INT2VECTOROID:
+		return "INT2VECTOR"
+	case OIDVECTOROID:
+		return "OIDVECTOR"
+	case XID8OID:
+		return "XID8"
+
+	// JSON types
+	case JSONOID:
+		return "JSON"
+	case JSONBOID:
+		return "JSONB"
+
+	// XML type
+	case XMLOID:
+		return "XML"
+
+	// Geometric types
+	case POINTOID:
+		return "POINT"
+	case LSEGOID:
+		return "LSEG"
+	case PATHOID:
+		return "PATH"
+	case BOXOID:
+		return "BOX"
+	case POLYGONOID:
+		return "POLYGON"
+	case LINEOID:
+		return "LINE"
+	case CIRCLEOID:
+		return "CIRCLE"
+
+	// Floating point types
+	case FLOAT4OID:
+		return "FLOAT4"
+	case FLOAT8OID:
+		return "FLOAT8"
+
+	// Money type
+	case MONEYOID:
+		return "MONEY"
+
+	// Network types
+	case CIDROID:
+		return "CIDR"
+	case MACADDR8OID:
+		return "MACADDR8"
+	case MACADDROID:
+		return "MACADDR"
+	case INETOID:
+		return "INET"
+
+	// Date/time types
+	case DATEOID:
+		return "DATE"
+	case TIMEOID:
+		return "TIME"
+	case TIMESTAMPOID:
+		return "TIMESTAMP"
+	case TIMESTAMPTZOID:
+		return "TIMESTAMPTZ"
+	case TIMETZOID:
+		return "TIMETZ"
+	case INTERVALOID:
+		return "INTERVAL"
+
+	// Bit string types
+	case BITOID:
+		return "BIT"
+	case VARBITOID:
+		return "VARBIT"
+
+	// Numeric type
+	case NUMERICOID:
+		return "NUMERIC"
+
+	// UUID type
+	case UUIDOID:
+		return "UUID"
+
+	// Range types
+	case INT4RANGEOID:
+		return "INT4RANGE"
+	case NUMRANGEOID:
+		return "NUMRANGE"
+	case TSRANGEOID:
+		return "TSRANGE"
+	case TSTZRANGEOID:
+		return "TSTZRANGE"
+	case DATERANGEOID:
+		return "DATERANGE"
+	case INT8RANGEOID:
+		return "INT8RANGE"
+
+	// PostgreSQL LSN type
+	case PG_LSNOID:
+		return "PG_LSN"
+
+	// PostgreSQL internal types
+	case PG_DDL_COMMANDOID:
+		return "PG_DDL_COMMAND"
+	case PG_NODE_TREEOID:
+		return "PG_NODE_TREE"
+	case PG_NDISTINCTOID:
+		return "PG_NDISTINCT"
+	case PG_DEPENDENCIESOID:
+		return "PG_DEPENDENCIES"
+	case PG_MCV_LISTOID:
+		return "PG_MCV_LIST"
+
+	// Array types - prefixed with underscore as per PostgreSQL convention
+	case BOOLARRAYOID:
+		return "_BOOL"
+	case BYTEAARRAYOID:
+		return "_BYTEA"
+	case CHARARRAYOID:
+		return "_CHAR"
+	case NAMEARRAYOID:
+		return "_NAME"
+	case INT2ARRAYOID:
+		return "_INT2"
+	case INT4ARRAYOID:
+		return "_INT4"
+	case TEXTARRAYOID:
+		return "_TEXT"
+	case VARCHARARRAYOID:
+		return "_VARCHAR"
+	case INT8ARRAYOID:
+		return "_INT8"
+	case FLOAT4ARRAYOID:
+		return "_FLOAT4"
+	case FLOAT8ARRAYOID:
+		return "_FLOAT8"
+	case DATEARRAYOID:
+		return "_DATE"
+	case TIMEARRAYOID:
+		return "_TIME"
+	case TIMESTAMPARRAYOID:
+		return "_TIMESTAMP"
+	case TIMESTAMPTZARRAYOID:
+		return "_TIMESTAMPTZ"
+	case JSONARRAYOID:
+		return "_JSON"
+	case JSONBARRAYOID:
+		return "_JSONB"
+
+	default:
+		return ""
+	}
+}

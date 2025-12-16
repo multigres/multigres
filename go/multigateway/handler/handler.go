@@ -106,7 +106,8 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 		return fmt.Errorf("query string cannot be empty")
 	}
 
-	return h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
+	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
+	return err
 }
 
 // HandleBind processes a Bind message ('B') for the extended query protocol.
