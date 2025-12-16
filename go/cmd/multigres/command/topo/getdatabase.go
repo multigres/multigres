@@ -21,8 +21,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -52,24 +50,16 @@ func runGetDatabase(cmd *cobra.Command, args []string) error {
 	// Get the database name
 	databaseName, _ := cmd.Flags().GetString("name")
 
-	// Resolve admin server address
-	adminServer, err := admin.GetServerAddress(cmd)
+	// Create admin client
+	client, err := admin.NewClient(cmd)
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
-	// Create gRPC connection
+	// Create context with timeout and call GetDatabase RPC
 	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
 	defer cancel()
-
-	conn, err := grpc.NewClient(adminServer, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("failed to connect to admin server at %s: %w", adminServer, err)
-	}
-	defer conn.Close()
-
-	// Create client and call GetDatabase RPC
-	client := multiadminpb.NewMultiAdminServiceClient(conn)
 
 	response, err := client.GetDatabase(ctx, &multiadminpb.GetDatabaseRequest{
 		Name: databaseName,

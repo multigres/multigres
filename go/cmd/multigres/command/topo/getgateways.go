@@ -20,8 +20,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -29,12 +27,6 @@ import (
 
 // runGetGateways handles the getgateways command
 func runGetGateways(cmd *cobra.Command, args []string) error {
-	// Get admin server address
-	adminServer, err := admin.GetServerAddress(cmd)
-	if err != nil {
-		return err
-	}
-
 	// Get flag values
 	cellsFlag, err := cmd.Flags().GetString("cells")
 	if err != nil {
@@ -51,22 +43,18 @@ func runGetGateways(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create gRPC connection
-	conn, err := grpc.NewClient(adminServer, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Create admin client
+	client, err := admin.NewClient(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to connect to admin server %s: %w", adminServer, err)
+		return err
 	}
-	defer conn.Close()
-
-	// Create client and make the request
-	client := multiadminpb.NewMultiAdminServiceClient(conn)
-	ctx := cmd.Context()
+	defer client.Close()
 
 	request := &multiadminpb.GetGatewaysRequest{
 		Cells: cells,
 	}
 
-	response, err := client.GetGateways(ctx, request)
+	response, err := client.GetGateways(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to get gateways: %w", err)
 	}
