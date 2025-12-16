@@ -16,8 +16,6 @@ package client
 
 import (
 	"context"
-	"crypto/md5" //nolint:gosec // MD5 is required by PostgreSQL's legacy authentication protocol
-	"encoding/hex"
 	"fmt"
 	"slices"
 
@@ -189,15 +187,10 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 		return nil
 
 	case protocol.AuthCleartextPassword:
-		return c.sendPasswordMessage(c.config.Password)
+		return fmt.Errorf("server requested cleartext password authentication, which is not supported for security reasons")
 
 	case protocol.AuthMD5Password:
-		// Read the 4-byte salt.
-		salt, err := reader.ReadBytes(4)
-		if err != nil {
-			return fmt.Errorf("failed to read MD5 salt: %w", err)
-		}
-		return c.sendMD5PasswordMessage(c.config.Password, salt)
+		return fmt.Errorf("server requested MD5 password authentication, which is not supported for security reasons")
 
 	case protocol.AuthSASL:
 		// Read available SASL mechanisms.
@@ -225,36 +218,6 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 	default:
 		return fmt.Errorf("unsupported authentication method: %d", authType)
 	}
-}
-
-// sendPasswordMessage sends a cleartext password message.
-func (c *Conn) sendPasswordMessage(password string) error {
-	w := NewMessageWriter()
-	w.WriteString(password)
-	return c.writeMessage(protocol.MsgPasswordMsg, w.Bytes())
-}
-
-// sendMD5PasswordMessage sends an MD5 hashed password message.
-// Note: MD5 authentication is a legacy PostgreSQL protocol requirement.
-func (c *Conn) sendMD5PasswordMessage(password string, salt []byte) error {
-	// MD5 password format: "md5" + md5(md5(password + user) + salt)
-
-	// First hash: md5(password + user)
-	h1 := md5.New() //nolint:gosec // Required by PostgreSQL protocol
-	h1.Write([]byte(password))
-	h1.Write([]byte(c.config.User))
-	hash1 := hex.EncodeToString(h1.Sum(nil))
-
-	// Second hash: md5(hash1 + salt)
-	h2 := md5.New() //nolint:gosec // Required by PostgreSQL protocol
-	h2.Write([]byte(hash1))
-	h2.Write(salt)
-	hash2 := hex.EncodeToString(h2.Sum(nil))
-
-	// Final password: "md5" + hash2
-	md5Password := "md5" + hash2
-
-	return c.sendPasswordMessage(md5Password)
 }
 
 // handleBackendKeyData handles a BackendKeyData message.
