@@ -17,7 +17,6 @@ package multipooler
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -32,7 +31,26 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/pgprotocol/scram"
 )
+
+// createTestUser creates a PostgreSQL user with the given password and registers
+// cleanup to drop the user when the test completes. Returns the generated username.
+func createTestUser(t *testing.T, client *endtoend.MultiPoolerTestClient, password string) string {
+	t.Helper()
+
+	username := fmt.Sprintf("testuser_%d", time.Now().UnixNano())
+	_, err := client.ExecuteQuery(t.Context(),
+		fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", username, password), 0)
+	require.NoError(t, err, "failed to create test user")
+
+	t.Cleanup(func() {
+		_, _ = client.ExecuteQuery(context.Background(),
+			fmt.Sprintf("DROP USER IF EXISTS %s", username), 0)
+	})
+
+	return username
+}
 
 // TestGetAuthCredentials_ExistingUser tests fetching SCRAM credentials for an existing PostgreSQL user.
 func TestGetAuthCredentials_ExistingUser(t *testing.T) {
@@ -62,21 +80,10 @@ func TestGetAuthCredentials_ExistingUser(t *testing.T) {
 	require.NoError(t, err)
 	defer poolerClient.Close()
 
-	// Create user with SCRAM-SHA-256 password
-	testUser := fmt.Sprintf("testuser_%d", time.Now().UnixNano())
-	testPassword := "test_password_123"
-	_, err = poolerClient.ExecuteQuery(context.Background(),
-		fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", testUser, testPassword), 0)
-	require.NoError(t, err)
-
-	// Cleanup user after test
-	t.Cleanup(func() {
-		_, _ = poolerClient.ExecuteQuery(context.Background(),
-			fmt.Sprintf("DROP USER IF EXISTS %s", testUser), 0)
-	})
+	testUser := createTestUser(t, poolerClient, "test_password_123")
 
 	// Test GetAuthCredentials
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	req := &multipoolerpb.GetAuthCredentialsRequest{
@@ -88,10 +95,16 @@ func TestGetAuthCredentials_ExistingUser(t *testing.T) {
 	require.NoError(t, err, "GetAuthCredentials should succeed")
 	require.NotNil(t, resp)
 
-	// Verify response contains a valid SCRAM hash
-	assert.NotEmpty(t, resp.ScramHash, "scram_hash should not be empty")
-	assert.True(t, strings.HasPrefix(resp.ScramHash, "SCRAM-SHA-256$"),
-		"scram_hash should start with SCRAM-SHA-256$, got: %s", resp.ScramHash)
+	// Verify the hash is valid and matches the password we set
+	parsed, err := scram.ParseScramSHA256Hash(resp.ScramHash)
+	require.NoError(t, err, "should be able to parse the SCRAM hash")
+
+	// Recompute StoredKey from password and verify it matches
+	saltedPassword := scram.ComputeSaltedPassword("test_password_123", parsed.Salt, parsed.Iterations)
+	clientKey := scram.ComputeClientKey(saltedPassword)
+	computedStoredKey := scram.ComputeStoredKey(clientKey)
+	assert.Equal(t, parsed.StoredKey, computedStoredKey,
+		"computed StoredKey should match the one in the hash (password verification)")
 }
 
 // TestGetAuthCredentials_NonExistentUser tests fetching credentials for a non-existent user.
@@ -118,7 +131,7 @@ func TestGetAuthCredentials_NonExistentUser(t *testing.T) {
 	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
 
 	// Test GetAuthCredentials for non-existent user
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	req := &multipoolerpb.GetAuthCredentialsRequest{
@@ -159,7 +172,7 @@ func TestGetAuthCredentials_PostgresUser(t *testing.T) {
 	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
 
 	// Test GetAuthCredentials for postgres user
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	req := &multipoolerpb.GetAuthCredentialsRequest{
@@ -225,7 +238,7 @@ func TestGetAuthCredentials_InvalidRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 
 			resp, err := client.GetAuthCredentials(ctx, tt.req)
