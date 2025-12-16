@@ -40,24 +40,12 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	}
 
 	// Setup full test cluster with all services (includes waiting for bootstrap)
-	cluster := setupTestCluster(t)
-	t.Cleanup(cluster.Cleanup)
-
-	// Find a multigateway that has access to the PRIMARY pooler.
-	// Each multigateway only discovers poolers in its own zone, and the PRIMARY
-	// may be in any zone after bootstrap. Try all zones to find one that works.
-	pgPorts := []int{
-		cluster.PortConfig.Zones[0].MultigatewayPGPort,
-		cluster.PortConfig.Zones[1].MultigatewayPGPort,
-	}
-	findCtx, findCancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer findCancel()
-	readyPort, err := findReadyMultigateway(t, findCtx, pgPorts)
-	require.NoError(t, err, "should find a ready multigateway")
+	cluster, cleanup := setupTestCluster(t)
+	t.Cleanup(cleanup)
 
 	// Connect to the multigateway that has the PRIMARY pooler
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		readyPort)
+		cluster.ReadyPGPort)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -203,12 +191,12 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	}
 
 	// Setup full test cluster with all services
-	cluster := setupTestCluster(t)
-	t.Cleanup(cluster.Cleanup)
+	cluster, cleanup := setupTestCluster(t)
+	t.Cleanup(cleanup)
 
 	// Connect using pgx (which uses Extended Query Protocol by default)
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable",
-		cluster.PortConfig.Zones[0].MultigatewayPGPort)
+		cluster.ReadyPGPort)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
