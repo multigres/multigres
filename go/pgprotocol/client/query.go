@@ -222,6 +222,11 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 }
 
 // parseRowDescription parses a RowDescription message.
+//
+// TODO: Migrate errors in parseRowDescription, parseDataRow, parseCommandComplete, and readMessage
+// to use the mterrors package with proper error codes. These errors indicate connection-level failures
+// (truncated/incomplete messages) and should be categorized so that isConnectionError() in
+// regular_conn.go can detect them using error codes instead of string matching.
 func (c *Conn) parseRowDescription(body []byte, result *query.QueryResult) error {
 	reader := NewMessageReader(body)
 

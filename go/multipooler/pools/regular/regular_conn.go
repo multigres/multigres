@@ -314,6 +314,12 @@ func (c *Conn) RawConn() *client.Conn {
 // isConnectionError returns true if the error indicates a broken connection
 // that should be closed (e.g., network errors, read failures).
 //
+// This catches errors from:
+// - readMessage(): "failed to read message: ..."
+// - parseRowDescription(), parseDataRow(), etc.: "failed to read field count: EOF", etc.
+// - Write operations: "failed to write: ..."
+// - Network-level errors: "connection reset", "broken pipe", etc.
+//
 // TODO: Once we have proper error parsing with typed errors, use error codes
 // instead of string matching for more reliable detection.
 func isConnectionError(err error) bool {
@@ -322,7 +328,10 @@ func isConnectionError(err error) bool {
 	}
 	errStr := err.Error()
 	// Check for common connection-level errors.
-	return strings.Contains(errStr, "failed to read message") ||
+	// "failed to read" covers both "failed to read message" (from readMessage())
+	// and parse errors like "failed to read field count" (from parseRowDescription, etc.)
+	// which indicate truncated/incomplete messages due to broken connections.
+	return strings.Contains(errStr, "failed to read") ||
 		strings.Contains(errStr, "failed to write") ||
 		strings.Contains(errStr, "connection reset") ||
 		strings.Contains(errStr, "broken pipe") ||
