@@ -32,9 +32,9 @@ func TestParseRowsAffected(t *testing.T) {
 		tag      string
 		expected uint64
 	}{
-		{"SELECT 5", 5},
-		{"SELECT 0", 0},
-		{"SELECT 100", 100},
+		{"SELECT 5", 0},   // SELECT doesn't affect rows, only reads them
+		{"SELECT 0", 0},   // SELECT doesn't affect rows
+		{"SELECT 100", 0}, // SELECT doesn't affect rows
 		{"INSERT 0 1", 1},
 		{"INSERT 0 10", 10},
 		{"UPDATE 5", 5},

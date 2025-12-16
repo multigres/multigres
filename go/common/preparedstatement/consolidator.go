@@ -89,7 +89,8 @@ func NewConsolidator() *Consolidator {
 }
 
 // AddPreparedStatement adds a prepared statement to the consolidator.
-func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr string, paramTypes []uint32) error {
+// Returns the PreparedStatementInfo (either existing or newly created) and any error.
+func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr string, paramTypes []uint32) (*PreparedStatementInfo, error) {
 	psc.mu.Lock()
 	defer psc.mu.Unlock()
 
@@ -100,7 +101,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 
 	// If the name is non-empty, and a prepared statement for this name already exists on the connection, we throw an error.
 	if _, exists := psc.incoming[connId][name]; exists && name != "" {
-		return fmt.Errorf("Prepared statement with this name exists")
+		return nil, fmt.Errorf("Prepared statement with this name exists")
 	}
 
 	// Let's check if a prepared statement with this statement already exists.
@@ -109,7 +110,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		// We found an existing prepared statement, we should be using that.
 		psc.usageCount[existingPs] += 1
 		psc.incoming[connId][name] = existingPs
-		return nil
+		return existingPs, nil
 	}
 
 	// We didn't find any existing prepared statement with this sql.
@@ -118,13 +119,13 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 	psc.lastUsedID += 1
 	newPS, err := NewPreparedStatementInfo(protoutil.NewPreparedStatement(newName, queryStr, paramTypes))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	psc.stmts[queryStr] = newPS
 	psc.usageCount[newPS] += 1
 	psc.incoming[connId][name] = newPS
-	return nil
+	return newPS, nil
 }
 
 // GetPreparedStatementInfo gets the information for a previously added prepared statement to the consolidator.

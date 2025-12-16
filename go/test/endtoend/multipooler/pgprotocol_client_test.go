@@ -128,7 +128,7 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 		assert.Equal(t, "hello", string(result.Rows[0].Values[1]))
 
 		assert.Contains(t, result.CommandTag, "SELECT")
-		assert.Equal(t, uint64(1), result.RowsAffected)
+		assert.Equal(t, uint64(0), result.RowsAffected) // SELECT doesn't populate RowsAffected
 	})
 
 	t.Run("select_multiple_rows", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 		for i, row := range result.Rows {
 			assert.Equal(t, strconv.Itoa(i+1), string(row.Values[0]))
 		}
-		assert.Equal(t, uint64(5), result.RowsAffected)
+		assert.Equal(t, uint64(0), result.RowsAffected) // SELECT doesn't populate RowsAffected
 	})
 
 	t.Run("multiple_statements", func(t *testing.T) {
@@ -235,12 +235,13 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 		// BindAndExecute - binds parameters and executes atomically
 		var results []*query.QueryResult
-		err = conn.BindAndExecute(ctx, "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
+		completed, err := conn.BindAndExecute(ctx, "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
 			func(ctx context.Context, result *query.QueryResult) error {
 				results = append(results, result)
 				return nil
 			})
 		require.NoError(t, err)
+		assert.True(t, completed, "expected execution to complete")
 		require.Len(t, results, 1)
 
 		result := results[0]
@@ -294,7 +295,8 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 	t.Run("prepare_and_execute_combined", func(t *testing.T) {
 		var results []*query.QueryResult
-		err := conn.PrepareAndExecute(ctx, "SELECT $1::text || ' ' || $2::text AS greeting",
+		// Use unnamed statement ("") for one-shot execution
+		err := conn.PrepareAndExecute(ctx, "", "SELECT $1::text || ' ' || $2::text AS greeting",
 			[][]byte{[]byte("Hello"), []byte("World")},
 			func(ctx context.Context, result *query.QueryResult) error {
 				results = append(results, result)
@@ -310,7 +312,8 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 	t.Run("null_parameters", func(t *testing.T) {
 		var results []*query.QueryResult
-		err := conn.PrepareAndExecute(ctx, "SELECT $1::text AS val",
+		// Use unnamed statement ("") for one-shot execution
+		err := conn.PrepareAndExecute(ctx, "", "SELECT $1::text AS val",
 			[][]byte{nil}, // NULL parameter
 			func(ctx context.Context, result *query.QueryResult) error {
 				results = append(results, result)

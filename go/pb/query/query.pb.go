@@ -613,6 +613,10 @@ type ExecuteOptions struct {
 	// be applied to the connection before executing the query.
 	// Key is the variable name, value is the variable value.
 	SessionSettings map[string]string `protobuf:"bytes,1,rep,name=session_settings,json=sessionSettings,proto3" json:"session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// user is the PostgreSQL user/role identity for query execution.
+	// This determines which per-user connection pool to use.
+	// Required for per-user pool routing in the multipooler.
+	User string `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
 	// max_rows is the maximum number of rows to return from Execute.
 	// 0 means return all rows. Used by the Execute message in the extended query protocol.
 	MaxRows uint64 `protobuf:"varint,4,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`
@@ -659,6 +663,13 @@ func (x *ExecuteOptions) GetSessionSettings() map[string]string {
 		return x.SessionSettings
 	}
 	return nil
+}
+
+func (x *ExecuteOptions) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
 }
 
 func (x *ExecuteOptions) GetMaxRows() uint64 {
@@ -721,9 +732,10 @@ const file_query_proto_rawDesc = "" +
 	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12\x16\n" +
 	"\x06params\x18\x03 \x03(\fR\x06params\x12#\n" +
 	"\rparam_formats\x18\x04 \x03(\x05R\fparamFormats\x12%\n" +
-	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\xfc\x01\n" +
+	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\x90\x02\n" +
 	"\x0eExecuteOptions\x12U\n" +
-	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x19\n" +
+	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
+	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
 	"\bmax_rows\x18\x04 \x01(\x04R\amaxRows\x124\n" +
 	"\x16reserved_connection_id\x18\x05 \x01(\x04R\x14reservedConnectionId\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +

@@ -36,11 +36,19 @@ const (
 
 // Config holds the configuration for connecting to a PostgreSQL server.
 type Config struct {
-	// Host is the server hostname or IP address.
+	// Host is the server hostname or IP address (for TCP connections).
+	// Ignored if SocketFile is set.
 	Host string
 
-	// Port is the server port number.
+	// Port is the server port number (for TCP connections).
+	// Ignored if SocketFile is set.
 	Port int
+
+	// SocketFile is the full path to the PostgreSQL Unix socket file.
+	// If set, Unix socket connection is used instead of TCP.
+	// Example: /var/run/postgresql/.s.PGSQL.5432
+	// If empty, TCP connection to Host:Port is used.
+	SocketFile string
 
 	// User is the PostgreSQL user name.
 	User string
@@ -55,10 +63,10 @@ type Config struct {
 	Parameters map[string]string
 
 	// TLSConfig is the TLS configuration for SSL connections.
-	// If nil, SSL is not used.
+	// Only used for TCP connections. If nil, SSL is not used.
 	TLSConfig *tls.Config
 
-	// DialTimeout is the timeout for establishing the TCP connection.
+	// DialTimeout is the timeout for establishing the connection.
 	DialTimeout time.Duration
 }
 
@@ -103,15 +111,29 @@ type Conn struct {
 }
 
 // Connect establishes a new connection to a PostgreSQL server.
+// If config.SocketFile is set, connects via Unix socket.
+// Otherwise, connects via TCP to config.Host:config.Port.
 func Connect(ctx context.Context, config *Config) (*Conn, error) {
-	// Connect to the server.
 	dialer := &net.Dialer{
 		Timeout: config.DialTimeout,
 	}
-	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	netConn, err := dialer.DialContext(ctx, "tcp", address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
+
+	var netConn net.Conn
+	var err error
+
+	if config.SocketFile != "" {
+		// Unix socket connection.
+		netConn, err = dialer.DialContext(ctx, "unix", config.SocketFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to Unix socket %s: %w", config.SocketFile, err)
+		}
+	} else {
+		// TCP connection.
+		address := fmt.Sprintf("%s:%d", config.Host, config.Port)
+		netConn, err = dialer.DialContext(ctx, "tcp", address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
+		}
 	}
 
 	// Create the connection object.
