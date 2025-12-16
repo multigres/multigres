@@ -120,7 +120,10 @@ test-race: ## Run tests with race detection.
 clean: ## Remove build artifacts and temp files.
 	rm -f go/common/web/templates/css/pico.*
 	go clean -i ./go/...
-	rm -f $(BIN_DIR)/*
+	@for cmd in $(CMDS); do \
+		echo "Removing $(BIN_DIR)/$$cmd"; \
+		rm -f $(BIN_DIR)/$$cmd; \
+	done
 
 # Clean build and dependencies
 clean-all: clean ## Remove build dependencies and distribution files.
