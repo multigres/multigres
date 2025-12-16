@@ -449,16 +449,6 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	return clustermetadatapb.PoolerType_UNKNOWN
 }
 
-// getDatabase returns the database name from the multipooler record
-func (pm *MultiPoolerManager) getDatabase() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.Database
-	}
-	return ""
-}
-
 // getMultipoolerIDString returns the multipooler ID as a string
 func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	pm.cachedMultipooler.mu.Lock()
@@ -479,25 +469,12 @@ func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
 	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
 
-// getBackupLocation returns the full backup location path.
-// The topology stores the base path; we append database/tablegroup/shard.
-func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
-	database := pm.getDatabase()
-	if database == "" {
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "database name not set in multipooler")
-	}
-
-	db, err := pm.topoClient.GetDatabase(ctx, database)
-	if err != nil {
-		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
-	}
-
-	if db.BackupLocation == "" {
-		return "", mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no backup_location configured", database)
-	}
-
-	return filepath.Join(db.BackupLocation, database, pm.getTableGroup(), pm.getShard()), nil
+// backupLocationPath returns the full backup location path for a given database, table group,
+// and shard. The topology only stores the base path.
+func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) string {
+	// TODO: ensure that the database, table group, and shard contain only valid characters
+	// and those that are safe to use in a file path and/or URL path
+	return filepath.Join(baseBackupLocation, database, tableGroup, shard)
 }
 
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler
@@ -712,13 +689,8 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			return
 		}
 
-		if db.BackupLocation == "" {
-			pm.setStateError(fmt.Errorf("database %s has no backup_location configured", database))
-			return
-		}
-
 		// Compute full backup location: base path + database/tablegroup/shard
-		shardBackupLocation := filepath.Join(db.BackupLocation, database, pm.config.TableGroup, pm.config.Shard)
+		shardBackupLocation := pm.backupLocationPath(db.BackupLocation, database, pm.config.TableGroup, pm.config.Shard)
 
 		pm.mu.Lock()
 		pm.multipooler = mp

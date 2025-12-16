@@ -604,12 +604,6 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	stanzaName := pm.getBackupStanza()
 	configPath := pm.getBackupConfigPath()
 
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
-	if err != nil {
-		return "", err
-	}
-
 	// Execute pgbackrest info command with JSON output
 	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -617,7 +611,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	cmd := exec.CommandContext(infoCtx, "pgbackrest",
 		"--stanza="+stanzaName,
 		"--config="+configPath,
-		"--repo1-path="+backupLocation,
+		"--repo1-path="+pm.backupLocation,
 		"--output=json",
 		"--log-level-console=off",
 		"info")
