@@ -618,17 +618,13 @@ func (x *GetAuthCredentialsRequest) GetUsername() string {
 }
 
 // GetAuthCredentialsResponse represents the response containing authentication credentials.
+// Returns codes.NotFound if the user does not exist.
 type GetAuthCredentialsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// scram_hash is the stored SCRAM-SHA-256 password hash from pg_authid.
-	// Format: SCRAM-SHA-256$<iterations>:<salt>:<stored_key>:<server_key>
-	// Empty if user does not exist or has no password.
-	ScramHash string `protobuf:"bytes,1,opt,name=scram_hash,json=scramHash,proto3" json:"scram_hash,omitempty"`
-	// user_exists indicates whether the user was found in the database.
-	UserExists bool `protobuf:"varint,2,opt,name=user_exists,json=userExists,proto3" json:"user_exists,omitempty"`
-	// hash_version tracks the hash format version for future compatibility.
-	// Current version: 1 (SCRAM-SHA-256)
-	HashVersion   int32 `protobuf:"varint,3,opt,name=hash_version,json=hashVersion,proto3" json:"hash_version,omitempty"`
+	// Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
+	// Empty if user exists but has no password set.
+	ScramHash     string `protobuf:"bytes,1,opt,name=scram_hash,json=scramHash,proto3" json:"scram_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -668,20 +664,6 @@ func (x *GetAuthCredentialsResponse) GetScramHash() string {
 		return x.ScramHash
 	}
 	return ""
-}
-
-func (x *GetAuthCredentialsResponse) GetUserExists() bool {
-	if x != nil {
-		return x.UserExists
-	}
-	return false
-}
-
-func (x *GetAuthCredentialsResponse) GetHashVersion() int32 {
-	if x != nil {
-		return x.HashVersion
-	}
-	return 0
 }
 
 var File_multipoolerservice_proto protoreflect.FileDescriptor
@@ -724,13 +706,10 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\vdescription\x18\x01 \x01(\v2\x1b.query.StatementDescriptionR\vdescription\"S\n" +
 	"\x19GetAuthCredentialsRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\x7f\n" +
+	"\busername\x18\x02 \x01(\tR\busername\";\n" +
 	"\x1aGetAuthCredentialsResponse\x12\x1d\n" +
 	"\n" +
-	"scram_hash\x18\x01 \x01(\tR\tscramHash\x12\x1f\n" +
-	"\vuser_exists\x18\x02 \x01(\bR\n" +
-	"userExists\x12!\n" +
-	"\fhash_version\x18\x03 \x01(\x05R\vhashVersion2\xa5\x04\n" +
+	"scram_hash\x18\x01 \x01(\tR\tscramHash2\xa5\x04\n" +
 	"\x12MultiPoolerService\x12a\n" +
 	"\fExecuteQuery\x12'.multipoolerservice.ExecuteQueryRequest\x1a(.multipoolerservice.ExecuteQueryResponse\x12f\n" +
 	"\rStreamExecute\x12(.multipoolerservice.StreamExecuteRequest\x1a).multipoolerservice.StreamExecuteResponse0\x01\x12x\n" +

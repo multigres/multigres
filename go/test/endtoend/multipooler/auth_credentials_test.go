@@ -24,7 +24,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
@@ -86,12 +88,8 @@ func TestGetAuthCredentials_ExistingUser(t *testing.T) {
 	require.NoError(t, err, "GetAuthCredentials should succeed")
 	require.NotNil(t, resp)
 
-	// Verify response
-	assert.True(t, resp.UserExists, "user should exist")
+	// Verify response contains a valid SCRAM hash
 	assert.NotEmpty(t, resp.ScramHash, "scram_hash should not be empty")
-	assert.Equal(t, int32(1), resp.HashVersion, "hash_version should be 1")
-
-	// Verify the hash format is SCRAM-SHA-256
 	assert.True(t, strings.HasPrefix(resp.ScramHash, "SCRAM-SHA-256$"),
 		"scram_hash should start with SCRAM-SHA-256$, got: %s", resp.ScramHash)
 }
@@ -128,13 +126,13 @@ func TestGetAuthCredentials_NonExistentUser(t *testing.T) {
 		Username: "nonexistent_user_xyz_12345",
 	}
 
-	resp, err := client.GetAuthCredentials(ctx, req)
-	require.NoError(t, err, "GetAuthCredentials should succeed even for non-existent user")
-	require.NotNil(t, resp)
+	_, err = client.GetAuthCredentials(ctx, req)
+	require.Error(t, err, "GetAuthCredentials should return error for non-existent user")
 
-	// Verify response indicates user doesn't exist
-	assert.False(t, resp.UserExists, "user should not exist")
-	assert.Empty(t, resp.ScramHash, "scram_hash should be empty for non-existent user")
+	// Verify error is NotFound
+	st, ok := status.FromError(err)
+	require.True(t, ok, "error should be a gRPC status error")
+	assert.Equal(t, codes.NotFound, st.Code(), "error code should be NotFound")
 }
 
 // TestGetAuthCredentials_PostgresUser tests fetching credentials for the default postgres superuser.
@@ -170,13 +168,10 @@ func TestGetAuthCredentials_PostgresUser(t *testing.T) {
 	}
 
 	resp, err := client.GetAuthCredentials(ctx, req)
-	require.NoError(t, err, "GetAuthCredentials should succeed")
+	require.NoError(t, err, "GetAuthCredentials should succeed for postgres user")
 	require.NotNil(t, resp)
-
-	// The postgres user exists (created during initdb)
-	assert.True(t, resp.UserExists, "postgres user should exist")
 	// Note: The postgres user may not have a password set (trust auth in tests),
-	// so we don't assert on ScramHash content
+	// so we don't assert on ScramHash content - just that the call succeeds
 }
 
 // TestGetAuthCredentials_InvalidRequest tests that invalid requests are rejected.

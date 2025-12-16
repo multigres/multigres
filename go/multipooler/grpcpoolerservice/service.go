@@ -124,11 +124,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 
 	// Check if user exists.
 	if len(result.Rows) == 0 {
-		return &multipoolerpb.GetAuthCredentialsResponse{
-			UserExists:  false,
-			ScramHash:   "",
-			HashVersion: 0,
-		}, nil
+		return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
 	}
 
 	// Extract the password hash.
@@ -138,9 +134,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	}
 
 	return &multipoolerpb.GetAuthCredentialsResponse{
-		UserExists:  true,
-		ScramHash:   scramHash,
-		HashVersion: 1, // SCRAM-SHA-256
+		ScramHash: scramHash,
 	}, nil
 }
 

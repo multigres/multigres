@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pgprotocol/scram"
@@ -45,9 +47,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 	t.Run("successful lookup", func(t *testing.T) {
 		client := &mockPoolerClient{
 			response: &multipoolerpb.GetAuthCredentialsResponse{
-				UserExists:  true,
-				ScramHash:   validScramHash,
-				HashVersion: 1,
+				ScramHash: validScramHash,
 			},
 		}
 		provider := NewPoolerHashProvider(client)
@@ -60,9 +60,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 
 	t.Run("user not found", func(t *testing.T) {
 		client := &mockPoolerClient{
-			response: &multipoolerpb.GetAuthCredentialsResponse{
-				UserExists: false,
-			},
+			err: status.Error(codes.NotFound, "user not found"),
 		}
 		provider := NewPoolerHashProvider(client)
 
@@ -74,8 +72,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 	t.Run("user exists but no password", func(t *testing.T) {
 		client := &mockPoolerClient{
 			response: &multipoolerpb.GetAuthCredentialsResponse{
-				UserExists: true,
-				ScramHash:  "", // No password set
+				ScramHash: "", // No password set
 			},
 		}
 		provider := NewPoolerHashProvider(client)
@@ -99,8 +96,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 	t.Run("invalid hash format", func(t *testing.T) {
 		client := &mockPoolerClient{
 			response: &multipoolerpb.GetAuthCredentialsResponse{
-				UserExists: true,
-				ScramHash:  "invalid-hash-format",
+				ScramHash: "invalid-hash-format",
 			},
 		}
 		provider := NewPoolerHashProvider(client)

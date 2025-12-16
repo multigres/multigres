@@ -19,6 +19,9 @@ import (
 	"context"
 	"fmt"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pgprotocol/scram"
 )
@@ -51,12 +54,11 @@ func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, data
 		Username: username,
 	})
 	if err != nil {
+		// User not found is returned as NotFound error.
+		if status.Code(err) == codes.NotFound {
+			return nil, scram.ErrUserNotFound
+		}
 		return nil, fmt.Errorf("failed to get auth credentials: %w", err)
-	}
-
-	// User not found.
-	if !resp.UserExists {
-		return nil, scram.ErrUserNotFound
 	}
 
 	// User exists but has no password set.

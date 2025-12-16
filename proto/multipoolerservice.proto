@@ -157,16 +157,10 @@ message GetAuthCredentialsRequest {
 }
 
 // GetAuthCredentialsResponse represents the response containing authentication credentials.
+// Returns codes.NotFound if the user does not exist.
 message GetAuthCredentialsResponse {
   // scram_hash is the stored SCRAM-SHA-256 password hash from pg_authid.
-  // Format: SCRAM-SHA-256$<iterations>:<salt>:<stored_key>:<server_key>
-  // Empty if user does not exist or has no password.
+  // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
+  // Empty if user exists but has no password set.
   string scram_hash = 1;
-
-  // user_exists indicates whether the user was found in the database.
-  bool user_exists = 2;
-
-  // hash_version tracks the hash format version for future compatibility.
-  // Current version: 1 (SCRAM-SHA-256)
-  int32 hash_version = 3;
 }
