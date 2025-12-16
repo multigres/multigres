@@ -358,35 +358,32 @@ func argToParam(arg any) ([]byte, error) {
 
 // processExecuteResponses processes responses to an Execute command.
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
+//
+// IMPORTANT: This function always reads until ReadyForQuery to keep the connection
+// in a clean state. Errors are captured but do not stop message processing.
 func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
 	var currentFields []*query.Field
 	var batchedRows []*query.Row
 	var batchedSize int
+	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
-	flushBatch := func() error {
+	flushBatch := func() {
 		if len(batchedRows) == 0 || callback == nil {
-			return nil
+			return
 		}
 		result := &query.QueryResult{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
-		if err := callback(ctx, result); err != nil {
-			return err
+		if firstErr == nil {
+			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
-		return nil
 	}
 
 	for {
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-		default:
-		}
-
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return false, fmt.Errorf("failed to read message: %w", err)
@@ -397,42 +394,43 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			// Start of a new result set - parse and store fields.
 			result := &query.QueryResult{}
 			if err := c.parseRowDescription(body, result); err != nil {
-				return false, err
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				currentFields = result.Fields
 			}
-			currentFields = result.Fields
 
 		case protocol.MsgDataRow:
 			row, err := c.parseDataRow(body)
 			if err != nil {
-				return false, err
-			}
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				batchedRows = append(batchedRows, row)
+				batchedSize += len(body)
 
-			batchedRows = append(batchedRows, row)
-			batchedSize += len(body)
-
-			if batchedSize >= DefaultStreamingBatchSize {
-				if err := flushBatch(); err != nil {
-					return false, err
+				if batchedSize >= DefaultStreamingBatchSize {
+					flushBatch()
 				}
 			}
 
 		case protocol.MsgCommandComplete:
 			tag, err := c.parseCommandComplete(body)
 			if err != nil {
-				return false, err
-			}
-
-			// Send final batch with CommandTag.
-			if callback != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else if callback != nil && firstErr == nil {
+				// Send final batch with CommandTag.
 				result := &query.QueryResult{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
 				}
-				if err := callback(ctx, result); err != nil {
-					return false, err
-				}
+				firstErr = callback(ctx, result)
 			}
 			// Don't return yet - wait for ReadyForQuery.
 			completed = true
@@ -441,38 +439,38 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:
-			if callback != nil {
-				if err := callback(ctx, &query.QueryResult{}); err != nil {
-					return false, err
-				}
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &query.QueryResult{})
 			}
 			completed = true
 
 		case protocol.MsgPortalSuspended:
 			// Portal execution was suspended (partial results).
-			if err := flushBatch(); err != nil {
-				return false, err
-			}
+			flushBatch()
 			// Don't return yet - wait for ReadyForQuery.
 			completed = false
 
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
-			return completed, nil
+			return completed, firstErr
 
 		case protocol.MsgErrorResponse:
-			return false, c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return false, err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return false, fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
@@ -555,16 +553,12 @@ func (c *Conn) writeFlush() error {
 // Response processing methods.
 
 // waitForParseComplete waits for ParseComplete and ReadyForQuery.
-func (c *Conn) waitForParseComplete(ctx context.Context) error {
+// Always reads until ReadyForQuery to keep the connection in a clean state.
+func (c *Conn) waitForParseComplete(_ context.Context) error {
 	gotParseComplete := false
+	var firstErr error
 
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return fmt.Errorf("failed to read message: %w", err)
@@ -576,39 +570,42 @@ func (c *Conn) waitForParseComplete(ctx context.Context) error {
 
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
+			if firstErr != nil {
+				return firstErr
+			}
 			if !gotParseComplete {
 				return fmt.Errorf("did not receive ParseComplete")
 			}
 			return nil
 
 		case protocol.MsgErrorResponse:
-			return c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
 
 // waitForCloseComplete waits for CloseComplete and ReadyForQuery.
-func (c *Conn) waitForCloseComplete(ctx context.Context) error {
+// Always reads until ReadyForQuery to keep the connection in a clean state.
+func (c *Conn) waitForCloseComplete(_ context.Context) error {
 	gotCloseComplete := false
+	var firstErr error
 
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return fmt.Errorf("failed to read message: %w", err)
@@ -620,37 +617,41 @@ func (c *Conn) waitForCloseComplete(ctx context.Context) error {
 
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
+			if firstErr != nil {
+				return firstErr
+			}
 			if !gotCloseComplete {
 				return fmt.Errorf("did not receive CloseComplete")
 			}
 			return nil
 
 		case protocol.MsgErrorResponse:
-			return c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
 
 // waitForReadyForQuery waits for ReadyForQuery.
-func (c *Conn) waitForReadyForQuery(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+// Always reads until ReadyForQuery to keep the connection in a clean state.
+func (c *Conn) waitForReadyForQuery(_ context.Context) error {
+	var firstErr error
 
+	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return fmt.Errorf("failed to read message: %w", err)
@@ -659,37 +660,37 @@ func (c *Conn) waitForReadyForQuery(ctx context.Context) error {
 		switch msgType {
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
-			return nil
+			return firstErr
 
 		case protocol.MsgErrorResponse:
-			return c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
 
 // processDescribeResponses processes responses to a Describe('S') command.
 // This only expects ParameterDescription and RowDescription (no BindComplete).
-func (c *Conn) processDescribeResponses(ctx context.Context) (*query.StatementDescription, error) {
+// Always reads until ReadyForQuery to keep the connection in a clean state.
+func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDescription, error) {
 	desc := &query.StatementDescription{}
+	var firstErr error
 
 	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read message: %w", err)
@@ -699,37 +700,50 @@ func (c *Conn) processDescribeResponses(ctx context.Context) (*query.StatementDe
 		case protocol.MsgParameterDescription:
 			params, err := c.parseParameterDescription(body)
 			if err != nil {
-				return nil, err
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				desc.Parameters = params
 			}
-			desc.Parameters = params
 
 		case protocol.MsgRowDescription:
 			result := &query.QueryResult{}
 			if err := c.parseRowDescription(body, result); err != nil {
-				return nil, err
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				desc.Fields = result.Fields
 			}
-			desc.Fields = result.Fields
 
 		case protocol.MsgNoData:
 			// No data to return (e.g., for non-SELECT statements).
 
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
+			if firstErr != nil {
+				return nil, firstErr
+			}
 			return desc, nil
 
 		case protocol.MsgErrorResponse:
-			return nil, c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return nil, err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return nil, fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
@@ -741,37 +755,32 @@ func (c *Conn) processDescribeResponses(ctx context.Context) (*query.StatementDe
 // - On CommandComplete: remaining rows + CommandTag sent together (signals end of result set)
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
+// Always reads until ReadyForQuery to keep the connection in a clean state.
 func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
 	gotBindComplete := false
 	var currentFields []*query.Field
 	var batchedRows []*query.Row
 	var batchedSize int
+	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
 	// Does not reset currentFields as they may be needed for subsequent batches.
-	flushBatch := func() error {
+	flushBatch := func() {
 		if len(batchedRows) == 0 || callback == nil {
-			return nil
+			return
 		}
 		result := &query.QueryResult{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
-		if err := callback(ctx, result); err != nil {
-			return err
+		if firstErr == nil {
+			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
-		return nil
 	}
 
 	for {
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-		default:
-		}
-
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return false, fmt.Errorf("failed to read message: %w", err)
@@ -786,45 +795,46 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			// Fields will be included in the first batch callback.
 			result := &query.QueryResult{}
 			if err := c.parseRowDescription(body, result); err != nil {
-				return false, err
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				currentFields = result.Fields
 			}
-			currentFields = result.Fields
 
 		case protocol.MsgDataRow:
 			row, err := c.parseDataRow(body)
 			if err != nil {
-				return false, err
-			}
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				// Add row to batch and track size.
+				batchedRows = append(batchedRows, row)
+				batchedSize += len(body)
 
-			// Add row to batch and track size.
-			batchedRows = append(batchedRows, row)
-			batchedSize += len(body)
-
-			// Flush batch if size threshold exceeded.
-			if batchedSize >= DefaultStreamingBatchSize {
-				if err := flushBatch(); err != nil {
-					return false, err
+				// Flush batch if size threshold exceeded.
+				if batchedSize >= DefaultStreamingBatchSize {
+					flushBatch()
 				}
 			}
 
 		case protocol.MsgCommandComplete:
 			tag, err := c.parseCommandComplete(body)
 			if err != nil {
-				return false, err
-			}
-
-			// Send final batch with CommandTag (signals end of result set).
-			// This combines any remaining rows with the command completion.
-			if callback != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else if callback != nil && firstErr == nil {
+				// Send final batch with CommandTag (signals end of result set).
+				// This combines any remaining rows with the command completion.
 				result := &query.QueryResult{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
 				}
-				if err := callback(ctx, result); err != nil {
-					return false, err
-				}
+				firstErr = callback(ctx, result)
 			}
 
 			// Don't return yet - wait for ReadyForQuery.
@@ -834,42 +844,45 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:
-			if callback != nil {
-				if err := callback(ctx, &query.QueryResult{}); err != nil {
-					return false, err
-				}
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &query.QueryResult{})
 			}
 			completed = true
 
 		case protocol.MsgPortalSuspended:
 			// Portal execution was suspended (partial results).
 			// Flush any batched rows.
-			if err := flushBatch(); err != nil {
-				return false, err
-			}
+			flushBatch()
 			// Don't return yet - wait for ReadyForQuery.
 			completed = false
 
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
+			if firstErr != nil {
+				return false, firstErr
+			}
 			if !gotBindComplete {
 				return false, fmt.Errorf("did not receive BindComplete")
 			}
 			return completed, nil
 
 		case protocol.MsgErrorResponse:
-			return false, c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return false, err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return false, fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
@@ -877,17 +890,13 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 // processBindAndDescribeResponses processes responses to BindAndDescribe.
 // Expects: BindComplete, then describe results (RowDescription or NoData), then ReadyForQuery.
 // Note: Describe('P') for a portal does NOT return ParameterDescription, only RowDescription/NoData.
-func (c *Conn) processBindAndDescribeResponses(ctx context.Context) (*query.StatementDescription, error) {
+// Always reads until ReadyForQuery to keep the connection in a clean state.
+func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.StatementDescription, error) {
 	gotBindComplete := false
 	desc := &query.StatementDescription{}
+	var firstErr error
 
 	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read message: %w", err)
@@ -900,33 +909,43 @@ func (c *Conn) processBindAndDescribeResponses(ctx context.Context) (*query.Stat
 		case protocol.MsgRowDescription:
 			result := &query.QueryResult{}
 			if err := c.parseRowDescription(body, result); err != nil {
-				return nil, err
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				desc.Fields = result.Fields
 			}
-			desc.Fields = result.Fields
 
 		case protocol.MsgNoData:
 			// No data to return (e.g., for non-SELECT statements).
 
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
+			if firstErr != nil {
+				return nil, firstErr
+			}
 			if !gotBindComplete {
 				return nil, fmt.Errorf("did not receive BindComplete")
 			}
 			return desc, nil
 
 		case protocol.MsgErrorResponse:
-			return nil, c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return nil, err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return nil, fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
@@ -959,38 +978,33 @@ func (c *Conn) parseParameterDescription(body []byte) ([]*query.ParameterDescrip
 // - Rows are accumulated until DefaultStreamingBatchSize is exceeded, then flushed with Fields
 // - On CommandComplete: remaining rows + CommandTag sent together (signals end of result set)
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
+// Always reads until ReadyForQuery to keep the connection in a clean state.
 func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) error {
 	gotParseComplete := false
 	gotBindComplete := false
 	var currentFields []*query.Field
 	var batchedRows []*query.Row
 	var batchedSize int
+	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
 	// Does not reset currentFields as they may be needed for subsequent batches.
-	flushBatch := func() error {
+	flushBatch := func() {
 		if len(batchedRows) == 0 || callback == nil {
-			return nil
+			return
 		}
 		result := &query.QueryResult{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
-		if err := callback(ctx, result); err != nil {
-			return err
+		if firstErr == nil {
+			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
-		return nil
 	}
 
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
 		msgType, body, err := c.readMessage()
 		if err != nil {
 			return fmt.Errorf("failed to read message: %w", err)
@@ -1008,45 +1022,46 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			// Fields will be included in the first batch callback.
 			result := &query.QueryResult{}
 			if err := c.parseRowDescription(body, result); err != nil {
-				return err
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				currentFields = result.Fields
 			}
-			currentFields = result.Fields
 
 		case protocol.MsgDataRow:
 			row, err := c.parseDataRow(body)
 			if err != nil {
-				return err
-			}
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				// Add row to batch and track size.
+				batchedRows = append(batchedRows, row)
+				batchedSize += len(body)
 
-			// Add row to batch and track size.
-			batchedRows = append(batchedRows, row)
-			batchedSize += len(body)
-
-			// Flush batch if size threshold exceeded.
-			if batchedSize >= DefaultStreamingBatchSize {
-				if err := flushBatch(); err != nil {
-					return err
+				// Flush batch if size threshold exceeded.
+				if batchedSize >= DefaultStreamingBatchSize {
+					flushBatch()
 				}
 			}
 
 		case protocol.MsgCommandComplete:
 			tag, err := c.parseCommandComplete(body)
 			if err != nil {
-				return err
-			}
-
-			// Send final batch with CommandTag (signals end of result set).
-			// This combines any remaining rows with the command completion.
-			if callback != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else if callback != nil && firstErr == nil {
+				// Send final batch with CommandTag (signals end of result set).
+				// This combines any remaining rows with the command completion.
 				result := &query.QueryResult{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
 				}
-				if err := callback(ctx, result); err != nil {
-					return err
-				}
+				firstErr = callback(ctx, result)
 			}
 
 			// Reset for next result set.
@@ -1055,14 +1070,15 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:
-			if callback != nil {
-				if err := callback(ctx, &query.QueryResult{}); err != nil {
-					return err
-				}
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &query.QueryResult{})
 			}
 
 		case protocol.MsgReadyForQuery:
 			c.txnStatus = body[0]
+			if firstErr != nil {
+				return firstErr
+			}
 			if !gotParseComplete {
 				return fmt.Errorf("did not receive ParseComplete")
 			}
@@ -1072,18 +1088,22 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			return nil
 
 		case protocol.MsgErrorResponse:
-			return c.handleErrorAndWaitForReady(body)
+			if firstErr == nil {
+				firstErr = c.parseError(body)
+			}
 
 		case protocol.MsgNoticeResponse:
 			// Ignore notices.
 
 		case protocol.MsgParameterStatus:
-			if err := c.handleParameterStatus(body); err != nil {
-				return err
+			if firstErr == nil {
+				firstErr = c.handleParameterStatus(body)
 			}
 
 		default:
-			return fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unexpected message type: %c (0x%02x)", msgType, msgType)
+			}
 		}
 	}
 }
