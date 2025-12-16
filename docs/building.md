@@ -37,21 +37,13 @@ make tools
 make build
 ```
 
-This builds the Go binaries and places them in the `bin/` directory.
+This builds the Go binaries and places them in the `bin/` directory. Add it to your PATH:
+
+```bash
+export PATH="$PWD/bin:$PATH"  # temporary, or add to ~/.bashrc / ~/.zshrc for permanent
+```
 
 ## Running
-
-After building, add the `bin/` directory to your PATH for the current session:
-
-```bash
-export PATH="$PWD/bin:$PATH"
-```
-
-To add it permanently, append the following line to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`), replacing `/path/to/multigres` with the actual path to your Multigres directory:
-
-```bash
-export PATH="/path/to/multigres/bin:$PATH"
-```
 
 ```bash
 multigres cluster init
