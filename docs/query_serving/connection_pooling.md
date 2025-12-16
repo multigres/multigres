@@ -88,6 +88,14 @@ Pools are created **lazily** on first connection request for that user.
 - Simple queries without transactions
 - Queries that can be executed on any available connection with matching settings
 
+**Context Cancellation:**
+
+RegularConn handles Go context cancellation by cancelling the backend query via
+AdminPool's `pg_cancel_backend()`. The underlying protocol client always drains
+messages until `ReadyForQuery` to keep connections clean. Connection-level errors
+(read failures, broken pipes) cause the connection to be closed rather than
+returned to the pool.
+
 #### ReservedPool
 
 **Purpose:** Long-lived connections for transactions and portal operations.
