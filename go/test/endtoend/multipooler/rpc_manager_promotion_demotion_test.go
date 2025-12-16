@@ -35,8 +35,10 @@ import (
 // This ensures that demoting a primary and promoting a standby work together correctly,
 // and that we can restore the original state at the end
 func TestDemoteAndPromote(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping end-to-end tests in short mode")
+	skip, err := utils.ShouldSkipRealPostgres()
+	require.NoError(t, err, "postgres binaries must be available")
+	if skip {
+		t.Skip("Skipping end-to-end tests (short mode)")
 	}
 
 	setup := getSharedTestSetup(t)
