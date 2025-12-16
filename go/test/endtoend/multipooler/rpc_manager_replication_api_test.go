@@ -220,7 +220,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "false", isPaused, "WAL replay should not be paused initially")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "f", isPaused, "WAL replay should not be paused initially")
 
 		// Call SetPrimaryConnInfo with StopReplicationBefore=true and StartReplicationAfter=false
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -244,7 +245,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplicationBefore=true")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", isPaused, "WAL replay should be paused after StopReplicationBefore=true")
 
 		t.Log("Replication successfully stopped with StopReplicationBefore flag")
 	})
@@ -270,7 +272,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "true", isPaused, "WAL replay should be paused")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", isPaused, "WAL replay should be paused")
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=false
 		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -301,7 +304,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "true", isPaused, "WAL replay should still be paused when StartReplicationAfter=false")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", isPaused, "WAL replay should still be paused when StartReplicationAfter=false")
 
 		// Now call again with StartReplicationAfter=true
 		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=true...")
@@ -315,7 +319,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "false", isPaused, "WAL replay should be running after StartReplicationAfter=true")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "f", isPaused, "WAL replay should be running after StartReplicationAfter=true")
 
 		t.Log("Replication successfully started with StartReplicationAfter flag")
 	})
@@ -420,7 +425,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "true", isPaused, "WAL replay should be paused")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", isPaused, "WAL replay should be paused")
 		t.Log("Confirmed: WAL replay is paused")
 
 		// Call StartReplication RPC
@@ -438,7 +444,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "false", isPaused, "WAL replay should be running after StartReplication")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "f", isPaused, "WAL replay should be running after StartReplication")
 
 		t.Log("StartReplication successfully resumed WAL replay")
 	})
@@ -471,7 +478,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
-		if isPaused == "true" {
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		if isPaused == "t" {
 			// Resume it first using StartReplication RPC
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			startReq := &multipoolermanagerdatapb.StartReplicationRequest{}
@@ -500,7 +508,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "true", isPaused, "WAL replay should be paused after StopReplication")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", isPaused, "WAL replay should be paused after StopReplication")
 
 		t.Log("StopReplication successfully paused WAL replay")
 	})
@@ -548,7 +557,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "false", isPaused, "WAL replay should not be paused initially")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "f", isPaused, "WAL replay should not be paused initially")
 		t.Log("Confirmed: Replication is streaming and replay is running")
 
 		// Create a test table and insert data on primary before stopping receiver
@@ -593,7 +603,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "false", isPaused, "WAL replay should still be running after RECEIVER_ONLY mode")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "f", isPaused, "WAL replay should still be running after RECEIVER_ONLY mode")
 
 		// Verify that data inserted before stopping receiver is still visible (replay continues on buffered WAL)
 		t.Log("Verifying that previously replicated data is still visible...")
@@ -683,7 +694,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "false", isPaused, "WAL replay should still be running after RECEIVER_ONLY mode")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "f", isPaused, "WAL replay should still be running after RECEIVER_ONLY mode")
 
 		// Verify that data inserted before stopping receiver is still visible
 		t.Log("Verifying that previously replicated data is still visible...")
@@ -719,7 +731,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused := string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "false", isPaused, "WAL replay should not be paused initially")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "f", isPaused, "WAL replay should not be paused initially")
 
 		// Create a test table and insert data on primary before pausing
 		t.Log("Creating test table and inserting initial data on primary...")
@@ -756,7 +769,8 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, queryResp.Rows, 1)
 		isPaused = string(queryResp.Rows[0].Values[0])
-		assert.Equal(t, "true", isPaused, "WAL replay should be paused after REPLAY_AND_RECEIVER with wait=true")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", isPaused, "WAL replay should be paused after REPLAY_AND_RECEIVER with wait=true")
 
 		t.Log("Verifying receiver is disconnected (should be immediate with wait=true)...")
 		queryResp, err = standbyPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT COUNT(*) FROM pg_stat_wal_receiver", 1)
@@ -843,7 +857,8 @@ func TestReplicationAPIs(t *testing.T) {
 				return false
 			}
 			isPaused := string(queryResp.Rows[0].Values[0])
-			return isPaused == "true"
+			// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+			return isPaused == "t"
 		}, 10*time.Second, 500*time.Millisecond, "WAL replay should eventually pause")
 
 		t.Log("Verifying receiver eventually disconnects asynchronously...")
