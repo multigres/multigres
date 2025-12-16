@@ -18,6 +18,7 @@ package regular
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
@@ -96,7 +97,7 @@ func (c *Conn) ApplySettings(ctx context.Context, settings *connstate.Settings) 
 		return nil
 	}
 
-	_, err := c.conn.Query(ctx, sql)
+	_, err := c.Query(ctx, sql)
 	if err != nil {
 		return fmt.Errorf("failed to apply settings: %w", err)
 	}
@@ -120,7 +121,7 @@ func (c *Conn) ResetSettings(ctx context.Context) error {
 	}
 
 	// Execute RESET ALL.
-	_, err := c.conn.Query(ctx, "RESET ALL")
+	_, err := c.Query(ctx, "RESET ALL")
 	if err != nil {
 		return fmt.Errorf("failed to reset settings: %w", err)
 	}
@@ -146,72 +147,115 @@ func (c *Conn) State() *connstate.ConnectionState {
 // --- Query execution ---
 
 // Query executes a simple query and returns all results.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) Query(ctx context.Context, sql string) ([]*query.QueryResult, error) {
-	return c.conn.Query(ctx, sql)
+	return execWithContextCancel(c, ctx, func() ([]*query.QueryResult, error) {
+		return c.conn.Query(ctx, sql)
+	})
 }
 
 // QueryStreaming executes a query with streaming results via callback.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *query.QueryResult) error) error {
-	return c.conn.QueryStreaming(ctx, sql, callback)
+	// Use a struct{} as the value type since we only care about the error.
+	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
+	})
+	return err
 }
 
 // --- Extended query protocol ---
 
 // Parse sends a Parse message to prepare a statement.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []uint32) error {
-	return c.conn.Parse(ctx, name, queryStr, paramTypes)
+	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.Parse(ctx, name, queryStr, paramTypes)
+	})
+	return err
 }
 
 // BindAndExecute binds parameters and executes atomically.
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
-	return c.conn.BindAndExecute(ctx, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+	return execWithContextCancel(c, ctx, func() (bool, error) {
+		return c.conn.BindAndExecute(ctx, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+	})
 }
 
 // BindAndDescribe binds parameters and describes the resulting portal.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16) (*query.StatementDescription, error) {
-	return c.conn.BindAndDescribe(ctx, stmtName, params, paramFormats, resultFormats)
+	return execWithContextCancel(c, ctx, func() (*query.StatementDescription, error) {
+		return c.conn.BindAndDescribe(ctx, stmtName, params, paramFormats, resultFormats)
+	})
 }
 
 // DescribePrepared describes a prepared statement.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {
-	return c.conn.DescribePrepared(ctx, name)
+	return execWithContextCancel(c, ctx, func() (*query.StatementDescription, error) {
+		return c.conn.DescribePrepared(ctx, name)
+	})
 }
 
 // CloseStatement closes a prepared statement.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) CloseStatement(ctx context.Context, name string) error {
-	return c.conn.CloseStatement(ctx, name)
+	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.CloseStatement(ctx, name)
+	})
+	return err
 }
 
 // ClosePortal closes a portal.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) ClosePortal(ctx context.Context, name string) error {
-	return c.conn.ClosePortal(ctx, name)
+	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.ClosePortal(ctx, name)
+	})
+	return err
 }
 
 // Sync sends a Sync message to synchronize the extended query protocol.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) Sync(ctx context.Context) error {
-	return c.conn.Sync(ctx)
+	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.Sync(ctx)
+	})
+	return err
 }
 
 // PrepareAndExecute is a convenience method that prepares and executes in one round trip.
 // name is the statement/portal name (use "" for unnamed, which is cleared after Sync).
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *query.QueryResult) error) error {
-	return c.conn.PrepareAndExecute(ctx, name, queryStr, params, callback)
+	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.PrepareAndExecute(ctx, name, queryStr, params, callback)
+	})
+	return err
 }
 
 // QueryArgs executes a parameterized query using the extended query protocol.
 // This is a convenience method that accepts Go values as arguments and converts
 // them to the appropriate text format for PostgreSQL.
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*query.QueryResult, error) {
-	return c.conn.QueryArgs(ctx, queryStr, args...)
+	return execWithContextCancel(c, ctx, func() ([]*query.QueryResult, error) {
+		return c.conn.QueryArgs(ctx, queryStr, args...)
+	})
 }
 
 // Execute continues execution of a previously bound portal.
 // This is used to fetch more rows from a portal that was executed with maxRows > 0
 // and returned PortalSuspended.
 // Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
+// If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
-	return c.conn.Execute(ctx, portalName, maxRows, callback)
+	return execWithContextCancel(c, ctx, func() (bool, error) {
+		return c.conn.Execute(ctx, portalName, maxRows, callback)
+	})
 }
 
 // --- Transaction status ---
@@ -263,4 +307,74 @@ func (c *Conn) Kill(ctx context.Context) error {
 // Use with caution - prefer the wrapped methods.
 func (c *Conn) RawConn() *client.Conn {
 	return c.conn
+}
+
+// --- Context-aware execution helpers ---
+
+// isConnectionError returns true if the error indicates a broken connection
+// that should be closed (e.g., network errors, read failures).
+//
+// TODO: Once we have proper error parsing with typed errors, use error codes
+// instead of string matching for more reliable detection.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// Check for common connection-level errors.
+	return strings.Contains(errStr, "failed to read message") ||
+		strings.Contains(errStr, "failed to write") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "use of closed network connection")
+}
+
+// handleContextCancellation cancels the backend query if adminPool is available.
+// This is called when the context is cancelled while a query is in progress.
+func (c *Conn) handleContextCancellation() {
+	if c.adminPool == nil {
+		return
+	}
+	// Use the connection's context with a timeout for the cancel operation.
+	// If the connection is closed, there's no need to cancel the query.
+	cancelCtx, cancel := context.WithTimeout(c.conn.Context(), admin.DefaultCancelTimeout)
+	defer cancel()
+	_, _ = c.adminPool.CancelBackend(cancelCtx, c.ProcessID())
+}
+
+// execWithContextCancel executes an operation with context cancellation support.
+// If the context is cancelled while the operation is in progress, the backend
+// query is cancelled via adminPool. If a connection error occurs, the connection
+// is closed.
+func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
+	type result struct {
+		val T
+		err error
+	}
+
+	ch := make(chan result, 1)
+	go func() {
+		val, err := op()
+		ch <- result{val: val, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Context cancelled - cancel the backend query.
+		c.handleContextCancellation()
+		// Wait for the operation to complete (it should return quickly after cancel).
+		res := <-ch
+		// If the operation had a connection error, close the connection.
+		if isConnectionError(res.err) {
+			c.conn.Close()
+		}
+		var zero T
+		return zero, context.Cause(ctx)
+	case res := <-ch:
+		// Operation completed - check for connection errors.
+		if isConnectionError(res.err) {
+			c.conn.Close()
+		}
+		return res.val, res.err
+	}
 }

@@ -18,11 +18,16 @@ package admin
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/pgprotocol/client"
 )
+
+// DefaultCancelTimeout is the default timeout for cancel/terminate operations.
+// This is used when cancelling a backend query due to context cancellation.
+const DefaultCancelTimeout = 5 * time.Second
 
 // Conn wraps a client.Conn for administrative operations.
 // It implements connpool.Connection with no settings support.
