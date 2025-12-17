@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -65,6 +66,9 @@ type MultiPoolerManager struct {
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
+
+	// connPoolMgr manages all connection pools (admin, regular, reserved)
+	connPoolMgr connpoolmanager.PoolManager
 
 	// qsc is the query service controller
 	// This controller handles query serving while the manager orchestrates lifecycle,
@@ -183,6 +187,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		}
 	}
 
+	// Create connection pool manager from config
+	var connPoolMgr connpoolmanager.PoolManager
+	if config.ConnPoolConfig != nil {
+		connPoolMgr = config.ConnPoolConfig.NewManager()
+	}
+
 	pm := &MultiPoolerManager{
 		logger:                   logger,
 		config:                   config,
@@ -196,13 +206,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		autoRestoreRetryInterval: 1 * time.Second,
 		queryServingState:        clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:             pgctldClient,
+		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
 	}
 
-	// Create the query service controller (follows Vitess pattern)
-	// Following the pattern: New->InitDBConfig->SetServingType
-	pm.qsc = poolerserver.NewMultiPooler(logger)
-	logger.Info("Created query service controller")
+	// Create the query service controller with the pool manager
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
 
 	return pm, nil
 }
@@ -248,6 +257,17 @@ func (pm *MultiPoolerManager) Open() error {
 
 	pm.logger.Info("MultiPoolerManager: opening")
 
+	// Open connection pool manager
+	if pm.connPoolMgr != nil {
+		connConfig := &connpoolmanager.ConnectionConfig{
+			SocketFile: pm.config.SocketFilePath,
+			Port:       pm.config.PgPort,
+			Database:   pm.config.Database,
+		}
+		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
+		pm.logger.Info("Connection pool manager opened")
+	}
+
 	if err := pm.connectDB(); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -270,12 +290,6 @@ func (pm *MultiPoolerManager) Open() error {
 			pm.logger.ErrorContext(ctx, "Failed to start heartbeat", "error", err)
 			// Don't fail the connection if heartbeat fails
 		}
-	}
-
-	// Now open the query service controller
-	if err := pm.qsc.Open(); err != nil {
-		pm.logger.Error("Failed to open query service controller", "error", err)
-		return fmt.Errorf("failed to open controller: %w", err)
 	}
 
 	pm.isOpen = true
@@ -350,10 +364,9 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 		pm.db = nil
 	}
 
-	if pm.qsc != nil {
-		if err := pm.qsc.Close(); err != nil {
-			return err
-		}
+	// Close connection pool manager
+	if pm.connPoolMgr != nil {
+		pm.connPoolMgr.Close()
 	}
 
 	pm.logger.Info("MultiPoolerManager: closed")
@@ -1357,21 +1370,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Start background restore from backup, for replica poolers
 	go pm.tryAutoRestoreFromBackup(pm.ctx)
 
-	// Initialize query service controller with DB config
-	dbConfig := &poolerserver.DBConfig{
-		SocketFilePath: pm.config.SocketFilePath,
-		PoolerDir:      pm.config.PoolerDir,
-		Database:       pm.config.Database,
-		PgPort:         pm.config.PgPort,
-	}
-	if err := pm.qsc.InitDBConfig(dbConfig); err != nil {
-		pm.logger.Error("Failed to initialize query service controller", "error", err)
-	} else {
-		pm.logger.Info("Initialized query service controller with database config")
-	}
-
-	// Open the database connections and start background operations
-	// This calls connectDB() internally and opens the query service controller
+	// Open the database connections, connection pool manager, and start background operations
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	if err := pm.Open(); err != nil {
 		pm.logger.Error("Failed to open manager during startup", "error", err)

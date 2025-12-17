@@ -268,6 +268,8 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	t.Logf("Starting %s: binary '%s', gRPC port %d, ServiceID %s", p.Name, p.Binary, p.GrpcPort, p.ServiceID)
 
 	// Build command arguments
+	// Socket file path for Unix socket connection (uses trust auth per pg_hba.conf)
+	socketFile := filepath.Join(p.DataDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--database", "postgres", // Required parameter
@@ -276,6 +278,7 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--pgctld-addr", p.PgctldAddr,
 		"--pooler-dir", p.DataDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
+		"--socket-file", socketFile, // Unix socket for trust authentication
 		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
 		"--topo-global-server-addresses", p.EtcdAddr,
 		"--topo-global-root", "/multigres/global",
@@ -775,7 +778,8 @@ func initializeStandby(t *testing.T, baseDir string, primaryPgctld *ProcessInsta
 	if err != nil {
 		return fmt.Errorf("failed to check standby recovery status: %w", err)
 	}
-	if len(queryResp.Rows) == 0 || len(queryResp.Rows[0].Values) == 0 || string(queryResp.Rows[0].Values[0]) != "true" {
+	// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+	if len(queryResp.Rows) == 0 || len(queryResp.Rows[0].Values) == 0 || string(queryResp.Rows[0].Values[0]) != "t" {
 		return fmt.Errorf("standby is not in recovery mode")
 	}
 
@@ -1292,8 +1296,9 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 		if err != nil {
 			return fmt.Errorf("Primary failed to query pg_is_in_recovery: %w", err)
 		}
-		if inRecovery != "false" {
-			return fmt.Errorf("Primary pg_is_in_recovery=%s (expected false)", inRecovery)
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		if inRecovery != "f" {
+			return fmt.Errorf("Primary pg_is_in_recovery=%s (expected f)", inRecovery)
 		}
 
 		if err := validateGUCValue(primaryClient.Pooler, "primary_conninfo", "", "Primary"); err != nil {
@@ -1327,8 +1332,9 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 		if err != nil {
 			return fmt.Errorf("Standby failed to query pg_is_in_recovery: %w", err)
 		}
-		if inRecovery != "true" {
-			return fmt.Errorf("Standby pg_is_in_recovery=%s (expected true)", inRecovery)
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		if inRecovery != "t" {
+			return fmt.Errorf("Standby pg_is_in_recovery=%s (expected t)", inRecovery)
 		}
 
 		// Verify replication not configured
@@ -1341,8 +1347,9 @@ func validateCleanState(setup *MultipoolerTestSetup) error {
 		if err != nil {
 			return fmt.Errorf("Standby failed to query pg_is_wal_replay_paused: %w", err)
 		}
-		if isPaused != "false" {
-			return fmt.Errorf("Standby pg_is_wal_replay_paused=%s (expected false)", isPaused)
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		if isPaused != "f" {
+			return fmt.Errorf("Standby pg_is_wal_replay_paused=%s (expected f)", isPaused)
 		}
 
 		// Validate standby pooler type in topology
@@ -1714,7 +1721,7 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			inRecovery, err := queryStringValue(cleanupCtx, primaryPoolerClient, "SELECT pg_is_in_recovery()")
 			if err != nil {
 				t.Logf("Cleanup: Failed to check if primary is in recovery: %v", err)
-			} else if inRecovery == "true" {
+			} else if inRecovery == "t" {
 				t.Log("Cleanup: Primary was demoted, restoring to primary state...")
 				if err := restorePrimaryAfterDemotion(cleanupCtx, primaryClient.Manager); err != nil {
 					t.Logf("Cleanup: Failed to restore primary after demotion: %v", err)

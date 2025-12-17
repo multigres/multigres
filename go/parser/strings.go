@@ -40,6 +40,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -478,7 +479,7 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 		return nil
 	}
 
-	value, err := strconv.ParseUint(hexDigits, 16, 32)
+	value, err := strconv.ParseUint(hexDigits, 16, 31)
 	if err != nil {
 		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
 		return nil //nolint:nilerr // Error is collected via context, not returned
@@ -804,7 +805,7 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 		return nil
 	}
 
-	secondValue, err := strconv.ParseUint(hexDigits, 16, 32)
+	secondValue, err := strconv.ParseUint(hexDigits, 16, 31)
 	if err != nil {
 		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
 		ctx.SetUTF16FirstPart(0)
@@ -821,7 +822,7 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 	}
 
 	// Combine surrogates into final code point
-	combinedCodepoint := surrogatePairToCodepoint(ctx.UTF16FirstPart(), secondSurrogate)
+	combinedCodepoint := utf16.DecodeRune(ctx.UTF16FirstPart(), secondSurrogate)
 
 	// Add combined character to literal - equivalent to addunicode() call
 	if utf8.ValidRune(combinedCodepoint) {

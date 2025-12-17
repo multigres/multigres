@@ -1,6 +1,8 @@
 # Multigres Developer Documentation
 
-This documentation is **for developers working on Multigres**. If you're looking to use Multigres for your applications, please refer to the [official documentation](https://multigres.com/) instead.
+This documentation is **for developers working on Multigres**. If you're looking
+to use Multigres for your applications, please refer to the
+[official documentation](https://multigres.com/) instead.
 
 ## Structure
 
