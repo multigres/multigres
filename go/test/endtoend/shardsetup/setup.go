@@ -721,10 +721,10 @@ func (s *ShardSetup) ValidateCleanState() error {
 			}
 
 			// Validate primary_conninfo and synchronous_standby_names are empty
-			if err := ValidateGUCValue(client.Pooler, "primary_conninfo", "", name); err != nil {
+			if err := ValidateGUCValue(ctx, client.Pooler, "primary_conninfo", "", name); err != nil {
 				return err
 			}
-			if err := ValidateGUCValue(client.Pooler, "synchronous_standby_names", "", name); err != nil {
+			if err := ValidateGUCValue(ctx, client.Pooler, "synchronous_standby_names", "", name); err != nil {
 				return err
 			}
 
@@ -738,7 +738,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 			}
 
 			// Verify primary_conninfo empty
-			if err := ValidateGUCValue(client.Pooler, "primary_conninfo", "", name); err != nil {
+			if err := ValidateGUCValue(ctx, client.Pooler, "primary_conninfo", "", name); err != nil {
 				return err
 			}
 

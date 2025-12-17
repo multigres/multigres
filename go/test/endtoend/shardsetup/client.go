@@ -139,8 +139,8 @@ func QueryStringValue(ctx context.Context, client *endtoend.MultiPoolerTestClien
 
 // ValidateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
 // Follows the pattern from multipooler/setup_test.go:validateGUCValue.
-func ValidateGUCValue(client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
-	value, err := QueryStringValue(context.Background(), client, fmt.Sprintf("SHOW %s", gucName))
+func ValidateGUCValue(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
+	value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
 	if err != nil {
 		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)
 	}
@@ -153,10 +153,10 @@ func ValidateGUCValue(client *endtoend.MultiPoolerTestClient, gucName, expected,
 // SaveGUCs queries multiple GUC values and saves them to a map.
 // Returns a map of gucName -> value. Empty values are preserved.
 // Follows the pattern from multipooler/setup_test.go:saveGUCs.
-func SaveGUCs(client *endtoend.MultiPoolerTestClient, gucNames []string) map[string]string {
+func SaveGUCs(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucNames []string) map[string]string {
 	saved := make(map[string]string)
 	for _, gucName := range gucNames {
-		value, err := QueryStringValue(context.Background(), client, fmt.Sprintf("SHOW %s", gucName))
+		value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
 		if err == nil {
 			saved[gucName] = value
 		}
@@ -167,7 +167,7 @@ func SaveGUCs(client *endtoend.MultiPoolerTestClient, gucNames []string) map[str
 // RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM.
 // Empty values are treated as RESET (restore to default).
 // Follows the pattern from multipooler/setup_test.go:restoreGUCs.
-func RestoreGUCs(t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
+func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
 	t.Helper()
 	for gucName, gucValue := range savedGucs {
 		var query string
@@ -176,14 +176,14 @@ func RestoreGUCs(t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs
 		} else {
 			query = fmt.Sprintf("ALTER SYSTEM SET %s = '%s'", gucName, gucValue)
 		}
-		_, err := client.ExecuteQuery(context.Background(), query, 1)
+		_, err := client.ExecuteQuery(ctx, query, 1)
 		if err != nil {
 			t.Logf("Warning: Failed to restore %s on %s in cleanup: %v", gucName, instanceName, err)
 		}
 	}
 
 	// Reload configuration to apply changes
-	_, err := client.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 1)
+	_, err := client.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
 	if err != nil {
 		t.Logf("Warning: Failed to reload config on %s in cleanup: %v", instanceName, err)
 	}

@@ -164,11 +164,15 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 	// Register table cleanup if any tables were specified
 	if len(config.tablesToDrop) > 0 {
 		t.Cleanup(func() {
+			// Use a short timeout - if processes are dead, don't hang
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
 			primaryClient := setup.GetPrimaryClient(t)
 			defer primaryClient.Close()
 
 			for _, table := range config.tablesToDrop {
-				_, err := primaryClient.Pooler.ExecuteQuery(context.Background(), fmt.Sprintf("DROP TABLE IF EXISTS %s", table), 0)
+				_, err := primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table), 0)
 				if err != nil {
 					t.Logf("Warning: Failed to drop table %s in cleanup: %v", table, err)
 				}
