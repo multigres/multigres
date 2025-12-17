@@ -226,7 +226,7 @@ func testListener(t *testing.T) *Listener {
 	listener, err := NewListener(ListenerConfig{
 		Address:      "localhost:0", // Use random available port
 		Handler:      &mockHandler{},
-		HashProvider: NewConstantHashProvider("postgres"),
+		HashProvider: newMockHashProvider("postgres"),
 		Logger:       testLogger(t),
 	})
 	require.NoError(t, err)
@@ -265,6 +265,34 @@ func (m *mockHandler) HandleClose(ctx context.Context, conn *Conn, typ byte, nam
 
 func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
+}
+
+// mockHashProvider implements scram.PasswordHashProvider for testing.
+// It accepts a single password for any user/database combination.
+type mockHashProvider struct {
+	hash *scram.ScramHash
+}
+
+func newMockHashProvider(password string) *mockHashProvider {
+	// Use a fixed salt for reproducibility in testing.
+	salt := []byte("multigres-test-salt!")
+	iterations := 4096
+
+	saltedPassword := scram.ComputeSaltedPassword(password, salt, iterations)
+	clientKey := scram.ComputeClientKey(saltedPassword)
+
+	return &mockHashProvider{
+		hash: &scram.ScramHash{
+			Iterations: iterations,
+			Salt:       salt,
+			StoredKey:  scram.ComputeStoredKey(clientKey),
+			ServerKey:  scram.ComputeServerKey(saltedPassword),
+		},
+	}
+}
+
+func (p *mockHashProvider) GetPasswordHash(_ context.Context, _, _ string) (*scram.ScramHash, error) {
+	return p.hash, nil
 }
 
 // writeStartupPacket writes a startup packet to the buffer.
@@ -374,7 +402,7 @@ func TestHandleStartupMessage(t *testing.T) {
 
 			// Client side: send startup packet and perform SCRAM auth.
 			writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, tt.params)
-			scramClientHelper(t, clientConn, tt.expectedUser, "postgres") // password is "postgres" per ConstantHashProvider
+			scramClientHelper(t, clientConn, tt.expectedUser, "postgres") // password is "postgres" per mockHashProvider
 
 			// Wait for server to complete.
 			err := <-errCh

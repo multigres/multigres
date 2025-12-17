@@ -30,10 +30,12 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multigateway/auth"
 	"github.com/multigres/multigres/go/multigateway/executor"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/multigateway/scatterconn"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -183,13 +185,17 @@ func (mg *MultiGateway) Init() error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
 
+	// Create hash provider for SCRAM authentication using the pooler gateway
+	hashProvider := auth.NewPoolerHashProvider(&poolerDiscovererAdapter{pg: mg.poolerGateway})
+
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
-		Address: pgAddr,
-		Handler: mg.pgHandler,
-		Logger:  logger,
+		Address:      pgAddr,
+		Handler:      mg.pgHandler,
+		HashProvider: hashProvider,
+		Logger:       logger,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
@@ -274,4 +280,27 @@ func (mg *MultiGateway) Shutdown() {
 
 	mg.tr.Unregister()
 	mg.ts.Close()
+}
+
+// poolerDiscovererAdapter adapts PoolerGateway to implement auth.PoolerDiscoverer.
+type poolerDiscovererAdapter struct {
+	pg *poolergateway.PoolerGateway
+}
+
+func (a *poolerDiscovererAdapter) GetPoolerClient(ctx context.Context, database string) (auth.PoolerClient, error) {
+	client, err := a.pg.PoolerClientFunc()(ctx, database)
+	if err != nil {
+		return nil, err
+	}
+	return &poolerClientWrapper{client: client}, nil
+}
+
+// poolerClientWrapper wraps the generated gRPC client to match auth.PoolerClient interface.
+// The gRPC client has ...grpc.CallOption, but auth.PoolerClient doesn't.
+type poolerClientWrapper struct {
+	client multipoolerpb.MultiPoolerServiceClient
+}
+
+func (w *poolerClientWrapper) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
+	return w.client.GetAuthCredentials(ctx, req)
 }
