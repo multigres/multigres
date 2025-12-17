@@ -38,9 +38,12 @@ $ git checkout main
 (main) $ git pull upstream main
 ```
 
-Note: In the example output above we prefixed the prompt with `(main)` to stress the fact that the command must be run from the branch `main`.
+Note: In the example output above we prefixed the prompt with `(main)` to stress
+the fact that the command must be run from the branch `main`.
 
-You can omit the `upstream main` from the `git pull` command when you let your `main` branch always track the main `multigres/multigres` repository. To achieve this, run this command once:
+You can omit the `upstream main` from the `git pull` command when you let your
+`main` branch always track the main `multigres/multigres` repository. To achieve
+this, run this command once:
 
 ```bash
 (main) $ git branch --set-upstream-to=upstream/main
@@ -82,7 +85,8 @@ Push your branch to the repository (and set it to track with `-u`):
 (new-feature) $ git push -u origin new-feature
 ```
 
-You can omit `origin` and `-u new-feature` parameters from the `git push` command with the following two Git configuration changes:
+You can omit `origin` and `-u new-feature` parameters from the `git push`
+command with the following two Git configuration changes:
 
 ```bash
 git config remote.pushdefault origin

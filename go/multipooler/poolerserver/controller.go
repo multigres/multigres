@@ -21,16 +21,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// DBConfig contains the database connection parameters.
-// This is passed to InitDBConfig instead of an actual connection,
-// following the Vitess pattern where components receive config and create their own connections.
-type DBConfig struct {
-	SocketFilePath string
-	PoolerDir      string
-	Database       string
-	PgPort         int
-}
-
 // PoolerController defines the control interface for query serving.
 // This follows the Vitess Controller pattern (see vitess/go/vt/vttablet/tabletserver/controller.go)
 //
@@ -42,27 +32,6 @@ type DBConfig struct {
 // The MultiPoolerManager creates and controls the lifecycle of the PoolerController,
 // similar to how TabletManager controls TabletServer in Vitess.
 type PoolerController interface {
-	// InitDBConfig initializes the controller with database configuration.
-	// This is called by MultiPoolerManager to provide DB connection parameters.
-	// Similar to TabletManager calling QueryServiceControl.InitDBConfig(target, dbConfigs, mysqlDaemon)
-	//
-	// Following the Vitess pattern:
-	// InitDBConfig is a continuation of New. However, the db config is not initially available.
-	// For this reason, the initialization is done in two phases.
-	//
-	// The controller can create its own DB connections using this config,
-	// allowing independent connection pools for different components.
-	//
-	// Parameters:
-	//   - dbConfig: Database connection parameters (socket, database name, port)
-	//
-	// Returns error if initialization fails.
-	InitDBConfig(dbConfig *DBConfig) error
-
-	// Open opens the database connection.
-	// This is called by MultiPoolerManager after InitDBConfig.
-	Open() error
-
 	// SetServingType transitions the query service to the required serving state.
 	//
 	// Serving states:
@@ -98,9 +67,6 @@ type PoolerController interface {
 	// RegisterGRPCServices registers gRPC services with the server.
 	// This is called by MultiPoolerManager during startup.
 	RegisterGRPCServices()
-
-	// Close shuts down the controller and releases resources.
-	Close() error
 }
 
 // Ensure MultiPooler implements PoolerController at compile time

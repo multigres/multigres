@@ -487,7 +487,8 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 
 		resp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
 		require.NoError(t, err)
-		require.Equal(t, "false", string(resp.Rows[0].Values[0]), "PostgreSQL should NOT be in recovery (should be primary)")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "PostgreSQL should NOT be in recovery (should be primary)")
 		t.Log("Confirmed PostgreSQL is running as primary")
 
 		// Send BeginTerm with a higher term to the primary
@@ -520,7 +521,8 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		// Verify PostgreSQL is now in recovery mode (demoted)
 		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
 		require.NoError(t, err)
-		assert.Equal(t, "true", string(resp.Rows[0].Values[0]),
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", string(resp.Rows[0].Values[0]),
 			"PostgreSQL should be in recovery after auto-demotion")
 		t.Log("SUCCESS: PostgreSQL is now in recovery mode (demoted)")
 
@@ -624,7 +626,8 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		// Verify original primary is primary again
 		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
 		require.NoError(t, err)
-		require.Equal(t, "false", string(resp.Rows[0].Values[0]), "Original primary should be primary again")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "Original primary should be primary again")
 
 		t.Log("Original state restored - primary is primary, standby is standby")
 	})

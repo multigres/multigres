@@ -144,6 +144,48 @@ func IsPrimary(addr string) (bool, error) {
 	return resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY, nil
 }
 
+// WaitForPoolerTypeAssigned waits for the pooler type to be assigned (either PRIMARY or REPLICA, not UNKNOWN).
+// This is useful when the test needs to call RPCs that require the pooler type to be known.
+func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration) (clustermetadatapb.PoolerType, error) {
+	t.Helper()
+
+	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	if err != nil {
+		return clustermetadatapb.PoolerType_UNKNOWN, fmt.Errorf("failed to create client: %w", err)
+	}
+	defer conn.Close()
+
+	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+
+	var poolerType clustermetadatapb.PoolerType
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		cancel()
+
+		if err != nil {
+			t.Logf("Waiting for pooler type at %s... (Status RPC error: %v)", addr, err)
+			return false
+		}
+
+		if resp == nil || resp.Status == nil {
+			t.Logf("Waiting for pooler type at %s... (nil status response)", addr)
+			return false
+		}
+
+		poolerType = resp.Status.PoolerType
+		if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
+			t.Logf("Waiting for pooler type at %s... (currently UNKNOWN)", addr)
+			return false
+		}
+
+		t.Logf("Pooler type at %s is now %s", addr, poolerType.String())
+		return true
+	}, timeout, 500*time.Millisecond, "pooler type was not assigned within %v", timeout)
+
+	return poolerType, nil
+}
+
 // Test helper functions
 
 // TestBasicSelect tests a basic SELECT query
@@ -451,7 +493,8 @@ func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
 
 	inRecovery := string(result.Rows[0].Values[0])
 	t.Logf("pg_is_in_recovery() returned: %s", inRecovery)
-	// Note: inRecovery is "false" for primary, "true" for standby/replica
+	// Note: PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+	// inRecovery is "f" for primary, "t" for standby/replica
 }
 
 // printServiceLogs prints the last N lines of a service's log file for debugging.

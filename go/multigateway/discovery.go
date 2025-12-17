@@ -203,11 +203,6 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDataRe
 	_, existed := pd.poolers[poolerID]
 	pd.poolers[poolerID] = pooler
 	pd.lastRefresh = time.Now()
-	// TODO: Remove this. Currently a hack, poolers not registering as the correct
-	// type in the topo, so making do with this for now.
-	if pooler.Type == clustermetadatapb.PoolerType_UNKNOWN {
-		pooler.Type = clustermetadatapb.PoolerType_PRIMARY
-	}
 
 	if !existed {
 		pd.logger.Info("New pooler discovered",
@@ -260,6 +255,21 @@ func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.Mu
 		targetType = clustermetadatapb.PoolerType_PRIMARY
 	}
 
+	// Debug: Log all discovered poolers
+	pd.logger.Debug("GetPooler called - listing all discovered poolers",
+		"target_tablegroup", target.TableGroup,
+		"target_shard", target.Shard,
+		"target_pooler_type", targetType.String(),
+		"total_poolers", len(pd.poolers))
+	for i, pooler := range pd.poolers {
+		pd.logger.Debug("discovered pooler",
+			"index", i,
+			"pooler_id", topoclient.MultiPoolerIDString(pooler.Id),
+			"tablegroup", pooler.TableGroup,
+			"shard", pooler.Shard,
+			"type", pooler.Type.String())
+	}
+
 	// Find matching pooler
 	for _, pooler := range pd.poolers {
 		// TableGroup must match
@@ -278,6 +288,11 @@ func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.Mu
 		}
 
 		// Found a match!
+		pd.logger.Debug("selected pooler for target",
+			"pooler_id", topoclient.MultiPoolerIDString(pooler.Id),
+			"pooler_type", pooler.Type.String(),
+			"tablegroup", pooler.TableGroup,
+			"shard", pooler.Shard)
 		return proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler)
 	}
 

@@ -73,9 +73,24 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, stat.IsDir())
 
-		// Verify spool directory was created
-		spoolDir := filepath.Join(tmpDir, "spool", "pgbackrest")
-		stat, err = os.Stat(spoolDir)
+		// Verify per-pooler spool and lock directories were created
+		spoolDir1 := filepath.Join(tmpDir, "data", "backups", "spool", "pooler_test-service-1")
+		stat, err = os.Stat(spoolDir1)
+		require.NoError(t, err)
+		assert.True(t, stat.IsDir())
+
+		spoolDir2 := filepath.Join(tmpDir, "data", "backups", "spool", "pooler_test-service-2")
+		stat, err = os.Stat(spoolDir2)
+		require.NoError(t, err)
+		assert.True(t, stat.IsDir())
+
+		lockDir1 := filepath.Join(tmpDir, "data", "backups", "lock", "pooler_test-service-1")
+		stat, err = os.Stat(lockDir1)
+		require.NoError(t, err)
+		assert.True(t, stat.IsDir())
+
+		lockDir2 := filepath.Join(tmpDir, "data", "backups", "lock", "pooler_test-service-2")
+		stat, err = os.Stat(lockDir2)
 		require.NoError(t, err)
 		assert.True(t, stat.IsDir())
 
@@ -88,7 +103,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.NotContains(t, string(content1), "repo1-path=")   // repo1-path should not be in config
 		assert.Contains(t, string(content1), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content1), "pg2-path=")        // Has zone2 as pg2
-		assert.Contains(t, string(content1), "spool-path="+spoolDir)
+		assert.Contains(t, string(content1), "spool-path="+spoolDir1)
+		assert.Contains(t, string(content1), "lock-path="+lockDir1)
 
 		config2 := filepath.Join(tmpDir, "pooler2", "pgbackrest.conf")
 		content2, err := os.ReadFile(config2)
@@ -98,7 +114,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.NotContains(t, string(content2), "repo1-path=")   // repo1-path should not be in config
 		assert.Contains(t, string(content2), "pg1-socket-path=") // Using socket connections
 		assert.Contains(t, string(content2), "pg2-path=")        // Has zone1 as pg2
-		assert.Contains(t, string(content2), "spool-path="+spoolDir)
+		assert.Contains(t, string(content2), "spool-path="+spoolDir2)
+		assert.Contains(t, string(content2), "lock-path="+lockDir2)
 	})
 
 	t.Run("uses default paths when BackupConf is empty", func(t *testing.T) {
@@ -140,9 +157,14 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		// Verify BackupRepoPath was set to default
 		assert.Equal(t, defaultBackupDir, p.config.BackupRepoPath)
 
-		// Verify spool directory was created
-		defaultSpoolDir := filepath.Join(tmpDir, "spool", "pgbackrest")
-		stat, err = os.Stat(defaultSpoolDir)
+		// Verify per-pooler spool and lock directories were created
+		spoolDir := filepath.Join(tmpDir, "data", "backups", "spool", "pooler_test-service")
+		stat, err = os.Stat(spoolDir)
+		require.NoError(t, err)
+		assert.True(t, stat.IsDir())
+
+		lockDir := filepath.Join(tmpDir, "data", "backups", "lock", "pooler_test-service")
+		stat, err = os.Stat(lockDir)
 		require.NoError(t, err)
 		assert.True(t, stat.IsDir())
 
@@ -153,7 +175,8 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.Contains(t, string(content), "[global]")
 		assert.Contains(t, string(content), "[multigres]")    // Shared stanza for HA
 		assert.NotContains(t, string(content), "repo1-path=") // repo1-path should not be in config
-		assert.Contains(t, string(content), "spool-path="+defaultSpoolDir)
+		assert.Contains(t, string(content), "spool-path="+spoolDir)
+		assert.Contains(t, string(content), "lock-path="+lockDir)
 	})
 
 	t.Run("handles multiple cells correctly", func(t *testing.T) {

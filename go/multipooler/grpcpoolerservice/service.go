@@ -18,6 +18,10 @@ package grpcpoolerservice
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
@@ -83,4 +87,120 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 	return &multipoolerpb.ExecuteQueryResponse{
 		Result: res,
 	}, nil
+}
+
+// GetAuthCredentials retrieves authentication credentials (SCRAM hash) for a PostgreSQL user.
+// This is used by multigateway to authenticate clients using SCRAM-SHA-256.
+func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
+	// Validate request.
+	if req.Username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	if req.Database == "" {
+		return nil, status.Error(codes.InvalidArgument, "database is required")
+	}
+
+	// Check if pooler is initialized.
+	if s.pooler == nil {
+		return nil, status.Error(codes.Unavailable, "pooler not initialized")
+	}
+
+	// Get the executor from the pooler.
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "executor not initialized: %v", err)
+	}
+
+	// Query pg_authid for the user's password hash.
+	// Note: This requires superuser access to read pg_authid.
+	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = '%s' LIMIT 1",
+		escapeString(req.Username))
+
+	options := &querypb.ExecuteOptions{MaxRows: 1}
+	result, err := executor.ExecuteQuery(ctx, nil, query, options)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to query credentials: %v", err)
+	}
+
+	// Check if user exists.
+	if len(result.Rows) == 0 {
+		return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
+	}
+
+	// Extract the password hash.
+	var scramHash string
+	if len(result.Rows[0].Values) > 0 {
+		scramHash = string(result.Rows[0].Values[0])
+	}
+
+	return &multipoolerpb.GetAuthCredentialsResponse{
+		ScramHash: scramHash,
+	}, nil
+}
+
+// escapeString escapes a string for safe use in SQL queries.
+// This doubles single quotes for PostgreSQL.
+func escapeString(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
+
+// Describe returns metadata about a prepared statement or portal.
+// Used by multigateway for the Extended Query Protocol.
+func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
+	// Get the executor from the pooler
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return nil, fmt.Errorf("executor not initialized")
+	}
+
+	// Call the executor's Describe method
+	desc, err := executor.Describe(ctx, req.Target, req.PreparedStatement, req.Portal, req.Options)
+	if err != nil {
+		return nil, err
+	}
+
+	return &multipoolerpb.DescribeResponse{
+		Description: desc,
+	}, nil
+}
+
+// PortalStreamExecute executes a portal (bound prepared statement) and streams results.
+// Used by multigateway for the Extended Query Protocol.
+func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
+	// Get the executor from the pooler
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return err
+	}
+
+	// Execute the portal and stream results
+	reservedState, err := executor.PortalStreamExecute(
+		stream.Context(),
+		req.Target,
+		req.PreparedStatement,
+		req.Portal,
+		req.Options,
+		func(ctx context.Context, result *querypb.QueryResult) error {
+			// Send the result back to the client
+			response := &multipoolerpb.PortalStreamExecuteResponse{
+				Result: result,
+			}
+			return stream.Send(response)
+		},
+	)
+	if err != nil {
+		// Note: When PortalStreamExecute returns an error, it also releases any reserved
+		// connection and returns an empty ReservedState. So we don't need to send a
+		// reserved connection ID in the error case.
+		return err
+	}
+
+	// Send final response with reserved connection ID if one was created
+	if reservedState.ReservedConnectionId > 0 {
+		return stream.Send(&multipoolerpb.PortalStreamExecuteResponse{
+			ReservedConnectionId: reservedState.ReservedConnectionId,
+		})
+	}
+
+	return nil
 }

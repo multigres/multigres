@@ -164,6 +164,11 @@ message ExecuteOptions {
   // Key is the variable name, value is the variable value.
   map<string, string> session_settings = 1;
 
+  // user is the PostgreSQL user/role identity for query execution.
+  // This determines which per-user connection pool to use.
+  // Required for per-user pool routing in the multipooler.
+  string user = 2;
+
   // max_rows is the maximum number of rows to return from Execute.
   // 0 means return all rows. Used by the Execute message in the extended query protocol.
   uint64 max_rows = 4;

@@ -47,27 +47,35 @@ func TestFixReplication(t *testing.T) {
 	}
 
 	// Setup test cluster (2 zones: primary + replica)
-	clusterSetup := setupTestCluster(t)
-	t.Cleanup(clusterSetup.Cleanup)
+	clusterSetup, cleanup := setupTestCluster(t)
+	t.Cleanup(cleanup)
 	t.Logf("Test cluster ready in directory: %s", clusterSetup.TempDir)
 
 	// Identify primary and replica zones
+	// Wait for pooler types to be assigned (not UNKNOWN) before proceeding
 	zone1Addr := fmt.Sprintf("localhost:%d", clusterSetup.PortConfig.Zones[0].MultipoolerGRPCPort)
 	zone2Addr := fmt.Sprintf("localhost:%d", clusterSetup.PortConfig.Zones[1].MultipoolerGRPCPort)
 
-	zone1IsPrimary, err := IsPrimary(zone1Addr)
-	require.NoError(t, err, "should be able to check zone1 primary status")
+	t.Log("Waiting for pooler types to be assigned...")
+	zone1Type, err := WaitForPoolerTypeAssigned(t, zone1Addr, 30*time.Second)
+	require.NoError(t, err, "zone1 pooler type should be assigned")
+
+	zone2Type, err := WaitForPoolerTypeAssigned(t, zone2Addr, 30*time.Second)
+	require.NoError(t, err, "zone2 pooler type should be assigned")
 
 	var primaryAddr, replicaAddr string
 	var replicaZoneName string
-	if zone1IsPrimary {
+	if zone1Type == clustermetadatapb.PoolerType_PRIMARY {
 		primaryAddr = zone1Addr
 		replicaAddr = zone2Addr
 		replicaZoneName = "zone2"
+		require.Equal(t, clustermetadatapb.PoolerType_REPLICA, zone2Type, "zone2 should be REPLICA when zone1 is PRIMARY")
 	} else {
 		primaryAddr = zone2Addr
 		replicaAddr = zone1Addr
 		replicaZoneName = "zone1"
+		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, zone2Type, "zone2 should be PRIMARY when zone1 is not PRIMARY")
+		require.Equal(t, clustermetadatapb.PoolerType_REPLICA, zone1Type, "zone1 should be REPLICA when zone2 is PRIMARY")
 	}
 	t.Logf("Identified primary: %s, replica: %s (addr: %s)", primaryAddr, replicaZoneName, replicaAddr)
 
@@ -88,6 +96,19 @@ func TestFixReplication(t *testing.T) {
 	// Verify replication is currently working
 	t.Log("Verifying replication is working before breaking it...")
 	verifyReplicationStreaming(t, replicaAddr)
+
+	// Wait for CREATE TABLE to be replicated to replica before breaking replication.
+	// This ensures the table exists on the replica when we query it later.
+	t.Log("Waiting for table to be replicated to replica...")
+	require.Eventually(t, func() bool {
+		_, err := replicaClient.ExecuteQuery(context.Background(), "SELECT 1 FROM fix_replication_test LIMIT 0", 0)
+		if err != nil {
+			t.Logf("Table not yet on replica: %v", err)
+			return false
+		}
+		return true
+	}, 10*time.Second, 100*time.Millisecond, "table should be replicated to replica")
+	t.Log("Table verified on replica")
 
 	// Break replication using RPC
 	t.Logf("Breaking replication on %s via RPC...", replicaZoneName)

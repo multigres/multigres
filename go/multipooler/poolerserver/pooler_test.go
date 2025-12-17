@@ -15,171 +15,34 @@
 package poolerserver
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewMultiPooler(t *testing.T) {
+func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	pooler := NewMultiPooler(logger)
+	// Creating with nil pool manager should work but executor will be nil
+	pooler := NewQueryPoolerServer(logger, nil)
 
 	assert.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
-	// Executor should be nil until InitDBConfig is called
+	// Executor should be nil since pool manager was nil
 	exec, err := pooler.Executor()
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "pool manager was nil")
 	assert.Nil(t, exec)
 }
 
-func TestConfig(t *testing.T) {
-	tests := []struct {
-		name           string
-		socketFilePath string
-		database       string
-		pgPort         int
-	}{
-		{
-			name:           "Unix socket configuration",
-			socketFilePath: "/tmp/postgres.sock",
-			database:       "testdb",
-			pgPort:         5432,
-		},
-		{
-			name:           "TCP configuration",
-			socketFilePath: "localhost",
-			database:       "proddb",
-			pgPort:         5433,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &DBConfig{
-				SocketFilePath: tt.socketFilePath,
-				Database:       tt.database,
-				PgPort:         tt.pgPort,
-			}
-
-			assert.Equal(t, tt.socketFilePath, config.SocketFilePath)
-			assert.Equal(t, tt.database, config.Database)
-			assert.Equal(t, tt.pgPort, config.PgPort)
-		})
-	}
-}
-
-func TestExecuteQuery_InvalidInput(t *testing.T) {
+func TestIsHealthy_NotInitialized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewMultiPooler(logger)
+	pooler := NewQueryPoolerServer(logger, nil)
 
-	dbConfig := &DBConfig{
-		SocketFilePath: "/nonexistent/socket",
-		PoolerDir:      "/nonexistent/pooler",
-		Database:       "testdb",
-		PgPort:         5432,
-	}
-
-	// Initialize the config
-	err := pooler.InitDBConfig(dbConfig)
-	assert.NoError(t, err)
-
-	// Try to open - this should fail because the socket doesn't exist
-	err = pooler.Open()
+	// IsHealthy should fail since the pool manager is not initialized
+	err := pooler.IsHealthy()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to ping database")
-
-	// Executor should fail since the database is not opened
-	exec, err := pooler.Executor()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "executor not ready")
-	assert.Nil(t, exec)
-
-	// IsHealthy should fail since the database connection is not opened
-	err = pooler.IsHealthy()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "database connection not initialized")
-}
-
-func TestExecuteQuery_QueryTypeDetection(t *testing.T) {
-	tests := []struct {
-		name     string
-		query    string
-		isSelect bool
-	}{
-		{"SELECT query", "SELECT * FROM users", true},
-		{"SELECT with whitespace", "  SELECT id FROM table  ", true},
-		{"WITH query", "WITH cte AS (SELECT 1) SELECT * FROM cte", true},
-		{"SHOW query", "SHOW TABLES", true},
-		{"EXPLAIN query", "EXPLAIN SELECT * FROM users", true},
-		{"INSERT query", "INSERT INTO users VALUES (1, 'test')", false},
-		{"UPDATE query", "UPDATE users SET name = 'test'", false},
-		{"DELETE query", "DELETE FROM users WHERE id = 1", false},
-		{"CREATE query", "CREATE TABLE test (id INT)", false},
-		{"DROP query", "DROP TABLE test", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test the query type detection logic indirectly
-			// by checking if the query starts with expected prefixes
-			query := tt.query
-			trimmed := strings.TrimSpace(strings.ToUpper(query))
-
-			isSelect := strings.HasPrefix(trimmed, "SELECT") ||
-				strings.HasPrefix(trimmed, "WITH") ||
-				strings.HasPrefix(trimmed, "SHOW") ||
-				strings.HasPrefix(trimmed, "EXPLAIN")
-
-			assert.Equal(t, tt.isSelect, isSelect, "Query type detection failed for: %s", tt.query)
-		})
-	}
-}
-
-func TestResultTranslation_NullValues(t *testing.T) {
-	// Test how NULL values are handled in result translation
-	tests := []struct {
-		name     string
-		input    any
-		expected []byte
-	}{
-		{"Null value", nil, nil},
-		{"String value", "test", []byte("test")},
-		{"Integer value", 42, []byte("42")},
-		{"Boolean true", true, []byte("true")},
-		{"Boolean false", false, []byte("false")},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the value conversion logic from executeSelectQuery
-			var result []byte
-			if tt.input == nil {
-				result = nil
-			} else {
-				result = fmt.Appendf(nil, "%v", tt.input)
-			}
-
-			if tt.expected == nil {
-				assert.Nil(t, result)
-			} else {
-				assert.Equal(t, tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestClose(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewMultiPooler(logger)
-
-	// Test closing when no connection exists
-	err := pooler.Close()
-	assert.NoError(t, err)
-
-	// Note: Testing with actual database connection would require integration test
+	assert.Contains(t, err.Error(), "executor not initialized")
 }
