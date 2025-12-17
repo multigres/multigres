@@ -113,7 +113,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 
 	// Query pg_authid for the user's password hash.
 	// Note: This requires superuser access to read pg_authid.
-	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = '%s'",
+	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = '%s' LIMIT 1",
 		escapeString(req.Username))
 
 	options := &querypb.ExecuteOptions{MaxRows: 1}
