@@ -97,6 +97,19 @@ func TestFixReplication(t *testing.T) {
 	t.Log("Verifying replication is working before breaking it...")
 	verifyReplicationStreaming(t, replicaAddr)
 
+	// Wait for CREATE TABLE to be replicated to replica before breaking replication.
+	// This ensures the table exists on the replica when we query it later.
+	t.Log("Waiting for table to be replicated to replica...")
+	require.Eventually(t, func() bool {
+		_, err := replicaClient.ExecuteQuery(context.Background(), "SELECT 1 FROM fix_replication_test LIMIT 0", 0)
+		if err != nil {
+			t.Logf("Table not yet on replica: %v", err)
+			return false
+		}
+		return true
+	}, 10*time.Second, 100*time.Millisecond, "table should be replicated to replica")
+	t.Log("Table verified on replica")
+
 	// Break replication using RPC
 	t.Logf("Breaking replication on %s via RPC...", replicaZoneName)
 	breakReplicationViaRPC(t, replicaAddr)
