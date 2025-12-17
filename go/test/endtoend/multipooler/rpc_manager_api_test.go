@@ -64,7 +64,7 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 			st, ok := status.FromError(err)
 			if ok && st.Message() == "unknown service multipoolermanager.MultiPoolerManager" {
 				t.Logf("Got 'unknown service' error - checking multipooler logs:")
-				setup.PrimaryMultipooler.logRecentOutput(t, "Debug - unknown service error")
+				setup.PrimaryMultipooler.LogRecentOutput(t, "Debug - unknown service error")
 			}
 		}
 

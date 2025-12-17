@@ -93,6 +93,31 @@ func WithStanzaName(stanza string) SetupOption {
 	}
 }
 
+// SetupTestConfig holds configuration for SetupTest.
+type SetupTestConfig struct {
+	NoReplication    bool // Don't configure replication
+	PauseReplication bool // Configure replication but pause WAL replay
+}
+
+// SetupTestOption is a function that configures SetupTest behavior.
+type SetupTestOption func(*SetupTestConfig)
+
+// WithoutReplication returns an option that disables replication setup.
+// Use this for tests that need to set up replication from scratch.
+func WithoutReplication() SetupTestOption {
+	return func(c *SetupTestConfig) {
+		c.NoReplication = true
+	}
+}
+
+// WithPausedReplication returns an option that starts replication but pauses WAL replay.
+// Use this for tests that need to test pg_wal_replay_resume().
+func WithPausedReplication() SetupTestOption {
+	return func(c *SetupTestConfig) {
+		c.PauseReplication = true
+	}
+}
+
 // multipoolerName returns the name for a multipooler instance by index.
 // Index 0 is "primary", index 1+ are "standby", "standby2", "standby3", etc.
 func multipoolerName(index int) string {
@@ -811,15 +836,29 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 // SetupTest provides test isolation by validating clean state, configuring replication,
 // and automatically restoring state changes at test cleanup.
 //
-// This method:
+// DEFAULT BEHAVIOR (no options):
 //   - Validates clean state before test
 //   - Configures replication on all standbys (sets primary_conninfo, starts WAL streaming)
 //   - Disables synchronous replication (safe - writes won't hang)
 //   - Registers cleanup to reset to clean state after test
 //
+// WithoutReplication():
+//   - Does NOT configure replication: primary_conninfo stays empty
+//   - Use for tests that set up replication from scratch
+//
+// WithPausedReplication():
+//   - Configures replication but pauses WAL replay
+//   - Use for tests that need to test pg_wal_replay_resume()
+//
 // Follows the pattern from multipooler/setup_test.go:setupPoolerTest.
-func (s *ShardSetup) SetupTest(t *testing.T) {
+func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	t.Helper()
+
+	// Parse options
+	config := &SetupTestConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
 
 	// Fail fast if shared processes died
 	s.CheckSharedProcesses(t)
@@ -829,28 +868,30 @@ func (s *ShardSetup) SetupTest(t *testing.T) {
 		t.Fatalf("SetupTest: %v. Previous test leaked state.", err)
 	}
 
-	// Configure replication on all standbys
-	primary := s.GetMultipoolerInstance("primary")
-	if primary == nil {
-		t.Log("SetupTest: Cannot configure replication (no primary)")
-	} else {
-		// SAFETY: Always disable synchronous replication to prevent write hangs
-		primaryClient, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
-		if err == nil {
-			_, err := primaryClient.Pooler.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 0)
+	// Configure replication unless explicitly disabled
+	if !config.NoReplication {
+		primary := s.GetMultipoolerInstance("primary")
+		if primary == nil {
+			t.Log("SetupTest: Cannot configure replication (no primary)")
+		} else {
+			// SAFETY: Always disable synchronous replication to prevent write hangs
+			primaryClient, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
 			if err == nil {
-				_, _ = primaryClient.Pooler.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 0)
-				t.Log("SetupTest: Disabled synchronous replication for safety")
+				_, err := primaryClient.Pooler.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 0)
+				if err == nil {
+					_, _ = primaryClient.Pooler.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 0)
+					t.Log("SetupTest: Disabled synchronous replication for safety")
+				}
+				primaryClient.Close()
 			}
-			primaryClient.Close()
-		}
 
-		// Configure replication on all standbys
-		for name := range s.Multipoolers {
-			if name == "primary" {
-				continue
+			// Configure replication on all standbys
+			for name := range s.Multipoolers {
+				if name == "primary" {
+					continue
+				}
+				s.configureStandbyReplication(t, name, config.PauseReplication)
 			}
-			s.configureStandbyReplication(t, name)
 		}
 	}
 
@@ -866,7 +907,8 @@ func (s *ShardSetup) SetupTest(t *testing.T) {
 }
 
 // configureStandbyReplication configures a single standby to replicate from the primary.
-func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName string) {
+// If pauseReplication is true, WAL replay is paused after replication is configured.
+func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName string, pauseReplication bool) {
 	t.Helper()
 
 	standby := s.GetMultipoolerInstance(standbyName)
@@ -924,6 +966,17 @@ func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName strin
 		}
 		return string(resp.Rows[0].Values[0]) == "streaming"
 	}, 10*time.Second, 100*time.Millisecond, "Replication should be streaming on %s", standbyName)
+
+	// Optionally pause WAL replay
+	if pauseReplication {
+		_, err := client.Pooler.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_pause()", 1)
+		if err != nil {
+			t.Logf("SetupTest: Failed to pause WAL replay on %s: %v", standbyName, err)
+		} else {
+			t.Logf("SetupTest: %s replication streaming, WAL replay PAUSED", standbyName)
+			return
+		}
+	}
 
 	t.Logf("SetupTest: %s replication streaming", standbyName)
 }

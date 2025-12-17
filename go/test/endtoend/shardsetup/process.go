@@ -218,7 +218,7 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 	// Check if process died immediately
 	if p.Process.ProcessState != nil {
 		t.Logf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
-		p.logRecentOutput(t, "Process died immediately")
+		p.LogRecentOutput(t, "Process died immediately")
 		return fmt.Errorf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
 	}
 
@@ -229,7 +229,7 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 		// Check if process died during startup
 		if p.Process.ProcessState != nil {
 			t.Logf("%s process died during startup: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
-			p.logRecentOutput(t, "Process died during startup")
+			p.LogRecentOutput(t, "Process died during startup")
 			return fmt.Errorf("%s process died: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
 		}
 
@@ -253,13 +253,13 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 	}
 
 	t.Logf("Timeout waiting for %s after %d connection attempts", p.Name, connectAttempts)
-	p.logRecentOutput(t, "Timeout waiting for server to start")
+	p.LogRecentOutput(t, "Timeout waiting for server to start")
 	return fmt.Errorf("timeout: %s failed to start listening on port %d after %d attempts", p.Name, p.GrpcPort, connectAttempts)
 }
 
-// logRecentOutput logs recent output from the process log file.
+// LogRecentOutput logs recent output from the process log file.
 // Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) logRecentOutput(t *testing.T, context string) {
+func (p *ProcessInstance) LogRecentOutput(t *testing.T, context string) {
 	t.Helper()
 	if p.LogFile == "" {
 		return
