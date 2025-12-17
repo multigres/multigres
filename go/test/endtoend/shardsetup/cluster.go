@@ -1,0 +1,345 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package shardsetup
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/test/utils"
+)
+
+// MultipoolerInstance represents a multipooler instance, which is a pair of pgctld + multipooler processes.
+// In multigres, a multipooler always has both: pgctld manages PostgreSQL, multipooler handles pooling.
+type MultipoolerInstance struct {
+	Name        string
+	Pgctld      *ProcessInstance
+	Multipooler *ProcessInstance
+}
+
+// ShardSetup holds shared test infrastructure for a single shard.
+// MultipoolerInstances are stored in a map by name for flexible access.
+type ShardSetup struct {
+	TempDir        string
+	TempDirCleanup func()
+	EtcdClientAddr string
+	EtcdCmd        *exec.Cmd
+	TopoServer     topoclient.Store
+
+	// MultipoolerInstances indexed by name (e.g., "primary", "standby", "node0", "node1")
+	Multipoolers map[string]*MultipoolerInstance
+
+	// Multiorch instances (can have multiple)
+	MultiOrchInstances map[string]*ProcessInstance
+}
+
+// GetMultipoolerInstance returns a multipooler instance by name, or nil if not found.
+func (s *ShardSetup) GetMultipoolerInstance(name string) *MultipoolerInstance {
+	if s == nil || s.Multipoolers == nil {
+		return nil
+	}
+	return s.Multipoolers[name]
+}
+
+// GetMultipooler returns the multipooler process for an instance by name.
+// Convenience method for tests that need just the multipooler process.
+func (s *ShardSetup) GetMultipooler(name string) *ProcessInstance {
+	inst := s.GetMultipoolerInstance(name)
+	if inst == nil {
+		return nil
+	}
+	return inst.Multipooler
+}
+
+// GetPgctld returns the pgctld process for an instance by name.
+// Convenience method for tests that need just the pgctld process.
+func (s *ShardSetup) GetPgctld(name string) *ProcessInstance {
+	inst := s.GetMultipoolerInstance(name)
+	if inst == nil {
+		return nil
+	}
+	return inst.Pgctld
+}
+
+// GetMultiOrch returns a multiorch instance by name, or nil if not found.
+func (s *ShardSetup) GetMultiOrch(name string) *ProcessInstance {
+	if s == nil || s.MultiOrchInstances == nil {
+		return nil
+	}
+	return s.MultiOrchInstances[name]
+}
+
+// PrimaryMultipooler returns the multipooler for the instance named "primary".
+// Convenience method for tests using the primary/standby naming convention.
+func (s *ShardSetup) PrimaryMultipooler() *ProcessInstance {
+	return s.GetMultipooler("primary")
+}
+
+// StandbyMultipooler returns the multipooler for the instance named "standby".
+// Convenience method for tests using the primary/standby naming convention.
+func (s *ShardSetup) StandbyMultipooler() *ProcessInstance {
+	return s.GetMultipooler("standby")
+}
+
+// PrimaryPgctld returns the pgctld for the instance named "primary".
+// Convenience method for tests using the primary/standby naming convention.
+func (s *ShardSetup) PrimaryPgctld() *ProcessInstance {
+	return s.GetPgctld("primary")
+}
+
+// StandbyPgctld returns the pgctld for the instance named "standby".
+// Convenience method for tests using the primary/standby naming convention.
+func (s *ShardSetup) StandbyPgctld() *ProcessInstance {
+	return s.GetPgctld("standby")
+}
+
+// CreateMultipoolerInstance creates a new multipooler instance (pgctld + multipooler pair) with the given name.
+// The instance is added to the setup's Multipoolers map.
+// Follows the patterns from multipooler/setup_test.go.
+func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPort, pgPort, multipoolerPort int, stanzaName string) *MultipoolerInstance {
+	t.Helper()
+
+	if s.Multipoolers == nil {
+		s.Multipoolers = make(map[string]*MultipoolerInstance)
+	}
+
+	// Create pgctld instance
+	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort)
+
+	// Create multipooler instance
+	multipooler := CreateMultipoolerProcessInstance(t, name+"-multipooler", s.TempDir, multipoolerPort,
+		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, stanzaName)
+
+	inst := &MultipoolerInstance{
+		Name:        name,
+		Pgctld:      pgctld,
+		Multipooler: multipooler,
+	}
+
+	s.Multipoolers[name] = inst
+	return inst
+}
+
+// CreatePgctldInstance creates a new pgctld process instance configuration.
+// Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort int) *ProcessInstance {
+	t.Helper()
+
+	dataDir := filepath.Join(baseDir, name, "data")
+	logFile := filepath.Join(baseDir, name, "pgctld.log")
+
+	// Create data directory
+	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
+	require.NoError(t, err)
+
+	return &ProcessInstance{
+		Name:        name,
+		DataDir:     dataDir,
+		LogFile:     logFile,
+		GrpcPort:    grpcPort,
+		PgPort:      pgPort,
+		Binary:      "pgctld",
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8"),
+	}
+}
+
+// CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
+// Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, stanzaName string) *ProcessInstance {
+	t.Helper()
+
+	logFile := filepath.Join(baseDir, name, "multipooler.log")
+	// Create log directory
+	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
+	require.NoError(t, err)
+
+	return &ProcessInstance{
+		Name:        name,
+		ServiceID:   name,
+		LogFile:     logFile,
+		GrpcPort:    grpcPort,
+		PgPort:      pgPort,
+		PgctldAddr:  pgctldAddr,
+		DataDir:     pgctldDataDir,
+		EtcdAddr:    etcdAddr,
+		StanzaName:  stanzaName,
+		Binary:      "multipooler",
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
+	}
+}
+
+// CreateMultiOrchInstance creates a new multiorch instance and adds it to the setup.
+// Follows the pattern from multiorch/multiorch_helpers.go:startMultiOrch.
+func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, watchTargets []string) *ProcessInstance {
+	t.Helper()
+
+	if s.MultiOrchInstances == nil {
+		s.MultiOrchInstances = make(map[string]*ProcessInstance)
+	}
+
+	orchDataDir := filepath.Join(s.TempDir, name)
+	logFile := filepath.Join(orchDataDir, "multiorch.log")
+
+	// Create data directory
+	err := os.MkdirAll(orchDataDir, 0o755)
+	require.NoError(t, err)
+
+	grpcPort := utils.GetFreePort(t)
+	httpPort := utils.GetFreePort(t)
+
+	instance := &ProcessInstance{
+		Name:         name,
+		DataDir:      orchDataDir,
+		LogFile:      logFile,
+		GrpcPort:     grpcPort,
+		HttpPort:     httpPort,
+		Cell:         cell,
+		EtcdAddr:     s.EtcdClientAddr,
+		WatchTargets: watchTargets,
+		Binary:       "multiorch",
+		Environment:  os.Environ(),
+	}
+
+	s.MultiOrchInstances[name] = instance
+	return instance
+}
+
+// Cleanup cleans up the shared test infrastructure.
+// Follows the pattern from multipooler/setup_test.go:cleanupSharedTestSetup.
+func (s *ShardSetup) Cleanup() {
+	if s == nil {
+		return
+	}
+
+	// Stop multiorch instances first (they orchestrate the shard)
+	for _, mo := range s.MultiOrchInstances {
+		if mo != nil {
+			mo.Stop()
+		}
+	}
+
+	// Stop multipooler instances (multipooler first, then pgctld)
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler != nil {
+			inst.Multipooler.Stop()
+		}
+		if inst.Pgctld != nil {
+			inst.Pgctld.Stop()
+		}
+	}
+
+	// Close topology server
+	if s.TopoServer != nil {
+		s.TopoServer.Close()
+	}
+
+	// Stop etcd
+	if s.EtcdCmd != nil && s.EtcdCmd.Process != nil {
+		_ = s.EtcdCmd.Process.Kill()
+		_ = s.EtcdCmd.Wait()
+	}
+
+	// Clean up temp directory
+	if s.TempDirCleanup != nil {
+		s.TempDirCleanup()
+	}
+}
+
+// DumpServiceLogs prints service log files to help debug test failures.
+// Call this before cleanup so logs are available.
+// Follows the pattern from multipooler/setup_test.go:dumpServiceLogs.
+func (s *ShardSetup) DumpServiceLogs() {
+	if s == nil {
+		return
+	}
+
+	println("\n" + "=" + "=== SERVICE LOGS (test failure) ===" + "=")
+
+	// Collect all instances
+	var instances []*ProcessInstance
+
+	for _, inst := range s.Multipoolers {
+		if inst.Pgctld != nil {
+			instances = append(instances, inst.Pgctld)
+		}
+		if inst.Multipooler != nil {
+			instances = append(instances, inst.Multipooler)
+		}
+	}
+
+	for _, mo := range s.MultiOrchInstances {
+		instances = append(instances, mo)
+	}
+
+	for _, inst := range instances {
+		if inst == nil || inst.LogFile == "" {
+			continue
+		}
+
+		println("\n--- " + inst.Name + " (" + inst.LogFile + ") ---")
+		content, err := os.ReadFile(inst.LogFile)
+		if err != nil {
+			println("  [error reading log: " + err.Error() + "]")
+			continue
+		}
+		if len(content) == 0 {
+			println("  [empty log file]")
+			continue
+		}
+		println(string(content))
+	}
+
+	println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
+}
+
+// CheckSharedProcesses verifies all shared test processes are still running.
+// This catches crashes from previous tests early, before confusing timeout errors.
+// Follows the pattern from multipooler/setup_test.go:checkSharedProcesses.
+func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
+	t.Helper()
+
+	if s == nil {
+		return
+	}
+
+	var dead []string
+
+	// Check multipooler instances
+	for name, inst := range s.Multipoolers {
+		if inst.Pgctld != nil && !inst.Pgctld.IsRunning() {
+			dead = append(dead, name+"-pgctld")
+		}
+		if inst.Multipooler != nil && !inst.Multipooler.IsRunning() {
+			dead = append(dead, name+"-multipooler")
+		}
+	}
+
+	// Check multiorch instances
+	for name, mo := range s.MultiOrchInstances {
+		if mo != nil && !mo.IsRunning() {
+			dead = append(dead, name)
+		}
+	}
+
+	if len(dead) > 0 {
+		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)
+	}
+}
