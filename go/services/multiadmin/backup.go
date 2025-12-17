@@ -166,6 +166,8 @@ func (s *MultiAdminServer) RestoreFromBackup(ctx context.Context, req *multiadmi
 
 	// Create job
 	jobID := s.backupJobTracker.CreateJob(multiadminpb.JobType_JOB_TYPE_RESTORE, req.Database, req.TableGroup, req.Shard)
+	// TODO: store job_id somewhere persistent, such as the PGDATA directory or topo,
+	// so that job state is not lost after multiadmin restart
 
 	// Start restore in background
 	go func() {
