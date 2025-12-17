@@ -35,11 +35,9 @@ import (
 
 // TestMultipoolerPrimaryPosition tests the replication API functionality
 func TestMultipoolerPrimaryPosition(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -100,11 +98,9 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 }
 
 func TestPrimaryStatus(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -312,11 +308,9 @@ func TestPrimaryStatus(t *testing.T) {
 }
 
 func TestGetFollowers(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 

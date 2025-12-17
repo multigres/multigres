@@ -43,13 +43,14 @@ import (
 // The race typically occurred ~7 seconds after initial bootstrap completion.
 // Fixed: Distributed locking now prevents concurrent bootstrap attempts.
 func TestDeadPrimaryRecovery(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end leader reelection test (short mode)")
+	if testing.Short() {
+		t.Skip("skipping TestMultiOrchLeaderReelection test in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end leader reelection test (short mode or no postgres binaries)")
+	}
 
-	_, err = exec.LookPath("etcd")
+	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH")
 
 	// Setup test environment
@@ -123,13 +124,14 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 // the operator should restart the pooler rather than triggering an automatic failover.
 // This avoids unnecessary failovers for OOM or process crashes that don't affect the database.
 func TestPoolerDownNoFailover(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
+	if testing.Short() {
 		t.Skip("Skipping end-to-end pooler down test (short mode)")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end pooler down test (short mode or no postgres binaries)")
+	}
 
-	_, err = exec.LookPath("etcd")
+	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd binary must be available in PATH")
 
 	// Setup test environment

@@ -26,16 +26,13 @@ import (
 
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/client"
-	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestPgProtocolClientConnection tests basic connection establishment.
 func TestPgProtocolClientConnection(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -96,11 +93,9 @@ func TestPgProtocolClientConnection(t *testing.T) {
 
 // TestPgProtocolClientSimpleQuery tests the simple query protocol.
 func TestPgProtocolClientSimpleQuery(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -213,11 +208,9 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 
 // TestPgProtocolClientExtendedQuery tests the extended query protocol.
 func TestPgProtocolClientExtendedQuery(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -337,11 +330,9 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 // TestPgProtocolClientDataTypes tests handling of various PostgreSQL data types.
 func TestPgProtocolClientDataTypes(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -461,11 +452,9 @@ func TestPgProtocolClientDataTypes(t *testing.T) {
 
 // TestPgProtocolClientErrors tests error handling.
 func TestPgProtocolClientErrors(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -528,11 +517,9 @@ func TestPgProtocolClientErrors(t *testing.T) {
 
 // TestPgProtocolClientTransactions tests transaction handling.
 func TestPgProtocolClientTransactions(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -603,11 +590,9 @@ func TestPgProtocolClientTransactions(t *testing.T) {
 
 // TestPgProtocolClientStreaming tests streaming query results.
 func TestPgProtocolClientStreaming(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 

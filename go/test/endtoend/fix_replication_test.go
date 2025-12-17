@@ -39,11 +39,12 @@ import (
 // 3. Breaks replication by stopping replication and clearing primary_conninfo
 // 4. Verifies multiorch detects the problem and fixes replication
 func TestFixReplication(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end fix replication test (short mode)")
+	if testing.Short() {
+		t.Skip("skipping TestFixReplication test in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end fix replication test (short mode or no postgres binaries)")
+	}
 
 	// Setup test cluster (2 zones: primary + replica)
 	clusterSetup := setupTestCluster(t)

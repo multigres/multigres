@@ -15,7 +15,6 @@
 package utils
 
 import (
-	"fmt"
 	"os/exec"
 	"testing"
 )
@@ -35,13 +34,7 @@ func HasPostgreSQLBinaries() bool {
 }
 
 // ShouldSkipRealPostgres returns true if tests should skip real PostgreSQL tests.
-// If the PostgreSQL binaries are not found, it returns an error.
-func ShouldSkipRealPostgres() (bool, error) {
-	if testing.Short() {
-		return true, nil
-	}
-	if !HasPostgreSQLBinaries() {
-		return true, fmt.Errorf("PostgreSQL binaries not found, please install PostgreSQL to run integration tests")
-	}
-	return false, nil
+// This happens when running short tests AND PostgreSQL binaries are not available.
+func ShouldSkipRealPostgres() bool {
+	return testing.Short() && !HasPostgreSQLBinaries()
 }

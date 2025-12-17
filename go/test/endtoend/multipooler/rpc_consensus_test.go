@@ -36,11 +36,9 @@ import (
 )
 
 func TestConsensus_Status(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -132,11 +130,9 @@ func TestConsensus_Status(t *testing.T) {
 }
 
 func TestConsensus_BeginTerm(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -245,11 +241,9 @@ func TestConsensus_BeginTerm(t *testing.T) {
 }
 
 func TestConsensus_GetLeadershipView(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -339,11 +333,9 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 }
 
 func TestConsensus_CanReachPrimary(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
@@ -447,11 +439,9 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 // for a higher term, it automatically demotes itself to prevent split-brain.
 // The response includes the demote_lsn (final LSN before demotion).
 func TestBeginTermDemotesPrimary(t *testing.T) {
-	skip, err := utils.ShouldSkipRealPostgres()
-	if skip {
-		t.Skip("Skipping end-to-end tests (short mode)")
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
 	}
-	require.NoError(t, err, "postgres binaries must be available")
 
 	setup := getSharedTestSetup(t)
 
