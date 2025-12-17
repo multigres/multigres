@@ -42,7 +42,11 @@ make tools
 make build
 ```
 
-This builds the Go binaries and places them in the `bin/` directory.
+This builds the Go binaries and places them in the `bin/` directory. Add it to your PATH:
+
+```bash
+export PATH="$PWD/bin:$PATH"  # temporary, or add to ~/.bashrc / ~/.zshrc for permanent
+```
 
 ## Running
 

@@ -132,8 +132,8 @@ func parseTextParameter(data []byte, typeOID uint32) (*A_Const, error) {
 
 	switch typeOID {
 	case uint32(INT4OID), uint32(INT8OID):
-		// Validate and parse as integer
-		intVal, err := strconv.ParseInt(value, 10, 64)
+		// Validate and parse as integer (bitSize 0 = platform int size)
+		intVal, err := strconv.ParseInt(value, 10, 0)
 		if err != nil {
 			return nil, fmt.Errorf("invalid integer: %q", value)
 		}
