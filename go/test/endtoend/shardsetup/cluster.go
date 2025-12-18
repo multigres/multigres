@@ -43,6 +43,7 @@ type ShardSetup struct {
 	EtcdClientAddr string
 	EtcdCmd        *exec.Cmd
 	TopoServer     topoclient.Store
+	CellName       string
 
 	// MultipoolerInstances indexed by name (e.g., "primary", "standby", "node0", "node1")
 	Multipoolers map[string]*MultipoolerInstance
@@ -125,8 +126,9 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort)
 
 	// Create multipooler instance
-	multipooler := CreateMultipoolerProcessInstance(t, name+"-multipooler", s.TempDir, multipoolerPort,
-		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, stanzaName)
+	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
+	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
+		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, stanzaName, s.CellName)
 
 	inst := &MultipoolerInstance{
 		Name:        name,
@@ -163,7 +165,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 
 // CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
-func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, stanzaName string) *ProcessInstance {
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, stanzaName string, cell string) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -173,7 +175,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 
 	return &ProcessInstance{
 		Name:        name,
-		ServiceID:   name,
+		Cell:        cell,
 		LogFile:     logFile,
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
@@ -332,12 +334,8 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 		}
 	}
 
-	// Check multiorch instances
-	for name, mo := range s.MultiOrchInstances {
-		if mo != nil && !mo.IsRunning() {
-			dead = append(dead, name)
-		}
-	}
+	// TODO (@rafa): We can check multiorch processes once
+	// we are able to disable them on a shard basis.
 
 	if len(dead) > 0 {
 		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)

@@ -40,7 +40,6 @@ import (
 // This struct is extracted from multipooler/setup_test.go and extended for multiorch support.
 type ProcessInstance struct {
 	Name        string
-	ServiceID   string // Multipooler service ID (format: cell/name)
 	DataDir     string // Used by pgctld, multipooler
 	ConfigFile  string // Used by pgctld
 	LogFile     string
@@ -55,7 +54,7 @@ type ProcessInstance struct {
 
 	// Multiorch-specific fields
 	HttpPort     int      // HTTP port (used by multiorch for /ready endpoint)
-	Cell         string   // Cell name (used by multiorch, also derived from ServiceID for multipooler)
+	Cell         string   // Cell name (used by multipooler and multiorch)
 	WatchTargets []string // Database/tablegroup/shard targets to watch (multiorch)
 }
 
@@ -108,7 +107,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	t.Helper()
 
-	t.Logf("Starting %s: binary '%s', gRPC port %d, ServiceID %s", p.Name, p.Binary, p.GrpcPort, p.ServiceID)
+	t.Logf("Starting %s: binary '%s', gRPC port %d, cell %s", p.Name, p.Binary, p.GrpcPort, p.Cell)
 
 	// Build command arguments
 	// Socket file path for Unix socket connection (uses trust auth per pg_hba.conf)
@@ -126,9 +125,11 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--topo-global-server-addresses", p.EtcdAddr,
 		"--topo-global-root", "/multigres/global",
 		"--topo-implementation", "etcd2",
-		"--cell", "test-cell",
-		"--service-id", p.ServiceID,
+		"--cell", p.Cell,
+		"--service-id", p.Name,
+		"--hostname", "localhost",
 		"--log-output", p.LogFile,
+		"--log-level", "debug",
 	}
 
 	// Add stanza name if configured
@@ -163,10 +164,12 @@ func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 		"--topo-implementation", "etcd2",
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--http-port", strconv.Itoa(p.HttpPort),
+		"--hostname", "localhost",
 		"--bookkeeping-interval", "2s",
 		"--cluster-metadata-refresh-interval", "500ms",
 		"--pooler-health-check-interval", "500ms",
 		"--recovery-cycle-interval", "500ms",
+		"--log-level", "debug",
 	}
 
 	p.Process = exec.Command(p.Binary, args...)

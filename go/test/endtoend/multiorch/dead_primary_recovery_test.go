@@ -15,12 +15,11 @@
 // Package endtoend contains integration tests for multigres components.
 //
 // Leader reelection tests:
-//   - TestMultiOrchLeaderReelection: Verifies multiorch detects primary failure and
+//   - TestDeadPrimaryRecovery: Verifies multiorch detects primary failure and
 //     automatically elects a new leader from remaining standbys.
 package multiorch
 
 import (
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -29,84 +28,64 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestDeadPrimaryRecovery tests multiorch's ability to detect a primary failure
 // and elect a new primary from the standbys.
-//
-// This test previously failed due to a multiorch bootstrap coordination race condition.
-// Multiple nodes detected "ShardNeedsBootstrap" simultaneously and attempted to bootstrap concurrently.
-// The second bootstrap attempt restarted postgres on the primary while the first was still completing,
-// creating a second postgres instance that masked the test's intentional SIGKILL.
-// This prevented multiorch from detecting the primary failure and electing a new leader.
-// The race typically occurred ~7 seconds after initial bootstrap completion.
-// Fixed: Distributed locking now prevents concurrent bootstrap attempts.
 func TestDeadPrimaryRecovery(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping TestMultiOrchLeaderReelection test in short mode")
+		t.Skip("skipping TestDeadPrimaryRecovery test in short mode")
 	}
 	if utils.ShouldSkipRealPostgres() {
-		t.Skip("Skipping end-to-end leader reelection test (short mode or no postgres binaries)")
+		t.Skip("Skipping end-to-end dead primary recovery test (short mode or no postgres binaries)")
 	}
 
-	_, err := exec.LookPath("etcd")
-	require.NoError(t, err, "etcd binary must be available in PATH")
+	// Create an isolated shard for this test
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+	)
+	defer cleanup()
 
-	// Setup test environment
-	env := setupMultiOrchTestEnv(t, testEnvConfig{
-		tempDirPrefix:    "lrtest*",
-		cellName:         "test-cell",
-		database:         "postgres",
-		shardID:          "test-shard-reelect",
-		tableGroup:       "test",
-		durabilityPolicy: "ANY_2",
-		stanzaName:       "reelect-test",
-	})
+	// Configure replication on all standbys
+	setup.SetupTest(t, shardsetup.WithoutCleanup())
 
-	// Create 3 nodes
-	nodes := env.createNodes(3)
-	t.Logf("Created 3 empty nodes")
-
-	// Setup pgbackrest
-	env.setupPgBackRest()
-
-	// Register all nodes in topology
-	env.registerNodes()
-
-	// Start multiorch
-	env.startMultiOrch()
-
-	// Wait for initial bootstrap
-	t.Logf("Waiting for initial bootstrap...")
-	primaryNode := waitForShardPrimary(t, nodes, 60*time.Second)
-	require.NotNil(t, primaryNode)
-	t.Logf("Initial primary: %s", primaryNode.name)
-
-	// Wait for standbys to complete initialization before killing primary
-	t.Logf("Waiting for standbys to complete initialization...")
-	waitForStandbysInitialized(t, nodes, primaryNode.name, len(nodes)-1, 60*time.Second)
+	// Get the primary
+	primary := setup.GetMultipoolerInstance("primary")
+	require.NotNil(t, primary, "primary instance should exist")
+	t.Logf("Initial primary: %s", primary.Name)
 
 	// Kill postgres on the primary (multipooler stays running to report unhealthy status)
-	t.Logf("Killing postgres on primary node %s to simulate database crash", primaryNode.name)
-	killPostgres(t, primaryNode)
+	t.Logf("Killing postgres on primary node %s to simulate database crash", primary.Name)
+	setup.KillPostgres(t, "primary")
 
 	// Wait for multiorch to detect failure and elect new primary
 	t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
 
-	newPrimaryNode := waitForNewPrimaryElected(t, nodes, primaryNode.name, 60*time.Second)
-	require.NotNil(t, newPrimaryNode, "Expected multiorch to elect new primary automatically")
-	t.Logf("New primary elected: %s", newPrimaryNode.name)
+	newPrimaryName := waitForNewPrimary(t, setup, "primary", 10*time.Second)
+	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
+	t.Logf("New primary elected: %s", newPrimaryName)
 
 	// Verify new primary is functional
 	t.Run("verify new primary is functional", func(t *testing.T) {
-		status := checkInitializationStatus(t, newPrimaryNode)
+		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
+		require.NotNil(t, newPrimaryInst, "new primary instance should exist")
+
+		status := checkInitializationStatus(t, &nodeInstance{
+			name:           newPrimaryName,
+			grpcPort:       newPrimaryInst.Multipooler.GrpcPort,
+			pgctldGrpcPort: newPrimaryInst.Pgctld.GrpcPort,
+		})
 		require.True(t, status.IsInitialized, "New primary should be initialized")
 		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType, "New leader should have PRIMARY pooler type")
 
 		// Verify we can connect and query
-		socketDir := filepath.Join(newPrimaryNode.dataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, newPrimaryNode.pgPort)
+		socketDir := filepath.Join(newPrimaryInst.Pgctld.DataDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, newPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
 		var result int
@@ -114,4 +93,36 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err, "Should be able to query new primary")
 		assert.Equal(t, 1, result)
 	})
+}
+
+// waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
+func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	checkInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		for name, inst := range setup.Multipoolers {
+			if name == oldPrimaryName {
+				continue
+			}
+
+			status := checkInitializationStatus(t, &nodeInstance{
+				name:           name,
+				grpcPort:       inst.Multipooler.GrpcPort,
+				pgctldGrpcPort: inst.Pgctld.GrpcPort,
+			})
+
+			if status.IsInitialized && status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+				t.Logf("New primary elected: %s (pooler_type=%s)", name, status.PoolerType)
+				return name
+			}
+		}
+		t.Logf("Waiting for new primary election... (sleeping %v)", checkInterval)
+		time.Sleep(checkInterval)
+	}
+
+	t.Fatalf("Timeout: new primary not elected within %v", timeout)
+	return ""
 }

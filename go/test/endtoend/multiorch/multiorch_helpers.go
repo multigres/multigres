@@ -23,9 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -617,62 +615,4 @@ func waitForStandbysInitialized(t *testing.T, nodes []*nodeInstance, primaryName
 	}
 
 	t.Fatalf("Timeout: standbys did not initialize within %v", timeout)
-}
-
-// getPostgresPid reads the postgres PID from postmaster.pid file
-func getPostgresPid(t *testing.T, node *nodeInstance) int {
-	t.Helper()
-
-	pidFile := filepath.Join(node.dataDir, "pg_data", "postmaster.pid")
-	data, err := os.ReadFile(pidFile)
-	require.NoError(t, err, "Failed to read postgres PID file for %s", node.name)
-
-	lines := strings.Split(string(data), "\n")
-	require.Greater(t, len(lines), 0, "PID file should have at least one line")
-
-	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
-	require.NoError(t, err, "Failed to parse PID from postmaster.pid")
-
-	return pid
-}
-
-// killPostgres terminates the postgres process for a node (simulates database crash)
-func killPostgres(t *testing.T, node *nodeInstance) {
-	t.Helper()
-
-	pgPid := getPostgresPid(t, node)
-	t.Logf("Killing postgres (PID %d) on node %s", pgPid, node.name)
-
-	err := syscall.Kill(pgPid, syscall.SIGKILL)
-	require.NoError(t, err, "Failed to kill postgres process")
-
-	t.Logf("Postgres killed on %s - multipooler should detect failure", node.name)
-}
-
-// waitForNewPrimaryElected polls nodes until a new primary (different from oldPrimaryName) is elected.
-// Uses PoolerType from topology (set by ChangeType RPC) rather than postgres-level role.
-func waitForNewPrimaryElected(t *testing.T, nodes []*nodeInstance, oldPrimaryName string, timeout time.Duration) *nodeInstance {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	checkInterval := 2 * time.Second
-
-	for time.Now().Before(deadline) {
-		for _, node := range nodes {
-			if node.name == oldPrimaryName {
-				continue // Skip the old primary
-			}
-			status := checkInitializationStatus(t, node)
-			// Check PoolerType (from topology) instead of Role (from pg_is_in_recovery)
-			if status.IsInitialized && status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-				t.Logf("New primary elected: %s (pooler_type=%s)", node.name, status.PoolerType)
-				return node
-			}
-		}
-		t.Logf("Waiting for new primary election... (sleeping %v)", checkInterval)
-		time.Sleep(checkInterval)
-	}
-
-	t.Fatalf("Timeout: new primary not elected within %v", timeout)
-	return nil
 }
