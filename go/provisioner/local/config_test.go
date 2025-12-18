@@ -399,7 +399,7 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		// Generate default config
 		config := p.DefaultConfig([]string{tmpDir})
 		p.config = &LocalProvisionerConfig{}
-		
+
 		// Convert map config to typed config for easier assertion
 		yamlData, err := yaml.Marshal(config)
 		require.NoError(t, err)
