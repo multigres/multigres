@@ -340,13 +340,20 @@ var _ Gateway = (*PoolerGateway)(nil)
 func (pg *PoolerGateway) getPoolerServiceClient(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
 	// Find any pooler - for authentication we just need access to pg_authid
 	// which is available from any pooler connected to this database.
-	// Use PRIMARY type as it's always available.
+	// Try PRIMARY first, fall back to REPLICA if not found in this cell.
+	// TODO: Once multigateway discovers poolers across all cells, we can
+	// remove the REPLICA fallback and always use PRIMARY.
 	target := &query.Target{
 		TableGroup: "default", // TODO: Make configurable or discover from database
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 
 	pooler := pg.discovery.GetPooler(target)
+	if pooler == nil {
+		// PRIMARY not in this cell, try REPLICA
+		target.PoolerType = clustermetadatapb.PoolerType_REPLICA
+		pooler = pg.discovery.GetPooler(target)
+	}
 	if pooler == nil {
 		return nil, fmt.Errorf("no pooler found for database %q", database)
 	}
