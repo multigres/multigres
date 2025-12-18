@@ -539,7 +539,14 @@ func TestReplicationAPIs(t *testing.T) {
 		// 2. Does NOT pause WAL replay (replay continues)
 		// 3. Waits for receiver to fully disconnect before returning
 
-		setupPoolerTest(t, setup, WithDropTables("test_receiver_only"))
+		// Use async replication for this test since it disconnects the standby and then
+		// writes to the primary. With sync replication, writes would hang waiting for the
+		// disconnected standby.
+		setupPoolerTest(t, setup, WithDropTables("test_receiver_only"), WithResetGuc("synchronous_commit"))
+		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
+		require.NoError(t, err, "Failed to set synchronous_commit to local")
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_reload_conf()", 0)
+		require.NoError(t, err, "Failed to reload config")
 
 		// Verify replication is working by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is streaming...")
@@ -714,7 +721,12 @@ func TestReplicationAPIs(t *testing.T) {
 		// 2. Clears primary_conninfo and disconnects the WAL receiver
 		// 3. Waits for both to complete before returning
 
-		setupPoolerTest(t, setup, WithDropTables("test_replay_and_receiver"))
+		// Use async replication since this test disconnects the standby and then writes to the primary.
+		setupPoolerTest(t, setup, WithDropTables("test_replay_and_receiver"), WithResetGuc("synchronous_commit"))
+		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
+		require.NoError(t, err, "Failed to set synchronous_commit to local")
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_reload_conf()", 0)
+		require.NoError(t, err, "Failed to reload config")
 		// Verify replication is working
 		t.Log("Verifying replication is streaming...")
 		require.Eventually(t, func() bool {
@@ -883,7 +895,12 @@ func TestReplicationAPIs(t *testing.T) {
 	})
 
 	t.Run("ResetReplication_Success", func(t *testing.T) {
-		setupPoolerTest(t, setup, WithDropTables("test_reset_replication"))
+		// Use async replication since this test disconnects the standby and then writes to the primary.
+		setupPoolerTest(t, setup, WithDropTables("test_reset_replication"), WithResetGuc("synchronous_commit"))
+		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
+		require.NoError(t, err, "Failed to set synchronous_commit to local")
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_reload_conf()", 0)
+		require.NoError(t, err, "Failed to reload config")
 
 		// This test verifies that ResetReplication successfully disconnects the standby from the primary
 		// and that data inserted after reset does not replicate until replication is re-enabled

@@ -113,6 +113,7 @@ type cleanupConfig struct {
 	noReplication    bool
 	pauseReplication bool
 	tablesToDrop     []string
+	gucsToReset      []string
 }
 
 // WithoutReplication returns a cleanup option that explicitly disables replication setup.
@@ -133,6 +134,13 @@ func WithPausedReplication() cleanupOption {
 func WithDropTables(tables ...string) cleanupOption {
 	return func(c *cleanupConfig) {
 		c.tablesToDrop = append(c.tablesToDrop, tables...)
+	}
+}
+
+// WithResetGuc returns a cleanup option that saves and restores specific GUC settings.
+func WithResetGuc(gucs ...string) cleanupOption {
+	return func(c *cleanupConfig) {
+		c.gucsToReset = append(c.gucsToReset, gucs...)
 	}
 }
 
@@ -157,11 +165,14 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 	if config.pauseReplication {
 		shardOpts = append(shardOpts, shardsetup.WithPausedReplication())
 	}
+	if len(config.gucsToReset) > 0 {
+		shardOpts = append(shardOpts, shardsetup.WithResetGuc(config.gucsToReset...))
+	}
 
-	// Delegate to the shared setup
-	setup.SetupTest(t, shardOpts...)
-
-	// Register table cleanup if any tables were specified
+	// Register table cleanup BEFORE SetupTest so it runs AFTER GUC restoration (LIFO order).
+	// This is important because if a test breaks replication but sync replication is still
+	// configured, DROP TABLE will hang waiting for disconnected standbys.
+	// By running after GUC restoration, synchronous_standby_names is already cleared.
 	if len(config.tablesToDrop) > 0 {
 		t.Cleanup(func() {
 			// Use a short timeout - if processes are dead, don't hang
@@ -179,6 +190,9 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			}
 		})
 	}
+
+	// Delegate to the shared setup (registers GUC restoration cleanup)
+	setup.SetupTest(t, shardOpts...)
 }
 
 // makeMultipoolerID creates a multipooler ID for testing.

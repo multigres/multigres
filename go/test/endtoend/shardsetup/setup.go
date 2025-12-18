@@ -1050,8 +1050,9 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	// Determine if we should configure replication (default: yes, unless WithoutReplication)
 	shouldConfigureReplication := !config.NoReplication
 
-	// If configuring replication and no GUCs specified yet, add the default replication GUCs
-	if shouldConfigureReplication && len(config.GucsToReset) == 0 {
+	// When configuring replication, always ensure the replication GUCs are saved/restored
+	// to maintain clean state between tests. Append to existing list (may have user-specified GUCs).
+	if shouldConfigureReplication {
 		config.GucsToReset = append(config.GucsToReset, "synchronous_standby_names", "synchronous_commit", "primary_conninfo")
 	}
 
