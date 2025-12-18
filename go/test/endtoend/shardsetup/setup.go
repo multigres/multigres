@@ -373,6 +373,11 @@ func initializePrimary(t *testing.T, baseDir string, primary *MultipoolerInstanc
 		t.Fatalf("failed to create pgbackrest spool dir: %v", err)
 	}
 
+	lockPath := filepath.Join(baseDir, "pgbackrest-lock")
+	if err := os.MkdirAll(lockPath, 0o755); err != nil {
+		t.Fatalf("failed to create pgbackrest lock dir: %v", err)
+	}
+
 	// Create symmetric pgbackrest configuration with all standbys as additional hosts
 	configPath := filepath.Join(pgctld.DataDir, "pgbackrest.conf")
 	backupCfg := pgbackrest.Config{
@@ -385,6 +390,7 @@ func initializePrimary(t *testing.T, baseDir string, primary *MultipoolerInstanc
 		AdditionalHosts: make([]pgbackrest.PgHost, 0, len(standbys)),
 		LogPath:         logPath,
 		SpoolPath:       spoolPath,
+		LockPath:        lockPath,
 		RetentionFull:   2,
 	}
 
@@ -452,12 +458,12 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 	}
 	defer primaryPoolerClient.Close()
 
-	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), "CREATE SCHEMA IF NOT EXISTS multigres", 0)
+	_, err = primaryPoolerClient.ExecuteQuery(ctx, "CREATE SCHEMA IF NOT EXISTS multigres", 0)
 	if err != nil {
 		t.Fatalf("failed to create multigres schema: %v", err)
 	}
 
-	_, err = primaryPoolerClient.ExecuteQuery(context.Background(), `
+	_, err = primaryPoolerClient.ExecuteQuery(ctx, `
 		CREATE TABLE IF NOT EXISTS multigres.heartbeat (
 			shard_id BYTEA PRIMARY KEY,
 			leader_id TEXT NOT NULL,
@@ -519,6 +525,7 @@ func initializeStandby(t *testing.T, baseDir string, primary *MultipoolerInstanc
 	// Create symmetric pgbackrest configuration for standby
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+	lockPath := filepath.Join(baseDir, "pgbackrest-lock")
 
 	configPath := filepath.Join(pgctld.DataDir, "pgbackrest.conf")
 	backupCfg := pgbackrest.Config{
@@ -539,6 +546,7 @@ func initializeStandby(t *testing.T, baseDir string, primary *MultipoolerInstanc
 		},
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
+		LockPath:      lockPath,
 		RetentionFull: 2,
 	}
 
@@ -556,7 +564,8 @@ func initializeStandby(t *testing.T, baseDir string, primary *MultipoolerInstanc
 	WaitForManagerReady(t, multipooler)
 
 	// Initialize consensus term to 1
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	client, err := NewMultipoolerClient(multipooler.GrpcPort)
 	if err != nil {
 		t.Fatalf("failed to connect to standby multipooler %s: %v", standby.Name, err)
@@ -629,6 +638,7 @@ func setupStandbyReplication(t *testing.T, baseDir string, primary *MultipoolerI
 	// Create standby's pgbackrest configuration before restore
 	logPath := filepath.Join(baseDir, "logs", "pgbackrest")
 	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
+	lockPath := filepath.Join(baseDir, "pgbackrest-lock")
 
 	standbyConfigPath := filepath.Join(standby.Pgctld.DataDir, "pgbackrest.conf")
 	standbyBackupCfg := pgbackrest.Config{
@@ -649,6 +659,7 @@ func setupStandbyReplication(t *testing.T, baseDir string, primary *MultipoolerI
 		},
 		LogPath:       logPath,
 		SpoolPath:     spoolPath,
+		LockPath:      lockPath,
 		RetentionFull: 2,
 	}
 
@@ -877,9 +888,11 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			// SAFETY: Always disable synchronous replication to prevent write hangs
 			primaryClient, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
 			if err == nil {
-				_, err := primaryClient.Pooler.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 0)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_, err := primaryClient.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET synchronous_standby_names = ''", 0)
 				if err == nil {
-					_, _ = primaryClient.Pooler.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 0)
+					_, _ = primaryClient.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
 					t.Log("SetupTest: Disabled synchronous replication for safety")
 				}
 				primaryClient.Close()
@@ -930,8 +943,12 @@ func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName strin
 	}
 	defer client.Close()
 
+	// Create a context with timeout for all operations in this function
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// Check if replication is already streaming
-	resp, err := client.Pooler.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
+	resp, err := client.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
 	alreadyStreaming := err == nil && len(resp.Rows) > 0 && len(resp.Rows[0].Values) > 0 &&
 		string(resp.Rows[0].Values[0]) == "streaming"
 
@@ -949,10 +966,7 @@ func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName strin
 			CurrentTerm:           1,
 			Force:                 true,
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_, err = client.Manager.SetPrimaryConnInfo(ctx, setPrimaryReq)
-		cancel()
-
 		if err != nil {
 			t.Fatalf("SetupTest: failed to configure replication on %s: %v", standbyName, err)
 		}
@@ -960,7 +974,9 @@ func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName strin
 
 	// Wait for replication to be streaming
 	require.Eventually(t, func() bool {
-		resp, err := client.Pooler.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
+		queryCtx, queryCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer queryCancel()
+		resp, err := client.Pooler.ExecuteQuery(queryCtx, "SELECT status FROM pg_stat_wal_receiver", 1)
 		if err != nil || len(resp.Rows) == 0 {
 			return false
 		}
@@ -969,7 +985,7 @@ func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName strin
 
 	// Optionally pause WAL replay
 	if pauseReplication {
-		_, err := client.Pooler.ExecuteQuery(context.Background(), "SELECT pg_wal_replay_pause()", 1)
+		_, err := client.Pooler.ExecuteQuery(ctx, "SELECT pg_wal_replay_pause()", 1)
 		if err != nil {
 			t.Logf("SetupTest: Failed to pause WAL replay on %s: %v", standbyName, err)
 		} else {
@@ -1017,7 +1033,9 @@ func (s *ShardSetup) ConfigureReplication(t *testing.T, standbyName string) {
 
 	// Wait for replication to be streaming
 	require.Eventually(t, func() bool {
-		resp, err := client.Pooler.ExecuteQuery(context.Background(), "SELECT status FROM pg_stat_wal_receiver", 1)
+		queryCtx, queryCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer queryCancel()
+		resp, err := client.Pooler.ExecuteQuery(queryCtx, "SELECT status FROM pg_stat_wal_receiver", 1)
 		if err != nil || len(resp.Rows) == 0 {
 			return false
 		}
@@ -1052,7 +1070,9 @@ func (s *ShardSetup) DemotePrimary(t *testing.T) {
 
 	// Wait for primary to be in recovery mode
 	require.Eventually(t, func() bool {
-		inRecovery, err := QueryStringValue(context.Background(), client.Pooler, "SELECT pg_is_in_recovery()")
+		queryCtx, queryCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer queryCancel()
+		inRecovery, err := QueryStringValue(queryCtx, client.Pooler, "SELECT pg_is_in_recovery()")
 		return err == nil && inRecovery == "t"
 	}, 10*time.Second, 100*time.Millisecond, "primary should be in recovery mode after demotion")
 
