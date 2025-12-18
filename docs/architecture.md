@@ -22,14 +22,14 @@ The price to pay for this will be a loss of flexibility. We believe that this is
 
 ### Opinionated
 
-We will focus on functional completeness and ensure that all the features gel together well.
+We will focus on functional completeness and ensure that all the features work together well.
 To achieve this, we will make tooling decisions that are opinionated.
 For example, we'll use etcd for the toposerver.
 Other similar tools like zookeeper or consul will not be supported.
 
 ## Components
 
-Multigres is designed to run with a minimal set of loosely coupled components.
+Although Multigres is a distributed system, we work hard at minimizing the number of moving parts.
 This usually means that these components will take on secondary responsibilities apart from their primary ones.
 
 ### MultiGateway
