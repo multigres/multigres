@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -477,6 +478,52 @@ func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, data
 	// attempts (../, ..\, etc.) and control characters. Consider using filepath.Clean()
 	// and checking for suspicious patterns before constructing the path.
 	return filepath.Join(baseBackupLocation, database, tableGroup, shard)
+}
+
+// isSafePathChar returns true if the rune is safe to use in file paths without encoding.
+// Safe characters are: a-z, A-Z, 0-9, underscore, hyphen, and dot.
+func isSafePathChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') ||
+		r == '_' || r == '-' || r == '.'
+}
+
+// encodePathComponent URL-encodes a path component, preserving safe characters.
+// Safe characters (a-z, A-Z, 0-9, _, -, .) are preserved, everything else is
+// percent-encoded. Consecutive dots (..) are always encoded to prevent path traversal.
+// This prevents path traversal while supporting UTF-8 identifiers.
+func encodePathComponent(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	var result strings.Builder
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
+		// Check for consecutive dots (path traversal defense)
+		if r == '.' && i+1 < len(runes) && runes[i+1] == '.' {
+			// Encode all consecutive dots
+			for i < len(runes) && runes[i] == '.' {
+				result.WriteString("%2E")
+				i++
+			}
+			continue
+		}
+		if isSafePathChar(r) {
+			result.WriteRune(r)
+		} else {
+			// URL encode: convert rune to UTF-8 bytes, then hex encode each byte
+			utf8Bytes := []byte(string(r))
+			for _, b := range utf8Bytes {
+				result.WriteString(fmt.Sprintf("%%%02X", b))
+			}
+		}
+		i++
+	}
+	return result.String()
 }
 
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler
