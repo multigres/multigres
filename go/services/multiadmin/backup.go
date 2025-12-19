@@ -54,8 +54,9 @@ func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 	// Start the backup operation asynchronously
 	go func() {
 		//nolint:gocritic // async goroutine outlives request context
-		if err := s.executeBackup(context.Background(), jobID, pooler, req); err != nil {
-			s.logger.ErrorContext(ctx, "Backup failed", "job_id", jobID, "error", err)
+		bgCtx := context.Background()
+		if err := s.executeBackup(bgCtx, jobID, pooler, req); err != nil {
+			s.logger.ErrorContext(bgCtx, "Backup failed", "job_id", jobID, "error", err)
 			s.backupJobTracker.FailJob(jobID, err.Error())
 		}
 	}()
