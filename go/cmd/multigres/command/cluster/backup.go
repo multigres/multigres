@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	"github.com/multigres/multigres/go/common/constants"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 const (
@@ -31,26 +32,64 @@ const (
 	backupPollTimeout  = 30 * time.Minute
 )
 
+// backupCmd holds the backup command configuration
+type backupCmd struct {
+	database   viperutil.Value[string]
+	backupType viperutil.Value[string]
+	primary    viperutil.Value[bool]
+	timeout    viperutil.Value[time.Duration]
+}
+
 // AddBackupCommand adds the backup subcommand to the cluster command
 func AddBackupCommand(clusterCmd *cobra.Command) {
+	// Create a viperutil registry for backup command flags
+	reg := viperutil.NewRegistry()
+
+	bcmd := &backupCmd{
+		database: viperutil.Configure(reg, "database", viperutil.Options[string]{
+			Default:  "postgres",
+			FlagName: "database",
+			Dynamic:  false,
+		}),
+		backupType: viperutil.Configure(reg, "type", viperutil.Options[string]{
+			Default:  "full",
+			FlagName: "type",
+			Dynamic:  false,
+		}),
+		primary: viperutil.Configure(reg, "primary", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "primary",
+			Dynamic:  false,
+		}),
+		timeout: viperutil.Configure(reg, "timeout", viperutil.Options[time.Duration]{
+			Default:  30 * time.Second,
+			FlagName: "timeout",
+			Dynamic:  false,
+		}),
+	}
+
 	cmd := &cobra.Command{
 		Use:   "backup",
 		Short: "Trigger a backup",
 		Long:  "Trigger a backup via the multiadmin API and wait for completion.",
-		RunE:  runBackup,
+		RunE:  bcmd.runBackup,
 	}
 
-	cmd.Flags().String("database", "postgres", "Database name")
-	cmd.Flags().String("type", "full", "Backup type: full, differential, or incremental")
-	cmd.Flags().Bool("primary", false, "Force backup on primary instead of replica (use with caution)")
+	cmd.Flags().String("database", bcmd.database.Default(), "Database name")
+	cmd.Flags().String("type", bcmd.backupType.Default(), "Backup type: full, differential, or incremental")
+	cmd.Flags().Bool("primary", bcmd.primary.Default(), "Force backup on primary instead of replica (use with caution)")
+	cmd.Flags().Duration("timeout", bcmd.timeout.Default(), "Timeout for initial backup call")
+
+	viperutil.BindFlags(cmd.Flags(), bcmd.database, bcmd.backupType, bcmd.primary, bcmd.timeout)
 
 	clusterCmd.AddCommand(cmd)
 }
 
-func runBackup(cmd *cobra.Command, args []string) error {
-	database, _ := cmd.Flags().GetString("database")
-	backupType, _ := cmd.Flags().GetString("type")
-	primary, _ := cmd.Flags().GetBool("primary")
+func (bcmd *backupCmd) runBackup(cmd *cobra.Command, args []string) error {
+	database := bcmd.database.Get()
+	backupType := bcmd.backupType.Get()
+	primary := bcmd.primary.Get()
+	timeout := bcmd.timeout.Get()
 
 	// Create admin client
 	client, err := admin.NewClient(cmd)
@@ -68,7 +107,7 @@ func runBackup(cmd *cobra.Command, args []string) error {
 
 	// Create context with timeout for the initial Backup call
 	//nolint:gocritic // CLI entry point - no parent context available
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	backupResp, err := client.Backup(ctx, &multiadminpb.BackupRequest{
