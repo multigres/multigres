@@ -471,13 +471,37 @@ func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
 }
 
 // backupLocationPath returns the full backup location path for a given database, table group,
-// and shard. The topology only stores the base path.
-func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) string {
-	// TODO: Validate that database, table group, and shard contain only valid characters
-	// that are safe to use in file paths and URL paths. Should reject path traversal
-	// attempts (../, ..\, etc.) and control characters. Consider using filepath.Clean()
-	// and checking for suspicious patterns before constructing the path.
-	return filepath.Join(baseBackupLocation, database, tableGroup, shard)
+// and shard. The topology only stores the base path. Components are URL-encoded to prevent
+// path traversal and support UTF-8 identifiers without collisions.
+func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) (string, error) {
+	// Validate non-empty components
+	if database == "" {
+		return "", fmt.Errorf("database cannot be empty")
+	}
+	if tableGroup == "" {
+		return "", fmt.Errorf("table group cannot be empty")
+	}
+	if shard == "" {
+		return "", fmt.Errorf("shard cannot be empty")
+	}
+
+	// Encode each component to prevent path traversal and handle special characters
+	encodedDB := encodePathComponent(database)
+	encodedTG := encodePathComponent(tableGroup)
+	encodedShard := encodePathComponent(shard)
+
+	// Build the full path
+	fullPath := filepath.Join(baseBackupLocation, encodedDB, encodedTG, encodedShard)
+
+	// Verify containment: ensure the final path is still under baseBackupLocation
+	// This is a defense-in-depth check to catch any edge cases in encoding
+	cleanBase := filepath.Clean(baseBackupLocation) + string(filepath.Separator)
+	cleanFull := filepath.Clean(fullPath) + string(filepath.Separator)
+	if !strings.HasPrefix(cleanFull, cleanBase) {
+		return "", fmt.Errorf("path traversal detected in backup location: base=%s, full=%s", baseBackupLocation, fullPath)
+	}
+
+	return fullPath, nil
 }
 
 // isSafePathChar returns true if the rune is safe to use in file paths without encoding.
@@ -739,7 +763,11 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		}
 
 		// Compute full backup location: base path + database/tablegroup/shard
-		shardBackupLocation := pm.backupLocationPath(db.BackupLocation, database, pm.config.TableGroup, pm.config.Shard)
+		shardBackupLocation, err := pm.backupLocationPath(db.BackupLocation, database, pm.config.TableGroup, pm.config.Shard)
+		if err != nil {
+			pm.setStateError(fmt.Errorf("invalid backup location path: %w", err))
+			return
+		}
 
 		pm.mu.Lock()
 		pm.multipooler = mp
