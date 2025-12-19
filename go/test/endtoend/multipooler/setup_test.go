@@ -12,6 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// This file provides backward-compatible wrappers around shardsetup.ShardSetup.
+//
+// The wrappers here (MultipoolerTestSetup, setupPoolerTest, cleanupOption, etc.) exist
+// to minimize changes to existing tests in this PR. In a follow-up, we can migrate tests
+// to use shardsetup directly and remove most of this file.
+//
+// What can be removed in a follow-up:
+//   - MultipoolerTestSetup wrapper → use shardsetup.ShardSetup directly
+//   - setupPoolerTest → use shardsetup.SetupTest (add WithDropTables to shardsetup if needed)
+//   - cleanupOption/cleanupConfig → use shardsetup.SetupTestOption directly
+//   - waitForManagerReady → use shardsetup.WaitForManagerReady
+//
+// What should stay (test-specific helpers):
+//   - getPrimaryStatusFromClient, waitForSyncConfigConvergenceWithClient, containsStandbyIDInConfig
+
 package multipooler
 
 import (
@@ -21,8 +36,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 
@@ -78,6 +91,14 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	t.Helper()
 	setup := newMultipoolerTestSetup(getSharedSetup(t))
 
+	// Multipooler tests expect exactly 2 nodes (1 primary + 1 standby).
+	// Fail early if this assumption is violated.
+	standbys := setup.GetStandbys()
+	if len(standbys) != 1 {
+		t.Fatalf("getSharedTestSetup: expected exactly 1 standby, got %d. "+
+			"Use shardsetup directly for multi-standby tests.", len(standbys))
+	}
+
 	// Fail early with a clear error if primary is not available
 	if setup.PrimaryMultipooler == nil {
 		t.Fatalf("getSharedTestSetup: PrimaryMultipooler is nil (PrimaryName=%q). "+
@@ -88,34 +109,10 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 }
 
 // waitForManagerReady waits for the manager to be in ready state.
+// Deprecated: Use shardsetup.WaitForManagerReady directly.
 func waitForManagerReady(t *testing.T, _ *MultipoolerTestSetup, manager *ProcessInstance) {
 	t.Helper()
-
-	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", manager.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	defer conn.Close()
-
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-
-	require.Eventually(t, func() bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		req := &multipoolermanagerdatapb.StateRequest{}
-		resp, err := client.State(ctx, req)
-		if err != nil {
-			return false
-		}
-		if resp.State == "error" {
-			t.Fatalf("Manager failed to initialize: %s", resp.ErrorMessage)
-		}
-		return resp.State == "ready"
-	}, 30*time.Second, 100*time.Millisecond, "Manager should become ready within 30 seconds")
-
-	t.Logf("Manager %s is ready", manager.Name)
+	shardsetup.WaitForManagerReady(t, manager)
 }
 
 // cleanupOption is a function that configures cleanup behavior.
