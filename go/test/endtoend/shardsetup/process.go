@@ -316,6 +316,13 @@ func (p *ProcessInstance) IsRunning() bool {
 	return err == nil
 }
 
+// StopPostgres stops PostgreSQL via pgctld gRPC (best effort, no error handling).
+// Use this to stop postgres before removing data directories for auto-restore tests.
+func (p *ProcessInstance) StopPostgres(t *testing.T) {
+	t.Helper()
+	p.stopPostgreSQL()
+}
+
 // stopPostgreSQL stops PostgreSQL via gRPC (best effort, no error handling).
 // Copied from multipooler/setup_test.go.
 func (p *ProcessInstance) stopPostgreSQL() {

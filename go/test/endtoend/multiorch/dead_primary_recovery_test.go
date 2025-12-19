@@ -154,9 +154,9 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	// Configure replication on all standbys
 	setup.SetupTest(t, shardsetup.WithoutCleanup())
 	// Get the primary
-	primary := setup.GetMultipoolerInstance("primary")
+	primary := setup.GetMultipoolerInstance(setup.PrimaryName)
 	require.NotNil(t, primary, "primary instance should exist")
-	t.Logf("Initial primary: %s", primary.Name)
+	t.Logf("Initial primary: %s", setup.PrimaryName)
 
 	// Kill the multipooler process on the primary (but leave Postgres running)
 	t.Logf("Killing multipooler on primary node %s (postgres stays running)", primary.Name)
@@ -172,7 +172,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	// by checking that standbys are still replicas and connected to the original primary postgres
 	t.Run("verify no failover occurred", func(t *testing.T) {
 		for name, inst := range setup.Multipoolers {
-			if name == "primary" {
+			if name == setup.PrimaryName {
 				continue // Skip the primary (its pooler is down)
 			}
 
@@ -210,7 +210,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	// Verify we can query the standbys (they're still replicating)
 	t.Run("verify standbys are still queryable", func(t *testing.T) {
 		for name, inst := range setup.Multipoolers {
-			if name == "primary" {
+			if name == setup.PrimaryName {
 				continue
 			}
 			socketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
