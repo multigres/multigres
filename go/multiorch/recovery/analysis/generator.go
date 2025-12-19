@@ -323,36 +323,52 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	analysis *store.ReplicationAnalysis,
 	shardKey commontypes.ShardKey,
 ) {
-	// Find the primary in the same tablegroup (efficient lookup)
-	if poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]; ok {
-		for _, pooler := range poolers {
-			if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
-				continue
-			}
-
-			// Look for primary in same shard - check health check type
-			// Nodes are never created with topology type PRIMARY
-			if pooler.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
-				continue
-			}
-
-			// Found the primary
-			analysis.PrimaryPoolerID = pooler.MultiPooler.Id
-			// Primary is reachable only if:
-			// 1. Health check was valid (IsLastCheckValid)
-			// 2. PostgreSQL is running (IsPostgresRunning is true)
-			// When postgres dies but multipooler is still up, IsLastCheckValid is true
-			// but IsPostgresRunning is false (set by healthcheck from Status RPC)
-			analysis.PrimaryReachable = pooler.IsLastCheckValid && pooler.IsPostgresRunning
-			if pooler.LastSeen != nil {
-				analysis.PrimaryTimestamp = pooler.LastSeen.AsTime()
-			}
-
-			// Check if this replica is in the primary's synchronous standby list
-			analysis.IsInPrimaryStandbyList = g.isInStandbyList(analysis.PoolerID, pooler)
-			return // found it
-		}
+	poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]
+	if !ok {
+		return
 	}
+
+	// Find the primary in the same shard
+	var primary *multiorchdatapb.PoolerHealthState
+	for _, pooler := range poolers {
+		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+			continue
+		}
+
+		// Look for primary in same shard - check health check type
+		// Nodes are never created with topology type PRIMARY
+		if pooler.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
+			continue
+		}
+
+		primary = pooler
+		break
+	}
+
+	if primary == nil {
+		return // no primary found
+	}
+
+	// Found the primary - populate basic fields
+	analysis.PrimaryPoolerID = primary.MultiPooler.Id
+	if primary.LastSeen != nil {
+		analysis.PrimaryTimestamp = primary.LastSeen.AsTime()
+	}
+
+	// Track primary health details separately (for distinguishing pooler-down vs postgres-down)
+	analysis.PrimaryPoolerReachable = primary.IsLastCheckValid
+	analysis.PrimaryPostgresRunning = primary.IsPostgresRunning
+
+	// Primary is reachable only if both pooler is reachable AND Postgres is running
+	analysis.PrimaryReachable = analysis.PrimaryPoolerReachable && analysis.PrimaryPostgresRunning
+
+	// Check if this replica is in the primary's synchronous standby list
+	analysis.IsInPrimaryStandbyList = g.isInStandbyList(analysis.PoolerID, primary)
+
+	// Compute ReplicasConnectedToPrimary: true only if ALL replicas are connected to primary.
+	// When the primary pooler is down but Postgres is still running, replicas remain connected
+	// and we should NOT trigger failover. Instead, the operator should restart the pooler process.
+	analysis.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(primary, poolers)
 }
 
 // isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.
@@ -371,4 +387,96 @@ func (g *AnalysisGenerator) isInStandbyList(
 	}
 
 	return false
+}
+
+// allReplicasConnectedToPrimary checks if ALL replicas in the shard are connected to the primary.
+// A replica is considered connected if:
+// 1. Its health check is valid (IsLastCheckValid)
+// 2. It has PrimaryConnInfo configured pointing to this primary
+// 3. It has received WAL (LastReceiveLsn is not empty)
+//
+// Returns true only if all replicas meet these criteria.
+// Returns false if there are no replicas or any replica is disconnected.
+func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
+	primary *multiorchdatapb.PoolerHealthState,
+	poolers map[string]*multiorchdatapb.PoolerHealthState,
+) bool {
+	primaryIDStr := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
+	primaryHost := primary.MultiPooler.Hostname
+	primaryPort := primary.MultiPooler.PortMap["postgres"]
+
+	replicaCount := 0
+	connectedCount := 0
+
+	for poolerID, pooler := range poolers {
+		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
+			continue
+		}
+
+		// Skip the primary itself
+		if poolerID == primaryIDStr {
+			continue
+		}
+
+		// Skip non-replicas
+		replicaType := pooler.PoolerType
+		if replicaType == clustermetadatapb.PoolerType_UNKNOWN {
+			replicaType = pooler.MultiPooler.Type
+		}
+		if replicaType != clustermetadatapb.PoolerType_REPLICA {
+			continue
+		}
+
+		replicaCount++
+
+		// Check if replica is connected to the primary
+		if !g.isReplicaConnectedToPrimary(pooler, primaryHost, primaryPort) {
+			continue
+		}
+
+		connectedCount++
+	}
+
+	// All replicas must be connected (and there must be at least one replica)
+	return replicaCount > 0 && connectedCount == replicaCount
+}
+
+// isReplicaConnectedToPrimary checks if a single replica is connected to the primary.
+//
+// TODO: Check heartbeat data timestamp to verify writes are actively flowing through replication.
+// The multigres.heartbeat table is updated periodically on the primary, so checking if the
+// replica's heartbeat timestamp is recent would prove the replication connection is active.
+// Currently we check that LastReceiveLsn is non-empty, but this doesn't prove active connectivity.
+func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
+	replica *multiorchdatapb.PoolerHealthState,
+	primaryHost string,
+	primaryPort int32,
+) bool {
+	// Replica must be reachable
+	if !replica.IsLastCheckValid {
+		return false
+	}
+
+	// Replica must have replication status
+	if replica.ReplicationStatus == nil {
+		return false
+	}
+
+	// Replica must have PrimaryConnInfo pointing to the primary
+	connInfo := replica.ReplicationStatus.PrimaryConnInfo
+	if connInfo == nil || connInfo.Host == "" {
+		return false
+	}
+
+	// Verify the replica is pointing to the correct primary
+	if connInfo.Host != primaryHost || connInfo.Port != primaryPort {
+		return false
+	}
+
+	// Replica must have received WAL (indicates connection was established)
+	if replica.ReplicationStatus.LastReceiveLsn == "" {
+		return false
+	}
+
+	return true
 }
