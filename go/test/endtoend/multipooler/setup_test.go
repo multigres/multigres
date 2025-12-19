@@ -17,7 +17,6 @@ package multipooler
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -31,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
@@ -40,6 +40,7 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
+	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
@@ -254,7 +255,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	)
 
 	t.Logf("Running server command: %v", p.Process.Args)
-	if err := p.waitForStartup(t, 20*time.Second, 50); err != nil {
+	if err := p.waitForStartup(t, 20*time.Second, 3*time.Second); err != nil {
 		return err
 	}
 
@@ -302,11 +303,11 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	)
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
-	return p.waitForStartup(t, 15*time.Second, 30)
+	return p.waitForStartup(t, 15*time.Second, 3*time.Second)
 }
 
 // waitForStartup handles the common startup and waiting logic
-func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, logInterval int) error {
+func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, logInterval time.Duration) error {
 	t.Helper()
 
 	// Start the process in background (like cluster_test.go does)
@@ -316,20 +317,36 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 	}
 	t.Logf("%s server process started with PID %d", p.Name, p.Process.Process.Pid)
 
-	// Give the process a moment to potentially fail immediately
-	time.Sleep(500 * time.Millisecond)
-
-	// Check if process died immediately
-	if p.Process.ProcessState != nil {
-		t.Logf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
-		p.logRecentOutput(t, "Process died immediately")
-		return fmt.Errorf("%s process died immediately: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
+	// Create gRPC client for health checks
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", p.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC client for %s: %w", p.Name, err)
 	}
+	defer conn.Close()
 
-	// Wait for server to be ready
-	deadline := time.Now().Add(timeout)
-	connectAttempts := 0
-	for time.Now().Before(deadline) {
+	healthClient := healthpb.NewHealthClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Wait for gRPC health check to pass using retry with exponential backoff
+	r := retry.New(10*time.Millisecond, 200*time.Millisecond)
+	var lastErr error
+	startTime := time.Now()
+	lastLogTime := startTime
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			// Context timed out
+			if p.Process.ProcessState == nil {
+				t.Logf("%s process is still running but not responding on gRPC port %d", p.Name, p.GrpcPort)
+			}
+			t.Logf("Timeout waiting for %s after %d attempts", p.Name, attempt)
+			p.logRecentOutput(t, "Timeout waiting for server to start")
+			return fmt.Errorf("timeout: %s gRPC health check failed after %d attempts: %w", p.Name, attempt, lastErr)
+		}
+
 		// Check if process died during startup
 		if p.Process.ProcessState != nil {
 			t.Logf("%s process died during startup: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
@@ -337,32 +354,30 @@ func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, lo
 			return fmt.Errorf("%s process died: exit code %d", p.Name, p.Process.ProcessState.ExitCode())
 		}
 
-		connectAttempts++
-		// Test gRPC connectivity
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", p.GrpcPort), 100*time.Millisecond)
-		if err == nil {
-			conn.Close()
+		// Perform gRPC health check
+		checkCtx, checkCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		_, lastErr = healthClient.Check(checkCtx, &healthpb.HealthCheckRequest{})
+		checkCancel()
+
+		if lastErr == nil {
+			// Success!
+			elapsed := time.Since(startTime)
 			if p.Binary == "pgctld" {
-				t.Logf("%s started successfully on gRPC port %d, PG port %d (after %d attempts)", p.Name, p.GrpcPort, p.PgPort, connectAttempts)
+				t.Logf("%s started successfully on gRPC port %d, PG port %d (after %d attempts, %v)", p.Name, p.GrpcPort, p.PgPort, attempt, elapsed.Round(time.Millisecond))
 			} else {
-				t.Logf("%s started successfully on gRPC port %d (after %d attempts)", p.Name, p.GrpcPort, connectAttempts)
+				t.Logf("%s started successfully on gRPC port %d (after %d attempts, %v)", p.Name, p.GrpcPort, attempt, elapsed.Round(time.Millisecond))
 			}
 			return nil
 		}
-		if connectAttempts%logInterval == 0 {
-			t.Logf("Still waiting for %s to start (attempt %d, error: %v)...", p.Name, connectAttempts, err)
+
+		// Log periodically based on time, not attempt count
+		if time.Since(lastLogTime) >= logInterval {
+			t.Logf("Still waiting for %s to start (attempt %d, elapsed %v, error: %v)...", p.Name, attempt, time.Since(startTime).Round(time.Millisecond), lastErr)
+			lastLogTime = time.Now()
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
 
-	// If we timed out, try to get process status
-	if p.Process.ProcessState == nil {
-		t.Logf("%s process is still running but not responding on gRPC port %d", p.Name, p.GrpcPort)
-	}
-
-	t.Logf("Timeout waiting for %s after %d connection attempts", p.Name, connectAttempts)
-	p.logRecentOutput(t, "Timeout waiting for server to start")
-	return fmt.Errorf("timeout: %s failed to start listening on port %d after %d attempts", p.Name, p.GrpcPort, connectAttempts)
+	return fmt.Errorf("unexpected: retry loop exited without success or timeout")
 }
 
 // logRecentOutput logs recent output from the process log file
