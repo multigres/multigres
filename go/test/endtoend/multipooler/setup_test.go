@@ -55,14 +55,19 @@ func newMultipoolerTestSetup(setup *shardsetup.ShardSetup) *MultipoolerTestSetup
 		ShardSetup: setup,
 	}
 
-	// Map the new structure to old fields
-	if primary := setup.GetMultipoolerInstance("primary"); primary != nil {
-		mts.PrimaryMultipooler = primary.Multipooler
-		mts.PrimaryPgctld = primary.Pgctld
+	// Map the new structure to old fields using dynamic primary name
+	if setup.PrimaryName != "" {
+		if primary := setup.GetMultipoolerInstance(setup.PrimaryName); primary != nil {
+			mts.PrimaryMultipooler = primary.Multipooler
+			mts.PrimaryPgctld = primary.Pgctld
+		}
 	}
-	if standby := setup.GetMultipoolerInstance("standby"); standby != nil {
-		mts.StandbyMultipooler = standby.Multipooler
-		mts.StandbyPgctld = standby.Pgctld
+
+	// Pick first standby for backward-compatible StandbyMultipooler field
+	standbys := setup.GetStandbys()
+	if len(standbys) > 0 {
+		mts.StandbyMultipooler = standbys[0].Multipooler
+		mts.StandbyPgctld = standbys[0].Pgctld
 	}
 
 	return mts
@@ -71,7 +76,15 @@ func newMultipoolerTestSetup(setup *shardsetup.ShardSetup) *MultipoolerTestSetup
 // getSharedTestSetup returns the shared test infrastructure with backward-compatible field access.
 func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 	t.Helper()
-	return newMultipoolerTestSetup(getSharedSetup(t))
+	setup := newMultipoolerTestSetup(getSharedSetup(t))
+
+	// Fail early with a clear error if primary is not available
+	if setup.PrimaryMultipooler == nil {
+		t.Fatalf("getSharedTestSetup: PrimaryMultipooler is nil (PrimaryName=%q). "+
+			"Cluster may not have bootstrapped correctly.", setup.PrimaryName)
+	}
+
+	return setup
 }
 
 // waitForManagerReady waits for the manager to be in ready state.

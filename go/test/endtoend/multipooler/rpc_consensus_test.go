@@ -282,9 +282,9 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		require.NoError(t, err, "GetLeadershipView RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
-		// Verify leader_id is set (should be primary-multipooler)
+		// Verify leader_id is set (should be the primary multipooler)
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
-		assert.Equal(t, "primary", resp.LeaderId, "LeaderId should be primary")
+		assert.Equal(t, setup.PrimaryName, resp.LeaderId, "LeaderId should be primary")
 
 		// Verify last_heartbeat is set and recent
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
