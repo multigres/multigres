@@ -1883,7 +1883,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	})
 
 	t.Run("ConfigureSynchronousReplication_Standby_Fails", func(t *testing.T) {
-		setupPoolerTest(t, setup)
+		setupPoolerTest(t, setup, WithoutReplication())
 
 		// ConfigureSynchronousReplication should fail on REPLICA pooler type
 		t.Log("Testing ConfigureSynchronousReplication on REPLICA pooler (should fail)...")
