@@ -1189,11 +1189,6 @@ func (s *ShardSetup) GetPrimaryClient(t *testing.T) *MultipoolerClient {
 	return s.GetClient(t, s.PrimaryName)
 }
 
-// GetStandbyClient returns a MultipoolerClient for the standby instance.
-func (s *ShardSetup) GetStandbyClient(t *testing.T) *MultipoolerClient {
-	return s.GetClient(t, "standby")
-}
-
 // makeMultipoolerID creates a multipooler ID for testing.
 func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 	return &clustermetadatapb.ID{

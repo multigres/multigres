@@ -24,47 +24,11 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-// nodeInstance represents a multipooler node for testing
-type nodeInstance struct {
-	name           string
-	grpcPort       int
-	pgctldGrpcPort int
-}
-
-// createMultiPoolerProto creates a MultiPooler proto for the given gRPC port
-func createMultiPoolerProto(grpcPort int) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
-		Hostname: "localhost",
-		PortMap: map[string]int32{
-			"grpc": int32(grpcPort),
-		},
-	}
-}
-
-// checkInitializationStatus checks the status of a node (which includes initialization info)
-func checkInitializationStatus(t *testing.T, node *nodeInstance) *multipoolermanagerdatapb.Status {
-	t.Helper()
-
-	client := rpcclient.NewMultiPoolerClient(10) // Small cache for test connections
-	defer client.Close()
-
-	pooler := createMultiPoolerProto(node.grpcPort)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	resp, err := client.Status(ctx, pooler, &multipoolermanagerdatapb.StatusRequest{})
-	require.NoError(t, err)
-
-	return resp.Status
-}
 
 // connectToPostgres establishes a connection to PostgreSQL using Unix socket
 func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
@@ -81,8 +45,6 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 }
 
 // waitForShardPrimary polls multipooler nodes until at least one is initialized as primary.
-// Uses PoolerType from topology (set by ChangeType RPC) rather than postgres-level role from pg_is_in_recovery().
-// This ensures the test waits until multiorch has completed the full bootstrap sequence including ChangeType.
 // Returns the name of the elected primary.
 func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) string {
 	t.Helper()
@@ -106,7 +68,6 @@ func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout tim
 				continue
 			}
 
-			// Check PoolerType (from topology) instead of Role (from pg_is_in_recovery)
 			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 				t.Logf("Shard bootstrapped: primary is %s (pooler_type=%s)", name, status.Status.PoolerType)
 				return name
@@ -120,8 +81,7 @@ func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout tim
 	return ""
 }
 
-// waitForStandbysInitialized polls multipooler nodes until expected count of standbys are initialized as replicas.
-// This ensures multiorch has completed standby initialization before proceeding with verification.
+// waitForStandbysInitialized polls multipooler nodes until expected count of standbys are initialized.
 func waitForStandbysInitialized(t *testing.T, setup *shardsetup.ShardSetup, expectedCount int, timeout time.Duration) {
 	t.Helper()
 
@@ -132,7 +92,7 @@ func waitForStandbysInitialized(t *testing.T, setup *shardsetup.ShardSetup, expe
 		standbyCount := 0
 		for name, inst := range setup.Multipoolers {
 			if name == setup.PrimaryName {
-				continue // Skip the primary
+				continue
 			}
 
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
