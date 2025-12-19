@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -486,23 +485,7 @@ func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, data
 		return "", fmt.Errorf("shard cannot be empty")
 	}
 
-	// Encode each component to prevent path traversal and handle special characters
-	encodedDB := safepath.EncodePathComponent(database)
-	encodedTG := safepath.EncodePathComponent(tableGroup)
-	encodedShard := safepath.EncodePathComponent(shard)
-
-	// Build the full path
-	fullPath := filepath.Join(baseBackupLocation, encodedDB, encodedTG, encodedShard)
-
-	// Verify containment: ensure the final path is still under baseBackupLocation
-	// This is a defense-in-depth check to catch any edge cases in encoding
-	cleanBase := filepath.Clean(baseBackupLocation) + string(filepath.Separator)
-	cleanFull := filepath.Clean(fullPath) + string(filepath.Separator)
-	if !strings.HasPrefix(cleanFull, cleanBase) {
-		return "", fmt.Errorf("path traversal detected in backup location: base=%s, full=%s", baseBackupLocation, fullPath)
-	}
-
-	return fullPath, nil
+	return safepath.Join(baseBackupLocation, database, tableGroup, shard)
 }
 
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler

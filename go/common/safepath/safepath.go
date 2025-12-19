@@ -18,6 +18,7 @@ package safepath
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -65,4 +66,28 @@ func EncodePathComponent(s string) string {
 		i++
 	}
 	return result.String()
+}
+
+// Join safely joins a base path with components by encoding each component
+// and verifying the result is contained within the base path. This prevents
+// path traversal attacks while supporting UTF-8 identifiers.
+func Join(basePath string, components ...string) (string, error) {
+	// Encode each component
+	encoded := make([]string, len(components))
+	for i, c := range components {
+		encoded[i] = EncodePathComponent(c)
+	}
+
+	// Build the full path
+	fullPath := filepath.Join(append([]string{basePath}, encoded...)...)
+
+	// Verify containment: ensure the final path is still under basePath
+	// This is a defense-in-depth check to catch any edge cases in encoding
+	cleanBase := filepath.Clean(basePath) + string(filepath.Separator)
+	cleanFull := filepath.Clean(fullPath) + string(filepath.Separator)
+	if !strings.HasPrefix(cleanFull, cleanBase) {
+		return "", fmt.Errorf("path traversal detected: base=%s, full=%s", basePath, fullPath)
+	}
+
+	return fullPath, nil
 }

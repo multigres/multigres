@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsSafePathChar(t *testing.T) {
@@ -75,6 +76,95 @@ func TestEncodePathComponent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := EncodePathComponent(tt.input)
 			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestJoin(t *testing.T) {
+	tests := []struct {
+		name            string
+		basePath        string
+		components      []string
+		wantPath        string
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name:       "simple valid path",
+			basePath:   "/backups",
+			components: []string{"mydb", "tg1", "shard0"},
+			wantPath:   "/backups/mydb/tg1/shard0",
+			wantErr:    false,
+		},
+		{
+			name:       "with dots in components",
+			basePath:   "/backups",
+			components: []string{"my.db", "tg.1", "shard.0"},
+			wantPath:   "/backups/my.db/tg.1/shard.0",
+			wantErr:    false,
+		},
+		{
+			name:       "double dot encoded",
+			basePath:   "/backups",
+			components: []string{"..", "tg1", "shard0"},
+			wantPath:   "/backups/%2E%2E/tg1/shard0",
+			wantErr:    false,
+		},
+		{
+			name:       "slash in component encoded",
+			basePath:   "/backups",
+			components: []string{"db/etc", "tg1", "shard0"},
+			wantPath:   "/backups/db%2Fetc/tg1/shard0",
+			wantErr:    false,
+		},
+		{
+			name:       "backslash in component encoded",
+			basePath:   "/backups",
+			components: []string{"db\\windows", "tg1", "shard0"},
+			wantPath:   "/backups/db%5Cwindows/tg1/shard0",
+			wantErr:    false,
+		},
+		{
+			name:       "unicode components",
+			basePath:   "/backups",
+			components: []string{"データベース", "グループ", "シャード"},
+			wantPath:   "/backups/%E3%83%87%E3%83%BC%E3%82%BF%E3%83%99%E3%83%BC%E3%82%B9/%E3%82%B0%E3%83%AB%E3%83%BC%E3%83%97/%E3%82%B7%E3%83%A3%E3%83%BC%E3%83%89",
+			wantErr:    false,
+		},
+		{
+			name:       "single component",
+			basePath:   "/backups",
+			components: []string{"mydb"},
+			wantPath:   "/backups/mydb",
+			wantErr:    false,
+		},
+		{
+			name:       "no components",
+			basePath:   "/backups",
+			components: []string{},
+			wantPath:   "/backups",
+			wantErr:    false,
+		},
+		{
+			name:       "empty component preserved",
+			basePath:   "/backups",
+			components: []string{"mydb", "", "shard0"},
+			wantPath:   "/backups/mydb/shard0",
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPath, err := Join(tt.basePath, tt.components...)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContains)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantPath, gotPath)
+			}
 		})
 	}
 }
