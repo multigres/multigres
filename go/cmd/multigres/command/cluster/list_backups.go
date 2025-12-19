@@ -59,6 +59,9 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Note: TableGroup and Shard are currently hardcoded to defaults because
+	// the system only supports a single table group ("default") and shard ("0-inf").
+	// Once multi-shard support is implemented, we should add --table-group and --shard flags.
 	resp, err := client.GetBackups(ctx, &multiadminpb.GetBackupsRequest{
 		Database:   database,
 		TableGroup: constants.DefaultTableGroup,
