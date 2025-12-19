@@ -25,6 +25,7 @@ linters:
     - errcheck
     - errorlint
     - forbidigo
+    - goconst
     - gocritic
     - gosec
     - govet
@@ -39,6 +40,16 @@ linters:
     - unconvert
     - unused
   settings:
+    goconst:
+      # Minimum length of string to trigger (shorter strings are often not worth extracting)
+      min-len: 5
+      # Minimum number of occurrences to trigger
+      min-occurrences: 3
+      # Ignore test files
+      ignore-tests: true
+      # Don't suppress warnings just because a constant with the same value exists.
+      # Note: goconst doesn't catch struct literal values, only variable assignments.
+      match-constant: false
     forbidigo:
       # Forbid os.Exit to ensure cleanup hooks can fire before process termination.
       # Use //nolint:forbidigo in main() or TestMain() where it's allowed.
@@ -75,6 +86,7 @@ linters:
               desc: "provisioners should not depend on multigres logic aside from the topo"
           allow:
             - $gostd
+            - github.com/multigres/multigres/go/common/constants
             - github.com/multigres/multigres/go/common/topoclient
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
@@ -295,6 +307,18 @@ linters:
       - linters:
           - unconvert
         path: ^go/parser/
+      # Parser has many repeated SQL keywords that shouldn't be constants
+      - linters:
+          - goconst
+        path: ^go/parser/
+      # Test files often have repeated test data strings
+      - linters:
+          - goconst
+        path: _test\.go$
+      # Test helper directories also have repeated test data strings
+      - linters:
+          - goconst
+        path: /test/
 formatters:
   enable:
     - gofumpt
