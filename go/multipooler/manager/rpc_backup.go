@@ -789,7 +789,7 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "job_id is required")
 	}
 
-	pm.logger.InfoContext(ctx, "Searching for backup by job_id", "job_id", jobID)
+	pm.logger.DebugContext(ctx, "Searching for backup by job_id", "job_id", jobID)
 
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
@@ -812,7 +812,7 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 
 	for _, backup := range backups {
 		if backup.JobId == jobID {
-			pm.logger.InfoContext(ctx, "Found backup by job_id",
+			pm.logger.DebugContext(ctx, "Found backup by job_id",
 				"job_id", jobID,
 				"backup_id", backup.BackupId,
 				"status", backup.Status)
@@ -820,6 +820,6 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "Backup not found by job_id", "job_id", jobID)
+	pm.logger.DebugContext(ctx, "Backup not found by job_id", "job_id", jobID)
 	return nil, nil
 }
