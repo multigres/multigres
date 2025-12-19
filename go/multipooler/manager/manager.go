@@ -472,8 +472,10 @@ func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
 // backupLocationPath returns the full backup location path for a given database, table group,
 // and shard. The topology only stores the base path.
 func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) string {
-	// TODO: ensure that the database, table group, and shard contain only valid characters
-	// and those that are safe to use in a file path and/or URL path
+	// TODO: Validate that database, table group, and shard contain only valid characters
+	// that are safe to use in file paths and URL paths. Should reject path traversal
+	// attempts (../, ..\, etc.) and control characters. Consider using filepath.Clean()
+	// and checking for suspicious patterns before constructing the path.
 	return filepath.Join(baseBackupLocation, database, tableGroup, shard)
 }
 
