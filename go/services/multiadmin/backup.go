@@ -157,8 +157,14 @@ func (s *MultiAdminServer) RestoreFromBackup(ctx context.Context, req *multiadmi
 	if req.Database == "" {
 		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
 	}
+	// Note: TableGroup and Shard validation ensures the restore target is fully specified.
+	// The CLI currently hardcodes these to defaults, but the API is designed to support
+	// the full use case when multi-shard support is implemented.
 	if req.TableGroup == "" {
 		return nil, status.Error(codes.InvalidArgument, "table_group cannot be empty")
+	}
+	if req.Shard == "" {
+		return nil, status.Error(codes.InvalidArgument, "shard cannot be empty")
 	}
 	if req.PoolerId == nil {
 		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
