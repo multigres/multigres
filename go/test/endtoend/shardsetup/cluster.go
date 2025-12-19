@@ -45,8 +45,12 @@ type ShardSetup struct {
 	TopoServer     topoclient.Store
 	CellName       string
 
-	// MultipoolerInstances indexed by name (e.g., "primary", "standby", "node0", "node1")
+	// MultipoolerInstances indexed by name (e.g., "pooler-1", "pooler-2", "pooler-3")
 	Multipoolers map[string]*MultipoolerInstance
+
+	// PrimaryName is the name of the node elected as primary after bootstrap.
+	// Set by initializeWithMultiOrch. Use GetPrimary() to access.
+	PrimaryName string
 
 	// Multiorch instances (can have multiple)
 	MultiOrchInstances map[string]*ProcessInstance
@@ -88,28 +92,37 @@ func (s *ShardSetup) GetMultiOrch(name string) *ProcessInstance {
 	return s.MultiOrchInstances[name]
 }
 
-// PrimaryMultipooler returns the multipooler for the instance named "primary".
-// Convenience method for tests using the primary/standby naming convention.
-func (s *ShardSetup) PrimaryMultipooler() *ProcessInstance {
-	return s.GetMultipooler("primary")
+// GetPrimary returns the multipooler instance that was elected as primary.
+// Fails the test if no primary has been set (e.g., before bootstrap).
+func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
+	t.Helper()
+	if s == nil || s.PrimaryName == "" {
+		t.Fatal("GetPrimary: no primary has been elected yet")
+	}
+	return s.GetMultipoolerInstance(s.PrimaryName)
 }
 
-// StandbyMultipooler returns the multipooler for the instance named "standby".
-// Convenience method for tests using the primary/standby naming convention.
-func (s *ShardSetup) StandbyMultipooler() *ProcessInstance {
-	return s.GetMultipooler("standby")
+// GetStandbys returns all multipooler instances that are not the primary.
+func (s *ShardSetup) GetStandbys() []*MultipoolerInstance {
+	var standbys []*MultipoolerInstance
+	for name, inst := range s.Multipoolers {
+		if name != s.PrimaryName {
+			standbys = append(standbys, inst)
+		}
+	}
+	return standbys
 }
 
-// PrimaryPgctld returns the pgctld for the instance named "primary".
-// Convenience method for tests using the primary/standby naming convention.
-func (s *ShardSetup) PrimaryPgctld() *ProcessInstance {
-	return s.GetPgctld("primary")
+// PrimaryMultipooler returns the multipooler process for the elected primary.
+func (s *ShardSetup) PrimaryMultipooler(t *testing.T) *ProcessInstance {
+	t.Helper()
+	return s.GetPrimary(t).Multipooler
 }
 
-// StandbyPgctld returns the pgctld for the instance named "standby".
-// Convenience method for tests using the primary/standby naming convention.
-func (s *ShardSetup) StandbyPgctld() *ProcessInstance {
-	return s.GetPgctld("standby")
+// PrimaryPgctld returns the pgctld process for the elected primary.
+func (s *ShardSetup) PrimaryPgctld(t *testing.T) *ProcessInstance {
+	t.Helper()
+	return s.GetPrimary(t).Pgctld
 }
 
 // CreateMultipoolerInstance creates a new multipooler instance (pgctld + multipooler pair) with the given name.

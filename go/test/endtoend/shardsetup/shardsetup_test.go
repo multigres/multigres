@@ -34,16 +34,20 @@ func TestShardSetup_ThreeNodeCluster(t *testing.T) {
 	// Verify we have 3 multipooler instances
 	require.Len(t, setup.Multipoolers, 3, "should have 3 multipooler instances")
 
-	// Verify naming convention
-	require.NotNil(t, setup.GetMultipoolerInstance("primary"), "should have 'primary' instance")
-	require.NotNil(t, setup.GetMultipoolerInstance("standby"), "should have 'standby' instance")
-	require.NotNil(t, setup.GetMultipoolerInstance("standby2"), "should have 'standby2' instance")
+	// Verify naming convention (generic names since multiorch decides primary)
+	require.NotNil(t, setup.GetMultipoolerInstance("pooler-1"), "should have 'pooler-1' instance")
+	require.NotNil(t, setup.GetMultipoolerInstance("pooler-2"), "should have 'pooler-2' instance")
+	require.NotNil(t, setup.GetMultipoolerInstance("pooler-3"), "should have 'pooler-3' instance")
 
-	// Verify convenience methods work
-	require.NotNil(t, setup.PrimaryMultipooler(), "PrimaryMultipooler() should return the primary")
-	require.NotNil(t, setup.StandbyMultipooler(), "StandbyMultipooler() should return the standby")
-	require.Equal(t, setup.GetMultipooler("primary"), setup.PrimaryMultipooler())
-	require.Equal(t, setup.GetMultipooler("standby"), setup.StandbyMultipooler())
+	// Verify primary was elected and convenience methods work
+	require.NotEmpty(t, setup.PrimaryName, "PrimaryName should be set after bootstrap")
+	primary := setup.GetPrimary(t)
+	require.NotNil(t, primary, "GetPrimary() should return the elected primary")
+	require.Equal(t, setup.GetMultipoolerInstance(setup.PrimaryName), primary)
+
+	// Verify standbys (all non-primary nodes)
+	standbys := setup.GetStandbys()
+	require.Len(t, standbys, 2, "should have 2 standbys")
 
 	ctx := context.Background()
 
@@ -56,27 +60,27 @@ func TestShardSetup_ThreeNodeCluster(t *testing.T) {
 	assert.Equal(t, "f", inRecovery, "primary should NOT be in recovery")
 
 	// Verify primary has correct pooler type
-	err = ValidatePoolerType(ctx, primaryClient.Manager, clustermetadatapb.PoolerType_PRIMARY, "primary")
+	err = ValidatePoolerType(ctx, primaryClient.Manager, clustermetadatapb.PoolerType_PRIMARY, setup.PrimaryName)
 	require.NoError(t, err)
 
-	// Verify both standbys are in recovery and replicating
-	for _, standbyName := range []string{"standby", "standby2"} {
-		standbyClient := setup.GetClient(t, standbyName)
+	// Verify all standbys are in recovery and replicating
+	for _, standby := range standbys {
+		standbyClient := setup.GetClient(t, standby.Name)
 
 		// Verify in recovery mode
 		inRecovery, err := QueryStringValue(ctx, standbyClient.Pooler, "SELECT pg_is_in_recovery()")
-		require.NoError(t, err, "%s should respond to query", standbyName)
-		assert.Equal(t, "t", inRecovery, "%s should be in recovery", standbyName)
+		require.NoError(t, err, "%s should respond to query", standby.Name)
+		assert.Equal(t, "t", inRecovery, "%s should be in recovery", standby.Name)
 
 		// Verify pooler type is REPLICA
-		err = ValidatePoolerType(ctx, standbyClient.Manager, clustermetadatapb.PoolerType_REPLICA, standbyName)
+		err = ValidatePoolerType(ctx, standbyClient.Manager, clustermetadatapb.PoolerType_REPLICA, standby.Name)
 		require.NoError(t, err)
 
 		// Verify replication is streaming (SetupTest configures replication)
 		resp, err := standbyClient.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
-		require.NoError(t, err, "%s should query pg_stat_wal_receiver", standbyName)
-		require.Len(t, resp.Rows, 1, "%s should have WAL receiver", standbyName)
-		assert.Equal(t, "streaming", string(resp.Rows[0].Values[0]), "%s should be streaming", standbyName)
+		require.NoError(t, err, "%s should query pg_stat_wal_receiver", standby.Name)
+		require.Len(t, resp.Rows, 1, "%s should have WAL receiver", standby.Name)
+		assert.Equal(t, "streaming", string(resp.Rows[0].Values[0]), "%s should be streaming", standby.Name)
 
 		standbyClient.Close()
 	}
@@ -121,30 +125,30 @@ func TestShardSetup_DemoteAndReset(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond, "primary should be restored to primary state")
 
 	// Verify pooler type is PRIMARY
-	err = ValidatePoolerType(ctx, primaryClient.Manager, clustermetadatapb.PoolerType_PRIMARY, "primary")
+	err = ValidatePoolerType(ctx, primaryClient.Manager, clustermetadatapb.PoolerType_PRIMARY, setup.PrimaryName)
 	require.NoError(t, err)
 
 	// Verify term is reset to 1
-	err = ValidateTerm(ctx, primaryClient.Consensus, 1, "primary")
+	err = ValidateTerm(ctx, primaryClient.Consensus, 1, setup.PrimaryName)
 	require.NoError(t, err)
 
 	t.Log("Primary restored successfully")
 
 	// Verify standbys are still standbys with correct state
-	for _, standbyName := range []string{"standby", "standby2"} {
-		standbyClient := setup.GetClient(t, standbyName)
+	for _, standby := range setup.GetStandbys() {
+		standbyClient := setup.GetClient(t, standby.Name)
 
 		// Should be in recovery
 		inRecovery, err := QueryStringValue(ctx, standbyClient.Pooler, "SELECT pg_is_in_recovery()")
 		require.NoError(t, err)
-		assert.Equal(t, "t", inRecovery, "%s should be in recovery", standbyName)
+		assert.Equal(t, "t", inRecovery, "%s should be in recovery", standby.Name)
 
 		// Term should be 1
-		err = ValidateTerm(ctx, standbyClient.Consensus, 1, standbyName)
+		err = ValidateTerm(ctx, standbyClient.Consensus, 1, standby.Name)
 		require.NoError(t, err)
 
 		// Pooler type should be REPLICA
-		err = ValidatePoolerType(ctx, standbyClient.Manager, clustermetadatapb.PoolerType_REPLICA, standbyName)
+		err = ValidatePoolerType(ctx, standbyClient.Manager, clustermetadatapb.PoolerType_REPLICA, standby.Name)
 		require.NoError(t, err)
 
 		standbyClient.Close()
@@ -172,9 +176,9 @@ func TestShardSetup_ReplicationWorks(t *testing.T) {
 	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "INSERT INTO test_replication (id, value) VALUES (1, 'test_data') ON CONFLICT (id) DO UPDATE SET value = 'test_data'", 0)
 	require.NoError(t, err)
 
-	// Verify data replicates to both standbys
-	for _, standbyName := range []string{"standby", "standby2"} {
-		standbyClient := setup.GetClient(t, standbyName)
+	// Verify data replicates to all standbys
+	for _, standby := range setup.GetStandbys() {
+		standbyClient := setup.GetClient(t, standby.Name)
 
 		// Wait for replication to catch up
 		require.Eventually(t, func() bool {
@@ -183,7 +187,7 @@ func TestShardSetup_ReplicationWorks(t *testing.T) {
 				return false
 			}
 			return string(resp.Rows[0].Values[0]) == "test_data"
-		}, 5*time.Second, 100*time.Millisecond, "data should replicate to %s", standbyName)
+		}, 5*time.Second, 100*time.Millisecond, "data should replicate to %s", standby.Name)
 
 		standbyClient.Close()
 	}
@@ -201,40 +205,45 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 	ctx := context.Background()
 
 	// Verify standbys have no replication configured
-	for _, standbyName := range []string{"standby", "standby2"} {
-		standbyClient := setup.GetClient(t, standbyName)
+	for _, standby := range setup.GetStandbys() {
+		standbyClient := setup.GetClient(t, standby.Name)
 
 		// Verify primary_conninfo is empty
 		connInfo, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
-		require.NoError(t, err, "%s should respond to SHOW primary_conninfo", standbyName)
-		assert.Equal(t, "", connInfo, "%s primary_conninfo should be empty with WithoutReplication()", standbyName)
+		require.NoError(t, err, "%s should respond to SHOW primary_conninfo", standby.Name)
+		assert.Equal(t, "", connInfo, "%s primary_conninfo should be empty with WithoutReplication()", standby.Name)
 
 		// Verify no WAL receiver (no replication streaming)
 		resp, err := standbyClient.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
-		require.NoError(t, err, "%s should respond to pg_stat_wal_receiver query", standbyName)
-		assert.Empty(t, resp.Rows, "%s should have no WAL receiver with WithoutReplication()", standbyName)
+		require.NoError(t, err, "%s should respond to pg_stat_wal_receiver query", standby.Name)
+		assert.Empty(t, resp.Rows, "%s should have no WAL receiver with WithoutReplication()", standby.Name)
 
 		standbyClient.Close()
 	}
 
-	// Write data to primary - it should succeed (no sync replication configured)
+	// Verify primary has no synchronous_standby_names configured (clean state)
 	primaryClient := setup.GetPrimaryClient(t)
 	defer primaryClient.Close()
 
-	_, err := primaryClient.Pooler.ExecuteQuery(ctx, "CREATE TABLE IF NOT EXISTS test_no_repl (id INT PRIMARY KEY)", 0)
+	syncStandby, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
+	require.NoError(t, err)
+	assert.Equal(t, "", syncStandby, "synchronous_standby_names should be empty with WithoutReplication()")
+
+	// Write data to primary - it should succeed (no sync replication configured)
+	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "CREATE TABLE IF NOT EXISTS test_no_repl (id INT PRIMARY KEY)", 0)
 	require.NoError(t, err, "Should be able to create table on primary")
 
 	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "INSERT INTO test_no_repl (id) VALUES (1) ON CONFLICT DO NOTHING", 0)
 	require.NoError(t, err, "Should be able to insert on primary without replication")
 
 	// Data should NOT appear on standbys (no replication)
-	for _, standbyName := range []string{"standby", "standby2"} {
-		standbyClient := setup.GetClient(t, standbyName)
+	for _, standby := range setup.GetStandbys() {
+		standbyClient := setup.GetClient(t, standby.Name)
 
 		// Table might not exist or be empty - either way, data didn't replicate
 		resp, err := standbyClient.Pooler.ExecuteQuery(ctx, "SELECT id FROM test_no_repl WHERE id = 1", 1)
 		if err == nil {
-			assert.Empty(t, resp.Rows, "%s should not have replicated data with WithoutReplication()", standbyName)
+			assert.Empty(t, resp.Rows, "%s should not have replicated data with WithoutReplication()", standby.Name)
 		}
 		// If error (table doesn't exist), that's also fine - no replication happened
 
@@ -249,17 +258,19 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 // This is a self-contained test that modifies GUCs, calls reset, and verifies reset worked.
 func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 	setup := getSharedSetup(t)
+	// Verify initial state on primary - with replication configured,
+	// synchronous_standby_names should be set. This is the default for SetupTest
 	setup.SetupTest(t)
 
 	ctx := context.Background()
 
-	// Verify initial clean state on primary
 	primaryClient := setup.GetPrimaryClient(t)
 	defer primaryClient.Close()
 
 	initialSyncStandby, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
 	require.NoError(t, err)
-	require.Equal(t, "", initialSyncStandby, "synchronous_standby_names should start empty")
+	require.NotEmpty(t, initialSyncStandby, "synchronous_standby_names should be configured when replication is enabled")
+	require.Contains(t, initialSyncStandby, "ANY 1", "synchronous_standby_names should use ANY 1 format")
 
 	initialSyncCommit, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")
 	require.NoError(t, err)
@@ -287,14 +298,14 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 	t.Log("Primary GUCs modified successfully")
 
 	// Modify GUCs on standbys
-	for _, standbyName := range []string{"standby", "standby2"} {
-		standbyClient := setup.GetClient(t, standbyName)
+	for _, standby := range setup.GetStandbys() {
+		standbyClient := setup.GetClient(t, standby.Name)
 
 		// Record current primary_conninfo (set by SetupTest)
 		currentConnInfo, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
 		require.NoError(t, err)
-		require.NotEmpty(t, currentConnInfo, "%s primary_conninfo should be set", standbyName)
-		require.Contains(t, currentConnInfo, "localhost", "%s should be replicating from localhost", standbyName)
+		require.NotEmpty(t, currentConnInfo, "%s primary_conninfo should be set", standby.Name)
+		require.Contains(t, currentConnInfo, "localhost", "%s should be replicating from localhost", standby.Name)
 
 		// Modify primary_conninfo
 		_, err = standbyClient.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET primary_conninfo = 'host=modified_host'", 0)
@@ -306,9 +317,9 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 		require.Eventually(t, func() bool {
 			val, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
 			return err == nil && val == "host=modified_host"
-		}, 5*time.Second, 100*time.Millisecond, "%s primary_conninfo should be modified", standbyName)
+		}, 5*time.Second, 100*time.Millisecond, "%s primary_conninfo should be modified", standby.Name)
 
-		t.Logf("%s GUCs modified successfully", standbyName)
+		t.Logf("%s GUCs modified successfully", standby.Name)
 		standbyClient.Close()
 	}
 
@@ -330,16 +341,16 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 	t.Log("Primary GUCs reset successfully")
 
 	// Verify GUCs were reset on standbys
-	for _, standbyName := range []string{"standby", "standby2"} {
-		standbyClient := setup.GetClient(t, standbyName)
+	for _, standby := range setup.GetStandbys() {
+		standbyClient := setup.GetClient(t, standby.Name)
 
 		// primary_conninfo should be reset (empty in clean state)
 		require.Eventually(t, func() bool {
 			val, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
 			return err == nil && val == ""
-		}, 5*time.Second, 100*time.Millisecond, "%s primary_conninfo should be reset to empty", standbyName)
+		}, 5*time.Second, 100*time.Millisecond, "%s primary_conninfo should be reset to empty", standby.Name)
 
-		t.Logf("%s GUCs reset successfully", standbyName)
+		t.Logf("%s GUCs reset successfully", standby.Name)
 		standbyClient.Close()
 	}
 
