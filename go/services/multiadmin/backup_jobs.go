@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
@@ -29,7 +30,7 @@ const DefaultBackupJobExpiration = 24 * time.Hour
 
 // backupJobMetadata stores additional metadata not in the proto
 type backupJobMetadata struct {
-	response    *multiadminpb.GetBackupJobStatusResponse
+	response    multiadminpb.GetBackupJobStatusResponse // Changed from pointer to value
 	createdAt   time.Time
 	updatedAt   time.Time
 	completedAt *time.Time
@@ -113,7 +114,7 @@ func (jt *BackupJobTracker) CreateJobWithID(jobID string, jobType multiadminpb.J
 	now := time.Now()
 
 	jt.jobs[jobID] = &backupJobMetadata{
-		response: &multiadminpb.GetBackupJobStatusResponse{
+		response: multiadminpb.GetBackupJobStatusResponse{ // Copies are ok here
 			JobId:      jobID,
 			JobType:    jobType,
 			Status:     multiadminpb.JobStatus_JOB_STATUS_PENDING,
@@ -138,7 +139,8 @@ func (jt *BackupJobTracker) GetJobStatus(jobID string) (*multiadminpb.GetBackupJ
 		return nil, fmt.Errorf("backup job not found: %s", jobID)
 	}
 
-	return job.response, nil
+	// Clone the response to prevent race conditions (protobuf messages contain internal mutexes)
+	return proto.Clone(&job.response).(*multiadminpb.GetBackupJobStatusResponse), nil
 }
 
 // UpdateJobStatus updates the status of a backup job
