@@ -24,6 +24,9 @@ import (
 
 // IsSafePathChar returns true if the rune is safe to use in file paths without encoding.
 // Safe characters are: a-z, A-Z, 0-9, underscore, hyphen, and dot.
+//
+// This set of characters is conservative. Many of the characters not allowed are safe,
+// but we err on the side of caution and encode everything that is not explicitly allowed.
 func IsSafePathChar(r rune) bool {
 	return (r >= 'a' && r <= 'z') ||
 		(r >= 'A' && r <= 'Z') ||
