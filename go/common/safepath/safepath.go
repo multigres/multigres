@@ -1,0 +1,68 @@
+// Copyright 2025 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package safepath provides utilities for safely encoding path components
+// to prevent path traversal attacks while supporting UTF-8 identifiers.
+package safepath
+
+import (
+	"fmt"
+	"strings"
+)
+
+// IsSafePathChar returns true if the rune is safe to use in file paths without encoding.
+// Safe characters are: a-z, A-Z, 0-9, underscore, hyphen, and dot.
+func IsSafePathChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') ||
+		r == '_' || r == '-' || r == '.'
+}
+
+// EncodePathComponent URL-encodes a path component, preserving safe characters.
+// Safe characters (a-z, A-Z, 0-9, _, -, .) are preserved, everything else is
+// percent-encoded. Consecutive dots (..) are always encoded to prevent path traversal.
+// This prevents path traversal while supporting UTF-8 identifiers.
+func EncodePathComponent(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	var result strings.Builder
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
+		// Check for consecutive dots (path traversal defense)
+		if r == '.' && i+1 < len(runes) && runes[i+1] == '.' {
+			// Encode all consecutive dots
+			for i < len(runes) && runes[i] == '.' {
+				result.WriteString("%2E")
+				i++
+			}
+			continue
+		}
+		if IsSafePathChar(r) {
+			result.WriteRune(r)
+		} else {
+			// URL encode: convert rune to UTF-8 bytes, then hex encode each byte
+			utf8Bytes := []byte(string(r))
+			for _, b := range utf8Bytes {
+				result.WriteString(fmt.Sprintf("%%%02X", b))
+			}
+		}
+		i++
+	}
+	return result.String()
+}

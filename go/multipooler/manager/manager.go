@@ -29,6 +29,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/safepath"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
@@ -486,9 +487,9 @@ func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, data
 	}
 
 	// Encode each component to prevent path traversal and handle special characters
-	encodedDB := encodePathComponent(database)
-	encodedTG := encodePathComponent(tableGroup)
-	encodedShard := encodePathComponent(shard)
+	encodedDB := safepath.EncodePathComponent(database)
+	encodedTG := safepath.EncodePathComponent(tableGroup)
+	encodedShard := safepath.EncodePathComponent(shard)
 
 	// Build the full path
 	fullPath := filepath.Join(baseBackupLocation, encodedDB, encodedTG, encodedShard)
@@ -502,52 +503,6 @@ func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, data
 	}
 
 	return fullPath, nil
-}
-
-// isSafePathChar returns true if the rune is safe to use in file paths without encoding.
-// Safe characters are: a-z, A-Z, 0-9, underscore, hyphen, and dot.
-func isSafePathChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') ||
-		(r >= 'A' && r <= 'Z') ||
-		(r >= '0' && r <= '9') ||
-		r == '_' || r == '-' || r == '.'
-}
-
-// encodePathComponent URL-encodes a path component, preserving safe characters.
-// Safe characters (a-z, A-Z, 0-9, _, -, .) are preserved, everything else is
-// percent-encoded. Consecutive dots (..) are always encoded to prevent path traversal.
-// This prevents path traversal while supporting UTF-8 identifiers.
-func encodePathComponent(s string) string {
-	if s == "" {
-		return ""
-	}
-
-	var result strings.Builder
-	runes := []rune(s)
-	i := 0
-	for i < len(runes) {
-		r := runes[i]
-		// Check for consecutive dots (path traversal defense)
-		if r == '.' && i+1 < len(runes) && runes[i+1] == '.' {
-			// Encode all consecutive dots
-			for i < len(runes) && runes[i] == '.' {
-				result.WriteString("%2E")
-				i++
-			}
-			continue
-		}
-		if isSafePathChar(r) {
-			result.WriteRune(r)
-		} else {
-			// URL encode: convert rune to UTF-8 bytes, then hex encode each byte
-			utf8Bytes := []byte(string(r))
-			for _, b := range utf8Bytes {
-				result.WriteString(fmt.Sprintf("%%%02X", b))
-			}
-		}
-		i++
-	}
-	return result.String()
 }
 
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler
