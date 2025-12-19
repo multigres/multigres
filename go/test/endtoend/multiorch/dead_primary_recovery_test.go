@@ -55,18 +55,18 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	setup.SetupTest(t, shardsetup.WithoutCleanup())
 
 	// Get the primary
-	primary := setup.GetMultipoolerInstance("primary")
+	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary instance should exist")
 	t.Logf("Initial primary: %s", primary.Name)
 
 	// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 	t.Logf("Killing postgres on primary node %s to simulate database crash", primary.Name)
-	setup.KillPostgres(t, "primary")
+	setup.KillPostgres(t, primary.Name)
 
 	// Wait for multiorch to detect failure and elect new primary
 	t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
 
-	newPrimaryName := waitForNewPrimary(t, setup, "primary", 10*time.Second)
+	newPrimaryName := waitForNewPrimary(t, setup, primary.Name, 10*time.Second)
 	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
