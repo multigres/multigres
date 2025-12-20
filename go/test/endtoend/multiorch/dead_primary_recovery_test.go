@@ -53,8 +53,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	)
 	defer cleanup()
 
-	// Configure replication on all standbys
-	setup.SetupTest(t, shardsetup.WithoutCleanup())
+	setup.StartMultiOrchs(t)
 
 	// Get the primary
 	primary := setup.GetPrimary(t)
@@ -162,8 +161,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	)
 	defer cleanup()
 
-	// Configure replication on all standbys
-	setup.SetupTest(t, shardsetup.WithoutCleanup())
+	setup.StartMultiOrchs(t)
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary instance should exist")

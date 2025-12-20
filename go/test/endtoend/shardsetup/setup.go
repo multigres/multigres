@@ -110,7 +110,6 @@ func WithoutInitialization() SetupOption {
 type SetupTestConfig struct {
 	NoReplication    bool     // Don't configure replication
 	PauseReplication bool     // Configure replication but pause WAL replay
-	Cleanup          bool     // Register cleanup handlers (default: true for shared setups)
 	GucsToReset      []string // GUCs to save before test and restore after
 }
 
@@ -134,14 +133,6 @@ func WithPausedReplication() SetupTestOption {
 	return func(c *SetupTestConfig) {
 		c.PauseReplication = true
 		c.GucsToReset = append(c.GucsToReset, "synchronous_standby_names", "synchronous_commit", "primary_conninfo")
-	}
-}
-
-// WithoutCleanup returns an option that skips cleanup handler registration.
-// Use this for isolated shards where cleanup is handled by defer cleanup().
-func WithoutCleanup() SetupTestOption {
-	return func(c *SetupTestConfig) {
-		c.Cleanup = false
 	}
 }
 
@@ -340,6 +331,21 @@ func (s *ShardSetup) createMultiOrchInstances(t *testing.T, config *SetupConfig)
 		name := multiOrchName(i)
 		s.CreateMultiOrchInstance(t, name, config.CellName, watchTargets)
 		t.Logf("Created multiorch '%s' (will start after replication is configured)", name)
+	}
+}
+
+// StartMultiOrchs starts all multiorch instances.
+// Use this for tests that need multiorch running but don't need the full SetupTest flow.
+func (s *ShardSetup) StartMultiOrchs(t *testing.T) {
+	t.Helper()
+	for name, mo := range s.MultiOrchInstances {
+		if mo.IsRunning() {
+			continue
+		}
+		if err := mo.Start(t); err != nil {
+			t.Fatalf("StartMultiOrchs: failed to start multiorch %s: %v", name, err)
+		}
+		t.Logf("StartMultiOrchs: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
 	}
 }
 
@@ -807,8 +813,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	t.Helper()
 
-	// Parse options (default: cleanup enabled)
-	config := &SetupTestConfig{Cleanup: true}
+	config := &SetupTestConfig{}
 	for _, opt := range opts {
 		opt(config)
 	}
@@ -879,13 +884,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			t.Fatalf("SetupTest: failed to start multiorch %s: %v", name, err)
 		}
 		t.Logf("SetupTest: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
-	}
-
-	// Skip cleanup registration for isolated shards (cleanup handled by defer cleanup())
-	// Note: multiorch still gets started above, but won't be cleaned up by t.Cleanup.
-	// For isolated shards, the cleanup function returned by NewIsolated handles this.
-	if !config.Cleanup {
-		return
 	}
 
 	// Register cleanup handler
