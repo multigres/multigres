@@ -116,23 +116,20 @@ type SetupTestConfig struct {
 // SetupTestOption is a function that configures SetupTest behavior.
 type SetupTestOption func(*SetupTestConfig)
 
-// WithoutReplication returns an option that disables replication setup.
-// Use this for tests that need to set up replication from scratch.
-// Saves and restores synchronous replication settings and primary_conninfo.
+// WithoutReplication returns an option that actively breaks replication.
+// Clears primary_conninfo and synchronous_standby_names, so tests can set up replication from scratch.
 func WithoutReplication() SetupTestOption {
 	return func(c *SetupTestConfig) {
 		c.NoReplication = true
-		c.GucsToReset = append(c.GucsToReset, "synchronous_standby_names", "synchronous_commit", "primary_conninfo")
 	}
 }
 
-// WithPausedReplication returns an option that starts replication but pauses WAL replay.
+// WithPausedReplication returns an option that pauses WAL replay on standbys.
+// Replication is already configured from bootstrap; this just pauses WAL application.
 // Use this for tests that need to test pg_wal_replay_resume().
-// Saves and restores synchronous replication settings and primary_conninfo.
 func WithPausedReplication() SetupTestOption {
 	return func(c *SetupTestConfig) {
 		c.PauseReplication = true
-		c.GucsToReset = append(c.GucsToReset, "synchronous_standby_names", "synchronous_commit", "primary_conninfo")
 	}
 }
 
@@ -399,9 +396,12 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 		delete(setup.MultiOrchInstances, "temp-multiorch")
 	}
 
-	// Reset to clean state: clear replication GUCs that multiorch configured
-	// Clean state = primary_conninfo empty, so tests can configure replication as needed
-	setup.ResetToCleanState(t)
+	// Save the current GUC values as the baseline "clean state".
+	// After bootstrap, replication is configured, so the baseline includes:
+	// - Primary: synchronous_standby_names with standby list, synchronous_commit=on
+	// - Replicas: primary_conninfo pointing to primary
+	// ValidateCleanState and cleanup will restore to these values.
+	setup.saveBaselineGucs(t)
 
 	t.Log("Shard initialized via multiorch bootstrap")
 }
@@ -431,6 +431,9 @@ func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
 
 // checkBootstrapStatus checks if all nodes are initialized and returns the primary name.
 // A node is considered initialized only if it can be queried AND has an explicit type (PRIMARY or REPLICA).
+// Additionally checks that:
+// - PRIMARY has sync replication configured with the expected number of standbys
+// - REPLICA has primary_conn_info configured
 func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 	t.Helper()
 
@@ -439,11 +442,12 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 
 	var primaryName string
 	var initializedCount int
+	expectedReplicaCount := len(setup.Multipoolers) - 1
 
 	for name, inst := range setup.Multipoolers {
 		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
 		if err != nil {
-			t.Logf("waitForShardBootstrap: failed to connect to %s: %v", name, err)
+			t.Logf("checkBootstrapStatus: failed to connect to %s: %v", name, err)
 			continue
 		}
 
@@ -461,20 +465,57 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 			continue
 		}
 
-		switch statusResp.Status.PoolerType {
+		status := statusResp.Status
+		isFullyInitialized := false
+
+		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
-			primaryName = name
-			initializedCount++
+			// Check that sync replication is configured with expected standbys
+			if status.PrimaryStatus == nil ||
+				status.PrimaryStatus.SyncReplicationConfig == nil ||
+				len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds) < expectedReplicaCount {
+				standbyCount := 0
+				if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
+					standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
+				}
+				t.Logf("checkBootstrapStatus: %s is PRIMARY but sync replication not ready (standbys=%d, expected=%d)",
+					name, standbyCount, expectedReplicaCount)
+			} else {
+				primaryName = name
+				isFullyInitialized = true
+			}
+
 		case clustermetadatapb.PoolerType_REPLICA:
-			initializedCount++
+			// Check that primary_conn_info is configured
+			hasReplicationStatus := status.ReplicationStatus != nil
+			hasPrimaryConnInfo := hasReplicationStatus && status.ReplicationStatus.PrimaryConnInfo != nil
+			hasHost := hasPrimaryConnInfo && status.ReplicationStatus.PrimaryConnInfo.Host != ""
+
+			t.Logf("checkBootstrapStatus: %s is REPLICA - hasReplicationStatus=%v, hasPrimaryConnInfo=%v, hasHost=%v",
+				name, hasReplicationStatus, hasPrimaryConnInfo, hasHost)
+
+			if hasPrimaryConnInfo {
+				t.Logf("checkBootstrapStatus: %s PrimaryConnInfo.Host=%q, Port=%d",
+					name, status.ReplicationStatus.PrimaryConnInfo.Host, status.ReplicationStatus.PrimaryConnInfo.Port)
+			}
+
+			if !hasHost {
+				t.Logf("checkBootstrapStatus: %s is REPLICA but primary_conn_info not configured", name)
+			} else {
+				isFullyInitialized = true
+			}
 			// UNKNOWN type means not fully initialized yet - don't count
 		}
 
 		client.Close()
+
+		if isFullyInitialized {
+			initializedCount++
+		}
 	}
 
 	allInitialized := initializedCount == len(setup.Multipoolers)
-	t.Logf("waitForShardBootstrap: primary=%s, initialized=%d/%d", primaryName, initializedCount, len(setup.Multipoolers))
+	t.Logf("checkBootstrapStatus: primary=%s, initialized=%d/%d", primaryName, initializedCount, len(setup.Multipoolers))
 	return primaryName, allInitialized
 }
 
@@ -617,9 +658,9 @@ func startEtcd(t *testing.T, dataDir string) (string, *exec.Cmd, error) {
 }
 
 // ValidateCleanState checks that all multipoolers are in the expected clean state.
-// Expected state:
-//   - Primary: not in recovery, primary_conninfo="", synchronous_standby_names="", term=1, type=PRIMARY
-//   - Standbys: in recovery, primary_conninfo="", wal_replay not paused, term=1, type=REPLICA
+// Clean state is defined by the baseline GUCs captured after bootstrap:
+//   - Primary: not in recovery, GUCs match baseline, term=1, type=PRIMARY
+//   - Standbys: in recovery, GUCs match baseline, wal_replay not paused, term=1, type=REPLICA
 //   - MultiOrch: NOT running (multiorch starts in SetupTest and stops in cleanup)
 //
 // Returns an error if state is not clean.
@@ -665,15 +706,6 @@ func (s *ShardSetup) ValidateCleanState() error {
 			if inRecovery != "f" {
 				return fmt.Errorf("%s pg_is_in_recovery=%s (expected f)", name, inRecovery)
 			}
-
-			// Validate GUCs are at defaults
-			if err := ValidateGUCValue(ctx, client.Pooler, "primary_conninfo", "", name); err != nil {
-				return err
-			}
-			if err := ValidateGUCValue(ctx, client.Pooler, "synchronous_standby_names", "", name); err != nil {
-				return err
-			}
-
 			// Validate pooler type is PRIMARY
 			if err := ValidatePoolerType(ctx, client.Manager, clustermetadatapb.PoolerType_PRIMARY, name); err != nil {
 				return err
@@ -681,11 +713,6 @@ func (s *ShardSetup) ValidateCleanState() error {
 		} else {
 			if inRecovery != "t" {
 				return fmt.Errorf("%s pg_is_in_recovery=%s (expected t)", name, inRecovery)
-			}
-
-			// Verify replication not configured (clean state = empty primary_conninfo)
-			if err := ValidateGUCValue(ctx, client.Pooler, "primary_conninfo", "", name); err != nil {
-				return err
 			}
 
 			// Verify WAL replay not paused
@@ -703,6 +730,15 @@ func (s *ShardSetup) ValidateCleanState() error {
 			}
 		}
 
+		// Validate GUCs match baseline values
+		if baselineGucs, ok := s.BaselineGucs[name]; ok {
+			for gucName, expectedValue := range baselineGucs {
+				if err := ValidateGUCValue(ctx, client.Pooler, gucName, expectedValue, name); err != nil {
+					return err
+				}
+			}
+		}
+
 		// Validate term is 1 for all nodes
 		if err := ValidateTerm(ctx, client.Consensus, 1, name); err != nil {
 			return err
@@ -712,9 +748,9 @@ func (s *ShardSetup) ValidateCleanState() error {
 	return nil
 }
 
-// ResetToCleanState resets all multipoolers to the expected clean state.
-// This resets terms to 1, pooler types to PRIMARY/REPLICA, GUCs to defaults, resumes WAL replay,
-// and stops multiorch instances.
+// ResetToCleanState resets all multipoolers to the baseline clean state.
+// This restores GUCs to baseline values, resets terms to 1, pooler types to PRIMARY/REPLICA,
+// resumes WAL replay, and stops multiorch instances.
 func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	t.Helper()
 
@@ -755,15 +791,10 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 			}
 		}
 
-		// Reset GUCs
-		gucsToReset := []string{"synchronous_standby_names", "synchronous_commit", "primary_conninfo"}
-		for _, guc := range gucsToReset {
-			_, err := client.Pooler.ExecuteQuery(ctx, fmt.Sprintf("ALTER SYSTEM RESET %s", guc), 0)
-			if err != nil {
-				t.Logf("Reset: Failed to reset %s on %s: %v", guc, name, err)
-			}
+		// Restore GUCs to baseline values
+		if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {
+			RestoreGUCs(ctx, t, client.Pooler, baselineGucs, name)
 		}
-		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
 
 		// Resume WAL replay if paused (for standbys)
 		if !isPrimary {
@@ -788,26 +819,25 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	}
 }
 
-// SetupTest provides test isolation by validating clean state, configuring replication,
-// and automatically restoring state changes at test cleanup.
+// SetupTest provides test isolation by validating clean state and automatically
+// restoring baseline state at test cleanup.
 //
 // DEFAULT BEHAVIOR (no options):
-//   - Validates clean state before test
-//   - Saves GUC values (synchronous_standby_names, synchronous_commit, primary_conninfo)
-//   - Configures replication on all standbys (sets primary_conninfo, starts WAL streaming)
-//   - Registers cleanup to restore saved GUCs and reset state after test
+//   - Validates clean state before test (GUCs match baseline from bootstrap)
+//   - Replication is already configured from bootstrap
+//   - Registers cleanup to restore baseline GUCs and reset state after test
 //
 // WithoutReplication():
-//   - Does NOT configure replication: primary_conninfo stays empty
-//   - Still saves/restores GUCs for test isolation
-//   - Use for tests that set up replication from scratch
+//   - Actively breaks replication: clears primary_conninfo and synchronous_standby_names
+//   - Use for tests that need to set up replication from scratch
+//   - Cleanup restores baseline (re-enables replication)
 //
 // WithPausedReplication():
-//   - Configures replication but pauses WAL replay
+//   - Pauses WAL replay on standbys (replication already configured)
 //   - Use for tests that need to test pg_wal_replay_resume()
 //
 // WithResetGuc(gucNames...):
-//   - Adds additional GUCs to save/restore
+//   - Adds additional GUCs to save/restore beyond baseline
 //
 // Follows the pattern from multipooler/setup_test.go:setupPoolerTest.
 func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
@@ -821,62 +851,25 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	// Fail fast if shared processes died
 	s.CheckSharedProcesses(t)
 
-	// Validate that settings are in the expected clean state
+	// Validate that settings are in the expected clean state (GUCs match baseline)
 	if err := s.ValidateCleanState(); err != nil {
 		t.Fatalf("SetupTest: %v. Previous test leaked state.", err)
 	}
 
-	// Determine if we should configure replication (default: yes, unless WithoutReplication)
-	shouldConfigureReplication := !config.NoReplication
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// When configuring replication, always ensure the replication GUCs are saved/restored
-	// to maintain clean state between tests. Append to existing list (may have user-specified GUCs).
-	if shouldConfigureReplication {
-		config.GucsToReset = append(config.GucsToReset, "synchronous_standby_names", "synchronous_commit", "primary_conninfo")
+	// If WithoutReplication is set, actively break replication
+	if config.NoReplication {
+		s.breakReplication(t, ctx)
 	}
 
-	// Save GUC values BEFORE configuring replication (so we save the clean state)
-	savedGucs := make(map[string]map[string]string) // name -> guc -> value
-	if len(config.GucsToReset) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		for name, inst := range s.Multipoolers {
-			client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				t.Logf("SetupTest: failed to connect to %s for GUC save: %v", name, err)
-				continue
-			}
-			savedGucs[name] = SaveGUCs(ctx, client.Pooler, config.GucsToReset)
-			client.Close()
-		}
+	// If WithPausedReplication is set, pause WAL replay on standbys
+	if config.PauseReplication {
+		s.pauseReplicationOnStandbys(t, ctx)
 	}
 
-	// Configure replication if needed (after saving GUCs)
-	if shouldConfigureReplication {
-		primary := s.GetMultipoolerInstance(s.PrimaryName)
-		if primary == nil {
-			t.Log("SetupTest: Cannot configure replication (no primary)")
-		} else {
-			// Configure replication on all standbys
-			var standbyNames []string
-			for name := range s.Multipoolers {
-				if name == s.PrimaryName {
-					continue
-				}
-				s.configureStandbyReplication(t, name, config.PauseReplication)
-				standbyNames = append(standbyNames, name)
-			}
-
-			// Configure synchronous_standby_names on primary (for multiorch)
-			// Format: ANY 1 (standby, standby2) for durability policy ANY_2
-			if len(standbyNames) > 0 {
-				s.configurePrimarySyncStandbys(t, standbyNames)
-			}
-		}
-	}
-
-	// Start multiorch instances AFTER replication is configured
-	// This ensures multiorch sees healthy replicas with streaming replication
+	// Start multiorch instances
 	// TODO (@rafa): once we have a way to disable multiorch on a shard, we don't need
 	// this big hammer of stopping / starting on each test.
 	for name, mo := range s.MultiOrchInstances {
@@ -886,7 +879,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		t.Logf("SetupTest: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
 	}
 
-	// Register cleanup handler
+	// Register cleanup handler to restore to baseline state
 	t.Cleanup(func() {
 		// Stop multiorch instances first (clean state = multiorch not running)
 		for name, mo := range s.MultiOrchInstances {
@@ -921,16 +914,13 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 				}
 			}
 
-			// Restore saved GUC values
-			if gucs, ok := savedGucs[name]; ok && len(gucs) > 0 {
-				RestoreGUCs(cleanupCtx, t, client.Pooler, gucs, name)
+			// Restore GUCs to baseline values
+			if baselineGucs, ok := s.BaselineGucs[name]; ok && len(baselineGucs) > 0 {
+				RestoreGUCs(cleanupCtx, t, client.Pooler, baselineGucs, name)
 			}
 
 			// Always resume WAL replay (must be after GUC restoration)
 			// This ensures we leave the system in a good state even if tests paused replay.
-			// We always do this regardless of WithoutReplication flag because pause state persists.
-			// NOTE: We don't wait for streaming because we just restored GUCs to clean state
-			// (primary_conninfo=''), so there's no replication source configured.
 			if !isPrimary {
 				_, _ = client.Pooler.ExecuteQuery(cleanupCtx, "SELECT pg_wal_replay_resume()", 0)
 			}
@@ -959,178 +949,66 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	})
 }
 
-// configureStandbyReplication configures a single standby to replicate from the primary.
-// If pauseReplication is true, WAL replay is paused after replication is configured.
-func (s *ShardSetup) configureStandbyReplication(t *testing.T, standbyName string, pauseReplication bool) {
+// breakReplication clears replication configuration on all nodes.
+// Use this for tests that need to set up replication from scratch.
+func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 	t.Helper()
 
-	standby := s.GetMultipoolerInstance(standbyName)
-	if standby == nil {
-		t.Logf("SetupTest: standby %s not found, skipping replication setup", standbyName)
-		return
-	}
-
+	// Clear synchronous_standby_names on primary
 	primary := s.GetMultipoolerInstance(s.PrimaryName)
-	if primary == nil {
-		t.Log("SetupTest: primary not found, skipping replication setup")
-		return
-	}
-
-	client, err := NewMultipoolerClient(standby.Multipooler.GrpcPort)
-	if err != nil {
-		t.Logf("SetupTest: failed to connect to %s: %v", standbyName, err)
-		return
-	}
-	defer client.Close()
-
-	// Create a context with timeout for all operations in this function
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Check if replication is already streaming
-	resp, err := client.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
-	alreadyStreaming := err == nil && len(resp.Rows) > 0 && len(resp.Rows[0].Values) > 0 &&
-		string(resp.Rows[0].Values[0]) == "streaming"
-
-	if alreadyStreaming {
-		t.Logf("SetupTest: %s replication already streaming", standbyName)
-	} else {
-		t.Logf("SetupTest: Configuring replication on %s...", standbyName)
-
-		// Configure replication with Force=true
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(primary.Pgctld.PgPort),
-			StartReplicationAfter: true,
-			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 true,
+	if primary != nil {
+		client, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
+		if err == nil {
+			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_standby_names", 0)
+			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_commit", 0)
+			_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+			client.Close()
+			t.Logf("SetupTest: Cleared synchronous_standby_names on primary %s", s.PrimaryName)
 		}
-		_, err = client.Manager.SetPrimaryConnInfo(ctx, setPrimaryReq)
+	}
+
+	// Clear primary_conninfo on standbys
+	for name, inst := range s.Multipoolers {
+		if name == s.PrimaryName {
+			continue
+		}
+
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
 		if err != nil {
-			t.Fatalf("SetupTest: failed to configure replication on %s: %v", standbyName, err)
+			t.Logf("SetupTest: failed to connect to %s: %v", name, err)
+			continue
 		}
+
+		_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
+		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		client.Close()
+		t.Logf("SetupTest: Cleared primary_conninfo on standby %s", name)
 	}
+}
 
-	// Wait for replication to be streaming
-	require.Eventually(t, func() bool {
-		queryCtx, queryCancel := context.WithTimeout(ctx, 2*time.Second)
-		defer queryCancel()
-		resp, err := client.Pooler.ExecuteQuery(queryCtx, "SELECT status FROM pg_stat_wal_receiver", 1)
-		if err != nil || len(resp.Rows) == 0 {
-			return false
+// pauseReplicationOnStandbys pauses WAL replay on all standbys.
+func (s *ShardSetup) pauseReplicationOnStandbys(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	for name, inst := range s.Multipoolers {
+		if name == s.PrimaryName {
+			continue
 		}
-		return string(resp.Rows[0].Values[0]) == "streaming"
-	}, 10*time.Second, 100*time.Millisecond, "Replication should be streaming on %s", standbyName)
 
-	// Optionally pause WAL replay
-	if pauseReplication {
-		_, err := client.Pooler.ExecuteQuery(ctx, "SELECT pg_wal_replay_pause()", 1)
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
 		if err != nil {
-			t.Logf("SetupTest: Failed to pause WAL replay on %s: %v", standbyName, err)
+			t.Logf("SetupTest: failed to connect to %s: %v", name, err)
+			continue
+		}
+
+		_, err = client.Pooler.ExecuteQuery(ctx, "SELECT pg_wal_replay_pause()", 0)
+		client.Close()
+		if err != nil {
+			t.Logf("SetupTest: Failed to pause WAL replay on %s: %v", name, err)
 		} else {
-			t.Logf("SetupTest: %s replication streaming, WAL replay PAUSED", standbyName)
-			return
+			t.Logf("SetupTest: Paused WAL replay on %s", name)
 		}
 	}
-
-	t.Logf("SetupTest: %s replication streaming", standbyName)
-}
-
-// configurePrimarySyncStandbys sets synchronous_standby_names on the primary via gRPC.
-// This is needed for multiorch to see standbys as properly configured.
-func (s *ShardSetup) configurePrimarySyncStandbys(t *testing.T, standbyNames []string) {
-	t.Helper()
-
-	primary := s.GetMultipoolerInstance(s.PrimaryName)
-	if primary == nil {
-		t.Log("SetupTest: Cannot configure sync standbys (no primary)")
-		return
-	}
-
-	client, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
-	if err != nil {
-		t.Fatalf("SetupTest: failed to connect to primary: %v", err)
-	}
-	defer client.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Build standby IDs for the gRPC request
-	standbyIDs := make([]*clustermetadatapb.ID, 0, len(standbyNames))
-	for _, name := range standbyNames {
-		standbyIDs = append(standbyIDs, &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      s.CellName,
-			Name:      name,
-		})
-	}
-
-	// Configure synchronous replication via gRPC
-	// Use ANY 1 method to match durability policy behavior
-	configReq := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
-		NumSync:           1,
-		StandbyIds:        standbyIDs,
-		ReloadConfig:      true,
-	}
-
-	_, err = client.Manager.ConfigureSynchronousReplication(ctx, configReq)
-	if err != nil {
-		t.Fatalf("SetupTest: failed to configure synchronous replication: %v", err)
-	}
-
-	t.Logf("SetupTest: Configured synchronous replication with %d standbys", len(standbyNames))
-}
-
-// configureReplication configures a standby to replicate from the primary.
-// This is a helper for tests that need to set up replication.
-func (s *ShardSetup) ConfigureReplication(t *testing.T, standbyName string) {
-	t.Helper()
-
-	standby := s.GetMultipoolerInstance(standbyName)
-	if standby == nil {
-		t.Fatalf("standby %s not found", standbyName)
-	}
-
-	primary := s.GetMultipoolerInstance(s.PrimaryName)
-	if primary == nil {
-		t.Fatalf("primary not found")
-	}
-
-	client, err := NewMultipoolerClient(standby.Multipooler.GrpcPort)
-	require.NoError(t, err, "failed to connect to standby")
-	defer client.Close()
-
-	// Configure replication with Force=true
-	setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Host:                  "localhost",
-		Port:                  int32(primary.Pgctld.PgPort),
-		StartReplicationAfter: true,
-		StopReplicationBefore: false,
-		CurrentTerm:           1,
-		Force:                 true,
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err = client.Manager.SetPrimaryConnInfo(ctx, setPrimaryReq)
-	require.NoError(t, err, "failed to configure replication on %s", standbyName)
-
-	// Wait for replication to be streaming
-	require.Eventually(t, func() bool {
-		queryCtx, queryCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer queryCancel()
-		resp, err := client.Pooler.ExecuteQuery(queryCtx, "SELECT status FROM pg_stat_wal_receiver", 1)
-		if err != nil || len(resp.Rows) == 0 {
-			return false
-		}
-		return string(resp.Rows[0].Values[0]) == "streaming"
-	}, 10*time.Second, 100*time.Millisecond, "replication should be streaming on %s", standbyName)
-
-	t.Logf("Configured replication on %s", standbyName)
 }
 
 // DemotePrimary demotes the primary by putting it into standby mode.
@@ -1233,4 +1111,36 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	require.NoError(t, err, "Failed to kill postgres process")
 
 	t.Logf("Postgres killed on %s - multipooler should detect failure", name)
+}
+
+// baselineGucNames returns the GUC names to save/restore for baseline state.
+var baselineGucNames = []string{
+	"synchronous_standby_names",
+	"synchronous_commit",
+	"primary_conninfo",
+}
+
+// saveBaselineGucs captures the current GUC values from all nodes as the baseline "clean state".
+// This is called after bootstrap completes, so the baseline includes replication configuration.
+func (s *ShardSetup) saveBaselineGucs(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	s.BaselineGucs = make(map[string]map[string]string)
+
+	for name, inst := range s.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		if err != nil {
+			t.Logf("saveBaselineGucs: failed to connect to %s: %v", name, err)
+			continue
+		}
+
+		gucs := SaveGUCs(ctx, client.Pooler, baselineGucNames)
+		s.BaselineGucs[name] = gucs
+
+		t.Logf("saveBaselineGucs: saved GUCs for %s: %v", name, gucs)
+		client.Close()
+	}
 }

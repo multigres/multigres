@@ -54,6 +54,14 @@ type ShardSetup struct {
 
 	// Multiorch instances (can have multiple)
 	MultiOrchInstances map[string]*ProcessInstance
+
+	// BaselineGucs stores the GUC values captured after bootstrap completes.
+	// These are the "clean state" values that ValidateCleanState checks against
+	// and that cleanup restores to. Structure: node name → GUC name → value.
+	// After bootstrap with replication configured, this includes:
+	// - Primary: synchronous_standby_names, synchronous_commit
+	// - Replicas: primary_conninfo
+	BaselineGucs map[string]map[string]string
 }
 
 // GetMultipoolerInstance returns a multipooler instance by name, or nil if not found.

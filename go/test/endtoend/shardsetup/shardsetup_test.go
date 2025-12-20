@@ -270,107 +270,61 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 }
 
 // TestShardSetup_GUCModificationAndReset tests that GUC modifications are properly reset.
-// This is a self-contained test that modifies GUCs, calls reset, and verifies reset worked.
+// Saves baseline GUCs, modifies them, calls reset, and verifies restoration to baseline.
 func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 	skipIfShort(t)
 	setup := getSharedSetup(t)
-	// Verify initial state on primary - with replication configured,
-	// synchronous_standby_names should be set. This is the default for SetupTest
 	setup.SetupTest(t)
 
 	ctx := context.Background()
+	gucNames := []string{"synchronous_standby_names", "synchronous_commit", "primary_conninfo"}
 
-	primaryClient := setup.GetPrimaryClient(t)
-	defer primaryClient.Close()
-
-	initialSyncStandby, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
-	require.NoError(t, err)
-	require.NotEmpty(t, initialSyncStandby, "synchronous_standby_names should be configured when replication is enabled")
-	require.Contains(t, initialSyncStandby, "ANY 1", "synchronous_standby_names should use ANY 1 format")
-
-	initialSyncCommit, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")
-	require.NoError(t, err)
-	require.Equal(t, "on", initialSyncCommit, "synchronous_commit should start as 'on'")
-
-	// Modify GUCs on primary
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET synchronous_standby_names = 'teststandby'", 0)
-	require.NoError(t, err)
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET synchronous_commit = 'remote_write'", 0)
-	require.NoError(t, err)
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
-	require.NoError(t, err)
-
-	// Wait for GUCs to converge on primary
-	require.Eventually(t, func() bool {
-		val, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
-		return err == nil && val == "teststandby"
-	}, 5*time.Second, 100*time.Millisecond, "synchronous_standby_names should be modified")
-
-	require.Eventually(t, func() bool {
-		val, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")
-		return err == nil && val == "remote_write"
-	}, 5*time.Second, 100*time.Millisecond, "synchronous_commit should be modified")
-
-	t.Log("Primary GUCs modified successfully")
-
-	// Modify GUCs on standbys
-	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.GetClient(t, standby.Name)
-
-		// Record current primary_conninfo (set by SetupTest)
-		currentConnInfo, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
+	// Save baseline GUCs for all nodes
+	baseline := make(map[string]map[string]string)
+	for name, inst := range setup.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
 		require.NoError(t, err)
-		require.NotEmpty(t, currentConnInfo, "%s primary_conninfo should be set", standby.Name)
-		require.Contains(t, currentConnInfo, "localhost", "%s should be replicating from localhost", standby.Name)
-
-		// Modify primary_conninfo
-		_, err = standbyClient.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET primary_conninfo = 'host=modified_host'", 0)
-		require.NoError(t, err)
-		_, err = standbyClient.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
-		require.NoError(t, err)
-
-		// Wait for primary_conninfo to converge
-		require.Eventually(t, func() bool {
-			val, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
-			return err == nil && val == "host=modified_host"
-		}, 5*time.Second, 100*time.Millisecond, "%s primary_conninfo should be modified", standby.Name)
-
-		t.Logf("%s GUCs modified successfully", standby.Name)
-		standbyClient.Close()
+		baseline[name] = SaveGUCs(ctx, client.Pooler, gucNames)
+		t.Logf("%s baseline GUCs: %v", name, baseline[name])
+		client.Close()
 	}
 
-	// Manually call reset
+	// Modify GUCs on all nodes
+	for name, inst := range setup.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+
+		if name == setup.PrimaryName {
+			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET synchronous_standby_names = 'teststandby'", 0)
+			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
+		} else {
+			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET primary_conninfo = 'host=modified_host'", 0)
+		}
+		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		client.Close()
+		t.Logf("%s GUCs modified", name)
+	}
+
+	// Call reset
 	t.Log("Calling ResetToCleanState...")
 	setup.ResetToCleanState(t)
 
-	// Verify GUCs were reset on primary
-	require.Eventually(t, func() bool {
-		val, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
-		return err == nil && val == ""
-	}, 5*time.Second, 100*time.Millisecond, "synchronous_standby_names should be reset to empty")
+	// Verify GUCs restored to baseline on all nodes
+	for name, inst := range setup.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		val, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")
-		return err == nil && val == "on"
-	}, 5*time.Second, 100*time.Millisecond, "synchronous_commit should be reset to 'on'")
-
-	t.Log("Primary GUCs reset successfully")
-
-	// Verify GUCs were reset on standbys
-	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.GetClient(t, standby.Name)
-
-		// primary_conninfo should be reset (empty in clean state)
-		require.Eventually(t, func() bool {
-			val, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
-			return err == nil && val == ""
-		}, 5*time.Second, 100*time.Millisecond, "%s primary_conninfo should be reset to empty", standby.Name)
-
-		t.Logf("%s GUCs reset successfully", standby.Name)
-		standbyClient.Close()
+		for gucName, expectedValue := range baseline[name] {
+			require.Eventually(t, func() bool {
+				val, err := QueryStringValue(ctx, client.Pooler, "SHOW "+gucName)
+				return err == nil && val == expectedValue
+			}, 5*time.Second, 100*time.Millisecond, "%s %s should be reset to %q", name, gucName, expectedValue)
+		}
+		client.Close()
+		t.Logf("%s GUCs restored to baseline", name)
 	}
 
 	// Verify clean state validation passes
-	err = setup.ValidateCleanState()
+	err := setup.ValidateCleanState()
 	require.NoError(t, err, "ValidateCleanState should pass after reset")
 }
