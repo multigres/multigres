@@ -23,11 +23,23 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/test/utils"
 )
+
+func skipIfShort(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("Skipping end-to-end test (short mode)")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end test (no postgres binaries)")
+	}
+}
 
 // TestShardSetup_ThreeNodeCluster validates that a 3-node cluster is created correctly
 // with proper wiring: one primary and two standbys all replicating.
 func TestShardSetup_ThreeNodeCluster(t *testing.T) {
+	skipIfShort(t)
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
@@ -89,6 +101,7 @@ func TestShardSetup_ThreeNodeCluster(t *testing.T) {
 // TestShardSetup_DemoteAndReset validates that after demoting the primary,
 // ResetToCleanState correctly restores the cluster.
 func TestShardSetup_DemoteAndReset(t *testing.T) {
+	skipIfShort(t)
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
@@ -161,6 +174,7 @@ func TestShardSetup_DemoteAndReset(t *testing.T) {
 
 // TestShardSetup_ReplicationWorks validates that data written to primary replicates to standbys.
 func TestShardSetup_ReplicationWorks(t *testing.T) {
+	skipIfShort(t)
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
@@ -199,6 +213,7 @@ func TestShardSetup_ReplicationWorks(t *testing.T) {
 // TestShardSetup_WithoutReplication verifies that WithoutReplication() leaves replication unconfigured.
 // Standbys should have empty primary_conninfo and no WAL receiver.
 func TestShardSetup_WithoutReplication(t *testing.T) {
+	skipIfShort(t)
 	setup := getSharedSetup(t)
 	setup.SetupTest(t, WithoutReplication())
 
@@ -257,6 +272,7 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 // TestShardSetup_GUCModificationAndReset tests that GUC modifications are properly reset.
 // This is a self-contained test that modifies GUCs, calls reset, and verifies reset worked.
 func TestShardSetup_GUCModificationAndReset(t *testing.T) {
+	skipIfShort(t)
 	setup := getSharedSetup(t)
 	// Verify initial state on primary - with replication configured,
 	// synchronous_standby_names should be set. This is the default for SetupTest
