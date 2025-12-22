@@ -874,8 +874,9 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 //  2. No other node accepted writes (follows from #1)
 //  3. The old primary's data directory hasn't been modified as a standby
 //
-// It is expected from the caller that these invariants will be respected.
-func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
+// The consensusTerm parameter ensures safety by verifying the term hasn't changed
+// since demotion. If the term changed, another node may have been promoted.
+func (pm *MultiPoolerManager) UndoDemote(ctx context.Context, consensusTerm int64) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -887,14 +888,19 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) (*multipoolermanag
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "UndoDemote called")
+	pm.logger.InfoContext(ctx, "UndoDemote called", "consensus_term", consensusTerm)
 
-	return pm.undoDemoteLocked(ctx)
+	// Validate term - ensures no other node has been promoted since demotion
+	if err = pm.validateTermExactMatch(ctx, consensusTerm, false); err != nil {
+		return nil, err
+	}
+
+	return pm.undoDemoteLocked(ctx, consensusTerm)
 }
 
 // undoDemoteLocked performs the core undo demotion logic.
 // REQUIRES: action lock must already be held by the caller.
-func (pm *MultiPoolerManager) undoDemoteLocked(ctx context.Context) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
+func (pm *MultiPoolerManager) undoDemoteLocked(ctx context.Context, consensusTerm int64) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
@@ -924,11 +930,9 @@ func (pm *MultiPoolerManager) undoDemoteLocked(ctx context.Context) (*multipoole
 		return &multipoolermanagerdatapb.UndoDemoteResponse{
 			WasAlreadyPrimary: true,
 			LsnPosition:       lsn,
+			ConsensusTerm:     consensusTerm,
 		}, nil
 	}
-
-	// TODO: What could be safety guardrails we add here? Should we check the timeline
-	// to ensure that the timeline hasn't changed since the node was demoted?
 
 	// === Restart PostgreSQL as primary ===
 	// restartPostgresAsPrimary handles Close/Open internally to re-establish database connections
@@ -970,11 +974,12 @@ func (pm *MultiPoolerManager) undoDemoteLocked(ctx context.Context) (*multipoole
 		return nil, mterrors.Wrap(err, "failed to query final LSN")
 	}
 
-	pm.logger.InfoContext(ctx, "UndoDemote completed successfully", "lsn_position", lsn)
+	pm.logger.InfoContext(ctx, "UndoDemote completed successfully", "lsn_position", lsn, "consensus_term", consensusTerm)
 
 	return &multipoolermanagerdatapb.UndoDemoteResponse{
 		WasAlreadyPrimary: false,
 		LsnPosition:       lsn,
+		ConsensusTerm:     consensusTerm,
 	}, nil
 }
 

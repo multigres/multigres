@@ -326,7 +326,13 @@ message DemoteResponse {
 }
 
 // UndoDemote undoes a demotion by restarting PostgreSQL as a primary.
+// This should only be called when the term hasn't changed since demotion,
+// meaning no other node has been promoted.
 message UndoDemoteRequest {
+  // Consensus term from when the demotion occurred.
+  // UndoDemote will fail if the current term doesn't match, indicating
+  // another node may have been promoted (unsafe to undo).
+  int64 consensus_term = 1;
 }
 
 message UndoDemoteResponse {
@@ -335,6 +341,9 @@ message UndoDemoteResponse {
 
   // LSN position after undo demotion
   string lsn_position = 2;
+
+  // Consensus term at the time of undo
+  int64 consensus_term = 3;
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)

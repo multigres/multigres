@@ -1935,8 +1935,14 @@ func (x *DemoteResponse) GetConnectionsTerminated() int32 {
 }
 
 // UndoDemote undoes a demotion by restarting PostgreSQL as a primary.
+// This should only be called when the term hasn't changed since demotion,
+// meaning no other node has been promoted.
 type UndoDemoteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Consensus term from when the demotion occurred.
+	// UndoDemote will fail if the current term doesn't match, indicating
+	// another node may have been promoted (unsafe to undo).
+	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1971,12 +1977,21 @@ func (*UndoDemoteRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{27}
 }
 
+func (x *UndoDemoteRequest) GetConsensusTerm() int64 {
+	if x != nil {
+		return x.ConsensusTerm
+	}
+	return 0
+}
+
 type UndoDemoteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Whether the pooler was already a primary (idempotent check)
 	WasAlreadyPrimary bool `protobuf:"varint,1,opt,name=was_already_primary,json=wasAlreadyPrimary,proto3" json:"was_already_primary,omitempty"`
 	// LSN position after undo demotion
-	LsnPosition   string `protobuf:"bytes,2,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
+	LsnPosition string `protobuf:"bytes,2,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
+	// Consensus term at the time of undo
+	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2023,6 +2038,13 @@ func (x *UndoDemoteResponse) GetLsnPosition() string {
 		return x.LsnPosition
 	}
 	return ""
+}
+
+func (x *UndoDemoteResponse) GetConsensusTerm() int64 {
+	if x != nil {
+		return x.ConsensusTerm
+	}
+	return 0
 }
 
 // StopReplicationAndGetStatus stops PostgreSQL replication (replay and/or receiver based on mode)
@@ -3989,11 +4011,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x13was_already_demoted\x18\x01 \x01(\bR\x11wasAlreadyDemoted\x12%\n" +
 	"\x0econsensus_term\x18\x02 \x01(\x03R\rconsensusTerm\x12!\n" +
 	"\flsn_position\x18\x03 \x01(\tR\vlsnPosition\x125\n" +
-	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\"\x13\n" +
-	"\x11UndoDemoteRequest\"g\n" +
+	"\x16connections_terminated\x18\x04 \x01(\x05R\x15connectionsTerminated\":\n" +
+	"\x11UndoDemoteRequest\x12%\n" +
+	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\"\x8e\x01\n" +
 	"\x12UndoDemoteResponse\x12.\n" +
 	"\x13was_already_primary\x18\x01 \x01(\bR\x11wasAlreadyPrimary\x12!\n" +
-	"\flsn_position\x18\x02 \x01(\tR\vlsnPosition\"z\n" +
+	"\flsn_position\x18\x02 \x01(\tR\vlsnPosition\x12%\n" +
+	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\"z\n" +
 	"\"StopReplicationAndGetStatusRequest\x12@\n" +
 	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +
 	"\x04wait\x18\x02 \x01(\bR\x04wait\"o\n" +

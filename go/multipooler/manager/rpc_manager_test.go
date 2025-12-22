@@ -286,7 +286,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "UndoDemote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				_, err := manager.UndoDemote(ctx)
+				_, err := manager.UndoDemote(ctx, 1)
 				return err
 			},
 		},
@@ -1222,11 +1222,14 @@ func TestReplicationStatus(t *testing.T) {
 // UndoDemote Tests
 // =============================================================================
 
+// testConsensusTerm is the consensus term used in UndoDemote tests
+const testConsensusTerm = int64(10)
+
 // setupUndoDemoteTestManager creates a manager configured as a demoted primary
 // (topology shows REPLICA) for undo demotion tests.
 // Returns the manager and the mock pgctld service for configuring restart behavior.
 func setupUndoDemoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, *testutil.MockPgCtldService) {
-	ctx := context.Background()
+	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
@@ -1290,13 +1293,18 @@ func setupUndoDemoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManag
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 	require.NoError(t, err)
 
+	// Set consensus term to expected value for testing
+	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: testConsensusTerm}
+	err = pm.SetTerm(ctx, term)
+	require.NoError(t, err)
+
 	return pm, mockPgctld
 }
 
 // TestUndoDemote_AlreadyPrimary tests that UndoDemote returns success with WasAlreadyPrimary=true
 // when PostgreSQL is already running as a primary (idempotent behavior).
 func TestUndoDemote_AlreadyPrimary(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
@@ -1311,19 +1319,20 @@ func TestUndoDemote_AlreadyPrimary(t *testing.T) {
 	pm, _ := setupUndoDemoteTestManager(t, mockDB)
 
 	// Call UndoDemote - should detect already primary and return idempotent success
-	resp, err := pm.UndoDemote(ctx)
+	resp, err := pm.UndoDemote(ctx, testConsensusTerm)
 	require.NoError(t, err, "Should succeed - already primary (idempotent)")
 	require.NotNil(t, resp)
 
 	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
 	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
+	assert.Equal(t, testConsensusTerm, resp.ConsensusTerm)
 
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // TestUndoDemote_DatabaseConnectionFailed tests error handling when database connection fails.
 func TestUndoDemote_DatabaseConnectionFailed(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
@@ -1334,7 +1343,7 @@ func TestUndoDemote_DatabaseConnectionFailed(t *testing.T) {
 
 	pm, _ := setupUndoDemoteTestManager(t, mockDB)
 
-	resp, err := pm.UndoDemote(ctx)
+	resp, err := pm.UndoDemote(ctx, testConsensusTerm)
 	require.Error(t, err)
 	require.Nil(t, resp)
 	assert.Contains(t, err.Error(), "failed to check if primary")
@@ -1344,7 +1353,7 @@ func TestUndoDemote_DatabaseConnectionFailed(t *testing.T) {
 
 // TestUndoDemote_RestartFailed tests error handling when pgctld restart fails.
 func TestUndoDemote_RestartFailed(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockDB, mock := newMockDB(t)
 	expectStartupQueries(mock)
@@ -1358,10 +1367,32 @@ func TestUndoDemote_RestartFailed(t *testing.T) {
 	// Configure pgctld to fail on restart
 	mockPgctld.RestartError = mterrors.New(mtrpcpb.Code_INTERNAL, "mock restart failed")
 
-	resp, err := pm.UndoDemote(ctx)
+	resp, err := pm.UndoDemote(ctx, testConsensusTerm)
 	require.Error(t, err)
 	require.Nil(t, resp)
 	assert.Contains(t, err.Error(), "failed to restart as primary")
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Note: The success scenario for UndoDemote is tested in the e2e test
+// TestUndoDemote in rpc_manager_promotion_demotion_test.go because it requires
+// a real PostgreSQL server (restartPostgresAsPrimary reopens the DB connection).
+
+// TestUndoDemote_TermMismatch tests that UndoDemote fails when the term doesn't match.
+func TestUndoDemote_TermMismatch(t *testing.T) {
+	ctx := t.Context()
+
+	mockDB, mock := newMockDB(t)
+	expectStartupQueries(mock)
+
+	pm, _ := setupUndoDemoteTestManager(t, mockDB)
+
+	// Call UndoDemote with wrong term (manager has term 10, passing 5)
+	resp, err := pm.UndoDemote(ctx, 5)
+	require.Error(t, err)
+	require.Nil(t, resp)
+	assert.Contains(t, err.Error(), "term mismatch")
 
 	require.NoError(t, mock.ExpectationsWereMet())
 }

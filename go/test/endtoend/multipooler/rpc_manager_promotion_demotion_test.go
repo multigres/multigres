@@ -551,7 +551,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// Test idempotency first - UndoDemote on an already-primary should succeed
 		t.Log("Testing UndoDemote idempotency on already-primary...")
-		undoDemoteReq := &multipoolermanagerdatapb.UndoDemoteRequest{}
+		undoDemoteReq := &multipoolermanagerdatapb.UndoDemoteRequest{ConsensusTerm: 1}
 		undoDemoteResp, err := primaryManagerClient.UndoDemote(utils.WithTimeout(t, 10*time.Second), undoDemoteReq)
 		require.NoError(t, err, "UndoDemote should succeed on primary (idempotent)")
 		require.NotNil(t, undoDemoteResp)
@@ -578,13 +578,14 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// Now undo the demotion
 		t.Log("Undoing demotion...")
-		undoDemoteReq = &multipoolermanagerdatapb.UndoDemoteRequest{}
+		undoDemoteReq = &multipoolermanagerdatapb.UndoDemoteRequest{ConsensusTerm: 1}
 		undoDemoteResp, err = primaryManagerClient.UndoDemote(utils.WithTimeout(t, 10*time.Second), undoDemoteReq)
 		require.NoError(t, err, "UndoDemote should succeed")
 		require.NotNil(t, undoDemoteResp)
 
 		assert.False(t, undoDemoteResp.WasAlreadyPrimary, "Should not report as already primary")
 		assert.NotEmpty(t, undoDemoteResp.LsnPosition)
+		assert.Equal(t, int64(1), undoDemoteResp.ConsensusTerm)
 		t.Logf("UndoDemote complete. LSN: %s", undoDemoteResp.LsnPosition)
 
 		// Verify primary operations work again
