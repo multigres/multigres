@@ -20,12 +20,12 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// TODO: We might want to make this a configuration. For now its a constant.
 // DefaultInternalUser is the default PostgreSQL user for internal queries.
+// This can be overridden when creating an Executor instance.
 const DefaultInternalUser = "postgres"
 
 // InternalQuerier provides a simplified query interface for internal multipooler
-// components. It uses the connection pool with "postgres" user by default.
+// components. It uses the connection pool with a configurable internal user.
 type InternalQuerier interface {
 	// Query executes a query and returns the result.
 	Query(ctx context.Context, query string) (*query.QueryResult, error)
@@ -35,9 +35,9 @@ type InternalQuerier interface {
 var _ InternalQuerier = (*Executor)(nil)
 
 // Query implements InternalQuerier for simple internal queries.
-// It executes a query using the "postgres" user and returns the first result.
+// It executes a query using the configured internal user and returns the first result.
 func (e *Executor) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
-	conn, err := e.poolManager.GetRegularConn(ctx, DefaultInternalUser)
+	conn, err := e.poolManager.GetRegularConn(ctx, e.internalUser)
 	if err != nil {
 		return nil, err
 	}
