@@ -215,7 +215,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 }
 
 // internalQuerier returns the InternalQuerier for executing queries via the connection pool.
-// This replaces direct sql.DB usage with the connection pool manager.
 func (pm *MultiPoolerManager) internalQuerier() executor.InternalQuerier {
 	if pm.qsc == nil {
 		return nil
