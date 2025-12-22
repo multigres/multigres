@@ -17,36 +17,36 @@
 package servenv
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
 )
 
 // serveSocketFile listen to the named socket and serves RPCs on it.
-func (g *GrpcServer) serveSocketFile() {
+func (g *GrpcServer) serveSocketFile() error {
 	if g.socketFile.Get() == "" {
 		slog.Info("Not listening on socket file")
-		return
+		return nil
 	}
 	name := g.socketFile.Get()
 
 	// try to delete if file exists
 	if _, err := os.Stat(name); err == nil {
-		err = os.Remove(name)
-		if err != nil {
-			slog.Info("Cannot remove socket file", "file", name, "err", err)
-			os.Exit(1)
+		if err = os.Remove(name); err != nil {
+			return fmt.Errorf("cannot remove existing socket file %q: %w", name, err)
 		}
 	}
 
 	l, err := net.Listen("unix", name)
 	if err != nil {
-		slog.Error("Error listening on socket file", "name", name, "err", err)
+		return fmt.Errorf("cannot listen on socket file %q: %w", name, err)
 	}
 	slog.Info("Listening on socket file for gRPC", "name", name)
 	go func() {
 		if err := g.Server.Serve(l); err != nil {
-			slog.Error("grpc server failed", "err", err)
+			slog.Error("gRPC server failed on socket file", "err", err)
 		}
 	}()
+	return nil
 }

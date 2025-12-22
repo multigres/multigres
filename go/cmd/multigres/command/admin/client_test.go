@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package topo
+package admin
 
 import (
 	"os"
@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetAdminServerFromConfig(t *testing.T) {
+func TestGetServerFromConfig(t *testing.T) {
 	// Create a temporary directory for test configs
 	tempDir, err := os.MkdirTemp("", "multigres_test_")
 	require.NoError(t, err)
@@ -43,14 +43,14 @@ provisioner-config:
 		require.NoError(t, err)
 
 		// Test the function
-		address, err := getAdminServerFromConfig([]string{tempDir})
+		address, err := getServerFromConfig([]string{tempDir})
 		require.NoError(t, err)
 		assert.Equal(t, "localhost:12345", address)
 	})
 
 	t.Run("config file not found", func(t *testing.T) {
 		// Test with non-existent directory
-		_, err := getAdminServerFromConfig([]string{"/nonexistent/path"})
+		_, err := getServerFromConfig([]string{"/nonexistent/path"})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "multigres.yaml not found")
 	})
@@ -61,7 +61,7 @@ provisioner-config:
 		err := os.WriteFile(configFile, []byte("invalid: yaml: content: ["), 0o644)
 		require.NoError(t, err)
 
-		_, err = getAdminServerFromConfig([]string{tempDir})
+		_, err = getServerFromConfig([]string{tempDir})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to unmarshal config")
 	})
@@ -75,13 +75,13 @@ provisioner-config: {}
 		err := os.WriteFile(configFile, []byte(configContent), 0o644)
 		require.NoError(t, err)
 
-		_, err = getAdminServerFromConfig([]string{tempDir})
+		_, err = getServerFromConfig([]string{tempDir})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported provisioner: unsupported")
 	})
 }
 
-func TestGetAdminServerAddress(t *testing.T) {
+func TestGetServerAddress(t *testing.T) {
 	// Create a temporary directory for test configs
 	tempDir, err := os.MkdirTemp("", "multigres_test_")
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ provisioner-config:
 		require.NoError(t, cmd.Flags().Set("admin-server", "custom:9999"))
 		require.NoError(t, cmd.Flags().Set("config-path", tempDir))
 
-		address, err := getAdminServerAddress(cmd)
+		address, err := GetServerAddress(cmd)
 		require.NoError(t, err)
 		assert.Equal(t, "custom:9999", address)
 	})
@@ -122,7 +122,7 @@ provisioner-config:
 		// Set only config-path
 		require.NoError(t, cmd.Flags().Set("config-path", tempDir))
 
-		address, err := getAdminServerAddress(cmd)
+		address, err := GetServerAddress(cmd)
 		require.NoError(t, err)
 		assert.Equal(t, "localhost:12345", address)
 	})
@@ -133,37 +133,8 @@ provisioner-config:
 		cmd.Flags().String("admin-server", "", "")
 		cmd.Flags().StringSlice("config-path", []string{}, "")
 
-		_, err := getAdminServerAddress(cmd)
+		_, err := GetServerAddress(cmd)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "either --admin-server flag or --config-path must be provided")
-	})
-}
-
-func TestGetCellCommandFlags(t *testing.T) {
-	t.Run("name flag is required", func(t *testing.T) {
-		// Create the command
-		cmd := AddGetCellCommand()
-
-		// Check that the name flag is marked as required
-		nameFlag := cmd.Flag("name")
-		assert.NotNil(t, nameFlag)
-
-		// Check if the flag is in the required flags list
-		annotations := nameFlag.Annotations
-		required := false
-		if reqAnnotations, exists := annotations[cobra.BashCompOneRequiredFlag]; exists {
-			required = len(reqAnnotations) > 0 && reqAnnotations[0] == "true"
-		}
-		assert.True(t, required, "name flag should be marked as required")
-	})
-
-	t.Run("admin-server flag is optional", func(t *testing.T) {
-		// Create the command
-		cmd := AddGetCellCommand()
-
-		// Check that the admin-server flag exists but is not required
-		adminServerFlag := cmd.Flag("admin-server")
-		assert.NotNil(t, adminServerFlag)
-		assert.Equal(t, "", adminServerFlag.DefValue)
 	})
 }

@@ -117,18 +117,18 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
 	}
 
+	// Set pooler type to PRIMARY before creating backup so the backup annotation is correct
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set pooler type")
+	}
+
 	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full")
+	backupID, err := pm.backupLocked(ctx, true, "full", "")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
-
-	// Set pooler type to PRIMARY
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set pooler type")
-	}
 
 	// Create durability policy if requested
 	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
@@ -136,6 +136,12 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			return nil, mterrors.Wrap(err, "failed to create durability policy")
 		}
 		pm.logger.InfoContext(ctx, "Created durability policy", "policy_name", req.DurabilityPolicyName)
+	}
+
+	// Mark as initialized after successful primary initialization.
+	// This sets the cached boolean and writes the marker file.
+	if err := pm.setInitialized(); err != nil {
+		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
@@ -231,6 +237,12 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
+	// Mark as initialized after successful standby initialization.
+	// This sets the cached boolean and writes the marker file.
+	if err := pm.setInitialized(); err != nil {
+		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
+	}
+
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{
 		Success:  true,
@@ -240,39 +252,75 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 // Helper methods
 
+// multigresInitMarker is the filename for the initialization marker.
+// This file is created after full initialization completes (schema created, backup done).
+const multigresInitMarker = "MULTIGRES_INITIALIZED"
+
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
 // This should return true even when postgres is not running, as long as the node was previously initialized.
 func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
+	// Fast path: check cached state first
+	if func() bool {
+		pm.mu.Lock()
+		defer pm.mu.Unlock()
+		return pm.initialized
+	}() {
+		return true
+	}
+
 	if !pm.hasDataDirectory() {
 		return false
 	}
 
+	var initialized bool
+
 	// If database is connected, check if multigres schema exists
 	if pm.db != nil {
 		exists, err := pm.querySchemaExists(ctx)
-		return err == nil && exists
+		initialized = err == nil && exists
+	} else {
+		// If database is not connected (e.g., postgres is down), check for the initialization marker.
+		// This marker is created after full initialization completes (schema created, backup done).
+		// It's more reliable than checking for PG_VERSION/global because those exist after initdb
+		// but before the full initialization process completes.
+		dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+		markerFile := filepath.Join(dataDir, multigresInitMarker)
+		_, err := os.Stat(markerFile)
+		initialized = err == nil
 	}
 
-	// If database is not connected (e.g., postgres is down), check if postgres data directory
-	// has been properly initialized by looking for PG_VERSION file (created by initdb)
+	// Update cached state if we discovered initialization
+	if initialized {
+		pm.mu.Lock()
+		pm.initialized = true
+		pm.mu.Unlock()
+	}
+
+	return initialized
+}
+
+// setInitialized marks the pooler as initialized and writes the marker file.
+// This should be called after successful initialization (primary init, standby init, or restore).
+// Once set, the pooler will skip auto-restore attempts.
+func (pm *MultiPoolerManager) setInitialized() error {
+	pm.mu.Lock()
+	pm.initialized = true
+	pm.mu.Unlock()
+
+	return pm.writeInitializationMarker()
+}
+
+// writeInitializationMarker creates the initialization marker file to indicate
+// that full initialization, including restore from backup (for standbys) has
+// completed. This is called at the end of primary and standby initialization.
+//
+// The marker file is needed to determine whether a replica pooler is
+// initialized, because replica initialization is not done until the restore
+// from backup completes. There is no other persistent way to determine this.
+func (pm *MultiPoolerManager) writeInitializationMarker() error {
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
-	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
-	if _, err := os.Stat(pgVersionFile); err != nil {
-		return false // PG_VERSION doesn't exist, not initialized
-	}
-
-	// Postgres data directory is initialized. Now check if multigres schema was created.
-	// We can't query the database, so check if the schema exists on disk.
-	// The multigres schema creates tables in the global directory.
-	// A simple heuristic: if global/pg_internal.init exists and is non-empty, assume initialized.
-	globalDir := filepath.Join(dataDir, "global")
-	if _, err := os.Stat(globalDir); err != nil {
-		return false // No global directory
-	}
-
-	// If PG_VERSION exists and global directory exists, consider it initialized.
-	// This is a reasonable heuristic since RestoreFromBackup copies a fully initialized database.
-	return true
+	markerFile := filepath.Join(dataDir, multigresInitMarker)
+	return os.WriteFile(markerFile, []byte("initialized\n"), 0o644)
 }
 
 // hasDataDirectory checks if the PostgreSQL data directory exists
@@ -338,16 +386,20 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 	return pm.getStandbyReplayLSN(ctx)
 }
 
-// getShardID returns the shard ID from the multipooler metadata
+// getShardID returns the shard ID for this pooler.
+// Prefers the topology value (pm.multipooler.Shard) but falls back to config
+// if topology hasn't loaded yet. These should always be identical since
+// the topology value is set from config at registration (init.go).
 func (pm *MultiPoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.multipooler == nil {
-		return ""
+	if pm.multipooler != nil && pm.multipooler.Shard != "" {
+		return pm.multipooler.Shard
 	}
 
-	return pm.multipooler.Shard
+	// Fall back to config - always available and authoritative
+	return pm.config.Shard
 }
 
 // removeDataDirectory removes the PostgreSQL data directory
@@ -423,10 +475,6 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 				}
 			}
 
-			// Also open the query service controller (executor) now that DB is connected
-			if err := pm.qsc.Open(); err != nil {
-				pm.logger.WarnContext(ctx, "Failed to open query service controller after DB connection", "error", err)
-			}
 			return nil
 		} else {
 			lastErr = err

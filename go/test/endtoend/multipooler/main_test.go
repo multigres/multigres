@@ -15,64 +15,30 @@
 package multipooler
 
 import (
-	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 	"testing"
 
-	"github.com/multigres/multigres/go/tools/pathutil"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
-const (
-	// testPostgresPassword is the password used for the postgres user in tests.
-	// This is set via PGPASSWORD env var before pgctld initializes PostgreSQL.
-	testPostgresPassword = "test_password_123"
-)
+// setupManager manages the shared test setup for tests in this package.
+var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+	// Create a 2-node cluster for testing (primary + standby)
+	return shardsetup.New(t, shardsetup.WithMultipoolerCount(2))
+})
 
-// TestMain sets the path and cleans up after all tests
+// TestMain sets the path and cleans up after all tests.
 func TestMain(m *testing.M) {
-	// Set the PATH so dependencies like etcd and run_in_test.sh can be found
-	// Use automatic module root detection instead of hard-coded relative paths
-	if err := pathutil.PrependBinToPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to add bin to PATH: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Set orphan detection environment variable as baseline protection.
-	// This ensures postgres processes started by in-process services will
-	// have watchdogs that monitor the test process and kill postgres if
-	// the test crashes. Individual tests can additionally set
-	// MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup.
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
-
-	// Set PGPASSWORD to a known value so tests can authenticate.
-	// pgctld uses this when initializing PostgreSQL.
-	os.Setenv("PGPASSWORD", testPostgresPassword)
-
-	// Set up signal handler to ensure cleanup on interrupt
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		cleanupSharedTestSetup()
-		os.Exit(1)
-	}()
-
-	// Run all tests
-	exitCode := m.Run()
-
-	// Dump service logs on failure to help debug CI issues
+	exitCode := shardsetup.RunTestMain(m)
 	if exitCode != 0 {
-		dumpServiceLogs()
+		setupManager.DumpLogs()
 	}
+	setupManager.Cleanup()
+	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
+}
 
-	// Clean up shared multipooler test infrastructure
-	cleanupSharedTestSetup()
-
-	// Cleanup environment variable
-	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
-
-	// Exit with the test result code
-	os.Exit(exitCode)
+// getSharedSetup returns the shared setup for tests.
+func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+	t.Helper()
+	return setupManager.Get(t)
 }

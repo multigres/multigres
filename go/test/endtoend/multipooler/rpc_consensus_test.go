@@ -74,7 +74,7 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, "primary-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		// Verify cell
 		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
@@ -111,7 +111,7 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, "standby-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.StandbyMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		// Verify cell
 		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
@@ -181,7 +181,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		// Term should be rejected because it is too old
 		assert.False(t, resp.Accepted, "Old term should not be accepted")
 		assert.Equal(t, int64(1), resp.Term, "Response term should be current term (1)")
-		assert.Equal(t, "standby-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.StandbyMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		t.Log("BeginTerm correctly rejected old term")
 	})
@@ -209,7 +209,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		// 3. Haven't accepted any other leader yet in this term
 		assert.True(t, resp.Accepted, "New term should be accepted")
 		assert.Equal(t, int64(2), resp.Term, "Response term should be updated to new term")
-		assert.Equal(t, "primary-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		t.Log("BeginTerm correctly granted for new term")
 	})
@@ -282,9 +282,9 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		require.NoError(t, err, "GetLeadershipView RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
-		// Verify leader_id is set (should be primary-multipooler)
+		// Verify leader_id is set (should be the primary multipooler)
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
-		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
+		assert.Equal(t, setup.PrimaryName, resp.LeaderId, "LeaderId should be primary")
 
 		// Verify last_heartbeat is set and recent
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
@@ -318,7 +318,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 
 		// Standby should also see the same leader information
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
-		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.LeaderId, "LeaderId should be primary-multipooler")
 		// LeaderTerm is deprecated and always 0 now (stored only in consensus state file)
 
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
@@ -487,7 +487,8 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 
 		resp, err := primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
 		require.NoError(t, err)
-		require.Equal(t, "false", string(resp.Rows[0].Values[0]), "PostgreSQL should NOT be in recovery (should be primary)")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "PostgreSQL should NOT be in recovery (should be primary)")
 		t.Log("Confirmed PostgreSQL is running as primary")
 
 		// Send BeginTerm with a higher term to the primary
@@ -520,7 +521,8 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		// Verify PostgreSQL is now in recovery mode (demoted)
 		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
 		require.NoError(t, err)
-		assert.Equal(t, "true", string(resp.Rows[0].Values[0]),
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		assert.Equal(t, "t", string(resp.Rows[0].Values[0]),
 			"PostgreSQL should be in recovery after auto-demotion")
 		t.Log("SUCCESS: PostgreSQL is now in recovery mode (demoted)")
 
@@ -624,7 +626,8 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		// Verify original primary is primary again
 		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
 		require.NoError(t, err)
-		require.Equal(t, "false", string(resp.Rows[0].Values[0]), "Original primary should be primary again")
+		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
+		require.Equal(t, "f", string(resp.Rows[0].Values[0]), "Original primary should be primary again")
 
 		t.Log("Original state restored - primary is primary, standby is standby")
 	})

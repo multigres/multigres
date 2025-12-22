@@ -86,6 +86,7 @@ type FakeClient struct {
 	BackupResponses                          map[string]*multipoolermanagerdatapb.BackupResponse
 	RestoreFromBackupResponses               map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse
 	GetBackupsResponses                      map[string]*multipoolermanagerdatapb.GetBackupsResponse
+	GetBackupByJobIdResponses                map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
@@ -127,6 +128,7 @@ func NewFakeClient() *FakeClient {
 		BackupResponses:                          make(map[string]*multipoolermanagerdatapb.BackupResponse),
 		RestoreFromBackupResponses:               make(map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse),
 		GetBackupsResponses:                      make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
+		GetBackupByJobIdResponses:                make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		Errors:                                   make(map[string]error),
 		CallLog:                                  make([]string, 0),
 	}
@@ -145,6 +147,22 @@ func (f *FakeClient) logCall(method string, poolerID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.CallLog = append(f.CallLog, fmt.Sprintf("%s(%s)", method, poolerID))
+}
+
+// GetCallLog returns a copy of the call log in a thread-safe manner.
+func (f *FakeClient) GetCallLog() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	result := make([]string, len(f.CallLog))
+	copy(result, f.CallLog)
+	return result
+}
+
+// ResetCallLog clears the call log in a thread-safe manner.
+func (f *FakeClient) ResetCallLog() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallLog = nil
 }
 
 func (f *FakeClient) checkError(poolerID string) error {
@@ -651,7 +669,7 @@ func (f *FakeClient) CreateDurabilityPolicy(ctx context.Context, pooler *cluster
 	if resp, ok := f.CreateDurabilityPolicyResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{Success: true}, nil
+	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{}, nil
 }
 
 //
@@ -704,6 +722,22 @@ func (f *FakeClient) GetBackups(ctx context.Context, pooler *clustermetadatapb.M
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.GetBackupsResponse{}, nil
+}
+
+func (f *FakeClient) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("GetBackupByJobId", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.GetBackupByJobIdResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.GetBackupByJobIdResponse{}, nil
 }
 
 //

@@ -42,6 +42,15 @@ service MultiPoolerService {
 
   // Describe returns metadata about a prepared statement or portal
   rpc Describe(DescribeRequest) returns (DescribeResponse);
+
+  // GetAuthCredentials retrieves authentication credentials for a user.
+  // Used by multigateway to get SCRAM password hashes for client authentication.
+  //
+  // NOTE: This API may change. Currently fetches credentials one user at a time.
+  // Future iterations could switch to a streaming model where multigateway maintains
+  // an up-to-date cache of all password hashes and by real-time updates from multipooler
+  // when any credentials change.
+  rpc GetAuthCredentials(GetAuthCredentialsRequest) returns (GetAuthCredentialsResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -141,4 +150,22 @@ message DescribeRequest {
 message DescribeResponse {
   // description contains the statement metadata (fields, parameter types, etc.)
   query.StatementDescription description = 1;
+}
+
+// GetAuthCredentialsRequest represents a request to get authentication credentials for a user.
+message GetAuthCredentialsRequest {
+  // database is the database the user is connecting to.
+  string database = 1;
+
+  // username is the PostgreSQL username to authenticate.
+  string username = 2;
+}
+
+// GetAuthCredentialsResponse represents the response containing authentication credentials.
+// Returns codes.NotFound if the user does not exist.
+message GetAuthCredentialsResponse {
+  // scram_hash is the stored SCRAM-SHA-256 password hash from pg_authid.
+  // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
+  // Empty if user exists but has no password set.
+  string scram_hash = 1;
 }

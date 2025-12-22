@@ -253,6 +253,9 @@ type MultiPoolerClient interface {
 	// GetBackups retrieves backup information.
 	GetBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error)
 
+	// GetBackupByJobId queries a multipooler for a backup by its job_id annotation.
+	GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error)
+
 	//
 	// Connection Management Methods
 	//

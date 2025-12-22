@@ -24,6 +24,7 @@ linters:
     - depguard
     - errcheck
     - errorlint
+    - forbidigo
     - gocritic
     - gosec
     - govet
@@ -38,6 +39,12 @@ linters:
     - unconvert
     - unused
   settings:
+    forbidigo:
+      # Forbid os.Exit to ensure cleanup hooks can fire before process termination.
+      # Use //nolint:forbidigo in main() or TestMain() where it's allowed.
+      forbid:
+        - pattern: ^os\.Exit$
+          msg: "os.Exit() prevents cleanup hooks from firing. Return an error instead. Only allowed in main() or TestMain() with //nolint:forbidigo. In init(), use panic() instead."
     depguard:
       rules:
         main:
@@ -78,6 +85,7 @@ linters:
             - "!**/go/services/multiadmin/**/*.go"
             - "!**/go/cmd/multiadmin/*.go"
             - "!**/go/cmd/multiadmin/**/*.go"
+            - "!**/go/test/endtoend/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
@@ -94,6 +102,42 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/services/pgctld"
               desc: "pgctld can only be imported by its own package and cmd"
+        # TODO: Move go/multigateway to go/services/multigateway and update paths below
+        multigateway-isolation:
+          files:
+            - "!**/go/multigateway/*.go"
+            - "!**/go/multigateway/**/*.go"
+            - "!**/go/cmd/multigateway/*.go"
+            - "!**/go/cmd/multigateway/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/multigateway"
+              desc: "multigateway can only be imported by its own package and cmd"
+        # TODO: Move go/multiorch to go/services/multiorch and update paths below
+        multiorch-isolation:
+          files:
+            - "!**/go/multiorch/*.go"
+            - "!**/go/multiorch/**/*.go"
+            - "!**/go/cmd/multiorch/*.go"
+            - "!**/go/cmd/multiorch/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/multiorch"
+              desc: "multiorch can only be imported by its own package and cmd"
+        # TODO: Move go/multipooler to go/services/multipooler and update paths below
+        multipooler-isolation:
+          files:
+            - "!**/go/multipooler/*.go"
+            - "!**/go/multipooler/**/*.go"
+            - "!**/go/cmd/multipooler/*.go"
+            - "!**/go/cmd/multipooler/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/multipooler"
+              desc: "multipooler can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
           deny:

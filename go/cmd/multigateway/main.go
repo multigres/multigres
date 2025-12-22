@@ -25,10 +25,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func main() {
+// CreateMultiGatewayCommand creates a cobra command with a MultiGateway instance and registers its flags
+func CreateMultiGatewayCommand() (*cobra.Command, *multigateway.MultiGateway) {
 	mg := multigateway.NewMultiGateway()
 
-	main := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "multigateway",
 		Short: "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
 		Long:  "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
@@ -41,16 +42,23 @@ func main() {
 		},
 	}
 
-	mg.RegisterFlags(main.Flags())
+	mg.RegisterFlags(cmd.Flags())
 
-	if err := main.Execute(); err != nil {
+	return cmd, mg
+}
+
+func main() {
+	cmd, _ := CreateMultiGatewayCommand()
+
+	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // main() is allowed to call os.Exit
 	}
 }
 
 func run(mg *multigateway.MultiGateway) error {
-	mg.Init()
-	mg.RunDefault()
-	return nil
+	if err := mg.Init(); err != nil {
+		return err
+	}
+	return mg.RunDefault()
 }

@@ -18,6 +18,7 @@ package servenv
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -81,6 +82,9 @@ func ClientCertSubstrings() string {
 }
 
 func init() {
-	RegisterAuthPlugin("mtls", mtlsAuthPluginInitializer)
+	if err := RegisterAuthPlugin("mtls", mtlsAuthPluginInitializer); err != nil {
+		slog.Error("failed to register mtls auth plugin", "error", err)
+		panic(fmt.Sprintf("failed to register mtls auth plugin: %v", err))
+	}
 	grpcAuthServerFlagHooks = append(grpcAuthServerFlagHooks, registerGRPCServerAuthMTLSFlags)
 }

@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -29,8 +28,10 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/safepath"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -66,6 +67,9 @@ type MultiPoolerManager struct {
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
 	pgctldClient pgctldpb.PgCtldClient
+
+	// connPoolMgr manages all connection pools (admin, regular, reserved)
+	connPoolMgr connpoolmanager.PoolManager
 
 	// qsc is the query service controller
 	// This controller handles query serving while the manager orchestrates lifecycle,
@@ -111,6 +115,14 @@ type MultiPoolerManager struct {
 	// Cached backup location from the database topology record.
 	// This is loaded once during startup and cached for fast access.
 	backupLocation string
+
+	// autoRestoreRetryInterval is the interval between auto-restore retry attempts.
+	// Defaults to 1 second. Can be set to a shorter duration for testing.
+	autoRestoreRetryInterval time.Duration
+
+	// initialized tracks whether this pooler has been fully initialized.
+	// Once true, stays true for the lifetime of the manager.
+	initialized bool
 
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
@@ -176,25 +188,31 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		}
 	}
 
-	pm := &MultiPoolerManager{
-		logger:            logger,
-		config:            config,
-		topoClient:        config.TopoClient,
-		serviceID:         config.ServiceID,
-		actionLock:        NewActionLock(),
-		state:             ManagerStateStarting,
-		ctx:               ctx,
-		cancel:            cancel,
-		loadTimeout:       loadTimeout,
-		queryServingState: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		pgctldClient:      pgctldClient,
-		readyChan:         make(chan struct{}),
+	// Create connection pool manager from config
+	var connPoolMgr connpoolmanager.PoolManager
+	if config.ConnPoolConfig != nil {
+		connPoolMgr = config.ConnPoolConfig.NewManager()
 	}
 
-	// Create the query service controller (follows Vitess pattern)
-	// Following the pattern: New->InitDBConfig->SetServingType
-	pm.qsc = poolerserver.NewMultiPooler(logger)
-	logger.Info("Created query service controller")
+	pm := &MultiPoolerManager{
+		logger:                   logger,
+		config:                   config,
+		topoClient:               config.TopoClient,
+		serviceID:                config.ServiceID,
+		actionLock:               NewActionLock(),
+		state:                    ManagerStateStarting,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		loadTimeout:              loadTimeout,
+		autoRestoreRetryInterval: 1 * time.Second,
+		queryServingState:        clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		pgctldClient:             pgctldClient,
+		connPoolMgr:              connPoolMgr,
+		readyChan:                make(chan struct{}),
+	}
+
+	// Create the query service controller with the pool manager
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
 
 	return pm, nil
 }
@@ -240,6 +258,17 @@ func (pm *MultiPoolerManager) Open() error {
 
 	pm.logger.Info("MultiPoolerManager: opening")
 
+	// Open connection pool manager
+	if pm.connPoolMgr != nil {
+		connConfig := &connpoolmanager.ConnectionConfig{
+			SocketFile: pm.config.SocketFilePath,
+			Port:       pm.config.PgPort,
+			Database:   pm.config.Database,
+		}
+		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
+		pm.logger.Info("Connection pool manager opened")
+	}
+
 	if err := pm.connectDB(); err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -264,12 +293,6 @@ func (pm *MultiPoolerManager) Open() error {
 		}
 	}
 
-	// Now open the query service controller
-	if err := pm.qsc.Open(); err != nil {
-		pm.logger.Error("Failed to open query service controller", "error", err)
-		return fmt.Errorf("failed to open controller: %w", err)
-	}
-
 	pm.isOpen = true
 	pm.logger.Info("MultiPoolerManager opened database connection")
 
@@ -278,8 +301,8 @@ func (pm *MultiPoolerManager) Open() error {
 
 // startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
-	// Create the replication tracker
-	pm.replTracker = heartbeat.NewReplTracker(pm.db, pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
+	// Create the replication tracker using the executor's InternalQuerier
+	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQuerier(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
 
 	// Check if we're connected to a primary
 	isPrimary, err := pm.isPrimary(ctx)
@@ -313,6 +336,14 @@ func (pm *MultiPoolerManager) Close() error {
 	// Always cancel context to stop async loaders (even if Open() was never called)
 	pm.cancel()
 
+	return pm.closeConnectionsLocked()
+}
+
+// closeConnectionsLocked closes the database connection and query service controller
+// without canceling the main context. Caller must hold pm.mu.
+// This is used by reopenConnections() during auto-restore to avoid canceling
+// the startup context that WaitUntilReady is waiting on.
+func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 	if !pm.isOpen {
 		pm.logger.Info("MultiPoolerManager: already closed")
 		return nil
@@ -328,20 +359,40 @@ func (pm *MultiPoolerManager) Close() error {
 	}
 
 	if pm.db != nil {
-		if err := pm.db.Close(); err != nil {
-			return err
-		}
+		err := pm.db.Close()
+		// Always nil out pm.db to allow reconnection. When postgres is down,
+		// pm.db may have idle broken connections, and Close() can return errors
+		// like "broken pipe". We must nil out pm.db regardless so that
+		// connectDB() will create a fresh connection on the next Open().
 		pm.db = nil
+		if err != nil {
+			pm.logger.Warn("Error closing database connection (expected if postgres is down)", "error", err)
+		}
 	}
 
-	if pm.qsc != nil {
-		if err := pm.qsc.Close(); err != nil {
-			return err
-		}
+	// Close connection pool manager
+	if pm.connPoolMgr != nil {
+		pm.connPoolMgr.Close()
 	}
 
 	pm.logger.Info("MultiPoolerManager: closed")
 	return nil
+}
+
+// reopenConnections closes and reopens database connections without canceling
+// the main context. This is used during auto-restore to restart connections
+// after PostgreSQL has been restored, without disrupting the startup flow.
+func (pm *MultiPoolerManager) reopenConnections(_ context.Context) error {
+	if err := func() error {
+		pm.mu.Lock()
+		defer pm.mu.Unlock()
+		return pm.closeConnectionsLocked()
+	}(); err != nil {
+		return err
+	}
+
+	// Now reopen (Open() acquires its own lock)
+	return pm.Open()
 }
 
 // GetState returns the current state of the manager
@@ -404,16 +455,6 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	return clustermetadatapb.PoolerType_UNKNOWN
 }
 
-// getDatabase returns the database name from the multipooler record
-func (pm *MultiPoolerManager) getDatabase() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.Database
-	}
-	return ""
-}
-
 // getMultipoolerIDString returns the multipooler ID as a string
 func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	pm.cachedMultipooler.mu.Lock()
@@ -424,24 +465,32 @@ func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
 
-// getBackupLocation returns the backup location from the database topology
-func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
-	database := pm.getDatabase()
+// getMultipoolerName returns just the name part of the multipooler ID (e.g., "4zrhr2mw").
+func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
+		return pm.cachedMultipooler.multipooler.Id.Name, nil
+	}
+	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
+}
+
+// backupLocationPath returns the full backup location path for a given database, table group,
+// and shard. The topology only stores the base path. Components are URL-encoded to prevent
+// path traversal and support UTF-8 identifiers without collisions.
+func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) (string, error) {
+	// Validate non-empty components
 	if database == "" {
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "database name not set in multipooler")
+		return "", fmt.Errorf("database cannot be empty")
+	}
+	if tableGroup == "" {
+		return "", fmt.Errorf("table group cannot be empty")
+	}
+	if shard == "" {
+		return "", fmt.Errorf("shard cannot be empty")
 	}
 
-	db, err := pm.topoClient.GetDatabase(ctx, database)
-	if err != nil {
-		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
-	}
-
-	if db.BackupLocation == "" {
-		return "", mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no backup_location configured", database)
-	}
-
-	return db.BackupLocation, nil
+	return safepath.Join(baseBackupLocation, database, tableGroup, shard)
 }
 
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler
@@ -601,6 +650,14 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 	}
 }
 
+// waitForReady blocks until the manager is ready (topo loaded) or context is cancelled
+func (pm *MultiPoolerManager) waitForReady(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-pm.readyChan:
+	}
+}
+
 // loadMultiPoolerFromTopo loads the multipooler record from topology asynchronously
 func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	// Validate ServiceID is not nil
@@ -648,19 +705,24 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			return
 		}
 
-		if db.BackupLocation == "" {
-			pm.setStateError(fmt.Errorf("database %s has no backup_location configured", database))
+		// Compute full backup location: base path + database/tablegroup/shard
+		shardBackupLocation, err := pm.backupLocationPath(db.BackupLocation, database, pm.config.TableGroup, pm.config.Shard)
+		if err != nil {
+			pm.setStateError(fmt.Errorf("invalid backup location path: %w", err))
 			return
 		}
 
 		pm.mu.Lock()
 		pm.multipooler = mp
 		pm.updateCachedMultipooler()
-		pm.backupLocation = db.BackupLocation
+		pm.backupLocation = shardBackupLocation
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation)
+		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", shardBackupLocation, "pooler_type", mp.Type.String())
+
+		// Note: restoring from backup (for replicas) happens in a separate goroutine
+
 		pm.checkAndSetReady()
 		return
 	}
@@ -1311,29 +1373,17 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	if pm.config.ConsensusEnabled {
 		go pm.loadConsensusTermFromDisk()
 	}
+	// Start background restore from backup, for replica poolers
+	go pm.tryAutoRestoreFromBackup(pm.ctx)
 
-	// Initialize query service controller with DB config
-	dbConfig := &poolerserver.DBConfig{
-		SocketFilePath: pm.config.SocketFilePath,
-		PoolerDir:      pm.config.PoolerDir,
-		Database:       pm.config.Database,
-		PgPort:         pm.config.PgPort,
-	}
-	if err := pm.qsc.InitDBConfig(dbConfig); err != nil {
-		pm.logger.Error("Failed to initialize query service controller", "error", err)
-	} else {
-		pm.logger.Info("Initialized query service controller with database config")
-	}
-
-	// Open the database connections and start background operations
-	// This calls connectDB() internally and opens the query service controller
+	// Open the database connections, connection pool manager, and start background operations
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	if err := pm.Open(); err != nil {
 		pm.logger.Error("Failed to open manager during startup", "error", err)
 		// Don't fail startup if Open fails - will retry on demand
 	}
 
-	senv.OnRun(func() {
+	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services
 		// Use load timeout from manager configuration
 		waitCtx, cancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
@@ -1342,8 +1392,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		pm.logger.Info("Waiting for manager to reach ready state before registering gRPC services")
 		if err := pm.WaitUntilReady(waitCtx); err != nil {
 			pm.logger.Error("Manager failed to reach ready state during startup", "error", err)
-			// Exit immediately - no point in starting gRPC if we're not ready
-			os.Exit(1)
+			return fmt.Errorf("manager failed to reach ready state: %w", err)
 		}
 		pm.logger.Info("Manager reached ready state, will register gRPC services")
 
@@ -1354,6 +1403,7 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 		// Register manager gRPC services
 		pm.registerGRPCServices()
 		pm.logger.Info("MultiPoolerManager gRPC services registered")
+		return nil
 	})
 }
 

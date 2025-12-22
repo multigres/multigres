@@ -74,12 +74,13 @@ func main() {
 
 	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // main() is allowed to call os.Exit
 	}
 }
 
 func run(cmd *cobra.Command, args []string, mp *multipooler.MultiPooler) error {
-	mp.Init(cmd.Context())
-	mp.RunDefault()
-	return nil
+	if err := mp.Init(cmd.Context()); err != nil {
+		return err
+	}
+	return mp.RunDefault()
 }

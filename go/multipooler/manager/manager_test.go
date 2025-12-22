@@ -496,10 +496,12 @@ func TestGetBackupLocation(t *testing.T) {
 		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
 		multipoolerInfo.Version(),
 	)
-	manager.backupLocation = "/var/backups/pgbackrest"
+	// backupLocation is now the full path: base + database/tablegroup/shard
+	expectedShardBackupLocation := filepath.Join("/var/backups/pgbackrest", database, constants.DefaultTableGroup, constants.DefaultShard)
+	manager.backupLocation = expectedShardBackupLocation
 
 	// Test accessing backup location field
-	assert.Equal(t, "/var/backups/pgbackrest", manager.backupLocation)
+	assert.Equal(t, expectedShardBackupLocation, manager.backupLocation)
 }
 
 // TestWaitUntilReady_Success verifies that WaitUntilReady returns immediately
@@ -695,6 +697,125 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotNil(t, manager)
 				manager.Close()
+			}
+		})
+	}
+}
+
+func TestMultiPoolerManager_backupLocationPath(t *testing.T) {
+	tests := []struct {
+		name               string
+		baseBackupLocation string
+		database           string
+		tableGroup         string
+		shard              string
+		wantPath           string
+		wantErr            bool
+		wantErrContains    string
+	}{
+		{
+			name:               "simple valid path",
+			baseBackupLocation: "/backups",
+			database:           "mydb",
+			tableGroup:         "tg1",
+			shard:              "shard0",
+			wantPath:           "/backups/mydb/tg1/shard0",
+			wantErr:            false,
+		},
+		{
+			name:               "with dots in identifiers",
+			baseBackupLocation: "/backups",
+			database:           "my.db",
+			tableGroup:         "tg.1",
+			shard:              "shard.0",
+			wantPath:           "/backups/my.db/tg.1/shard.0",
+			wantErr:            false,
+		},
+		{
+			name:               "empty database",
+			baseBackupLocation: "/backups",
+			database:           "",
+			tableGroup:         "tg1",
+			shard:              "shard0",
+			wantErr:            true,
+			wantErrContains:    "database cannot be empty",
+		},
+		{
+			name:               "empty table group",
+			baseBackupLocation: "/backups",
+			database:           "mydb",
+			tableGroup:         "",
+			shard:              "shard0",
+			wantErr:            true,
+			wantErrContains:    "table group cannot be empty",
+		},
+		{
+			name:               "empty shard",
+			baseBackupLocation: "/backups",
+			database:           "mydb",
+			tableGroup:         "tg1",
+			shard:              "",
+			wantErr:            true,
+			wantErrContains:    "shard cannot be empty",
+		},
+		{
+			name:               "double dot encoded",
+			baseBackupLocation: "/backups",
+			database:           "..",
+			tableGroup:         "tg1",
+			shard:              "shard0",
+			wantPath:           "/backups/%2E%2E/tg1/shard0",
+			wantErr:            false,
+		},
+		{
+			name:               "slash in component encoded",
+			baseBackupLocation: "/backups",
+			database:           "db/etc",
+			tableGroup:         "tg1",
+			shard:              "shard0",
+			wantPath:           "/backups/db%2Fetc/tg1/shard0",
+			wantErr:            false,
+		},
+		{
+			name:               "backslash in component encoded",
+			baseBackupLocation: "/backups",
+			database:           "db\\windows",
+			tableGroup:         "tg1",
+			shard:              "shard0",
+			wantPath:           "/backups/db%5Cwindows/tg1/shard0",
+			wantErr:            false,
+		},
+		{
+			name:               "unicode identifiers",
+			baseBackupLocation: "/backups",
+			database:           "データベース",
+			tableGroup:         "グループ",
+			shard:              "シャード",
+			wantPath:           "/backups/%E3%83%87%E3%83%BC%E3%82%BF%E3%83%99%E3%83%BC%E3%82%B9/%E3%82%B0%E3%83%AB%E3%83%BC%E3%83%97/%E3%82%B7%E3%83%A3%E3%83%BC%E3%83%89",
+			wantErr:            false,
+		},
+		{
+			name:               "colon in identifier",
+			baseBackupLocation: "/backups",
+			database:           "db:backup",
+			tableGroup:         "tg1",
+			shard:              "shard0",
+			wantPath:           "/backups/db%3Abackup/tg1/shard0",
+			wantErr:            false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm := &MultiPoolerManager{}
+			gotPath, err := pm.backupLocationPath(tt.baseBackupLocation, tt.database, tt.tableGroup, tt.shard)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContains)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantPath, gotPath)
 			}
 		})
 	}

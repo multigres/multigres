@@ -17,71 +17,48 @@ package heartbeat
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/tools/fakepgdb"
+	"github.com/multigres/multigres/go/multipooler/executor/mock"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestWriteHeartbeat(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
-
+	querier := mock.NewQuerier()
 	now := time.Now()
-	tw := newTestWriter(t, db, &now)
+	tw := newTestWriter(t, querier, &now)
 
 	// Add expected heartbeat query (must match with whitespace)
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
+	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+
+	tw.Open()
+	defer tw.Close()
 
 	// Write a single heartbeat
 	tw.writeHeartbeat()
 	lastWrites := tw.Writes()
-	assert.EqualValues(t, 1, lastWrites)
+	assert.GreaterOrEqual(t, lastWrites, int64(1))
 	assert.EqualValues(t, 0, tw.WriteErrors())
 }
 
 // TestWriteHeartbeatOpen tests that the heartbeat writer writes heartbeats when the writer is open.
 func TestWriteHeartbeatOpen(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
-
-	tw := newTestWriter(t, db, nil)
+	querier := mock.NewQuerier()
+	tw := newTestWriter(t, querier, nil)
 
 	// Add expected heartbeat query pattern
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
+	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
-	// Test initial write before opening
+	// Writes should not happen when closed
 	tw.writeHeartbeat()
-	lastWrites := tw.Writes()
-	assert.EqualValues(t, 1, lastWrites)
-	assert.EqualValues(t, 0, tw.WriteErrors())
-
-	t.Run("closed, no heartbeats", func(t *testing.T) {
-		time.Sleep(3 * time.Second)
-		assert.EqualValues(t, 1, tw.Writes())
-	})
+	assert.EqualValues(t, 0, tw.Writes(), "should not write when closed")
 
 	tw.Open()
 	defer tw.Close()
+
+	lastWrites := tw.Writes()
 
 	t.Run("open, heartbeats", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -104,11 +81,11 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 
 // TestWriteHeartbeatError tests that write errors are logged but don't crash the writer.
 func TestWriteHeartbeatError(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
+	querier := mock.NewQuerier()
+	tw := newTestWriter(t, querier, nil)
 
-	tw := newTestWriter(t, db, nil)
+	tw.Open()
+	defer tw.Close()
 
 	// Don't add any expected queries - this will cause an error
 	tw.writeHeartbeat()
@@ -116,78 +93,12 @@ func TestWriteHeartbeatError(t *testing.T) {
 	assert.EqualValues(t, 1, tw.WriteErrors())
 }
 
-// TestCloseWhileStuckWriting tests that Close shouldn't get stuck even if the heartbeat writer is stuck.
-func TestCloseWhileStuckWriting(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
-
-	tw := newTestWriter(t, db, nil)
-
-	killWg := sync.WaitGroup{}
-	killWg.Add(1)
-	startedWaitWg := sync.WaitGroup{}
-	startedWaitWg.Add(1)
-
-	// Insert a query pattern that causes the insert to block indefinitely until it has been killed
-	db.AddQueryPatternWithCallback("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	}, func(s string) {
-		startedWaitWg.Done()
-		killWg.Wait()
-	})
-
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
-
-	// When we receive a kill query, we want to finish running the wait group to unblock the insert query
-	db.AddQueryPatternWithCallback("SELECT pg_terminate_backend.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	}, func(s string) {
-		killWg.Done()
-	})
-
-	// Open the writer and enable writes
-	tw.Open()
-
-	// Wait until the write has blocked
-	startedWaitWg.Wait()
-
-	// Even if the write is blocked, we should be able to close without waiting indefinitely
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		tw.Close()
-		cancel()
-	}()
-
-	select {
-	case <-ctx.Done():
-		// Success - close completed
-	case <-time.After(10 * time.Second):
-		t.Fatalf("Timed out waiting for heartbeat writer to close")
-	}
-}
-
 // TestOpenClose tests the basic open/close lifecycle.
 func TestOpenClose(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
+	querier := mock.NewQuerier()
+	tw := newTestWriter(t, querier, nil)
 
-	tw := newTestWriter(t, db, nil)
-
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
+	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	assert.False(t, tw.IsOpen())
 
@@ -208,21 +119,12 @@ func TestOpenClose(t *testing.T) {
 
 // TestMultipleWriters tests that multiple writers can run concurrently.
 func TestMultipleWriters(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
+	querier := mock.NewQuerier()
 
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
+	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
-	tw1 := newTestWriter(t, db, nil)
-	tw2 := newTestWriter(t, db, nil)
+	tw1 := newTestWriter(t, querier, nil)
+	tw2 := newTestWriter(t, querier, nil)
 
 	tw1.Open()
 	tw2.Open()
@@ -240,23 +142,66 @@ func TestMultipleWriters(t *testing.T) {
 	assert.EqualValues(t, 0, tw2.WriteErrors())
 }
 
+// TestCloseWhileStuckWriting tests that Close() properly cancels an in-progress write
+// and waits for it to complete.
+func TestCloseWhileStuckWriting(t *testing.T) {
+	querier := mock.NewQuerier()
+	tw := newTestWriter(t, querier, nil)
+
+	writeStarted := make(chan struct{})
+	writeUnblocked := make(chan struct{})
+
+	// Add a query pattern that blocks until context is canceled
+	querier.AddQueryPatternWithContextCallback(
+		"\\s*INSERT INTO multigres\\.heartbeat.*",
+		mock.MakeQueryResult([]string{}, [][]any{}),
+		func(ctx context.Context, _ string) {
+			close(writeStarted)
+			// Block until context is canceled
+			<-ctx.Done()
+			close(writeUnblocked)
+		},
+	)
+
+	tw.Open()
+
+	// Wait for the first write to start
+	<-writeStarted
+
+	// Close should cancel the context and wait for the write to complete
+	closeDone := make(chan struct{})
+	go func() {
+		tw.Close()
+		close(closeDone)
+	}()
+
+	// Verify write was unblocked by context cancellation
+	select {
+	case <-writeUnblocked:
+		// Good - context was canceled
+	case <-time.After(2 * time.Second):
+		t.Fatal("write was not unblocked by context cancellation")
+	}
+
+	// Verify Close() completed
+	select {
+	case <-closeDone:
+		// Good - Close completed
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() did not complete in time")
+	}
+
+	assert.False(t, tw.IsOpen())
+}
+
 // newTestWriter creates a new heartbeat writer for testing.
-func newTestWriter(t *testing.T, db *fakepgdb.DB, frozenTime *time.Time) *Writer {
+func newTestWriter(_ *testing.T, querier *mock.Querier, frozenTime *time.Time) *Writer {
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	sqlDB := db.OpenDB()
-	t.Cleanup(func() { sqlDB.Close() })
-
-	// Add pg_current_wal_lsn mock for all writer tests
-	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]any{{"0/1A2B3C4D"}},
-	})
-
 	// Use 250ms interval for tests to oversample our 1s test ticker
-	tw := NewWriter(sqlDB, logger, shardID, poolerID, 250)
+	tw := NewWriter(querier, logger, shardID, poolerID, 250)
 
 	if frozenTime != nil {
 		tw.now = func() time.Time {

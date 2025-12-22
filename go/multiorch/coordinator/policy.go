@@ -248,15 +248,9 @@ func (c *Coordinator) CreateDefaultPolicy(ctx context.Context, node *multiorchda
 		QuorumRule: quorumRule,
 	}
 
-	resp, err := c.rpcClient.CreateDurabilityPolicy(ctx, node.MultiPooler, req)
+	_, err := c.rpcClient.CreateDurabilityPolicy(ctx, node.MultiPooler, req)
 	if err != nil {
 		return mterrors.Wrapf(err, "failed to create durability policy on node %s", node.MultiPooler.Id.Name)
-	}
-
-	if !resp.Success {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"failed to create durability policy on node %s: %s",
-			node.MultiPooler.Id.Name, resp.ErrorMessage)
 	}
 
 	c.logger.InfoContext(ctx, "Created default durability policy",
