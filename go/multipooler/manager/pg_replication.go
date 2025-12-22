@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
+	"github.com/multigres/multigres/go/parser/ast"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -142,9 +143,7 @@ func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, erro
 func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	// Escape single quotes in targetLsn
-	escapedLsn := strings.ReplaceAll(targetLsn, "'", "''")
-	sql := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= '%s'::pg_lsn", escapedLsn)
+	sql := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= %s::pg_lsn", ast.QuoteStringLiteral(targetLsn))
 	result, err := pm.query(queryCtx, sql)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check if replay LSN reached target")
@@ -265,12 +264,9 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
 	pm.logger.InfoContext(ctx, "Setting primary_conninfo", "conninfo", connInfo)
 
-	// Escape single quotes in the connection string by doubling them (PostgreSQL standard)
-	escapedConnInfo := strings.ReplaceAll(connInfo, "'", "''")
-
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer execCancel()
-	sql := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = '%s'", escapedConnInfo)
+	sql := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = %s", ast.QuoteStringLiteral(connInfo))
 	if err := pm.exec(execCtx, sql); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to set primary_conninfo", "error", err)
 		return mterrors.Wrap(err, "failed to set primary_conninfo")
@@ -592,14 +588,11 @@ func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.Synchrono
 func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, value string) error {
 	pm.logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
 
-	// Escape single quotes in the value by doubling them (PostgreSQL standard)
-	escapedValue := strings.ReplaceAll(value, "'", "''")
-
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer execCancel()
 
 	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
-	sql := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", escapedValue)
+	sql := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = %s", ast.QuoteStringLiteral(value))
 	if err := pm.exec(execCtx, sql); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")

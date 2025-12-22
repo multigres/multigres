@@ -17,12 +17,12 @@ package manager
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
+	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // ============================================================================
@@ -242,11 +242,9 @@ func (pm *MultiPoolerManager) insertTablegroup(ctx context.Context, name string)
 	pm.logger.InfoContext(ctx, "Inserting tablegroup", "name", name)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	// Escape single quotes by doubling them (PostgreSQL standard)
-	escapedName := strings.ReplaceAll(name, "'", "''")
 	sql := fmt.Sprintf(`INSERT INTO multigres.tablegroup (name, type)
-		VALUES ('%s', 'unsharded')
-		ON CONFLICT (name) DO NOTHING`, escapedName)
+		VALUES (%s, 'unsharded')
+		ON CONFLICT (name) DO NOTHING`, ast.QuoteStringLiteral(name))
 	if err := pm.exec(execCtx, sql); err != nil {
 		return mterrors.Wrap(err, "failed to insert tablegroup")
 	}
@@ -262,8 +260,7 @@ func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName st
 	// First, fetch the tablegroup oid
 	queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer queryCancel()
-	escapedTablegroupName := strings.ReplaceAll(tablegroupName, "'", "''")
-	querySql := fmt.Sprintf("SELECT oid FROM multigres.tablegroup WHERE name = '%s'", escapedTablegroupName)
+	querySql := fmt.Sprintf("SELECT oid FROM multigres.tablegroup WHERE name = %s", ast.QuoteStringLiteral(tablegroupName))
 	result, err := pm.query(queryCtx, querySql)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to find tablegroup: "+tablegroupName)
@@ -277,10 +274,9 @@ func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName st
 	// Insert the shard
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer execCancel()
-	escapedShardName := strings.ReplaceAll(shardName, "'", "''")
 	insertSql := fmt.Sprintf(`INSERT INTO multigres.shard (tablegroup_oid, shard_name)
-		VALUES (%d, '%s')
-		ON CONFLICT (tablegroup_oid, shard_name) DO NOTHING`, tablegroupOid, escapedShardName)
+		VALUES (%d, %s)
+		ON CONFLICT (tablegroup_oid, shard_name) DO NOTHING`, tablegroupOid, ast.QuoteStringLiteral(shardName))
 	if err := pm.exec(execCtx, insertSql); err != nil {
 		return mterrors.Wrap(err, "failed to insert shard")
 	}
@@ -295,12 +291,9 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	// Escape single quotes in both policyName and JSON
-	escapedPolicyName := strings.ReplaceAll(policyName, "'", "''")
-	escapedJSON := strings.ReplaceAll(string(quorumRuleJSON), "'", "''")
 	sql := fmt.Sprintf(`INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
-		VALUES ('%s', 1, '%s'::jsonb, true, NOW(), NOW())
-		ON CONFLICT (policy_name, policy_version) DO NOTHING`, escapedPolicyName, escapedJSON)
+		VALUES (%s, 1, %s::jsonb, true, NOW(), NOW())
+		ON CONFLICT (policy_name, policy_version) DO NOTHING`, ast.QuoteStringLiteral(policyName), ast.QuoteStringLiteral(string(quorumRuleJSON)))
 	if err := pm.exec(execCtx, sql); err != nil {
 		return mterrors.Wrap(err, "failed to insert durability policy")
 	}
