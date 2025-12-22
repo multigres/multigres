@@ -57,25 +57,26 @@ func TestBootstrapInitialization(t *testing.T) {
 	// Verify nodes are completely uninitialized (no data directory, no postgres running)
 	// Multiorch will detect these as needing bootstrap and call InitializeEmptyPrimary
 	for name, inst := range setup.Multipoolers {
-		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		require.NoError(t, err, "should connect to %s", name)
+		func() {
+			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+			require.NoError(t, err, "should connect to %s", name)
+			defer client.Close()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		cancel()
-		require.NoError(t, err, "should get status from %s", name)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			cancel()
+			require.NoError(t, err, "should get status from %s", name)
 
-		t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, PostgresRole=%s, PoolerType=%s",
-			name, status.Status.IsInitialized, status.Status.HasDataDirectory,
-			status.Status.PostgresRunning, status.Status.PostgresRole, status.Status.PoolerType)
+			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, PostgresRole=%s, PoolerType=%s",
+				name, status.Status.IsInitialized, status.Status.HasDataDirectory,
+				status.Status.PostgresRunning, status.Status.PostgresRole, status.Status.PoolerType)
 
-		// Nodes should be completely uninitialized (no data directory at all)
-		require.False(t, status.Status.IsInitialized, "Node %s should not be initialized yet", name)
-		require.False(t, status.Status.HasDataDirectory, "Node %s should not have data directory yet", name)
-		require.False(t, status.Status.PostgresRunning, "Node %s should not have postgres running yet", name)
-		t.Logf("Node %s ready for bootstrap (no data directory, postgres not running)", name)
-
-		client.Close()
+			// Nodes should be completely uninitialized (no data directory at all)
+			require.False(t, status.Status.IsInitialized, "Node %s should not be initialized yet", name)
+			require.False(t, status.Status.HasDataDirectory, "Node %s should not have data directory yet", name)
+			require.False(t, status.Status.PostgresRunning, "Node %s should not have postgres running yet", name)
+			t.Logf("Node %s ready for bootstrap (no data directory, postgres not running)", name)
+		}()
 	}
 
 	// Create and start multiorch to trigger bootstrap
