@@ -300,8 +300,8 @@ func (pm *MultiPoolerManager) Open() error {
 
 // startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
-	// Create the replication tracker
-	pm.replTracker = heartbeat.NewReplTracker(pm.db, pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
+	// Create the replication tracker using the executor's InternalQuerier
+	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQuerier(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
 
 	// Check if we're connected to a primary
 	isPrimary, err := pm.isPrimary(ctx)
@@ -358,10 +358,15 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 	}
 
 	if pm.db != nil {
-		if err := pm.db.Close(); err != nil {
-			return err
-		}
+		err := pm.db.Close()
+		// Always nil out pm.db to allow reconnection. When postgres is down,
+		// pm.db may have idle broken connections, and Close() can return errors
+		// like "broken pipe". We must nil out pm.db regardless so that
+		// connectDB() will create a fresh connection on the next Open().
 		pm.db = nil
+		if err != nil {
+			pm.logger.Warn("Error closing database connection (expected if postgres is down)", "error", err)
+		}
 	}
 
 	// Close connection pool manager
@@ -376,7 +381,7 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 // reopenConnections closes and reopens database connections without canceling
 // the main context. This is used during auto-restore to restart connections
 // after PostgreSQL has been restored, without disrupting the startup flow.
-func (pm *MultiPoolerManager) reopenConnections(ctx context.Context) error {
+func (pm *MultiPoolerManager) reopenConnections(_ context.Context) error {
 	if err := func() error {
 		pm.mu.Lock()
 		defer pm.mu.Unlock()
