@@ -17,6 +17,9 @@ package shardsetup
 import (
 	"context"
 	"fmt"
+	"testing"
+
+	"github.com/multigres/multigres/go/test/endtoend"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
@@ -124,4 +127,41 @@ func RestorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerp
 	}
 
 	return nil
+}
+
+// SaveGUCs queries multiple GUC values and saves them to a map.
+// Returns a map of gucName -> value. Empty values are preserved.
+func SaveGUCs(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucNames []string) map[string]string {
+	saved := make(map[string]string)
+	for _, gucName := range gucNames {
+		value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
+		if err == nil {
+			saved[gucName] = value
+		}
+	}
+	return saved
+}
+
+// RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM.
+// Empty values are treated as RESET (restore to default).
+func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
+	t.Helper()
+	for gucName, gucValue := range savedGucs {
+		var query string
+		if gucValue == "" {
+			query = fmt.Sprintf("ALTER SYSTEM RESET %s", gucName)
+		} else {
+			query = fmt.Sprintf("ALTER SYSTEM SET %s = '%s'", gucName, gucValue)
+		}
+		_, err := client.ExecuteQuery(ctx, query, 1)
+		if err != nil {
+			t.Logf("Warning: Failed to restore %s on %s in cleanup: %v", gucName, instanceName, err)
+		}
+	}
+
+	// Reload configuration to apply changes
+	_, err := client.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
+	if err != nil {
+		t.Logf("Warning: Failed to reload config on %s in cleanup: %v", instanceName, err)
+	}
 }

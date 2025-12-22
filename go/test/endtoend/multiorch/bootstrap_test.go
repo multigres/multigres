@@ -102,7 +102,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	t.Run("verify primary initialized", func(t *testing.T) {
 		t.Logf("Primary node: %s", setup.PrimaryName)
 
-		primaryClient := setup.GetPrimaryClient(t)
+		primaryClient := setup.NewPrimaryClient(t)
 		defer primaryClient.Close()
 
 		ctx := context.Background()
@@ -209,7 +209,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	})
 
 	t.Run("verify sync replication configured", func(t *testing.T) {
-		primaryClient := setup.GetPrimaryClient(t)
+		primaryClient := setup.NewPrimaryClient(t)
 		defer primaryClient.Close()
 
 		ctx := context.Background()

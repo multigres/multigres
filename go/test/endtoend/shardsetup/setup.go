@@ -35,7 +35,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/pathutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -212,9 +211,11 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		t.Fatalf("MultipoolerCount must be at least 1, got %d", config.MultipoolerCount)
 	}
 
-	// Set the PATH so our binaries can be found
-	if err := pathutil.PrependBinToPath(); err != nil {
-		t.Fatalf("failed to add bin to PATH: %v", err)
+	// Verify TestMain set up PATH correctly (our binaries should be available)
+	for _, binary := range []string{"multipooler", "pgctld"} {
+		if _, err := exec.LookPath(binary); err != nil {
+			t.Fatalf("%s binary not found in PATH - ensure TestMain calls pathutil.PrependBinToPath()", binary)
+		}
 	}
 
 	// Check if PostgreSQL binaries are available
@@ -414,13 +415,13 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
 	t.Helper()
 
+	ctx := utils.WithTimeout(t, 30*time.Second)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	timeout := time.After(30 * time.Second)
 
 	for {
 		select {
-		case <-timeout:
+		case <-ctx.Done():
 			return "", fmt.Errorf("timeout waiting for shard bootstrap after 30s")
 		case <-ticker.C:
 			primaryName, allInitialized := checkBootstrapStatus(t, setup)
@@ -524,6 +525,9 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 
 // startProcessesWithoutInit starts pgctld and multipooler processes without initializing postgres.
 // Use this for bootstrap tests where multiorch will initialize the shard.
+//
+// TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
+// Currently processes are started sequentially which adds latency.
 func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*MultipoolerInstance, config *SetupConfig) {
 	t.Helper()
 
@@ -1048,8 +1052,9 @@ func (s *ShardSetup) DemotePrimary(t *testing.T) {
 	t.Log("Primary demoted successfully")
 }
 
-// GetClient returns a MultipoolerClient for the specified multipooler instance.
-func (s *ShardSetup) GetClient(t *testing.T, name string) *MultipoolerClient {
+// NewClient returns a new MultipoolerClient for the specified multipooler instance.
+// The caller is responsible for closing the client.
+func (s *ShardSetup) NewClient(t *testing.T, name string) *MultipoolerClient {
 	t.Helper()
 
 	inst := s.GetMultipoolerInstance(name)
@@ -1063,9 +1068,10 @@ func (s *ShardSetup) GetClient(t *testing.T, name string) *MultipoolerClient {
 	return client
 }
 
-// GetPrimaryClient returns a MultipoolerClient for the primary instance.
-func (s *ShardSetup) GetPrimaryClient(t *testing.T) *MultipoolerClient {
-	return s.GetClient(t, s.PrimaryName)
+// NewPrimaryClient returns a new MultipoolerClient for the primary instance.
+// The caller is responsible for closing the client.
+func (s *ShardSetup) NewPrimaryClient(t *testing.T) *MultipoolerClient {
+	return s.NewClient(t, s.PrimaryName)
 }
 
 // makeMultipoolerID creates a multipooler ID for testing.

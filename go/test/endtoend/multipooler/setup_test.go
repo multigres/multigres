@@ -189,7 +189,7 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			primaryClient := setup.GetPrimaryClient(t)
+			primaryClient := setup.NewPrimaryClient(t)
 			defer primaryClient.Close()
 
 			for _, table := range config.tablesToDrop {

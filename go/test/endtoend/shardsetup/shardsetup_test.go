@@ -64,7 +64,7 @@ func TestShardSetup_ThreeNodeCluster(t *testing.T) {
 	ctx := context.Background()
 
 	// Verify primary is not in recovery (is actually a primary)
-	primaryClient := setup.GetPrimaryClient(t)
+	primaryClient := setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
 
 	inRecovery, err := QueryStringValue(ctx, primaryClient.Pooler, "SELECT pg_is_in_recovery()")
@@ -77,7 +77,7 @@ func TestShardSetup_ThreeNodeCluster(t *testing.T) {
 
 	// Verify all standbys are in recovery and replicating
 	for _, standby := range standbys {
-		standbyClient := setup.GetClient(t, standby.Name)
+		standbyClient := setup.NewClient(t, standby.Name)
 
 		// Verify in recovery mode
 		inRecovery, err := QueryStringValue(ctx, standbyClient.Pooler, "SELECT pg_is_in_recovery()")
@@ -108,7 +108,7 @@ func TestShardSetup_DemoteAndReset(t *testing.T) {
 	ctx := context.Background()
 
 	// Verify initial state - primary is not in recovery
-	primaryClient := setup.GetPrimaryClient(t)
+	primaryClient := setup.NewPrimaryClient(t)
 	inRecovery, err := QueryStringValue(ctx, primaryClient.Pooler, "SELECT pg_is_in_recovery()")
 	require.NoError(t, err)
 	require.Equal(t, "f", inRecovery, "primary should start as primary (not in recovery)")
@@ -118,7 +118,7 @@ func TestShardSetup_DemoteAndReset(t *testing.T) {
 	setup.DemotePrimary(t)
 
 	// Verify primary is now in recovery (demoted)
-	primaryClient = setup.GetPrimaryClient(t)
+	primaryClient = setup.NewPrimaryClient(t)
 	inRecovery, err = QueryStringValue(ctx, primaryClient.Pooler, "SELECT pg_is_in_recovery()")
 	require.NoError(t, err)
 	require.Equal(t, "t", inRecovery, "primary should be in recovery after demotion")
@@ -129,7 +129,7 @@ func TestShardSetup_DemoteAndReset(t *testing.T) {
 	setup.ResetToCleanState(t)
 
 	// Verify primary is restored
-	primaryClient = setup.GetPrimaryClient(t)
+	primaryClient = setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
 
 	require.Eventually(t, func() bool {
@@ -149,7 +149,7 @@ func TestShardSetup_DemoteAndReset(t *testing.T) {
 
 	// Verify standbys are still standbys with correct state
 	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.GetClient(t, standby.Name)
+		standbyClient := setup.NewClient(t, standby.Name)
 
 		// Should be in recovery
 		inRecovery, err := QueryStringValue(ctx, standbyClient.Pooler, "SELECT pg_is_in_recovery()")
@@ -181,7 +181,7 @@ func TestShardSetup_ReplicationWorks(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a test table and insert data on primary
-	primaryClient := setup.GetPrimaryClient(t)
+	primaryClient := setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
 
 	_, err := primaryClient.Pooler.ExecuteQuery(ctx, "CREATE TABLE IF NOT EXISTS test_replication (id INT PRIMARY KEY, value TEXT)", 0)
@@ -192,7 +192,7 @@ func TestShardSetup_ReplicationWorks(t *testing.T) {
 
 	// Verify data replicates to all standbys
 	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.GetClient(t, standby.Name)
+		standbyClient := setup.NewClient(t, standby.Name)
 
 		// Wait for replication to catch up
 		require.Eventually(t, func() bool {
@@ -221,7 +221,7 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 
 	// Verify standbys have no replication configured
 	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.GetClient(t, standby.Name)
+		standbyClient := setup.NewClient(t, standby.Name)
 
 		// Verify primary_conninfo is empty
 		connInfo, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
@@ -237,7 +237,7 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 	}
 
 	// Verify primary has no synchronous_standby_names configured (clean state)
-	primaryClient := setup.GetPrimaryClient(t)
+	primaryClient := setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
 
 	syncStandby, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
@@ -253,7 +253,7 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 
 	// Data should NOT appear on standbys (no replication)
 	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.GetClient(t, standby.Name)
+		standbyClient := setup.NewClient(t, standby.Name)
 
 		// Table might not exist or be empty - either way, data didn't replicate
 		resp, err := standbyClient.Pooler.ExecuteQuery(ctx, "SELECT id FROM test_no_repl WHERE id = 1", 1)

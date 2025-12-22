@@ -53,7 +53,7 @@
 //		sharedSetup.SetupTest(t) // Validates clean state and registers cleanup
 //
 //		// Your test code here
-//		client := sharedSetup.GetPrimaryClient(t)
+//		client := sharedSetup.NewPrimaryClient(t)
 //		defer client.Close()
 //		// ...
 //	}
