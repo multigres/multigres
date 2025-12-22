@@ -103,7 +103,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup)
+	setupPoolerTest(t, setup, WithDropTables("backup_restore_test"))
 
 	// Wait for both primary and standby managers to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
@@ -133,9 +133,9 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 	t.Log("Step 1: Creating test table and inserting initial data...")
 
-	// Create a test table
+	// Create a test table (WithDropTables ensures it doesn't exist from previous runs)
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS backup_restore_test (
+		CREATE TABLE backup_restore_test (
 			id SERIAL PRIMARY KEY,
 			data TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
@@ -781,12 +781,14 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 		t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
 
 		// Create restore request targeting the standby pooler
+		standbys := setup.GetStandbys()
+		require.NotEmpty(t, standbys, "Should have at least one standby")
 		restoreReq := &multiadminpb.RestoreFromBackupRequest{
 			Database:   "postgres",
 			TableGroup: "default",
 			Shard:      "0-inf",
 			BackupId:   backupID,
-			PoolerId:   makeMultipoolerID("test-cell", "standby-multipooler"),
+			PoolerId:   setup.GetMultipoolerID(standbys[0].Name),
 		}
 
 		restoreResp, err := adminServer.RestoreFromBackup(t.Context(), restoreReq)

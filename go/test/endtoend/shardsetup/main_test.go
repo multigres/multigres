@@ -12,24 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package multipooler
+package shardsetup
 
 import (
 	"os"
 	"testing"
-
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
 // setupManager manages the shared test setup for tests in this package.
-var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
-	// Create a 2-node cluster for testing (primary + standby)
-	return shardsetup.New(t, shardsetup.WithMultipoolerCount(2))
+var setupManager = NewSharedSetupManager(func(t *testing.T) *ShardSetup {
+	// Create a 3-node cluster for testing
+	return New(t, WithMultipoolerCount(3))
 })
 
 // TestMain sets the path and cleans up after all tests.
 func TestMain(m *testing.M) {
-	exitCode := shardsetup.RunTestMain(m)
+	exitCode := RunTestMain(m)
 	if exitCode != 0 {
 		setupManager.DumpLogs()
 	}
@@ -38,7 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 // getSharedSetup returns the shared setup for tests.
-func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+func getSharedSetup(t *testing.T) *ShardSetup {
 	t.Helper()
 	return setupManager.Get(t)
 }

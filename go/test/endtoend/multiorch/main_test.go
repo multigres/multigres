@@ -22,10 +22,9 @@ import (
 	"github.com/multigres/multigres/go/tools/pathutil"
 )
 
-// TestMain sets the path and cleans up after all tests
+// TestMain sets up the test environment for multiorch tests.
 func TestMain(m *testing.M) {
-	// Set the PATH so etcd and orphan detection scripts can be found
-	// Use automatic module root detection instead of hard-coded relative paths
+	// Set the PATH so etcd and binaries can be found
 	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
 		os.Exit(1) //nolint:forbidigo // TestMain() is allowed to call os.Exit
@@ -42,6 +41,5 @@ func TestMain(m *testing.M) {
 	// Cleanup environment variable
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
 
-	// Exit with the test result code
 	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
