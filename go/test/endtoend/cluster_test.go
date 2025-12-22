@@ -1426,8 +1426,7 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 		testPorts.Zones[0].MultigatewayPGPort,
 		testPorts.Zones[1].MultigatewayPGPort,
 	}
-	findCtx, findCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer findCancel()
+	findCtx := utils.WithTimeout(t, 30*time.Second)
 	readyPort, err := findReadyMultigateway(t, findCtx, pgPorts)
 	require.NoError(t, err, "should find a ready multigateway after bootstrap")
 

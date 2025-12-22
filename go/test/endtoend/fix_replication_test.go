@@ -246,8 +246,7 @@ func verifyReplicationStreaming(t *testing.T, multipoolerAddr string) {
 
 	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 5*time.Second)
 
 	resp, err := managerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	require.NoError(t, err, "StandbyReplicationStatus should succeed")
@@ -274,8 +273,7 @@ func breakReplicationViaRPC(t *testing.T, multipoolerAddr string) {
 
 	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	// Clear primary_conninfo by setting it to empty host
 	// Use StopReplicationBefore=true to stop WAL receiver first
@@ -303,8 +301,7 @@ func isReplicationBroken(t *testing.T, multipoolerAddr string) bool {
 
 	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 5*time.Second)
 
 	resp, err := managerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	if err != nil {
@@ -339,8 +336,7 @@ func isReplicaInStandbyList(t *testing.T, primaryAddr string, replicaZoneName st
 
 	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 5*time.Second)
 
 	resp, err := managerClient.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
 	if err != nil {
@@ -376,8 +372,7 @@ func removeReplicaFromStandbyList(t *testing.T, primaryAddr string, replicaZoneN
 
 	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	// Use UpdateSynchronousStandbyList to remove the replica
 	_, err = managerClient.UpdateSynchronousStandbyList(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
@@ -405,8 +400,7 @@ func waitForReplicationFixed(t *testing.T, multipoolerAddr string, timeout time.
 	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	require.Eventually(t, func() bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Second)
 
 		resp, err := managerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 		if err != nil {

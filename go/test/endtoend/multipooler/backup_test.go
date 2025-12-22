@@ -165,8 +165,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			Type:         "full",
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Minute)
 
 		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Full backup should succeed")
@@ -278,8 +277,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			standbyPgctldClient := pgctldservice.NewPgCtldClient(standbyPgctldConn)
 
 			// Stop PostgreSQL on standby
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer stopCancel()
+			stopCtx := utils.WithTimeout(t, 2*time.Minute)
 			_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
 			require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
 			t.Log("PostgreSQL stopped on standby")
@@ -293,8 +291,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 				BackupId: fullBackupID,
 			}
 
-			restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer restoreCancel()
+			restoreCtx := utils.WithTimeout(t, 10*time.Minute)
 
 			_, err = standbyBackupClient.RestoreFromBackup(restoreCtx, restoreReq)
 			require.NoError(t, err, "Restore to standby should succeed")
@@ -313,8 +310,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 				CurrentTerm:           1,
 				Force:                 true, // Force reconfiguration after restore
 			}
-			setPrimaryCtx, setPrimaryCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer setPrimaryCancel()
+			setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 			_, err = standbyBackupClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 			require.NoError(t, err, "Should be able to configure replication after restore")
 			t.Log("Replication configured successfully after restore")
@@ -427,8 +423,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			Type:         "differential",
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Minute)
 
 		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Differential backup should succeed")
@@ -467,8 +462,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			Type:         "incremental",
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Minute)
 
 		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Incremental backup should succeed")
@@ -591,8 +585,7 @@ func TestBackup_FromStandby(t *testing.T) {
 			Type:         "full",
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Minute)
 
 		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Full backup from standby should succeed")
@@ -648,8 +641,7 @@ func TestBackup_FromStandby(t *testing.T) {
 			Type:         "incremental",
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Minute)
 
 		resp, err := backupClient.Backup(ctx, req)
 		require.NoError(t, err, "Incremental backup from standby should succeed")
