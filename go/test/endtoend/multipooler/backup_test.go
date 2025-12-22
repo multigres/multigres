@@ -781,12 +781,14 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 		t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
 
 		// Create restore request targeting the standby pooler
+		standbys := setup.GetStandbys()
+		require.NotEmpty(t, standbys, "Should have at least one standby")
 		restoreReq := &multiadminpb.RestoreFromBackupRequest{
 			Database:   "postgres",
 			TableGroup: "default",
 			Shard:      "0-inf",
 			BackupId:   backupID,
-			PoolerId:   makeMultipoolerID("test-cell", "standby-multipooler"),
+			PoolerId:   setup.GetMultipoolerID(standbys[0].Name),
 		}
 
 		restoreResp, err := adminServer.RestoreFromBackup(t.Context(), restoreReq)

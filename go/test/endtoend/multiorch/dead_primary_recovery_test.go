@@ -61,6 +61,28 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
+	// Verify standbys are replicating from the primary
+	t.Logf("Verifying standbys are replicating from primary...")
+	for name, inst := range setup.Multipoolers {
+		if name == oldPrimaryName {
+			continue
+		}
+		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		cancel()
+		client.Close()
+
+		require.NoError(t, err)
+		require.NotNil(t, resp.Status.ReplicationStatus, "Standby %s should have replication status", name)
+		require.NotNil(t, resp.Status.ReplicationStatus.PrimaryConnInfo, "Standby %s should have PrimaryConnInfo", name)
+		t.Logf("Standby %s is replicating from %s:%d", name,
+			resp.Status.ReplicationStatus.PrimaryConnInfo.Host,
+			resp.Status.ReplicationStatus.PrimaryConnInfo.Port)
+	}
+
 	// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 	t.Logf("Killing postgres on primary node %s to simulate database crash", oldPrimaryName)
 	setup.KillPostgres(t, oldPrimaryName)

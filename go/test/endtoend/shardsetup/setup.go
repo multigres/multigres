@@ -258,7 +258,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	t.Logf("Created topology cell '%s' at etcd %s", config.CellName, etcdClientAddr)
 
 	// Create the database entry in topology with backup_location
-	backupLocation := filepath.Join(tempDir, "backup-repo", config.Database, config.TableGroup, config.Shard)
+	backupLocation := filepath.Join(tempDir, "backup-repo")
 	err = ts.CreateDatabase(context.Background(), config.Database, &clustermetadatapb.Database{
 		Name:             config.Database,
 		BackupLocation:   backupLocation,
