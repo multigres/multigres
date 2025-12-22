@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -38,6 +39,10 @@ func setupTestEnv(cmd *exec.Cmd) {
 	cmd.Env = append(os.Environ(),
 		"PGCONNECT_TIMEOUT=5", // Shorter timeout for tests
 	)
+	if runtime.GOOS == "darwin" {
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		cmd.Env = append(cmd.Env, "LC_ALL=en_US.UTF-8")
+	}
 }
 
 // TestEndToEndWithRealPostgreSQL tests pgctld with real PostgreSQL binaries

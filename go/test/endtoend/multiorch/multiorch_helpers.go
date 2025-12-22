@@ -235,8 +235,10 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 		"--log-output", logFile)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	// LC_ALL is required to avoid "postmaster became multithreaded during startup" on macOS
 	pgctldCmd.Env = append(os.Environ(),
 		"MULTIGRES_TESTDATA_DIR="+baseDir,
+		"LC_ALL=en_US.UTF-8",
 	)
 	if runtime.GOOS == "darwin" {
 		// On macOS, PostgreSQL 17 requires proper locale settings to avoid

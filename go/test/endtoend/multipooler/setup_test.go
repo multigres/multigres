@@ -851,10 +851,10 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 
 		t.Logf("Created topology cell '%s' at etcd %s", cellName, etcdClientAddr)
 
-		// Create the database entry in topology with backup_location
-		// This is needed for getBackupLocation() calls in multipooler manager
+		// Create the database entry in topology with backup_location (base path only)
+		// getBackupLocation() appends database/tablegroup/shard
 		database := "postgres"
-		backupLocation := filepath.Join(tempDir, "backup-repo", database, "default", "0-inf")
+		backupLocation := filepath.Join(tempDir, "backup-repo")
 		err = ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
 			Name:             database,
 			BackupLocation:   backupLocation,
