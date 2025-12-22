@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,15 +23,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lib/pq"
-
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
+	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"google.golang.org/grpc"
@@ -61,7 +60,6 @@ const (
 type MultiPoolerManager struct {
 	logger       *slog.Logger
 	config       *Config
-	db           *sql.DB
 	topoClient   topoclient.Store
 	serviceID    *clustermetadatapb.ID
 	replTracker  *heartbeat.ReplTracker
@@ -216,28 +214,30 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	return pm, nil
 }
 
-// connectDB establishes a connection to PostgreSQL (reuses the shared logic)
-func (pm *MultiPoolerManager) connectDB() error {
-	if pm.db != nil {
-		return nil // Already connected
+// internalQuerier returns the InternalQuerier for executing queries via the connection pool.
+// This replaces direct sql.DB usage with the connection pool manager.
+func (pm *MultiPoolerManager) internalQuerier() executor.InternalQuerier {
+	if pm.qsc == nil {
+		return nil
 	}
+	return pm.qsc.InternalQuerier()
+}
 
-	db, err := CreateDBConnection(pm.logger, pm.config)
-	if err != nil {
-		return err
+// query executes a query using the internal querier and returns the result.
+// This is a convenience method for internal manager operations.
+func (pm *MultiPoolerManager) query(ctx context.Context, sql string) (*query.QueryResult, error) {
+	querier := pm.internalQuerier()
+	if querier == nil {
+		return nil, fmt.Errorf("internal querier not available")
 	}
-	pm.db = db
+	return querier.Query(ctx, sql)
+}
 
-	// Test the connection
-	if err := pm.db.Ping(); err != nil {
-		pm.db.Close()
-		pm.db = nil
-		return fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	pm.logger.Info("MultiPoolerManager: Connected to PostgreSQL", "socket_path", pm.config.SocketFilePath, "database", pm.config.Database)
-
-	return nil
+// exec executes a command that doesn't return rows.
+// This is a convenience method for internal manager operations.
+func (pm *MultiPoolerManager) exec(ctx context.Context, sql string) error {
+	_, err := pm.query(ctx, sql)
+	return err
 }
 
 // Open opens the database connections and starts background operations.
@@ -266,10 +266,6 @@ func (pm *MultiPoolerManager) Open() error {
 		}
 		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
 		pm.logger.Info("Connection pool manager opened")
-	}
-
-	if err := pm.connectDB(); err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	// Create sidecar schema and start heartbeat before opening query service controller
@@ -338,7 +334,7 @@ func (pm *MultiPoolerManager) Close() error {
 	return pm.closeConnectionsLocked()
 }
 
-// closeConnectionsLocked closes the database connection and query service controller
+// closeConnectionsLocked closes the connection pool manager and query service controller
 // without canceling the main context. Caller must hold pm.mu.
 // This is used by reopenConnections() during auto-restore to avoid canceling
 // the startup context that WaitUntilReady is waiting on.
@@ -355,18 +351,6 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
 		pm.replTracker = nil
-	}
-
-	if pm.db != nil {
-		err := pm.db.Close()
-		// Always nil out pm.db to allow reconnection. When postgres is down,
-		// pm.db may have idle broken connections, and Close() can return errors
-		// like "broken pipe". We must nil out pm.db regardless so that
-		// connectDB() will create a fresh connection on the next Open().
-		pm.db = nil
-		if err != nil {
-			pm.logger.Warn("Error closing database connection (expected if postgres is down)", "error", err)
-		}
 	}
 
 	// Close connection pool manager
@@ -557,15 +541,8 @@ func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 		return err
 	}
 
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to connect to database", "error", err)
-		return mterrors.Wrap(err, "database connection failed")
-	}
-
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	var isInRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	isInRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
@@ -588,15 +565,8 @@ func (pm *MultiPoolerManager) checkPrimaryGuardrails(ctx context.Context) error 
 		return err
 	}
 
-	// Ensure database connection
-	if err := pm.connectDB(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to connect to database", "error", err)
-		return mterrors.Wrap(err, "database connection failed")
-	}
-
 	// Guardrail: Check if the PostgreSQL instance is in standby mode
-	var isInRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	isInRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
@@ -956,7 +926,7 @@ func (pm *MultiPoolerManager) runCheckpointAsync(ctx context.Context) chan error
 	checkpointDone := make(chan error, 1)
 	go func() {
 		pm.logger.InfoContext(ctx, "Starting checkpoint")
-		_, err := pm.db.ExecContext(ctx, "CHECKPOINT")
+		err := pm.exec(ctx, "CHECKPOINT")
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Checkpoint failed", "error", err)
 			checkpointDone <- err
@@ -1015,8 +985,7 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	}
 
 	// Verify server is in recovery mode (standby)
-	var inRecovery bool
-	err = pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	inRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to verify recovery status", "error", err)
 		return mterrors.Wrap(err, "failed to verify standby status")
@@ -1064,8 +1033,8 @@ func (pm *MultiPoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 	// have the query pool. Thinking that we should have a
 	// specific user for the write pool and we can kill all connections
 	// associated with that user.
-	query := `
-		SELECT COALESCE(array_agg(pid), ARRAY[]::integer[])
+	sql := `
+		SELECT pid
 		FROM pg_stat_activity
 		WHERE pid != pg_backend_pid()
 		  AND datname IS NOT NULL
@@ -1078,10 +1047,20 @@ func (pm *MultiPoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 		  AND query NOT ILIKE 'ROLLBACK%'
 		  AND query != '<IDLE>'`
 
-	var pids []int32
-	err := pm.db.QueryRowContext(ctx, query).Scan(pq.Array(&pids))
+	result, err := pm.query(ctx, sql)
 	if err != nil {
 		return nil, err
+	}
+
+	var pids []int32
+	if result != nil {
+		for _, row := range result.Rows {
+			pid, err := executor.GetInt32(row, 0)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse pid: %w", err)
+			}
+			pids = append(pids, pid)
+		}
 	}
 
 	return pids, nil
@@ -1106,8 +1085,9 @@ func (pm *MultiPoolerManager) terminateWriteConnections(ctx context.Context) (in
 
 	// Terminate each write connection
 	for _, pid := range pids {
-		_, err := pm.db.ExecContext(ctx, "SELECT pg_terminate_backend($1)", pid)
-		if err != nil {
+		// PIDs are system-generated integers, safe to format directly
+		sql := fmt.Sprintf("SELECT pg_terminate_backend(%d)", pid)
+		if err := pm.exec(ctx, sql); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to terminate write connection", "pid", pid, "error", err)
 		}
 	}
@@ -1188,8 +1168,7 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 	state := &promotionState{}
 
 	// Check PostgreSQL promotion state
-	var isInRecovery bool
-	err := pm.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+	isInRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check recovery status", "error", err)
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
@@ -1247,8 +1226,7 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// Call pg_promote() to promote standby to primary
 	pm.logger.InfoContext(ctx, "PostgreSQL promotion needed")
 	pm.logger.InfoContext(ctx, "Calling pg_promote() to promote standby to primary")
-	_, err := pm.db.ExecContext(ctx, "SELECT pg_promote()")
-	if err != nil {
+	if err := pm.exec(ctx, "SELECT pg_promote()"); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to call pg_promote()", "error", err)
 		return mterrors.Wrap(err, "failed to promote standby")
 	}
@@ -1275,8 +1253,7 @@ func (pm *MultiPoolerManager) waitForPromotionComplete(ctx context.Context) erro
 				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
 
 		case <-ticker.C:
-			var isInRecovery bool
-			err := pm.db.QueryRowContext(promotionCtx, "SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+			isInRecovery, err := pm.isInRecovery(promotionCtx)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
 				return mterrors.Wrap(err, "failed to check recovery status")

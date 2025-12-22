@@ -37,6 +37,7 @@ type queryPattern struct {
 	err         error
 	callback    func(string)
 	ctxCallback func(context.Context, string) // callback that receives context for blocking tests
+	consumeOnce bool                          // if true, pattern is removed after first match
 }
 
 // NewQuerier creates a new mock querier for testing.
@@ -90,21 +91,42 @@ func (m *Querier) AddQueryPatternWithContextCallback(pattern string, result *que
 	})
 }
 
+// AddQueryPatternOnce adds a query pattern that is consumed after the first match.
+// This is useful when you need different results for subsequent calls to the same query.
+func (m *Querier) AddQueryPatternOnce(pattern string, result *query.QueryResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.patterns = append(m.patterns, queryPattern{
+		pattern:     regexp.MustCompile(pattern),
+		result:      result,
+		consumeOnce: true,
+	})
+}
+
 // Query implements executor.InternalQuerier.
 func (m *Querier) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
 	m.mu.Lock()
-	var matched *queryPattern
+	matchedIndex := -1
 	for i := range m.patterns {
 		if m.patterns[i].pattern.MatchString(queryStr) {
-			matched = &m.patterns[i]
+			matchedIndex = i
 			break
 		}
 	}
-	m.mu.Unlock()
 
-	if matched == nil {
+	if matchedIndex == -1 {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("no matching query pattern for: %s", queryStr)
 	}
+
+	// Copy the matched pattern's data before potentially modifying the slice
+	matched := m.patterns[matchedIndex]
+
+	// Remove the pattern if it should only be used once
+	if matched.consumeOnce {
+		m.patterns = append(m.patterns[:matchedIndex], m.patterns[matchedIndex+1:]...)
+	}
+	m.mu.Unlock()
 
 	if matched.callback != nil {
 		matched.callback(queryStr)

@@ -274,10 +274,10 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 
 	var initialized bool
 
-	// If database is connected, check if multigres schema exists
-	if pm.db != nil {
-		exists, err := pm.querySchemaExists(ctx)
-		initialized = err == nil && exists
+	// Try to check if multigres schema exists via a query
+	exists, err := pm.querySchemaExists(ctx)
+	if err == nil {
+		initialized = exists
 	} else {
 		// If database is not connected (e.g., postgres is down), check for the initialization marker.
 		// This marker is created after full initialization completes (schema created, backup done).
@@ -340,7 +340,9 @@ func (pm *MultiPoolerManager) hasDataDirectory() bool {
 // isPostgresRunning checks if PostgreSQL is currently running
 func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
 	if pm.pgctldClient == nil {
-		return pm.db != nil
+		// No pgctld client, try a simple query to check if PostgreSQL is responding
+		_, err := pm.query(ctx, "SELECT 1")
+		return err == nil
 	}
 
 	statusReq := &pgctldpb.StatusRequest{}
@@ -354,10 +356,6 @@ func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
 
 // getRole returns the current role of this pooler ("primary", "standby", or "unknown")
 func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
-	if pm.db == nil {
-		return "unknown"
-	}
-
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return "unknown"
@@ -371,10 +369,6 @@ func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
 
 // getWALPosition returns the current WAL position and any error encountered
 func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error) {
-	if pm.db == nil {
-		return "", fmt.Errorf("database connection not available")
-	}
-
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return "", err
@@ -422,22 +416,17 @@ func (pm *MultiPoolerManager) removeDataDirectory() error {
 
 // waitForDatabaseConnection waits for the database connection to become available
 func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) error {
-	// If we already have a connection, test it
-	if pm.db != nil {
-		if err := pm.db.PingContext(ctx); err == nil {
-			// Start heartbeat tracker if not already running
-			if pm.replTracker == nil {
-				shardID := []byte("0") // default shard ID
-				poolerID := pm.serviceID.Name
-				if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
-					pm.logger.WarnContext(ctx, "Failed to start heartbeat for existing DB connection", "error", err)
-				}
+	// Test if database is already reachable
+	if _, err := pm.query(ctx, "SELECT 1"); err == nil {
+		// Start heartbeat tracker if not already running
+		if pm.replTracker == nil {
+			shardID := []byte("0") // default shard ID
+			poolerID := pm.serviceID.Name
+			if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
+				pm.logger.WarnContext(ctx, "Failed to start heartbeat for existing DB connection", "error", err)
 			}
-			return nil
 		}
-		// Close stale connection
-		pm.db.Close()
-		pm.db = nil
+		return nil
 	}
 
 	// Wait for connection to become available with retry logic
@@ -457,8 +446,8 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 			return mterrors.Wrap(err, fmt.Sprintf("context error while waiting for database connection after %d attempts", attempt))
 		}
 
-		// Try to open the connection
-		if err := pm.connectDB(); err == nil {
+		// Try to query the database
+		if _, queryErr := pm.query(ctx, "SELECT 1"); queryErr == nil {
 			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
 
 			// Start heartbeat tracker if not already running
@@ -473,9 +462,9 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 
 			return nil
 		} else {
-			lastErr = err
+			lastErr = queryErr
 			if firstAttempt {
-				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", err)
+				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", queryErr)
 				firstAttempt = false
 			}
 		}
