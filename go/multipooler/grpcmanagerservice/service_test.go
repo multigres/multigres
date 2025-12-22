@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -83,11 +84,12 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
+		TopoClient:     ts,
+		ServiceID:      serviceID,
+		PgctldAddr:     pgctldAddr,
+		TableGroup:     constants.DefaultTableGroup,
+		Shard:          constants.DefaultShard,
+		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)
@@ -155,10 +157,11 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	}
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
+		TopoClient:     ts,
+		ServiceID:      serviceID,
+		TableGroup:     constants.DefaultTableGroup,
+		Shard:          constants.DefaultShard,
+		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)
