@@ -103,7 +103,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup)
+	setupPoolerTest(t, setup, WithDropTables("backup_restore_test"))
 
 	// Wait for both primary and standby managers to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
@@ -133,9 +133,9 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 	t.Log("Step 1: Creating test table and inserting initial data...")
 
-	// Create a test table
+	// Create a test table (WithDropTables ensures it doesn't exist from previous runs)
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS backup_restore_test (
+		CREATE TABLE backup_restore_test (
 			id SERIAL PRIMARY KEY,
 			data TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
