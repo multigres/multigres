@@ -95,6 +95,7 @@ linters:
             - "!**/go/services/multiadmin/**/*.go"
             - "!**/go/cmd/multiadmin/*.go"
             - "!**/go/cmd/multiadmin/**/*.go"
+            - "!**/go/test/endtoend/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
