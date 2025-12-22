@@ -135,16 +135,3 @@ func QueryStringValue(ctx context.Context, client *endtoend.MultiPoolerTestClien
 	}
 	return string(resp.Rows[0].Values[0]), nil
 }
-
-// ValidateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
-// Follows the pattern from multipooler/setup_test.go:validateGUCValue.
-func ValidateGUCValue(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
-	value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
-	if err != nil {
-		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)
-	}
-	if value != expected {
-		return fmt.Errorf("%s has %s='%s' (expected '%s')", instanceName, gucName, value, expected)
-	}
-	return nil
-}
