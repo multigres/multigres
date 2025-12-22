@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/multipooler/executor"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -63,6 +64,11 @@ type PoolerController interface {
 	// Executor returns the query executor for handling queries.
 	// Returns an error if the controller is not initialized or not opened.
 	Executor() (queryservice.QueryService, error)
+
+	// InternalQuerier returns an InternalQuerier for simple internal queries.
+	// This is used by internal components like heartbeat that need to execute
+	// queries using the connection pool.
+	InternalQuerier() executor.InternalQuerier
 
 	// RegisterGRPCServices registers gRPC services with the server.
 	// This is called by MultiPoolerManager during startup.

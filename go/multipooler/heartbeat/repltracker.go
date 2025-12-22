@@ -15,9 +15,10 @@
 package heartbeat
 
 import (
-	"database/sql"
 	"log/slog"
 	"sync"
+
+	"github.com/multigres/multigres/go/multipooler/executor"
 )
 
 // TODO: add stats for heartbeat reads and writes
@@ -32,10 +33,10 @@ type ReplTracker struct {
 }
 
 // NewReplTracker creates a new ReplTracker.
-func NewReplTracker(db *sql.DB, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *ReplTracker {
+func NewReplTracker(querier executor.InternalQuerier, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *ReplTracker {
 	return &ReplTracker{
-		hw: NewWriter(db, logger, shardID, poolerID, intervalMs),
-		hr: NewReader(db, logger, shardID),
+		hw: NewWriter(querier, logger, shardID, poolerID, intervalMs),
+		hr: NewReader(querier, logger, shardID),
 	}
 }
 
@@ -86,9 +87,9 @@ func (rt *ReplTracker) IsPrimary() bool {
 // This functionality is primarily used by tests.
 func (rt *ReplTracker) EnableHeartbeat(enable bool) {
 	if enable {
-		rt.hw.enableWrites()
+		rt.hw.Open()
 	} else {
-		rt.hw.disableWrites()
+		rt.hw.Close()
 	}
 }
 

@@ -492,6 +492,19 @@ func (c *Client) GetBackups(ctx context.Context, pooler *clustermetadatapb.Multi
 	return conn.managerClient.GetBackups(ctx, request)
 }
 
+// GetBackupByJobId queries a multipooler for a backup by its job_id annotation.
+func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.GetBackupByJobId(ctx, request)
+}
+
 //
 // Connection Management Methods
 //

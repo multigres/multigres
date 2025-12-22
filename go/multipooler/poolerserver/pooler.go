@@ -138,3 +138,9 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 
 	return s.executor, nil
 }
+
+// InternalQuerier returns the executor as an InternalQuerier for internal queries.
+// Implements PoolerController interface.
+func (s *QueryPoolerServer) InternalQuerier() executor.InternalQuerier {
+	return s.executor
+}
