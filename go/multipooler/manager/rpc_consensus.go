@@ -290,9 +290,15 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error) {
 	// Query pg_stat_wal_receiver to check if we can reach the primary
 	result, err := pm.query(ctx, "SELECT status, conninfo FROM pg_stat_wal_receiver")
-	if err != nil || len(result.Rows) == 0 {
-		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
+	if err != nil {
 		//nolint:nilerr // Error is communicated via response struct, not error return
+		return &consensusdatapb.CanReachPrimaryResponse{
+			Reachable:    false,
+			ErrorMessage: "database connection not available",
+		}, nil
+	}
+	if len(result.Rows) == 0 {
+		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
 		return &consensusdatapb.CanReachPrimaryResponse{
 			Reachable:    false,
 			ErrorMessage: "no active WAL receiver",
