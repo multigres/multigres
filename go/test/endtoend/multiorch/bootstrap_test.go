@@ -80,9 +80,9 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Create and start multiorch to trigger bootstrap
 	watchTargets := []string{"postgres/default/0-inf"}
-	mo := setup.CreateMultiOrchInstance(t, "test-multiorch", setup.CellName, watchTargets)
+	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", setup.CellName, watchTargets)
 	require.NoError(t, mo.Start(t), "should start multiorch")
-	t.Cleanup(func() { mo.TerminateGracefully(t, 5*time.Second) })
+	t.Cleanup(moCleanup)
 
 	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
 	t.Log("Waiting for multiorch to detect and bootstrap the shard...")

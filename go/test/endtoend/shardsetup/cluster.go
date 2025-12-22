@@ -210,8 +210,9 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 }
 
 // CreateMultiOrchInstance creates a new multiorch instance and adds it to the setup.
-// Follows the pattern from multiorch/multiorch_helpers.go:startMultiOrch.
-func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, watchTargets []string) *ProcessInstance {
+// Returns the instance and a cleanup function that should be deferred or called manually.
+// The cleanup function gracefully terminates the process if it's still running.
+func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, watchTargets []string) (*ProcessInstance, func()) {
 	t.Helper()
 
 	if s.MultiOrchInstances == nil {
@@ -242,7 +243,8 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, wa
 	}
 
 	s.MultiOrchInstances[name] = instance
-	return instance
+
+	return instance, instance.CleanupFunc(t)
 }
 
 // Cleanup cleans up the shared test infrastructure.

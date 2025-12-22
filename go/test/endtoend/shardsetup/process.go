@@ -381,6 +381,12 @@ func (p *ProcessInstance) TerminateGracefully(t *testing.T, timeout time.Duratio
 	}
 }
 
+// CleanupFunc returns a cleanup function that gracefully terminates the process.
+// Use this to get a cleanup function for an existing ProcessInstance.
+func (p *ProcessInstance) CleanupFunc(t *testing.T) func() {
+	return func() { p.TerminateGracefully(t, 5*time.Second) }
+}
+
 // WaitForPortReady waits for a process to be ready by checking its gRPC port.
 // Follows the pattern from multiorch/multiorch_helpers.go:waitForProcessReady.
 func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration) error {

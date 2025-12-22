@@ -332,7 +332,7 @@ func (s *ShardSetup) createMultiOrchInstances(t *testing.T, config *SetupConfig)
 }
 
 // StartMultiOrchs starts all multiorch instances.
-// Use this for tests that need multiorch running but don't need the full SetupTest flow.
+// Use this for tests that need multiorch running from the get-go.
 func (s *ShardSetup) StartMultiOrchs(t *testing.T) {
 	t.Helper()
 	for name, mo := range s.MultiOrchInstances {
@@ -342,6 +342,7 @@ func (s *ShardSetup) StartMultiOrchs(t *testing.T) {
 		if err := mo.Start(t); err != nil {
 			t.Fatalf("StartMultiOrchs: failed to start multiorch %s: %v", name, err)
 		}
+		t.Cleanup(mo.CleanupFunc(t))
 		t.Logf("StartMultiOrchs: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
 	}
 }
@@ -355,6 +356,7 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 	var mo *ProcessInstance
 	var moName string
 	var isTemporary bool
+	var moCleanup func()
 
 	// Use existing multiorch or create a temporary one
 	if len(setup.MultiOrchInstances) > 0 {
@@ -362,12 +364,13 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 		for name, inst := range setup.MultiOrchInstances {
 			mo = inst
 			moName = name
+			moCleanup = inst.CleanupFunc(t)
 			break
 		}
 	} else {
 		// Create a temporary multiorch for initialization
 		watchTargets := []string{fmt.Sprintf("%s/%s/%s", config.Database, config.TableGroup, config.Shard)}
-		mo = setup.CreateMultiOrchInstance(t, "temp-multiorch", config.CellName, watchTargets)
+		mo, moCleanup = setup.CreateMultiOrchInstance(t, "temp-multiorch", config.CellName, watchTargets)
 		moName = "temp-multiorch"
 		isTemporary = true
 		t.Logf("Created temporary multiorch for initialization")
@@ -388,7 +391,7 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 	t.Logf("Primary elected: %s", primaryName)
 
 	// Stop multiorch (clean state = multiorch not running)
-	mo.TerminateGracefully(t, 5*time.Second)
+	moCleanup()
 	t.Logf("Stopped multiorch '%s' after bootstrap", moName)
 
 	// Remove temporary multiorch from the map
