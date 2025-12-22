@@ -252,6 +252,8 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 
 	// Start multipooler
 	serviceID := fmt.Sprintf("%s/%s", cell, name)
+	// Socket file path for Unix socket connection (uses trust auth per pg_hba.conf)
+	socketFile := filepath.Join(dataDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", pgPort))
 	multipoolerCmd := exec.Command("multipooler",
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--database", database,
@@ -260,6 +262,7 @@ func createEmptyNode(t *testing.T, baseDir, cell, shard, database string, index 
 		"--pgctld-addr", fmt.Sprintf("localhost:%d", pgctldGrpcPort),
 		"--pooler-dir", dataDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--socket-file", socketFile, // Unix socket for trust authentication
 		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
 		"--topo-global-server-addresses", etcdAddr,
 		"--topo-global-root", "/multigres/global",

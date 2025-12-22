@@ -267,6 +267,8 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Step 3: Restart multipooler (should auto-restore from backup)
 		serviceID := fmt.Sprintf("%s/%s", env.config.cellName, standbyNode.name)
+		// Socket file path for Unix socket connection (uses trust auth per pg_hba.conf)
+		socketFile := filepath.Join(standbyNode.dataDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", standbyNode.pgPort))
 		multipoolerCmd := exec.Command("multipooler",
 			"--grpc-port", fmt.Sprintf("%d", standbyNode.grpcPort),
 			"--database", env.config.database,
@@ -275,6 +277,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			"--pgctld-addr", fmt.Sprintf("localhost:%d", standbyNode.pgctldGrpcPort),
 			"--pooler-dir", standbyNode.dataDir,
 			"--pg-port", fmt.Sprintf("%d", standbyNode.pgPort),
+			"--socket-file", socketFile, // Unix socket for trust authentication
 			"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
 			"--topo-global-server-addresses", env.etcdClientAddr,
 			"--topo-global-root", "/multigres/global",
