@@ -15,7 +15,6 @@
 package shardsetup
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -61,7 +60,7 @@ func TestShardSetup_ThreeNodeCluster(t *testing.T) {
 	standbys := setup.GetStandbys()
 	require.Len(t, standbys, 2, "should have 2 standbys")
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Verify primary is not in recovery (is actually a primary)
 	primaryClient := setup.NewPrimaryClient(t)
@@ -105,7 +104,7 @@ func TestShardSetup_DemoteAndReset(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Verify initial state - primary is not in recovery
 	primaryClient := setup.NewPrimaryClient(t)
@@ -178,7 +177,7 @@ func TestShardSetup_ReplicationWorks(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create a test table and insert data on primary
 	primaryClient := setup.NewPrimaryClient(t)
@@ -217,7 +216,7 @@ func TestShardSetup_WithoutReplication(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t, WithoutReplication())
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Verify standbys have no replication configured
 	for _, standby := range setup.GetStandbys() {
@@ -276,7 +275,7 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	gucNames := []string{"synchronous_standby_names", "synchronous_commit", "primary_conninfo"}
 
 	// Save baseline GUCs for all nodes

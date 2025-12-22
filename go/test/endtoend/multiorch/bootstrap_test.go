@@ -62,9 +62,8 @@ func TestBootstrapInitialization(t *testing.T) {
 			require.NoError(t, err, "should connect to %s", name)
 			defer client.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx := utils.WithTimeout(t, 5*time.Second)
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
 			require.NoError(t, err, "should get status from %s", name)
 
 			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, PostgresRole=%s, PoolerType=%s",
@@ -106,7 +105,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		primaryClient := setup.NewPrimaryClient(t)
 		defer primaryClient.Close()
 
-		ctx := context.Background()
+		ctx := t.Context()
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -169,9 +168,8 @@ func TestBootstrapInitialization(t *testing.T) {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx := utils.WithTimeout(t, 5*time.Second)
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
 			client.Close()
 
 			require.NoError(t, err)
@@ -197,9 +195,8 @@ func TestBootstrapInitialization(t *testing.T) {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx := utils.WithTimeout(t, 5*time.Second)
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
 			client.Close()
 
 			require.NoError(t, err)
@@ -213,7 +210,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		primaryClient := setup.NewPrimaryClient(t)
 		defer primaryClient.Close()
 
-		ctx := context.Background()
+		ctx := t.Context()
 		syncStandbyNames, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
 		require.NoError(t, err, "should query synchronous_standby_names")
 
@@ -237,9 +234,8 @@ func TestBootstrapInitialization(t *testing.T) {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 			require.NoError(t, err)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx := utils.WithTimeout(t, 5*time.Second)
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
 			client.Close()
 
 			if err == nil && status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
@@ -292,8 +288,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NoError(t, err)
 		defer client.Close()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Second)
 		status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 
@@ -319,8 +314,7 @@ func verifyMultigresTables(t *testing.T, name string, grpcPort int) {
 	}
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	ctx := utils.WithShortDeadline(t)
 
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil || !status.Status.IsInitialized {
