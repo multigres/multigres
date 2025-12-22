@@ -120,86 +120,44 @@ func scanValue(val []byte, dest any) error {
 	return nil
 }
 
-// GetString extracts a string value from a row at the given column index.
-func GetString(row *query.Row, col int) (string, error) {
+// getValue is a helper that validates the row and column, then scans the value into dest.
+func getValue[T any](row *query.Row, col int) (T, error) {
+	var result T
 	if row == nil {
-		return "", fmt.Errorf("row is nil")
+		return result, fmt.Errorf("row is nil")
 	}
 	if col >= len(row.Values) {
-		return "", fmt.Errorf("column index %d out of range", col)
+		return result, fmt.Errorf("column index %d out of range", col)
 	}
-	if row.Values[col] == nil {
-		return "", nil
+	if err := scanValue(row.Values[col], &result); err != nil {
+		return result, err
 	}
-	return string(row.Values[col]), nil
+	return result, nil
+}
+
+// GetString extracts a string value from a row at the given column index.
+func GetString(row *query.Row, col int) (string, error) {
+	return getValue[string](row, col)
 }
 
 // GetBool extracts a boolean value from a row at the given column index.
 func GetBool(row *query.Row, col int) (bool, error) {
-	if row == nil {
-		return false, fmt.Errorf("row is nil")
-	}
-	if col >= len(row.Values) {
-		return false, fmt.Errorf("column index %d out of range", col)
-	}
-	if row.Values[col] == nil {
-		return false, nil
-	}
-	s := strings.ToLower(string(row.Values[col]))
-	switch s {
-	case "t", "true", "1":
-		return true, nil
-	case "f", "false", "0":
-		return false, nil
-	default:
-		return false, fmt.Errorf("cannot parse %q as bool", s)
-	}
+	return getValue[bool](row, col)
 }
 
 // GetInt extracts an integer value from a row at the given column index.
 func GetInt(row *query.Row, col int) (int, error) {
-	if row == nil {
-		return 0, fmt.Errorf("row is nil")
-	}
-	if col >= len(row.Values) {
-		return 0, fmt.Errorf("column index %d out of range", col)
-	}
-	if row.Values[col] == nil {
-		return 0, nil
-	}
-	return strconv.Atoi(string(row.Values[col]))
+	return getValue[int](row, col)
 }
 
 // GetInt32 extracts an int32 value from a row at the given column index.
 func GetInt32(row *query.Row, col int) (int32, error) {
-	if row == nil {
-		return 0, fmt.Errorf("row is nil")
-	}
-	if col >= len(row.Values) {
-		return 0, fmt.Errorf("column index %d out of range", col)
-	}
-	if row.Values[col] == nil {
-		return 0, nil
-	}
-	v, err := strconv.ParseInt(string(row.Values[col]), 10, 32)
-	if err != nil {
-		return 0, err
-	}
-	return int32(v), nil
+	return getValue[int32](row, col)
 }
 
 // GetInt64 extracts an int64 value from a row at the given column index.
 func GetInt64(row *query.Row, col int) (int64, error) {
-	if row == nil {
-		return 0, fmt.Errorf("row is nil")
-	}
-	if col >= len(row.Values) {
-		return 0, fmt.Errorf("column index %d out of range", col)
-	}
-	if row.Values[col] == nil {
-		return 0, nil
-	}
-	return strconv.ParseInt(string(row.Values[col]), 10, 64)
+	return getValue[int64](row, col)
 }
 
 // ParseFloat64 parses a string as a float64.
