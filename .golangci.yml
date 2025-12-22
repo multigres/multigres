@@ -45,8 +45,6 @@ linters:
       min-len: 5
       # Minimum number of occurrences to trigger
       min-occurrences: 3
-      # Ignore test files
-      ignore-tests: true
       # Don't suppress warnings just because a constant with the same value exists.
       # Note: goconst doesn't catch struct literal values, only variable assignments.
       match-constant: false
