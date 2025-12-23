@@ -53,8 +53,90 @@ func ScanSingleRow(result *query.QueryResult, dests ...any) error {
 
 // scanValue scans a single value into the destination.
 func scanValue(val []byte, dest any) error {
+	// Handle nullable pointer types first (e.g., **string, **int)
+	// These allow detecting NULL values by checking if the pointer is nil
+	switch d := dest.(type) {
+	case **string:
+		if val == nil {
+			*d = nil
+			return nil
+		}
+		s := string(val)
+		*d = &s
+		return nil
+	case **int:
+		if val == nil {
+			*d = nil
+			return nil
+		}
+		v, err := strconv.Atoi(string(val))
+		if err != nil {
+			return fmt.Errorf("cannot parse %q as int: %w", string(val), err)
+		}
+		*d = &v
+		return nil
+	case **int64:
+		if val == nil {
+			*d = nil
+			return nil
+		}
+		v, err := strconv.ParseInt(string(val), 10, 64)
+		if err != nil {
+			return fmt.Errorf("cannot parse %q as int64: %w", string(val), err)
+		}
+		*d = &v
+		return nil
+	case **bool:
+		if val == nil {
+			*d = nil
+			return nil
+		}
+		s := strings.ToLower(string(val))
+		var v bool
+		switch s {
+		case "t", "true", "1":
+			v = true
+		case "f", "false", "0":
+			v = false
+		default:
+			return fmt.Errorf("cannot parse %q as bool", string(val))
+		}
+		*d = &v
+		return nil
+	case **float64:
+		if val == nil {
+			*d = nil
+			return nil
+		}
+		v, err := strconv.ParseFloat(string(val), 64)
+		if err != nil {
+			return fmt.Errorf("cannot parse %q as float64: %w", string(val), err)
+		}
+		*d = &v
+		return nil
+	case **time.Time:
+		if val == nil {
+			*d = nil
+			return nil
+		}
+		s := string(val)
+		for _, format := range []string{
+			"2006-01-02 15:04:05.999999-07",
+			"2006-01-02 15:04:05.999999",
+			"2006-01-02 15:04:05",
+			time.RFC3339,
+		} {
+			if t, err := time.Parse(format, s); err == nil {
+				*d = &t
+				return nil
+			}
+		}
+		return fmt.Errorf("cannot parse %q as time.Time", s)
+	}
+
+	// Handle non-nullable types
 	if val == nil {
-		// Handle NULL values - for now, leave the destination unchanged
+		// Handle NULL values - leave the destination unchanged
 		// (similar to sql.Scanner behavior with default values)
 		return nil
 	}

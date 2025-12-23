@@ -159,11 +159,11 @@ func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn str
 // when not in recovery mode or when no WAL has been received/replayed.
 func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	sql := `SELECT
-		pg_last_wal_replay_lsn()::text,
-		pg_last_wal_receive_lsn()::text,
+		pg_last_wal_replay_lsn(),
+		pg_last_wal_receive_lsn(),
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp()::text,
+		pg_last_xact_replay_timestamp(),
 		current_setting('primary_conninfo')`
 
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -173,40 +173,30 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
 
-	if result == nil || len(result.Rows) == 0 {
-		return nil, mterrors.Wrap(fmt.Errorf("no rows returned"), "failed to query replication status")
+	var replayLsn *string
+	var receiveLsn *string
+	var isPaused bool
+	var pauseState string
+	var lastXactTime *string
+	var primaryConnInfo string
+
+	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
-
-	row := result.Rows[0]
-	status := &multipoolermanagerdatapb.StandbyReplicationStatus{}
-
-	// Get replay LSN (may be NULL)
-	if replayLsn, err := executor.GetString(row, 0); err == nil && replayLsn != "" {
-		status.LastReplayLsn = replayLsn
+	status := &multipoolermanagerdatapb.StandbyReplicationStatus{
+		IsWalReplayPaused:   isPaused,
+		WalReplayPauseState: pauseState,
 	}
-
-	// Get receive LSN (may be NULL)
-	if receiveLsn, err := executor.GetString(row, 1); err == nil && receiveLsn != "" {
-		status.LastReceiveLsn = receiveLsn
+	if replayLsn != nil {
+		status.LastReplayLsn = *replayLsn
 	}
-
-	// Get is_paused (boolean)
-	if isPaused, err := executor.GetBool(row, 2); err == nil {
-		status.IsWalReplayPaused = isPaused
+	if receiveLsn != nil {
+		status.LastReceiveLsn = *receiveLsn
 	}
-
-	// Get pause state (string)
-	if pauseState, err := executor.GetString(row, 3); err == nil {
-		status.WalReplayPauseState = pauseState
+	if lastXactTime != nil {
+		status.LastReplayLsn = *lastXactTime
 	}
-
-	// Get last xact time (may be NULL)
-	if lastXactTime, err := executor.GetString(row, 4); err == nil && lastXactTime != "" {
-		status.LastXactReplayTimestamp = lastXactTime
-	}
-
-	// Get primary_conninfo
-	primaryConnInfo, _ := executor.GetString(row, 5)
 
 	// Parse primary_conninfo into structured format
 	parsedConnInfo, err := parseAndRedactPrimaryConnInfo(primaryConnInfo)
@@ -489,13 +479,12 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 		return mterrors.Wrap(err, "failed to get current replay LSN and pause state")
 	}
 
-	if result == nil || len(result.Rows) == 0 {
-		return mterrors.Wrap(fmt.Errorf("no rows returned"), "failed to get current replay LSN")
+	var currentLSN string
+	var isPaused bool
+	err = executor.ScanSingleRow(result, &currentLSN, &isPaused)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to get current replay LSN")
 	}
-
-	row := result.Rows[0]
-	currentLSN, _ := executor.GetString(row, 0)
-	isPaused, _ := executor.GetBool(row, 1)
 
 	// Best practice: WAL replay should be paused before promotion
 	// The coordinator should have called StopReplication during Discovery stage
@@ -923,9 +912,9 @@ func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context)
 		write_lsn::text,
 		flush_lsn::text,
 		replay_lsn::text,
-		EXTRACT(EPOCH FROM write_lag)::text,
-		EXTRACT(EPOCH FROM flush_lag)::text,
-		EXTRACT(EPOCH FROM replay_lag)::text
+		EXTRACT(EPOCH FROM write_lag),
+		EXTRACT(EPOCH FROM flush_lag),
+		EXTRACT(EPOCH FROM replay_lag)
 	FROM pg_stat_replication
 	WHERE application_name IS NOT NULL AND application_name != ''`
 
@@ -939,15 +928,38 @@ func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context)
 	connectedMap := make(map[string]*multipoolermanagerdatapb.ReplicationStats)
 	if result != nil {
 		for _, row := range result.Rows {
-			pid, _ := executor.GetInt32(row, 0)
-			appName, _ := executor.GetString(row, 1)
-			clientAddr, _ := executor.GetString(row, 2)
-			state, _ := executor.GetString(row, 3)
-			syncState, _ := executor.GetString(row, 4)
-			sentLsn, _ := executor.GetString(row, 5)
-			writeLsn, _ := executor.GetString(row, 6)
-			flushLsn, _ := executor.GetString(row, 7)
-			replayLsn, _ := executor.GetString(row, 8)
+			var pid int32
+			var appName string
+			var clientAddr string
+			var state string
+			var syncState string
+			var sentLsn string
+			var writeLsn string
+			var flushLsn string
+			var replayLsn string
+			var writeLagSecs *float64
+			var flushLagSecs *float64
+			var replayLagSecs *float64
+
+			err := executor.ScanRow(
+				row,
+				&pid,
+				&appName,
+				&clientAddr,
+				&state,
+				&syncState,
+				&sentLsn,
+				&writeLsn,
+				&flushLsn,
+				&replayLsn,
+				&writeLagSecs,
+				&flushLagSecs,
+				&replayLagSecs,
+			)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to scan replication row", "error", err)
+				return nil, mterrors.Wrap(err, "failed to scan replication statistics")
+			}
 
 			stats := &multipoolermanagerdatapb.ReplicationStats{
 				Pid:        pid,
@@ -961,20 +973,15 @@ func (pm *MultiPoolerManager) queryFollowerReplicationStats(ctx context.Context)
 			}
 
 			// Convert lag values from seconds to Duration (only if not null/empty)
-			if writeLagStr, err := executor.GetString(row, 9); err == nil && writeLagStr != "" {
-				if lagSecs, err := executor.ParseFloat64(writeLagStr); err == nil {
-					stats.WriteLag = durationpb.New(time.Duration(lagSecs * float64(time.Second)))
-				}
+			// Convert lag values from seconds to Duration (only if not null)
+			if writeLagSecs != nil {
+				stats.WriteLag = durationpb.New(time.Duration(*writeLagSecs * float64(time.Second)))
 			}
-			if flushLagStr, err := executor.GetString(row, 10); err == nil && flushLagStr != "" {
-				if lagSecs, err := executor.ParseFloat64(flushLagStr); err == nil {
-					stats.FlushLag = durationpb.New(time.Duration(lagSecs * float64(time.Second)))
-				}
+			if flushLagSecs != nil {
+				stats.FlushLag = durationpb.New(time.Duration(*flushLagSecs * float64(time.Second)))
 			}
-			if replayLagStr, err := executor.GetString(row, 11); err == nil && replayLagStr != "" {
-				if lagSecs, err := executor.ParseFloat64(replayLagStr); err == nil {
-					stats.ReplayLag = durationpb.New(time.Duration(lagSecs * float64(time.Second)))
-				}
+			if replayLagSecs != nil {
+				stats.ReplayLag = durationpb.New(time.Duration(*replayLagSecs * float64(time.Second)))
 			}
 
 			connectedMap[appName] = stats

@@ -132,12 +132,11 @@ func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
 func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	sql := `CREATE TABLE IF NOT EXISTS multigres.heartbeat (
+	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.heartbeat (
 		shard_id BYTEA PRIMARY KEY,
 		leader_id TEXT NOT NULL,
 		ts BIGINT NOT NULL
-	)`
-	if err := pm.exec(execCtx, sql); err != nil {
+	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
 	}
 	return nil
@@ -147,7 +146,7 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	tableSql := `CREATE TABLE IF NOT EXISTS multigres.durability_policy (
+	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.durability_policy (
 		id BIGSERIAL PRIMARY KEY,
 		policy_name TEXT NOT NULL,
 		policy_version BIGINT NOT NULL,
@@ -159,17 +158,15 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 		CONSTRAINT quorum_rule_required_count_check CHECK (
 			(quorum_rule->>'required_count')::int >= 1
 		)
-	)`
-	if err := pm.exec(execCtx, tableSql); err != nil {
+	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create durability_policy table")
 	}
 	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	// Create index on is_active for efficient active policy lookups
-	indexSql := `CREATE INDEX IF NOT EXISTS idx_durability_policy_active
+	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_durability_policy_active
 		ON multigres.durability_policy(is_active)
-		WHERE is_active = true`
-	if err := pm.exec(execCtx, indexSql); err != nil {
+		WHERE is_active = true`); err != nil {
 		return mterrors.Wrap(err, "failed to create durability_policy index")
 	}
 
@@ -184,12 +181,11 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	sql := `CREATE TABLE IF NOT EXISTS multigres.tablegroup (
+	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.tablegroup (
 		oid BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL UNIQUE,
 		type TEXT NOT NULL
-	)`
-	if err := pm.exec(execCtx, sql); err != nil {
+	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create tablegroup table")
 	}
 	return nil
@@ -199,13 +195,12 @@ func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	sql := `CREATE TABLE IF NOT EXISTS multigres.tablegroup_table (
+	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.tablegroup_table (
 		oid BIGSERIAL PRIMARY KEY,
 		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
 		name TEXT NOT NULL,
 		UNIQUE (tablegroup_oid, name)
-	)`
-	if err := pm.exec(execCtx, sql); err != nil {
+	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create tablegroup_table table")
 	}
 	return nil
@@ -215,15 +210,14 @@ func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	sql := `CREATE TABLE IF NOT EXISTS multigres.shard (
+	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.shard (
 		oid BIGSERIAL PRIMARY KEY,
 		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
 		shard_name TEXT NOT NULL,
 		key_range_start BYTEA NULL,
 		key_range_end BYTEA NULL,
 		UNIQUE (tablegroup_oid, shard_name)
-	)`
-	if err := pm.exec(execCtx, sql); err != nil {
+	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create shard table")
 	}
 	return nil
@@ -290,7 +284,7 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 	defer cancel()
 	err := pm.execArgs(execCtx, `INSERT INTO multigres.durability_policy (policy_name, policy_version, quorum_rule, is_active, created_at, updated_at)
 		VALUES ($1, 1, $2::jsonb, true, NOW(), NOW())
-		ON CONFLICT (policy_name, policy_version) DO NOTHING`, policyName, string(quorumRuleJSON))
+		ON CONFLICT (policy_name, policy_version) DO NOTHING`, policyName, quorumRuleJSON)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to insert durability policy")
 	}

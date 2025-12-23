@@ -547,3 +547,57 @@ func TestScanRow_ErrorInMiddle(t *testing.T) {
 		assert.Equal(t, 42, i)
 	})
 }
+
+func TestScanRowAllowNils(t *testing.T) {
+	t.Run("nullable string with nil value", func(t *testing.T) {
+		row := makeRow("hello", nil, "world")
+		var s *string
+		var ns *string
+		var w *string
+		err := ScanRow(row, &s, &ns, &w)
+		require.NoError(t, err)
+		require.NotNil(t, s)
+		assert.Equal(t, "hello", *s)
+		assert.Nil(t, ns) // NULL value
+		require.NotNil(t, w)
+		assert.Equal(t, "world", *w)
+	})
+
+	t.Run("nullable int with nil value", func(t *testing.T) {
+		row := makeRow("42", nil, "100")
+		var a *int
+		var b *int
+		var c *int
+		err := ScanRow(row, &a, &b, &c)
+		require.NoError(t, err)
+		require.NotNil(t, a)
+		assert.Equal(t, 42, *a)
+		assert.Nil(t, b) // NULL value
+		require.NotNil(t, c)
+		assert.Equal(t, 100, *c)
+	})
+
+	t.Run("nullable bool with nil value", func(t *testing.T) {
+		row := makeRow("t", nil)
+		var a *bool
+		var b *bool
+		err := ScanRow(row, &a, &b)
+		require.NoError(t, err)
+		require.NotNil(t, a)
+		assert.True(t, *a)
+		assert.Nil(t, b) // NULL value
+	})
+
+	t.Run("mix of nullable and non-nullable", func(t *testing.T) {
+		row := makeRow("hello", nil, "42")
+		var s *string  // nullable
+		var ns *string // nullable, will be nil
+		var i int      // non-nullable
+		err := ScanRow(row, &s, &ns, &i)
+		require.NoError(t, err)
+		require.NotNil(t, s)
+		assert.Equal(t, "hello", *s)
+		assert.Nil(t, ns)
+		assert.Equal(t, 42, i)
+	})
+}
