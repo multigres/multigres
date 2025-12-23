@@ -421,9 +421,10 @@ func TestBeginTerm(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			// Create mock and set startup expectations BEFORE starting the manager
+			// Create mock and set ALL expectations BEFORE starting the manager
 			mockDB, mock := newMockDB(t)
 			expectPrimaryStartupQueries(mock)
+			tt.setupMocks(mock)
 
 			pm, tmpDir := setupManagerWithMockDB(t, mockDB)
 
@@ -447,9 +448,6 @@ func TestBeginTerm(t *testing.T) {
 					_ = os.Chmod(consensusDir, 0o755)
 				})
 			}
-
-			// Setup mocks
-			tt.setupMocks(mock)
 
 			// Make request
 			req := &consensusdatapb.BeginTermRequest{
