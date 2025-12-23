@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/safepath"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
@@ -454,16 +455,6 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	return clustermetadatapb.PoolerType_UNKNOWN
 }
 
-// getDatabase returns the database name from the multipooler record
-func (pm *MultiPoolerManager) getDatabase() string {
-	pm.cachedMultipooler.mu.Lock()
-	defer pm.cachedMultipooler.mu.Unlock()
-	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
-		return pm.cachedMultipooler.multipooler.Database
-	}
-	return ""
-}
-
 // getMultipoolerIDString returns the multipooler ID as a string
 func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	pm.cachedMultipooler.mu.Lock()
@@ -474,24 +465,32 @@ func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
 	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
 }
 
-// getBackupLocation returns the backup location from the database topology
-func (pm *MultiPoolerManager) getBackupLocation(ctx context.Context) (string, error) {
-	database := pm.getDatabase()
+// getMultipoolerName returns just the name part of the multipooler ID (e.g., "4zrhr2mw").
+func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
+	pm.cachedMultipooler.mu.Lock()
+	defer pm.cachedMultipooler.mu.Unlock()
+	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.Id != nil {
+		return pm.cachedMultipooler.multipooler.Id.Name, nil
+	}
+	return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "multipooler ID not available")
+}
+
+// backupLocationPath returns the full backup location path for a given database, table group,
+// and shard. The topology only stores the base path. Components are URL-encoded to prevent
+// path traversal and support UTF-8 identifiers without collisions.
+func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) (string, error) {
+	// Validate non-empty components
 	if database == "" {
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "database name not set in multipooler")
+		return "", fmt.Errorf("database cannot be empty")
+	}
+	if tableGroup == "" {
+		return "", fmt.Errorf("table group cannot be empty")
+	}
+	if shard == "" {
+		return "", fmt.Errorf("shard cannot be empty")
 	}
 
-	db, err := pm.topoClient.GetDatabase(ctx, database)
-	if err != nil {
-		return "", mterrors.Wrapf(err, "failed to get database %s from topology", database)
-	}
-
-	if db.BackupLocation == "" {
-		return "", mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"database %s has no backup_location configured", database)
-	}
-
-	return db.BackupLocation, nil
+	return safepath.Join(baseBackupLocation, database, tableGroup, shard)
 }
 
 // updateCachedMultipooler updates the cached multipooler info with the current multipooler
@@ -692,19 +691,21 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			return
 		}
 
-		if db.BackupLocation == "" {
-			pm.setStateError(fmt.Errorf("database %s has no backup_location configured", database))
+		// Compute full backup location: base path + database/tablegroup/shard
+		shardBackupLocation, err := pm.backupLocationPath(db.BackupLocation, database, pm.config.TableGroup, pm.config.Shard)
+		if err != nil {
+			pm.setStateError(fmt.Errorf("invalid backup location path: %w", err))
 			return
 		}
 
 		pm.mu.Lock()
 		pm.multipooler = mp
 		pm.updateCachedMultipooler()
-		pm.backupLocation = db.BackupLocation
+		pm.backupLocation = shardBackupLocation
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", db.BackupLocation, "pooler_type", mp.Type.String())
+		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", shardBackupLocation, "pooler_type", mp.Type.String())
 
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 

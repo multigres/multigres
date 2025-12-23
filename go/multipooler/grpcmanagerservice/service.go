@@ -251,7 +251,7 @@ func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdat
 
 // Backup performs a backup
 func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
-	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type)
+	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.JobId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -280,6 +280,18 @@ func (s *managerService) GetBackups(ctx context.Context, req *multipoolermanager
 
 	return &multipoolermanagerdatapb.GetBackupsResponse{
 		Backups: backups,
+	}, nil
+}
+
+// GetBackupByJobId retrieves a backup by its job_id annotation
+func (s *managerService) GetBackupByJobId(ctx context.Context, req *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error) {
+	backup, err := s.manager.GetBackupByJobId(ctx, req.JobId)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+
+	return &multipoolermanagerdatapb.GetBackupByJobIdResponse{
+		Backup: backup,
 	}, nil
 }
 

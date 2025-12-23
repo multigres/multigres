@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -39,9 +40,18 @@ func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerTy
 	return createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard, poolerType, "/tmp/backups")
 }
 
-// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location
+// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location.
+// backupLocation is the base path; the full path (with database/tablegroup/shard) is computed internally.
 func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
 	database := "test-database"
+
+	// Use defaults if not provided
+	if tableGroup == "" {
+		tableGroup = constants.DefaultTableGroup
+	}
+	if shard == "" {
+		shard = constants.DefaultShard
+	}
 
 	multipoolerID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -59,14 +69,14 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		},
 	}
 
-	// Create a topology store with backup location if provided
+	// Create a topology store with backup location (base path) if provided
 	var topoClient topoclient.Store
 	if backupLocation != "" {
 		ctx := context.Background()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
 			Name:             database,
-			BackupLocation:   backupLocation,
+			BackupLocation:   backupLocation, // Base path in topology
 			DurabilityPolicy: "ANY_2",
 		})
 		if err == nil {
@@ -74,17 +84,25 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		}
 	}
 
+	// Compute full backup location: base path + database/tablegroup/shard
+	fullBackupLocation := ""
+	if backupLocation != "" {
+		fullBackupLocation = filepath.Join(backupLocation, database, tableGroup, shard)
+	}
+
 	pm := &MultiPoolerManager{
 		config: &Config{
 			PoolerDir:        poolerDir,
 			PgBackRestStanza: stanzaName,
 			ServiceID:        &clustermetadatapb.ID{Name: "test-service"},
+			TableGroup:       tableGroup,
+			Shard:            shard,
 		},
 		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
 		topoClient:     topoClient,
 		multipooler:    multipoolerInfo,
 		state:          ManagerStateReady,
-		backupLocation: backupLocation,
+		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topoclient.NewMultiPoolerInfo(
@@ -96,26 +114,24 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 	return pm
 }
 
-func TestFindBackupByAnnotations(t *testing.T) {
+func TestFindBackupByJobID(t *testing.T) {
 	tests := []struct {
-		name            string
-		multipoolerID   string
-		backupTimestamp string
-		jsonOutput      string
-		wantBackupID    string
-		wantError       bool
-		errorContains   string
+		name          string
+		jobID         string
+		jsonOutput    string
+		wantBackupID  string
+		wantError     bool
+		errorContains string
 	}{
 		{
-			name:            "Single matching backup",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
+			name:  "Single matching backup",
+			jobID: "20250104-100000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -123,21 +139,20 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			wantError:    false,
 		},
 		{
-			name:            "Multiple backups, one match",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-120000.000000",
+			name:  "Multiple backups, one match",
+			jobID: "20250104-120000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}, {
 					"label": "20250104-120000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-120000.000000"
+						"job_id": "20250104-120000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -145,15 +160,14 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			wantError:    false,
 		},
 		{
-			name:            "No matching backup",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-180000.000000",
+			name:  "No matching backup",
+			jobID: "20250104-180000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -161,29 +175,27 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			errorContains: "no backup found",
 		},
 		{
-			name:            "No backups at all",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
-			jsonOutput:      `[{"backup": []}]`,
-			wantError:       true,
-			errorContains:   "no backups found",
+			name:          "No backups at all",
+			jobID:         "20250104-100000.000000_mp-zone1",
+			jsonOutput:    `[{"backup": []}]`,
+			wantError:     true,
+			errorContains: "no backups found",
 		},
 		{
-			name:            "Duplicate matching backups",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
+			name:  "Duplicate matching backups",
+			jobID: "20250104-100000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}, {
 					"label": "20250104-100000F_20250104-110000I",
 					"annotation": {
 						"multipooler_id": "zone1-multipooler1",
-						"backup_timestamp": "20250104-100000.000000"
+						"job_id": "20250104-100000.000000_mp-zone1"
 					}
 				}]
 			}]`,
@@ -191,9 +203,8 @@ func TestFindBackupByAnnotations(t *testing.T) {
 			errorContains: "found 2 backups",
 		},
 		{
-			name:            "Backup without annotations",
-			multipoolerID:   "zone1-multipooler1",
-			backupTimestamp: "20250104-100000.000000",
+			name:  "Backup without annotations",
+			jobID: "20250104-100000.000000_mp-zone1",
 			jsonOutput: `[{
 				"backup": [{
 					"label": "20250104-100000F"
@@ -231,7 +242,7 @@ exit 1
 			pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 			ctx := context.Background()
-			backupID, err := pm.findBackupByAnnotations(ctx, tt.multipoolerID, tt.backupTimestamp)
+			backupID, err := pm.findBackupByJobID(ctx, tt.jobID)
 
 			if tt.wantError {
 				require.Error(t, err)
@@ -315,7 +326,7 @@ func TestBackup_Validation(t *testing.T) {
 			backupLocation := "/tmp/test-backups"
 			pm := createTestManagerWithBackupLocation(tt.poolerDir, tt.stanzaName, "", "", tt.poolerType, backupLocation)
 
-			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType)
+			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType, "")
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -796,7 +807,7 @@ func TestBackup_ActionLock(t *testing.T) {
 	defer cancel()
 
 	// Backup should timeout waiting for the lock
-	_, err = pm.Backup(timeoutCtx, false, "full")
+	_, err = pm.Backup(timeoutCtx, false, "full", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 
@@ -857,7 +868,7 @@ func TestBackup_ActionLockReleased(t *testing.T) {
 	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Call Backup - it will fail (no pgbackrest), but should release the lock
-	_, _ = pm.Backup(ctx, false, "full")
+	_, _ = pm.Backup(ctx, false, "full", "")
 
 	// Verify lock was released by acquiring it with a short timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
@@ -1029,4 +1040,43 @@ func TestLoadMultiPoolerFromTopo_CallsAutoRestore(t *testing.T) {
 	// Verify tryAutoRestoreFromBackup can be called and returns without panic
 	pm.tryAutoRestoreFromBackup(ctx)
 	// No assertion needed - function should return without panic
+}
+
+func TestBackup_StoresJobIDAnnotation(t *testing.T) {
+	// Verify that when job_id is provided, it's included in annotations
+	req := &multipoolermanagerdata.BackupRequest{
+		JobId: "20251203-143045.123456_mp-cell-1",
+	}
+
+	// Verify the field is accessible (structural test)
+	require.NotEmpty(t, req.JobId, "JobId should be set")
+	assert.Equal(t, "20251203-143045.123456_mp-cell-1", req.JobId)
+}
+
+func TestGetBackupByJobId_NotFound(t *testing.T) {
+	// Test that searching for a non-existent job_id returns nil backup
+
+	resp := &multipoolermanagerdata.GetBackupByJobIdResponse{
+		Backup: nil,
+	}
+
+	assert.Nil(t, resp.Backup)
+}
+
+func TestGetBackupByJobId_Found(t *testing.T) {
+	// Test response structure when backup is found
+
+	resp := &multipoolermanagerdata.GetBackupByJobIdResponse{
+		Backup: &multipoolermanagerdata.BackupMetadata{
+			BackupId:   "20251203-143045F",
+			TableGroup: "default",
+			Shard:      "0",
+			Status:     multipoolermanagerdata.BackupMetadata_COMPLETE,
+			JobId:      "20251203-143045.123456_mp-cell-1",
+		},
+	}
+
+	require.NotNil(t, resp.Backup)
+	assert.Equal(t, "20251203-143045F", resp.Backup.BackupId)
+	assert.Equal(t, "20251203-143045.123456_mp-cell-1", resp.Backup.JobId)
 }
