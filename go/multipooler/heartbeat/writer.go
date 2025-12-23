@@ -36,12 +36,12 @@ var (
 // Writer runs on primary databases and writes heartbeats to the heartbeat
 // table at regular intervals.
 type Writer struct {
-	querier  executor.InternalQueryService
-	logger   *slog.Logger
-	shardID  []byte
-	poolerID string
-	interval time.Duration
-	now      func() time.Time
+	queryService executor.InternalQueryService
+	logger       *slog.Logger
+	shardID      []byte
+	poolerID     string
+	interval     time.Duration
+	now          func() time.Time
 
 	mu          sync.Mutex
 	isOpen      bool
@@ -57,19 +57,19 @@ type Writer struct {
 // NewWriter creates a new heartbeat writer.
 //
 // We do not support on-demand or disabled heartbeats at this time.
-func NewWriter(querier executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
+func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
 	interval := time.Duration(intervalMs) * time.Millisecond
 	if intervalMs <= 0 {
 		interval = defaultHeartbeatInterval
 	}
 	return &Writer{
-		querier:  querier,
-		logger:   logger,
-		shardID:  shardID,
-		poolerID: poolerID,
-		interval: interval,
-		now:      time.Now,
-		ticks:    timer.NewTimer(interval),
+		queryService: queryService,
+		logger:       logger,
+		shardID:      shardID,
+		poolerID:     poolerID,
+		interval:     interval,
+		now:          time.Now,
+		ticks:        timer.NewTimer(interval),
 	}
 }
 
@@ -176,7 +176,7 @@ func (w *Writer) write() error {
 	// Get current timestamp in nanoseconds
 	tsNano := w.now().UnixNano()
 
-	_, err := w.querier.QueryArgs(ctx, `
+	_, err := w.queryService.QueryArgs(ctx, `
 		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (shard_id) DO UPDATE

@@ -25,8 +25,8 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// Querier is a mock implementation of executor.InternalQueryService for testing.
-type Querier struct {
+// QueryService is a mock implementation of executor.InternalQueryService for testing.
+type QueryService struct {
 	mu       sync.Mutex
 	patterns []queryPattern
 }
@@ -40,16 +40,16 @@ type queryPattern struct {
 	consumeOnce bool                          // if true, pattern is removed after first match
 }
 
-// NewQuerier creates a new mock querier for testing.
-func NewQuerier() *Querier {
-	return &Querier{}
+// NewQueryService creates a new mock query service for testing.
+func NewQueryService() *QueryService {
+	return &QueryService{}
 }
 
-// Compile-time check that Querier implements InternalQueryService.
-var _ executor.InternalQueryService = (*Querier)(nil)
+// Compile-time check that QueryService implements InternalQueryService.
+var _ executor.InternalQueryService = (*QueryService)(nil)
 
 // AddQueryPattern adds a query pattern with an expected result.
-func (m *Querier) AddQueryPattern(pattern string, result *query.QueryResult) {
+func (m *QueryService) AddQueryPattern(pattern string, result *query.QueryResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -59,7 +59,7 @@ func (m *Querier) AddQueryPattern(pattern string, result *query.QueryResult) {
 }
 
 // AddQueryPatternWithCallback adds a query pattern with a callback.
-func (m *Querier) AddQueryPatternWithCallback(pattern string, result *query.QueryResult, callback func(string)) {
+func (m *QueryService) AddQueryPatternWithCallback(pattern string, result *query.QueryResult, callback func(string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -70,7 +70,7 @@ func (m *Querier) AddQueryPatternWithCallback(pattern string, result *query.Quer
 }
 
 // AddQueryPatternWithError adds a query pattern that returns an error.
-func (m *Querier) AddQueryPatternWithError(pattern string, err error) {
+func (m *QueryService) AddQueryPatternWithError(pattern string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -81,7 +81,7 @@ func (m *Querier) AddQueryPatternWithError(pattern string, err error) {
 
 // AddQueryPatternWithContextCallback adds a query pattern with a context-aware callback.
 // This is useful for testing blocking queries that should respond to context cancellation.
-func (m *Querier) AddQueryPatternWithContextCallback(pattern string, result *query.QueryResult, callback func(context.Context, string)) {
+func (m *QueryService) AddQueryPatternWithContextCallback(pattern string, result *query.QueryResult, callback func(context.Context, string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -93,7 +93,7 @@ func (m *Querier) AddQueryPatternWithContextCallback(pattern string, result *que
 
 // AddQueryPatternOnce adds a query pattern that is consumed after the first match.
 // This is useful when you need different results for subsequent calls to the same query.
-func (m *Querier) AddQueryPatternOnce(pattern string, result *query.QueryResult) {
+func (m *QueryService) AddQueryPatternOnce(pattern string, result *query.QueryResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -104,7 +104,7 @@ func (m *Querier) AddQueryPatternOnce(pattern string, result *query.QueryResult)
 }
 
 // Query implements executor.InternalQueryService.
-func (m *Querier) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
+func (m *QueryService) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
 	m.mu.Lock()
 	matchedIndex := -1
 	for i := range m.patterns {
@@ -142,7 +142,7 @@ func (m *Querier) Query(ctx context.Context, queryStr string) (*query.QueryResul
 
 // QueryArgs implements executor.InternalQueryService.
 // For the mock, arguments are ignored and matching is done solely on the query string.
-func (m *Querier) QueryArgs(ctx context.Context, queryStr string, args ...any) (*query.QueryResult, error) {
+func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...any) (*query.QueryResult, error) {
 	return m.Query(ctx, queryStr)
 }
 

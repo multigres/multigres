@@ -683,13 +683,13 @@ func TestApplyReplaceOperation(t *testing.T) {
 func TestIsInRecovery(t *testing.T) {
 	tests := []struct {
 		name         string
-		setupMock    func(*mock.Querier)
+		setupMock    func(*mock.QueryService)
 		expectError  bool
 		expectResult bool
 	}{
 		{
 			name: "primary server - not in recovery",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			},
 			expectError:  false,
@@ -697,7 +697,7 @@ func TestIsInRecovery(t *testing.T) {
 		},
 		{
 			name: "standby server - in recovery",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 			},
 			expectError:  false,
@@ -705,7 +705,7 @@ func TestIsInRecovery(t *testing.T) {
 		},
 		{
 			name: "query error",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("SELECT pg_is_in_recovery", fmt.Errorf("connection done"))
 			},
 			expectError: true,
@@ -714,9 +714,9 @@ func TestIsInRecovery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			result, err := pm.isInRecovery(ctx)
@@ -734,13 +734,13 @@ func TestIsInRecovery(t *testing.T) {
 func TestGetPrimaryLSN(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mock.Querier)
+		setupMock   func(*mock.QueryService)
 		expectError bool
 		expectedLSN string
 	}{
 		{
 			name: "successful query",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/3000000"}}))
 			},
 			expectError: false,
@@ -748,7 +748,7 @@ func TestGetPrimaryLSN(t *testing.T) {
 		},
 		{
 			name: "different LSN format",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"1/ABCD1234"}}))
 			},
 			expectError: false,
@@ -756,7 +756,7 @@ func TestGetPrimaryLSN(t *testing.T) {
 		},
 		{
 			name: "query error",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("SELECT pg_current_wal_lsn", fmt.Errorf("connection done"))
 			},
 			expectError: true,
@@ -765,9 +765,9 @@ func TestGetPrimaryLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			result, err := pm.getPrimaryLSN(ctx)
@@ -785,13 +785,13 @@ func TestGetPrimaryLSN(t *testing.T) {
 func TestGetStandbyReplayLSN(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMock   func(*mock.Querier)
+		setupMock   func(*mock.QueryService)
 		expectError bool
 		expectedLSN string
 	}{
 		{
 			name: "successful query",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/2000000"}}))
 			},
 			expectError: false,
@@ -799,7 +799,7 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 		},
 		{
 			name: "different LSN format",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"5/FFFF0000"}}))
 			},
 			expectError: false,
@@ -807,7 +807,7 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 		},
 		{
 			name: "query error",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("SELECT pg_last_wal_replay_lsn", fmt.Errorf("connection done"))
 			},
 			expectError: true,
@@ -816,9 +816,9 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			result, err := pm.getStandbyReplayLSN(ctx)
@@ -836,13 +836,13 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 func TestGetSynchronousReplicationConfig(t *testing.T) {
 	tests := []struct {
 		name           string
-		setupMock      func(*mock.Querier)
+		setupMock      func(*mock.QueryService)
 		expectError    bool
 		validateResult func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration)
 	}{
 		{
 			name: "FIRST method with multiple standbys",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SHOW synchronous_standby_names", mock.MakeQueryResult(
 					[]string{"synchronous_standby_names"},
 					[][]any{{`FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`}}))
@@ -859,7 +859,7 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "ANY method with single standby",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SHOW synchronous_standby_names", mock.MakeQueryResult(
 					[]string{"synchronous_standby_names"},
 					[][]any{{`ANY 1 ("zone1_replica-1")`}}))
@@ -878,7 +878,7 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "empty synchronous_standby_names",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SHOW synchronous_standby_names", mock.MakeQueryResult(
 					[]string{"synchronous_standby_names"}, [][]any{{""}}))
 				m.AddQueryPattern("SHOW synchronous_commit", mock.MakeQueryResult(
@@ -892,7 +892,7 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "synchronous_commit off",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SHOW synchronous_standby_names", mock.MakeQueryResult(
 					[]string{"synchronous_standby_names"}, [][]any{{""}}))
 				m.AddQueryPattern("SHOW synchronous_commit", mock.MakeQueryResult(
@@ -905,7 +905,7 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "synchronous_commit remote_write",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SHOW synchronous_standby_names", mock.MakeQueryResult(
 					[]string{"synchronous_standby_names"}, [][]any{{""}}))
 				m.AddQueryPattern("SHOW synchronous_commit", mock.MakeQueryResult(
@@ -918,14 +918,14 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "query error on synchronous_standby_names",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("SHOW synchronous_standby_names", fmt.Errorf("connection done"))
 			},
 			expectError: true,
 		},
 		{
 			name: "query error on synchronous_commit",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SHOW synchronous_standby_names", mock.MakeQueryResult(
 					[]string{"synchronous_standby_names"}, [][]any{{""}}))
 				m.AddQueryPatternWithError("SHOW synchronous_commit", fmt.Errorf("connection done"))
@@ -936,9 +936,9 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			result, err := pm.getSynchronousReplicationConfig(ctx)
@@ -963,7 +963,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 		synchronousMethod multipoolermanagerdatapb.SynchronousMethod
 		numSync           int32
 		standbyIDs        []*clustermetadatapb.ID
-		setupMock         func(*mock.Querier)
+		setupMock         func(*mock.QueryService)
 		expectError       bool
 	}{
 		{
@@ -974,7 +974,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 				{Cell: "cell1", Name: "pooler1"},
 				{Cell: "cell1", Name: "pooler2"},
 			},
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
@@ -988,7 +988,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 				{Cell: "cell2", Name: "pooler2"},
 				{Cell: "cell2", Name: "pooler3"},
 			},
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
@@ -1000,7 +1000,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			standbyIDs: []*clustermetadatapb.ID{
 				{Cell: "cell1", Name: "pooler1"},
 			},
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("ALTER SYSTEM SET synchronous_standby_names", fmt.Errorf("exec error"))
 			},
 			expectError: true,
@@ -1009,9 +1009,9 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			err := pm.setSynchronousStandbyNames(ctx, tt.synchronousMethod, tt.numSync, tt.standbyIDs)
@@ -1029,20 +1029,20 @@ func TestValidateExpectedLSN(t *testing.T) {
 	tests := []struct {
 		name          string
 		expectedLSN   string
-		setupMock     func(*mock.Querier)
+		setupMock     func(*mock.QueryService)
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name:        "empty expectedLSN - no validation",
 			expectedLSN: "",
-			setupMock:   func(m *mock.Querier) {},
+			setupMock:   func(m *mock.QueryService) {},
 			expectError: false,
 		},
 		{
 			name:        "LSN match with paused replay",
 			expectedLSN: "0/3000000",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"},
 					[][]any{{"0/3000000", "t"}}))
@@ -1052,7 +1052,7 @@ func TestValidateExpectedLSN(t *testing.T) {
 		{
 			name:        "LSN match with running replay (warning only)",
 			expectedLSN: "0/3000000",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"},
 					[][]any{{"0/3000000", "f"}}))
@@ -1062,7 +1062,7 @@ func TestValidateExpectedLSN(t *testing.T) {
 		{
 			name:        "LSN mismatch",
 			expectedLSN: "0/3000000",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"},
 					[][]any{{"0/2000000", "t"}}))
@@ -1073,7 +1073,7 @@ func TestValidateExpectedLSN(t *testing.T) {
 		{
 			name:        "query error",
 			expectedLSN: "0/3000000",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("SELECT pg_last_wal_replay_lsn", fmt.Errorf("database error"))
 			},
 			expectError:   true,
@@ -1083,9 +1083,9 @@ func TestValidateExpectedLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			err := pm.validateExpectedLSN(ctx, tt.expectedLSN)
@@ -1239,7 +1239,7 @@ func TestPauseReplication(t *testing.T) {
 		name           string
 		mode           multipoolermanagerdatapb.ReplicationPauseMode
 		wait           bool
-		setupMock      func(*mock.Querier)
+		setupMock      func(*mock.QueryService)
 		expectError    bool
 		errorContains  string
 		expectStatus   bool // true if we expect a non-nil status to be returned
@@ -1249,7 +1249,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayOnly with wait=true",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: true,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
@@ -1266,7 +1266,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayOnly with wait=false",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
@@ -1276,7 +1276,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayOnly fails on pause command",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: true,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("SELECT pg_wal_replay_pause", fmt.Errorf("permission denied"))
 			},
 			expectError:   true,
@@ -1286,7 +1286,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly with wait=true",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: true,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
@@ -1306,7 +1306,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly with wait=false",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
@@ -1317,7 +1317,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly fails on ALTER SYSTEM",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("ALTER SYSTEM RESET primary_conninfo", fmt.Errorf("permission denied"))
 			},
 			expectError:   true,
@@ -1327,7 +1327,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly fails on reload",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternWithError("SELECT pg_reload_conf", fmt.Errorf("reload failed"))
 			},
@@ -1338,7 +1338,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver with wait=true",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: true,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
@@ -1363,7 +1363,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver with wait=false",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
@@ -1379,7 +1379,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver fails on clearing conninfo",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("ALTER SYSTEM RESET primary_conninfo", fmt.Errorf("reset failed"))
 			},
 			expectError:   true,
@@ -1389,7 +1389,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver fails on receiver disconnect wait",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternWithError("SELECT COUNT", fmt.Errorf("query failed"))
@@ -1401,7 +1401,7 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver fails on pause",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
@@ -1417,9 +1417,9 @@ func TestPauseReplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			status, err := pm.pauseReplication(ctx, tt.mode, tt.wait)
@@ -1448,13 +1448,13 @@ func TestPauseReplication(t *testing.T) {
 func TestResetPrimaryConnInfo(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupMock     func(*mock.Querier)
+		setupMock     func(*mock.QueryService)
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name: "successful reset",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
@@ -1462,7 +1462,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 		},
 		{
 			name: "ALTER SYSTEM fails",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("ALTER SYSTEM RESET primary_conninfo", fmt.Errorf("permission denied"))
 			},
 			expectError:   true,
@@ -1470,7 +1470,7 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 		},
 		{
 			name: "pg_reload_conf fails",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternWithError("SELECT pg_reload_conf", fmt.Errorf("reload failed"))
 			},
@@ -1481,9 +1481,9 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			err := pm.resetPrimaryConnInfo(ctx)
@@ -1503,13 +1503,13 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 func TestQueryReplicationStatus(t *testing.T) {
 	tests := []struct {
 		name           string
-		setupMock      func(*mock.Querier)
+		setupMock      func(*mock.QueryService)
 		expectError    bool
 		validateResult func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus)
 	}{
 		{
 			name: "All fields with valid values",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
 					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432"}}))
@@ -1527,7 +1527,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "NULL LSN values (primary server case)",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
 					[][]any{{"", "", "f", "not paused", "", ""}}))
@@ -1543,7 +1543,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "Paused replication with valid LSNs",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
 					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1"}}))
@@ -1564,7 +1564,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "Mixed NULL and valid values",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
 					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432"}}))
@@ -1579,7 +1579,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "Query error",
-			setupMock: func(m *mock.Querier) {
+			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternWithError("SELECT pg_last_wal_replay_lsn", fmt.Errorf("connection done"))
 			},
 			expectError: true,
@@ -1588,9 +1588,9 @@ func TestQueryReplicationStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQuerier := newTestManagerWithMock("default", "0-inf")
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mockQuerier)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			status, err := pm.queryReplicationStatus(ctx)

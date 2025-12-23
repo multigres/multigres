@@ -41,11 +41,11 @@ const (
 // Lag is calculated by comparing the most recent timestamp in the heartbeat
 // table against the current time at read time.
 type Reader struct {
-	querier  executor.InternalQueryService
-	logger   *slog.Logger
-	shardID  []byte
-	interval time.Duration
-	now      func() time.Time
+	queryService executor.InternalQueryService
+	logger       *slog.Logger
+	shardID      []byte
+	interval     time.Duration
+	now          func() time.Time
 
 	runMu  sync.Mutex
 	isOpen bool
@@ -61,14 +61,14 @@ type Reader struct {
 }
 
 // NewReader returns a new heartbeat reader.
-func NewReader(querier executor.InternalQueryService, logger *slog.Logger, shardID []byte) *Reader {
+func NewReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte) *Reader {
 	return &Reader{
-		querier:  querier,
-		logger:   logger,
-		shardID:  shardID,
-		now:      time.Now,
-		interval: defaultHeartbeatReadInterval,
-		ticks:    timer.NewTimer(defaultHeartbeatReadInterval),
+		queryService: queryService,
+		logger:       logger,
+		shardID:      shardID,
+		now:          time.Now,
+		interval:     defaultHeartbeatReadInterval,
+		ticks:        timer.NewTimer(defaultHeartbeatReadInterval),
 	}
 }
 
@@ -154,7 +154,7 @@ func (r *Reader) readHeartbeat() {
 // fetchMostRecentHeartbeat fetches the most recently recorded heartbeat from the heartbeat table,
 // returning the timestamp of the heartbeat in nanoseconds.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
-	result, err := r.querier.QueryArgs(ctx,
+	result, err := r.queryService.QueryArgs(ctx,
 		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {
@@ -202,7 +202,7 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), r.interval)
 	defer cancel()
 
-	result, err := r.querier.QueryArgs(ctx,
+	result, err := r.queryService.QueryArgs(ctx,
 		"SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {
