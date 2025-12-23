@@ -1,3 +1,13 @@
+# golangci-lint workflow
+#
+# Cache troubleshooting:
+# The cache key only includes: OS, working dir, interval number, and go.mod hash.
+# It does NOT include .golangci.yml or the golangci-lint version, so changes to
+# linter config or version may not take effect until the cache expires (7 days).
+#
+# To manually clear the cache:
+#   gh cache list --key golangci -R multigres/multigres --sort last_accessed_at
+#   gh cache delete <KEY> -R multigres/multigres
 name: golangci-lint
 on:
   push:
@@ -22,4 +32,4 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9.1.0
         with:
-          version: v2.6.0
+          version: v2.6.1

@@ -20,9 +20,11 @@ import (
 	"testing"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/provisioner/local/ports"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestGeneratePgBackRestConfigs(t *testing.T) {
@@ -388,5 +390,38 @@ func TestGeneratePgBackRestConfigs(t *testing.T) {
 		assert.NotContains(t, contentA, "repo1-path=")
 		assert.NotContains(t, contentB, "repo1-path=")
 		assert.NotContains(t, contentC, "repo1-path=")
+	})
+
+	t.Run("uses correct defaults for local ports", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		p := &localProvisioner{}
+
+		// Generate default config
+		config := p.DefaultConfig([]string{tmpDir})
+		p.config = &LocalProvisionerConfig{}
+
+		// Convert map config to typed config for easier assertion
+		yamlData, err := yaml.Marshal(config)
+		require.NoError(t, err)
+		err = yaml.Unmarshal(yamlData, p.config)
+		require.NoError(t, err)
+
+		// Verify Zone 1 (Primary)
+		zone1 := p.config.Cells["zone1"]
+		assert.Equal(t, ports.DefaultLocalPostgresPort, zone1.Multipooler.PgPort, "Zone 1 Multipooler PG port should be 25432")
+		assert.Equal(t, ports.DefaultLocalPostgresPort, zone1.Pgctld.PgPort, "Zone 1 Pgctld PG port should be 25432")
+		assert.Equal(t, ports.DefaultMultigatewayPG, zone1.Multigateway.PgPort, "Zone 1 Multigateway PG port should be 15432")
+
+		// Verify Zone 2
+		zone2 := p.config.Cells["zone2"]
+		assert.Equal(t, ports.DefaultLocalPostgresPort+1, zone2.Multipooler.PgPort, "Zone 2 Multipooler PG port should be 25433")
+		assert.Equal(t, ports.DefaultLocalPostgresPort+1, zone2.Pgctld.PgPort, "Zone 2 Pgctld PG port should be 25433")
+		assert.Equal(t, ports.DefaultMultigatewayPG+1, zone2.Multigateway.PgPort, "Zone 2 Multigateway PG port should be 15433")
+
+		// Verify Zone 3
+		zone3 := p.config.Cells["zone3"]
+		assert.Equal(t, ports.DefaultLocalPostgresPort+2, zone3.Multipooler.PgPort, "Zone 3 Multipooler PG port should be 25434")
+		assert.Equal(t, ports.DefaultLocalPostgresPort+2, zone3.Pgctld.PgPort, "Zone 3 Pgctld PG port should be 25434")
+		assert.Equal(t, ports.DefaultMultigatewayPG+2, zone3.Multigateway.PgPort, "Zone 3 Multigateway PG port should be 15434")
 	})
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -79,7 +80,7 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (ma *MultiAdmin) Init() error {
-	if err := ma.senv.Init("multiadmin"); err != nil {
+	if err := ma.senv.Init(constants.ServiceMultiadmin); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	// Get the configured logger
@@ -98,7 +99,7 @@ func (ma *MultiAdmin) Init() error {
 
 	ma.senv.OnRun(func() {
 		// Register multiadmin gRPC service with servenv's GRPCServer
-		if ma.grpcServer.CheckServiceMap("multiadmin", ma.senv) {
+		if ma.grpcServer.CheckServiceMap(constants.ServiceMultiadmin, ma.senv) {
 			ma.adminServer = NewMultiAdminServer(ma.ts, logger)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 			logger.Info("MultiAdmin gRPC service registered with servenv")
