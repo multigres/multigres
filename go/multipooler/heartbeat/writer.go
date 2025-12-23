@@ -18,7 +18,6 @@ package heartbeat
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -177,15 +176,13 @@ func (w *Writer) write() error {
 	// Get current timestamp in nanoseconds
 	tsNano := w.now().UnixNano()
 
-	query := fmt.Sprintf(`
+	_, err := w.querier.QueryArgs(ctx, `
 		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts)
-		VALUES ('%s', '%s', %d)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (shard_id) DO UPDATE
 		SET leader_id = EXCLUDED.leader_id,
 		    ts = EXCLUDED.ts
-	`, escapeBytes(w.shardID), w.poolerID, tsNano)
-
-	_, err := w.querier.Query(ctx, query)
+	`, w.shardID, w.poolerID, tsNano)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
