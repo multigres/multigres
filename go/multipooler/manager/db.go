@@ -37,7 +37,12 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 	if config.PoolerDir != "" && config.PgPort != 0 {
 		// Use pooler directory and port to construct socket path
 		// PostgreSQL creates socket files as: {poolerDir}/pg_sockets/.s.PGSQL.{port}
-		socketDir := filepath.Join(config.PoolerDir, "pg_sockets")
+		// Convert to absolute path - pq driver requires paths starting with '/' for Unix sockets
+		absPoolerDir, err := filepath.Abs(config.PoolerDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute path for pooler dir: %w", err)
+		}
+		socketDir := filepath.Join(absPoolerDir, "pg_sockets")
 		port := fmt.Sprintf("%d", config.PgPort)
 
 		// Use connect_timeout to prevent indefinite blocking on connection attempts.
@@ -57,8 +62,13 @@ func CreateDBConnection(logger *slog.Logger, config *Config) (*sql.DB, error) {
 			"dsn", dsn)
 	} else if config.SocketFilePath != "" {
 		// Fallback: use socket file path directly
-		socketDir := filepath.Dir(config.SocketFilePath)
-		socketFile := filepath.Base(config.SocketFilePath)
+		// Convert to absolute path - pq driver requires paths starting with '/' for Unix sockets
+		absSocketPath, err := filepath.Abs(config.SocketFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute path for socket file: %w", err)
+		}
+		socketDir := filepath.Dir(absSocketPath)
+		socketFile := filepath.Base(absSocketPath)
 
 		// Extract port from socket filename (.s.PGSQL.PORT)
 		port := "5432" // default

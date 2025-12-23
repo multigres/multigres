@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
+	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"gopkg.in/yaml.v3"
@@ -466,8 +467,12 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 	}
 
 	// Set default backup repository path if not specified
+	// pgbackrest requires absolute paths for all directory configurations
 	if p.config.BackupRepoPath == "" {
 		p.config.BackupRepoPath = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+	}
+	if err := pathutil.EnsureAbs(&p.config.BackupRepoPath); err != nil {
+		return fmt.Errorf("failed to get absolute path for backup repo: %w", err)
 	}
 
 	// Create the backup repository directory if it doesn't exist
@@ -477,6 +482,9 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 
 	// Create the pgBackRest log directory if it doesn't exist
 	pgBackRestLogPath := filepath.Join(p.config.RootWorkingDir, "logs", "dbs", "postgres", "pgbackrest")
+	if err := pathutil.EnsureAbs(&pgBackRestLogPath); err != nil {
+		return fmt.Errorf("failed to get absolute path for pgbackrest log dir: %w", err)
+	}
 	if err := os.MkdirAll(pgBackRestLogPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create pgBackRest log directory %s: %w", pgBackRestLogPath, err)
 	}
@@ -496,6 +504,9 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 		if backupConfPath == "" {
 			backupConfPath = filepath.Join(cellServices.Multipooler.PoolerDir, "pgbackrest.conf")
 		}
+		if err := pathutil.EnsureAbs(&backupConfPath); err != nil {
+			return fmt.Errorf("failed to get absolute path for backup config: %w", err)
+		}
 
 		// Build AdditionalHosts with all other clusters
 		// Each cluster treats itself as pg1 and others as pg2, pg3, etc.
@@ -506,11 +517,19 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 				continue
 			}
 			otherCellServices := p.config.Cells[otherCellName]
+			otherDataPath := filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_data")
+			if err := pathutil.EnsureAbs(&otherDataPath); err != nil {
+				return fmt.Errorf("failed to get absolute path for other cell data: %w", err)
+			}
+			otherSocketDir := filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_sockets")
+			if err := pathutil.EnsureAbs(&otherSocketDir); err != nil {
+				return fmt.Errorf("failed to get absolute path for other cell socket: %w", err)
+			}
 			additionalHosts = append(additionalHosts, pgbackrest.PgHost{
-				DataPath:  filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_data"),
+				DataPath:  otherDataPath,
 				Host:      "", // Empty for local Unix socket connections
 				Port:      otherCellServices.Multipooler.PgPort,
-				SocketDir: filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_sockets"),
+				SocketDir: otherSocketDir,
 				User:      "postgres",
 				Database:  "postgres",
 			})
@@ -529,13 +548,23 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			return fmt.Errorf("failed to create pgBackRest lock directory %s: %w", pgBackRestLockPath, err)
 		}
 
+		// Get absolute paths for pg data and socket directories
+		pgDataPath := filepath.Join(cellServices.Multipooler.PoolerDir, "pg_data")
+		if err := pathutil.EnsureAbs(&pgDataPath); err != nil {
+			return fmt.Errorf("failed to get absolute path for pg data: %w", err)
+		}
+		pgSocketDir := filepath.Join(cellServices.Multipooler.PoolerDir, "pg_sockets")
+		if err := pathutil.EnsureAbs(&pgSocketDir); err != nil {
+			return fmt.Errorf("failed to get absolute path for pg socket: %w", err)
+		}
+
 		// Generate pgBackRest config for this pooler
 		// Use a shared stanza name for all clusters in the HA setup
 		backupCfg := pgbackrest.Config{
 			StanzaName:      "multigres",
-			PgDataPath:      filepath.Join(cellServices.Multipooler.PoolerDir, "pg_data"),
+			PgDataPath:      pgDataPath,
 			PgPort:          cellServices.Multipooler.PgPort,
-			PgSocketDir:     filepath.Join(cellServices.Multipooler.PoolerDir, "pg_sockets"),
+			PgSocketDir:     pgSocketDir,
 			PgUser:          "postgres",
 			PgPassword:      "postgres", // For local development only
 			PgDatabase:      "postgres",
@@ -565,6 +594,16 @@ func (p *localProvisioner) InitializePgBackRestStanzas() error {
 		return fmt.Errorf("configuration not loaded")
 	}
 
+	// Get backup repository path as absolute path
+	// pgbackrest requires absolute paths for all directory configurations
+	repoPath := p.config.BackupRepoPath
+	if repoPath == "" {
+		repoPath = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+	}
+	if err := pathutil.EnsureAbs(&repoPath); err != nil {
+		return fmt.Errorf("failed to get absolute path for backup repo: %w", err)
+	}
+
 	ctx := context.TODO()
 
 	for cellName, cellServices := range p.config.Cells {
@@ -573,11 +612,8 @@ func (p *localProvisioner) InitializePgBackRestStanzas() error {
 		if backupConfPath == "" {
 			backupConfPath = filepath.Join(cellServices.Multipooler.PoolerDir, "pgbackrest.conf")
 		}
-
-		// Get backup repository path
-		repoPath := p.config.BackupRepoPath
-		if repoPath == "" {
-			repoPath = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+		if err := pathutil.EnsureAbs(&backupConfPath); err != nil {
+			return fmt.Errorf("failed to get absolute path for backup config: %w", err)
 		}
 
 		// Create the shared stanza for this pooler

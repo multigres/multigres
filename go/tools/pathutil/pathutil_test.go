@@ -20,6 +20,51 @@ import (
 	"testing"
 )
 
+func TestEnsureAbs(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("could not get working directory: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "relative path becomes absolute",
+			input:    "foo/bar",
+			expected: filepath.Join(cwd, "foo/bar"),
+		},
+		{
+			name:     "absolute path stays unchanged",
+			input:    "/usr/local/bin",
+			expected: "/usr/local/bin",
+		},
+		{
+			name:     "dot-relative path becomes absolute",
+			input:    "./config",
+			expected: filepath.Join(cwd, "config"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.input
+			err := EnsureAbs(&path)
+			if err != nil {
+				t.Fatalf("EnsureAbs(%q) failed: %v", tc.input, err)
+			}
+			if path != tc.expected {
+				t.Errorf("EnsureAbs(%q) = %q, want %q", tc.input, path, tc.expected)
+			}
+			if !filepath.IsAbs(path) {
+				t.Errorf("EnsureAbs(%q) returned non-absolute path: %q", tc.input, path)
+			}
+		})
+	}
+}
+
 func TestAppendPath(t *testing.T) {
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)

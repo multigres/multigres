@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package pathutil provides a command to append a path to PATH.
+// Package pathutil provides path manipulation utilities.
 package pathutil
 
 import (
@@ -20,6 +20,18 @@ import (
 	"os"
 	"path/filepath"
 )
+
+// EnsureAbs converts the path pointed to by p to an absolute path in place.
+// If the path is already absolute, it remains unchanged.
+// This is useful when you need to ensure a path from configuration is absolute.
+func EnsureAbs(p *string) error {
+	abs, err := filepath.Abs(*p)
+	if err != nil {
+		return err
+	}
+	*p = abs
+	return nil
+}
 
 // PrependPath prepends a given path to the PATH environment variable.
 // It ensures the path is absolute and takes precedence over existing paths.
