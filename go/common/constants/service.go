@@ -31,4 +31,7 @@ const (
 
 	// ServiceMultiadmin is the name of the multiadmin service.
 	ServiceMultiadmin = "multiadmin"
+
+	// ServicePgBackRestServer is the name of the pgBackRest TLS server service.
+	ServicePgBackRestServer = "pgbackrest-server"
 )

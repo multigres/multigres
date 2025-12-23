@@ -887,7 +887,7 @@ type PgctldProvisionResult struct {
 // provisionPgBackRestServer provisions a pgBackRest TLS server for a cell
 func (p *localProvisioner) provisionPgBackRestServer(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
 	// Sanity check: ensure this method is called for pgbackrest-server service
-	if req.Service != "pgbackrest-server" {
+	if req.Service != constants.ServicePgBackRestServer {
 		return nil, fmt.Errorf("provisionPgBackRestServer called for wrong service type: %s", req.Service)
 	}
 
@@ -895,14 +895,14 @@ func (p *localProvisioner) provisionPgBackRestServer(ctx context.Context, req *p
 	cell := req.Params["cell"].(string)
 
 	// Check if pgbackrest-server is already running
-	existingService, err := p.findRunningDbService("pgbackrest-server", req.DatabaseName, cell)
+	existingService, err := p.findRunningDbService(constants.ServicePgBackRestServer, req.DatabaseName, cell)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for existing pgbackrest-server service: %w", err)
 	}
 	if existingService != nil {
 		fmt.Printf("pgbackrest-server is already running (PID %d) ✓\n", existingService.PID)
 		return &provisioner.ProvisionResult{
-			ServiceName: "pgbackrest-server",
+			ServiceName: constants.ServicePgBackRestServer,
 			FQDN:        existingService.FQDN,
 			Ports:       existingService.Ports,
 			Metadata: map[string]any{
@@ -944,7 +944,7 @@ func (p *localProvisioner) provisionPgBackRestServer(ctx context.Context, req *p
 	// Create provision state
 	service := &LocalProvisionedService{
 		ID:         serviceID,
-		Service:    "pgbackrest-server",
+		Service:    constants.ServicePgBackRestServer,
 		PID:        result.PID,
 		BinaryPath: "pgbackrest", // pgbackrest binary
 		Ports:      map[string]int{},
@@ -960,7 +960,7 @@ func (p *localProvisioner) provisionPgBackRestServer(ctx context.Context, req *p
 	}
 
 	return &provisioner.ProvisionResult{
-		ServiceName: "pgbackrest-server",
+		ServiceName: constants.ServicePgBackRestServer,
 		FQDN:        "localhost",
 		Ports:       map[string]int{},
 		Metadata: map[string]any{
@@ -1190,7 +1190,7 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case constants.ServiceMultiadmin:
 		fallthrough
-	case "pgbackrest-server":
+	case constants.ServicePgBackRestServer:
 		return p.deprovisionService(ctx, req)
 	case constants.ServiceMultipooler:
 		// multipooler requires special handling to clean up pgbackrest logs
@@ -1772,7 +1772,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		// Start pgbackrest-server
 		go func() {
 			req := &provisioner.ProvisionRequest{
-				Service:      "pgbackrest-server",
+				Service:      constants.ServicePgBackRestServer,
 				DatabaseName: databaseName,
 				Params: map[string]any{
 					"cell": cell,
