@@ -27,9 +27,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// PostgreSQL server status values
+const (
+	statusStopped = "STOPPED"
+	statusRunning = "RUNNING"
+)
+
 // StatusResult contains the result of checking PostgreSQL status
 type StatusResult struct {
-	Status        string // "NOT_INITIALIZED", "STOPPED", "RUNNING"
+	Status        string // statusStopped, statusRunning
 	PID           int
 	Version       string
 	UptimeSeconds int64
@@ -93,13 +99,13 @@ func GetStatusWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) 
 
 	// Check if PostgreSQL is running
 	if !isPostgreSQLRunning(config.PostgresDataDir) {
-		result.Status = "STOPPED"
+		result.Status = statusStopped
 		result.Message = "PostgreSQL server is stopped"
 		return result, nil
 	}
 
 	// Server is running
-	result.Status = "RUNNING"
+	result.Status = statusRunning
 	result.Message = "PostgreSQL server is running"
 
 	// Get PID if running
@@ -139,9 +145,9 @@ func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
 	// Display status for CLI users
 	var statusDisplay string
 	switch result.Status {
-	case "STOPPED":
+	case statusStopped:
 		statusDisplay = "Stopped"
-	case "RUNNING":
+	case statusRunning:
 		statusDisplay = "Running"
 	default:
 		statusDisplay = result.Status
@@ -151,9 +157,9 @@ func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Data directory: %s", result.DataDir)
 
 	switch result.Status {
-	case "STOPPED":
+	case statusStopped:
 		fmt.Printf("\n")
-	case "RUNNING":
+	case statusRunning:
 		fmt.Printf("\n")
 		if result.PID > 0 {
 			fmt.Printf("PID: %d\n", result.PID)

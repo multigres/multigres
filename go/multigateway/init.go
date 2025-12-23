@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -128,7 +129,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mg *MultiGateway) Init() error {
-	if err := mg.senv.Init("multigateway"); err != nil {
+	if err := mg.senv.Init(constants.ServiceMultigateway); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	logger := mg.senv.GetLogger()

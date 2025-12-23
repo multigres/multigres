@@ -23,6 +23,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/grpccommon"
@@ -195,12 +196,12 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Get other pgctld configuration values with defaults
-	pgDatabase := "postgres"
+	pgDatabase := constants.DefaultPostgresDatabase
 	if db, ok := pgctldConfig["pg_database"].(string); ok && db != "" {
 		pgDatabase = db
 	}
 
-	pgUser := "postgres"
+	pgUser := constants.DefaultPostgresUser
 	if user, ok := pgctldConfig["pg_user"].(string); ok && user != "" {
 		pgUser = user
 	}
