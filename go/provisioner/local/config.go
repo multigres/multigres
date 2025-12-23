@@ -121,7 +121,7 @@ type PgctldConfig struct {
 	PgPort         int    `yaml:"pg-port"`          // PostgreSQL port
 	PgDatabase     string `yaml:"pg-database"`      // PostgreSQL database name
 	PgUser         string `yaml:"pg-user"`          // PostgreSQL username
-	PgPwfile       string `yaml:"pg-pwfile"`        // PostgreSQL password file path (optional)
+	PgPwfile       string `yaml:"pg-pwfile"`        // Source password file path; copied to pooler-dir/pgpassword.txt during init
 	Timeout        int    `yaml:"timeout"`          // Operation timeout in seconds
 	LogLevel       string `yaml:"log-level"`        // Log level
 }
@@ -264,7 +264,6 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					PgPort:         ports.DefaultLocalPostgresPort,
 					PgDatabase:     dbName,
 					PgUser:         "postgres",
-					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgpassword.txt"),
 					Timeout:        30,
 					LogLevel:       "info",
 				},
@@ -451,7 +450,6 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"pg_port":          cellServices.Pgctld.PgPort,
 			"pg_database":      cellServices.Pgctld.PgDatabase,
 			"pg_user":          cellServices.Pgctld.PgUser,
-			"pg_pwfile":        cellServices.Pgctld.PgPwfile,
 			"timeout":          cellServices.Pgctld.Timeout,
 			"log_level":        cellServices.Pgctld.LogLevel,
 		}, nil
@@ -545,7 +543,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			LogPath:         pgBackRestLogPath,
 			SpoolPath:       pgBackRestSpoolPath,
 			LockPath:        pgBackRestLockPath,
-			RetentionFull:   2, // Keep 2 full backups by default
+			RetentionFull:   7, // Number of days' worth of full backups to retain
 		}
 
 		// Write the pgBackRest config file

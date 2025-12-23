@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,11 +31,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/test/utils"
-
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
+	adminserver "github.com/multigres/multigres/go/services/multiadmin"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 // connectToPostgres establishes a connection to the PostgreSQL database using Unix socket
@@ -62,13 +64,46 @@ func removeDataDirectory(t *testing.T, dataDir string) {
 	t.Logf("Removed pg_data directory: %s", pgDataDir)
 }
 
+// waitForJobCompletion polls GetBackupJobStatus until the job completes or fails
+func waitForJobCompletion(t *testing.T, adminServer *adminserver.MultiAdminServer, jobID string, timeout time.Duration) *multiadminpb.GetBackupJobStatusResponse {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("Timeout waiting for job %s to complete", jobID)
+			return nil
+		case <-ticker.C:
+			status, err := adminServer.GetBackupJobStatus(ctx, &multiadminpb.GetBackupJobStatusRequest{JobId: jobID})
+			require.NoError(t, err, "GetBackupJobStatus should succeed")
+
+			switch status.Status {
+			case multiadminpb.JobStatus_JOB_STATUS_COMPLETED:
+				t.Logf("Job %s completed successfully", jobID)
+				return status
+			case multiadminpb.JobStatus_JOB_STATUS_FAILED:
+				t.Fatalf("Job %s failed: %s", jobID, status.ErrorMessage)
+				return status
+			default:
+				t.Logf("Job %s status: %s", jobID, status.Status)
+			}
+		}
+	}
+}
+
 func TestBackup_CreateListAndRestore(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup)
+	setupPoolerTest(t, setup, WithDropTables("backup_restore_test"))
 
 	// Wait for both primary and standby managers to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
@@ -98,9 +133,9 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 	t.Log("Step 1: Creating test table and inserting initial data...")
 
-	// Create a test table
+	// Create a test table (WithDropTables ensures it doesn't exist from previous runs)
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS backup_restore_test (
+		CREATE TABLE backup_restore_test (
 			id SERIAL PRIMARY KEY,
 			data TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
@@ -255,8 +290,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			t.Log("Step 7: Restoring from backup to standby...")
 
 			restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
-				BackupId:  fullBackupID,
-				AsStandby: true, // Must match current standby state
+				BackupId: fullBackupID,
 			}
 
 			restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -628,5 +662,259 @@ func TestBackup_FromStandby(t *testing.T) {
 			"Incremental backup ID should contain 'I'")
 
 		t.Logf("Incremental backup from standby created successfully with ID: %s", resp.BackupId)
+	})
+}
+
+// TestBackup_MultiAdminAPIs tests the MultiAdmin backup/restore orchestration layer.
+// This also tests the multipooler backup and restore functionality since MultiAdmin
+// delegates to multipooler for actual backup operations.
+func TestBackup_MultiAdminAPIs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+	setupPoolerTest(t, setup)
+
+	// Wait for managers to be ready
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	// Create a MultiAdminServer for testing
+	logger := slog.Default()
+	adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+	defer adminServer.Stop()
+
+	t.Run("Backup_CreateAndGetStatus", func(t *testing.T) {
+		t.Log("Step 1: Creating backup via MultiAdmin API...")
+
+		// Create a backup request
+		backupReq := &multiadminpb.BackupRequest{
+			Database:   "postgres",
+			TableGroup: "default",
+			Shard:      "0-inf",
+			Type:       "full",
+		}
+
+		backupResp, err := adminServer.Backup(t.Context(), backupReq)
+		require.NoError(t, err, "Backup request should succeed")
+		require.NotEmpty(t, backupResp.JobId, "Job ID should be returned")
+		t.Logf("Backup job started with ID: %s", backupResp.JobId)
+
+		t.Log("Step 2: Waiting for backup job to complete...")
+		status := waitForJobCompletion(t, adminServer, backupResp.JobId, 5*time.Minute)
+		require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status.Status, "Job should be completed")
+		require.NotEmpty(t, status.BackupId, "Backup ID should be set on completion")
+		t.Logf("Backup completed with backup_id: %s", status.BackupId)
+
+		t.Run("GetBackups_VerifyBackup", func(t *testing.T) {
+			t.Log("Step 3: Listing backups via MultiAdmin API...")
+
+			getBackupsReq := &multiadminpb.GetBackupsRequest{
+				Database:   "postgres",
+				TableGroup: "default",
+				Shard:      "0-inf",
+				Limit:      10,
+			}
+
+			getBackupsResp, err := adminServer.GetBackups(t.Context(), getBackupsReq)
+			require.NoError(t, err, "GetBackups should succeed")
+			require.NotEmpty(t, getBackupsResp.Backups, "Should have at least one backup")
+
+			// Find our backup
+			var foundBackup *multiadminpb.BackupInfo
+			for _, backup := range getBackupsResp.Backups {
+				if backup.BackupId == status.BackupId {
+					foundBackup = backup
+					break
+				}
+			}
+
+			require.NotNil(t, foundBackup, "Our backup should be in the list")
+			assert.Equal(t, "postgres", foundBackup.Database)
+			assert.Equal(t, "default", foundBackup.TableGroup)
+			assert.Equal(t, "0-inf", foundBackup.Shard)
+			assert.Equal(t, multiadminpb.BackupStatus_BACKUP_STATUS_COMPLETE, foundBackup.Status)
+			t.Logf("Backup verified in list: %s", foundBackup.BackupId)
+		})
+	})
+
+	t.Run("RestoreFromBackup", func(t *testing.T) {
+		t.Log("Step 1: Creating a fresh backup for restore test...")
+
+		// Create a backup first
+		backupReq := &multiadminpb.BackupRequest{
+			Database:   "postgres",
+			TableGroup: "default",
+			Shard:      "0-inf",
+			Type:       "full",
+		}
+
+		backupResp, err := adminServer.Backup(t.Context(), backupReq)
+		require.NoError(t, err, "Backup request should succeed")
+
+		backupStatus := waitForJobCompletion(t, adminServer, backupResp.JobId, 5*time.Minute)
+		require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, backupStatus.Status)
+		backupID := backupStatus.BackupId
+		t.Logf("Backup completed with ID: %s", backupID)
+
+		t.Log("Step 2: Stopping standby PostgreSQL...")
+
+		// Connect to standby's pgctld to stop PostgreSQL
+		standbyPgctldConn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", setup.StandbyPgctld.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		defer standbyPgctldConn.Close()
+		standbyPgctldClient := pgctldservice.NewPgCtldClient(standbyPgctldConn)
+
+		stopCtx, stopCancel := context.WithTimeout(t.Context(), 2*time.Minute)
+		defer stopCancel()
+		_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
+		require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
+		t.Log("PostgreSQL stopped on standby")
+
+		t.Log("Step 3: Removing standby pg_data directory...")
+		removeDataDirectory(t, setup.StandbyPgctld.DataDir)
+
+		t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
+
+		// Create restore request targeting the standby pooler
+		standbys := setup.GetStandbys()
+		require.NotEmpty(t, standbys, "Should have at least one standby")
+		restoreReq := &multiadminpb.RestoreFromBackupRequest{
+			Database:   "postgres",
+			TableGroup: "default",
+			Shard:      "0-inf",
+			BackupId:   backupID,
+			PoolerId:   setup.GetMultipoolerID(standbys[0].Name),
+		}
+
+		restoreResp, err := adminServer.RestoreFromBackup(t.Context(), restoreReq)
+		require.NoError(t, err, "RestoreFromBackup should succeed")
+		require.NotEmpty(t, restoreResp.JobId, "Restore job ID should be returned")
+		t.Logf("Restore job started with ID: %s", restoreResp.JobId)
+
+		t.Log("Step 5: Waiting for restore job to complete...")
+		restoreStatus := waitForJobCompletion(t, adminServer, restoreResp.JobId, 10*time.Minute)
+		require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, restoreStatus.Status, "Restore should complete")
+		t.Log("Restore completed successfully")
+
+		// Wait for PostgreSQL to be ready
+		time.Sleep(5 * time.Second)
+
+		t.Log("Step 6: Configuring replication after restore...")
+
+		// Configure replication after restore
+		standbyConn, err := grpc.NewClient(
+			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		require.NoError(t, err)
+		defer standbyConn.Close()
+
+		standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+			Host:                  "localhost",
+			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			StartReplicationAfter: true,
+			StopReplicationBefore: false,
+			CurrentTerm:           1,
+			Force:                 true,
+		}
+		setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer setPrimaryCancel()
+		_, err = standbyClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+		require.NoError(t, err, "Should be able to configure replication after restore")
+		t.Log("Replication configured after restore")
+
+		t.Log("Step 7: Verifying standby is accessible after restore...")
+
+		// Connect to standby and verify it's in recovery mode
+		standbySocketDir := filepath.Join(setup.StandbyPgctld.DataDir, "pg_sockets")
+		standbyDB := connectToPostgres(t, standbySocketDir, setup.StandbyPgctld.PgPort)
+		defer standbyDB.Close()
+
+		var isInRecovery bool
+		err = standbyDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&isInRecovery)
+		require.NoError(t, err, "Should be able to query standby")
+		assert.True(t, isInRecovery, "Standby should be in recovery mode after restore")
+
+		t.Logf("✓ MultiAdmin backup/restore completed successfully")
+		t.Logf("✓ Standby is in recovery mode: %t", isInRecovery)
+	})
+
+	t.Run("GetBackupJobStatus_SurvivesMultiAdminRestart", func(t *testing.T) {
+		// This test verifies that GetBackupJobStatus works even after MultiAdmin restarts
+		// by falling back to querying the MultiPooler for backup status via GetBackupByJobId.
+		//
+		// We simulate a restart by creating a fresh MultiAdmin server that has no in-memory
+		// job state. The new server should still be able to retrieve job status by querying
+		// the MultiPooler, which has the backup metadata stored in pgbackrest.
+
+		t.Log("Step 1: Creating backup via MultiAdmin API...")
+
+		// Create a backup request
+		backupReq := &multiadminpb.BackupRequest{
+			Database:   "postgres",
+			TableGroup: "default",
+			Shard:      "0-inf",
+			Type:       "full",
+		}
+
+		backupResp, err := adminServer.Backup(t.Context(), backupReq)
+		require.NoError(t, err, "Backup request should succeed")
+		require.NotEmpty(t, backupResp.JobId, "Job ID should be returned")
+		originalJobID := backupResp.JobId
+		t.Logf("Backup job started with ID: %s", originalJobID)
+
+		t.Log("Step 2: Waiting for backup job to complete...")
+		status := waitForJobCompletion(t, adminServer, originalJobID, 5*time.Minute)
+		require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, status.Status, "Job should be completed")
+		completedBackupID := status.BackupId
+		t.Logf("Backup completed with backup_id: %s", completedBackupID)
+
+		t.Log("Step 3: Verifying job status is available from in-memory tracker...")
+		statusFromTracker, err := adminServer.GetBackupJobStatus(t.Context(), &multiadminpb.GetBackupJobStatusRequest{
+			JobId: originalJobID,
+		})
+		require.NoError(t, err, "GetBackupJobStatus should succeed from tracker")
+		require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, statusFromTracker.Status)
+		t.Logf("Job status from tracker: %s", statusFromTracker.Status)
+
+		t.Log("Step 4: Creating fresh MultiAdmin server (simulating restart with no in-memory state)...")
+		// Note: We don't stop the original adminServer since the test infrastructure manages it.
+		// Instead, we create a new server to demonstrate the fallback works without in-memory state.
+		freshAdminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger)
+		defer freshAdminServer.Stop()
+
+		t.Log("Step 5: Verifying job status is NOT available without shard context...")
+		_, err = freshAdminServer.GetBackupJobStatus(t.Context(), &multiadminpb.GetBackupJobStatusRequest{
+			JobId: originalJobID,
+			// No shard context - should return NotFound since fresh server has no tracker state
+		})
+		require.Error(t, err, "GetBackupJobStatus without shard context should fail on fresh server")
+		t.Logf("Expected error without shard context: %v", err)
+
+		t.Log("Step 6: Verifying job status IS available WITH shard context (fallback to pooler)...")
+		statusFromPooler, err := freshAdminServer.GetBackupJobStatus(t.Context(), &multiadminpb.GetBackupJobStatusRequest{
+			JobId:      originalJobID,
+			Database:   "postgres",
+			TableGroup: "default",
+			Shard:      "0-inf",
+		})
+		require.NoError(t, err, "GetBackupJobStatus with shard context should succeed via pooler fallback")
+		require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, statusFromPooler.Status,
+			"Job status should be COMPLETED")
+		require.Equal(t, completedBackupID, statusFromPooler.BackupId,
+			"Backup ID should match the original")
+		require.Equal(t, multiadminpb.JobType_JOB_TYPE_BACKUP, statusFromPooler.JobType,
+			"Job type should be BACKUP")
+
+		t.Logf("✓ Job status retrieved from pooler fallback after MultiAdmin restart")
+		t.Logf("✓ Job ID: %s", statusFromPooler.JobId)
+		t.Logf("✓ Backup ID: %s", statusFromPooler.BackupId)
+		t.Logf("✓ Status: %s", statusFromPooler.Status)
 	})
 }

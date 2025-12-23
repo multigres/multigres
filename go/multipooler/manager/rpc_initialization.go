@@ -117,18 +117,18 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
 	}
 
+	// Set pooler type to PRIMARY before creating backup so the backup annotation is correct
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set pooler type")
+	}
+
 	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full")
+	backupID, err := pm.backupLocked(ctx, true, "full", "")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
-
-	// Set pooler type to PRIMARY
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set pooler type")
-	}
 
 	// Create durability policy if requested
 	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
@@ -386,16 +386,20 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 	return pm.getStandbyReplayLSN(ctx)
 }
 
-// getShardID returns the shard ID from the multipooler metadata
+// getShardID returns the shard ID for this pooler.
+// Prefers the topology value (pm.multipooler.Shard) but falls back to config
+// if topology hasn't loaded yet. These should always be identical since
+// the topology value is set from config at registration (init.go).
 func (pm *MultiPoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.multipooler == nil {
-		return ""
+	if pm.multipooler != nil && pm.multipooler.Shard != "" {
+		return pm.multipooler.Shard
 	}
 
-	return pm.multipooler.Shard
+	// Fall back to config - always available and authoritative
+	return pm.config.Shard
 }
 
 // removeDataDirectory removes the PostgreSQL data directory
