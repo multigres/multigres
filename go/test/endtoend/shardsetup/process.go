@@ -237,10 +237,15 @@ func (p *ProcessInstance) startPgBackRestServer(t *testing.T) error {
 		"--log-level-file=info",
 		"server")
 
-	// Set lock-path via environment variable for child processes spawned by the TLS server
-	p.Process.Env = append(os.Environ(), "PGBACKREST_LOCK_PATH="+lockPath)
+	// Set environment variables for child processes spawned by the TLS server:
+	// - PGBACKREST_CONFIG: ensures child processes use the correct config file (not /etc/pgbackrest.conf)
+	// - PGBACKREST_LOCK_PATH: ensures child processes use the correct lock directory
+	p.Process.Env = append(os.Environ(),
+		"PGBACKREST_CONFIG="+p.ConfigFile,
+		"PGBACKREST_LOCK_PATH="+lockPath,
+	)
 
-	t.Logf("Running pgbackrest server command: %v (with PGBACKREST_LOCK_PATH=%s)", p.Process.Args, lockPath)
+	t.Logf("Running pgbackrest server command: %v (with PGBACKREST_CONFIG=%s, PGBACKREST_LOCK_PATH=%s)", p.Process.Args, p.ConfigFile, lockPath)
 
 	// Start the process
 	if err := p.Process.Start(); err != nil {
