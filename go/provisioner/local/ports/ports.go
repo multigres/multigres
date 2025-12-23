@@ -44,4 +44,7 @@ const (
 
 	// pgBackRest TLS server (base port, add cell index for multi-cell setups)
 	DefaultPgBackRestTLSPort = 8432
+
+	// Local Provisioner Defaults
+	DefaultLocalPostgresPort = 25432
 )

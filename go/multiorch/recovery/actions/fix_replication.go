@@ -111,7 +111,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 		"replica", replica.MultiPooler.Id.Name)
 
 	// Re-verify the problem still exists
-	needsFix, _, err := a.verifyProblemExists(ctx, replica, primary)
+	needsFix, _, err := a.verifyProblemExists(ctx, replica, primary, problem.Code)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to verify replication status")
 	}
@@ -236,15 +236,31 @@ func (a *FixReplicationAction) verifyProblemExists(
 	ctx context.Context,
 	replica *multiorchdatapb.PoolerHealthState,
 	primary *multiorchdatapb.PoolerHealthState,
+	problemCode types.ProblemCode,
 ) (bool, *multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	// Get current replication status from the replica
-	statusResp, err := a.rpcClient.StandbyReplicationStatus(ctx, replica.MultiPooler,
-		&multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-	if err != nil {
-		return false, nil, mterrors.Wrap(err, "failed to get standby replication status")
-	}
+	switch problemCode {
+	case types.ProblemReplicaNotReplicating:
+		return a.verifyReplicaNotReplicating(ctx, replica, primary)
 
-	status := statusResp.Status
+	case types.ProblemReplicaNotInStandbyList:
+		return a.verifyReplicaNotInStandbyList(ctx, replica, primary)
+
+	default:
+		return false, nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"unsupported problem code for verifyProblemExists: %s", problemCode)
+	}
+}
+
+// verifyReplicaNotReplicating checks if the replica still has no replication configured.
+func (a *FixReplicationAction) verifyReplicaNotReplicating(
+	ctx context.Context,
+	replica *multiorchdatapb.PoolerHealthState,
+	primary *multiorchdatapb.PoolerHealthState,
+) (bool, *multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	status, err := a.getReplicationStatus(ctx, replica)
+	if err != nil {
+		return false, nil, err
+	}
 	if status == nil {
 		// No status means we can't determine state, assume problem exists
 		return true, nil, nil
@@ -252,7 +268,6 @@ func (a *FixReplicationAction) verifyProblemExists(
 
 	// Check if primary_conninfo is configured
 	if status.PrimaryConnInfo == nil || status.PrimaryConnInfo.Host == "" {
-		// No primary_conninfo - problem exists
 		a.logger.InfoContext(ctx, "replica has no primary_conninfo configured",
 			"replica", replica.MultiPooler.Id.Name)
 		return true, status, nil
@@ -282,13 +297,84 @@ func (a *FixReplicationAction) verifyProblemExists(
 		return true, status, nil
 	}
 
-	// Replication appears to be configured correctly
 	a.logger.InfoContext(ctx, "replication already configured correctly",
 		"replica", replica.MultiPooler.Id.Name,
 		"last_receive_lsn", status.LastReceiveLsn,
 		"last_replay_lsn", status.LastReplayLsn)
 
 	return false, status, nil
+}
+
+// verifyReplicaNotInStandbyList checks if the replica is still not in the standby list.
+func (a *FixReplicationAction) verifyReplicaNotInStandbyList(
+	ctx context.Context,
+	replica *multiorchdatapb.PoolerHealthState,
+	primary *multiorchdatapb.PoolerHealthState,
+) (bool, *multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	status, err := a.getReplicationStatus(ctx, replica)
+	if err != nil {
+		return false, nil, err
+	}
+
+	inList, err := a.isReplicaInStandbyList(ctx, replica, primary)
+	if err != nil {
+		return false, nil, mterrors.Wrap(err, "failed to check standby list")
+	}
+	if !inList {
+		a.logger.InfoContext(ctx, "replica not in primary's standby list",
+			"replica", replica.MultiPooler.Id.Name,
+			"primary", primary.MultiPooler.Id.Name)
+		return true, status, nil
+	}
+
+	a.logger.InfoContext(ctx, "replica already in standby list",
+		"replica", replica.MultiPooler.Id.Name,
+		"primary", primary.MultiPooler.Id.Name)
+
+	return false, status, nil
+}
+
+// getReplicationStatus gets the current replication status from the replica.
+func (a *FixReplicationAction) getReplicationStatus(
+	ctx context.Context,
+	replica *multiorchdatapb.PoolerHealthState,
+) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	statusResp, err := a.rpcClient.StandbyReplicationStatus(ctx, replica.MultiPooler,
+		&multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to get standby replication status")
+	}
+	return statusResp.Status, nil
+}
+
+// isReplicaInStandbyList checks if the replica is in the primary's synchronous standby list.
+func (a *FixReplicationAction) isReplicaInStandbyList(
+	ctx context.Context,
+	replica *multiorchdatapb.PoolerHealthState,
+	primary *multiorchdatapb.PoolerHealthState,
+) (bool, error) {
+	// Get the primary's status to check the standby list
+	primaryStatusResp, err := a.rpcClient.PrimaryStatus(ctx, primary.MultiPooler,
+		&multipoolermanagerdatapb.PrimaryStatusRequest{})
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to get primary status")
+	}
+
+	if primaryStatusResp.Status == nil ||
+		primaryStatusResp.Status.SyncReplicationConfig == nil {
+		// No sync replication config means no standby list
+		return false, nil
+	}
+
+	// Check if replica is in the standby list
+	replicaID := replica.MultiPooler.Id
+	for _, standbyID := range primaryStatusResp.Status.SyncReplicationConfig.StandbyIds {
+		if standbyID.Cell == replicaID.Cell && standbyID.Name == replicaID.Name {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // verifyReplicationStarted checks that replication is actively streaming.

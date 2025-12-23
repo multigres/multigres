@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 )
 
@@ -55,7 +56,7 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", ma.senv.GetHostname(), httpPort)
 	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
-		Name:       "multiadmin",
+		Name:       constants.ServiceMultiadmin,
 		Cell:       topoclient.GlobalCell,
 		ProxiedURL: multiadminProxyURL,
 		DirectURL:  multiadminDirectURL,
@@ -85,7 +86,7 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 				directURL = fmt.Sprintf("http://%s:%d/", gw.Hostname, httpPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:       "multigateway",
+				Name:       constants.ServiceMultigateway,
 				Cell:       cell,
 				ProxiedURL: proxyURL,
 				DirectURL:  directURL,
@@ -104,7 +105,7 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 				directURL = fmt.Sprintf("http://%s:%d/", mp.Hostname, httpPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:       "multipooler",
+				Name:       constants.ServiceMultipooler,
 				Cell:       cell,
 				ProxiedURL: proxyURL,
 				DirectURL:  directURL,
@@ -123,7 +124,7 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 				directURL = fmt.Sprintf("http://%s:%d/", mo.Hostname, httpPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:       "multiorch",
+				Name:       constants.ServiceMultiorch,
 				Cell:       cell,
 				ProxiedURL: proxyURL,
 				DirectURL:  directURL,
