@@ -336,13 +336,11 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	ctx := t.Context()
-
 	// Create a writer validator pointing to the primary
 	primaryClient := setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
 
-	validator, cleanup, err := NewWriterValidator(ctx, primaryClient.Pooler,
+	validator, cleanup, err := NewWriterValidator(t, primaryClient.Pooler,
 		WithWorkerCount(4),
 		WithWriteInterval(10*time.Millisecond),
 	)
@@ -350,7 +348,7 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	// Start writes
-	validator.Start()
+	validator.Start(t)
 
 	// Let writes accumulate
 	time.Sleep(200 * time.Millisecond)
@@ -373,7 +371,7 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 
 	// Wait for replication to catch up, then verify
 	require.Eventually(t, func() bool {
-		err := validator.Verify(ctx, poolers)
+		err := validator.Verify(t, poolers)
 		return err == nil
 	}, 5*time.Second, 100*time.Millisecond, "all successful writes should be present across poolers")
 }

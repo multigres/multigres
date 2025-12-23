@@ -87,7 +87,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NoError(t, err)
 	defer primaryClient.Close()
 
-	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t.Context(), primaryClient.Pooler,
+	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, primaryClient.Pooler,
 		shardsetup.WithWorkerCount(4),
 		shardsetup.WithWriteInterval(10*time.Millisecond),
 	)
@@ -95,7 +95,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Cleanup(validatorCleanup)
 
 	t.Logf("Starting continuous writes to primary...")
-	validator.Start()
+	validator.Start(t)
 
 	// Let writes accumulate before failover
 	time.Sleep(200 * time.Millisecond)
@@ -183,7 +183,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.Len(t, poolers, 2, "should have 2 surviving poolers")
 
 		// Verify writes - deterministic now that replication has caught up
-		err = validator.Verify(utils.WithShortDeadline(t), poolers)
+		err = validator.Verify(t, poolers)
 		require.NoError(t, err, "all successful writes should be present on surviving nodes")
 
 		t.Logf("Write durability verified: %d successful writes present on surviving nodes", successfulWrites)

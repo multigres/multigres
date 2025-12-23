@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/multigres/multigres/go/test/endtoend"
@@ -65,7 +66,8 @@ func WithWriteInterval(interval time.Duration) WriterValidatorOption {
 
 // NewWriterValidator creates a new WriterValidator for the given pooler.
 // It creates the test table immediately and returns a cleanup function that drops it.
-func NewWriterValidator(ctx context.Context, pooler *endtoend.MultiPoolerTestClient, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
+func NewWriterValidator(t *testing.T, pooler *endtoend.MultiPoolerTestClient, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
+	t.Helper()
 	w := &WriterValidator{
 		tableName:     fmt.Sprintf("writer_validator_%d", time.Now().UnixNano()),
 		workerCount:   4,
@@ -77,14 +79,14 @@ func NewWriterValidator(ctx context.Context, pooler *endtoend.MultiPoolerTestCli
 		opt(w)
 	}
 
-	if err := w.createTable(ctx); err != nil {
+	if err := w.createTable(t.Context()); err != nil {
 		return nil, nil, fmt.Errorf("failed to create table: %w", err)
 	}
 
 	cleanup := func() {
 		// Stop workers if running
 		w.Stop()
-		// Drop table (best effort, ignore errors)
+		// Drop table (best effort, use background context since test context may be done)
 		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = w.dropTable(dropCtx)
@@ -108,15 +110,16 @@ func (w *WriterValidator) dropTable(ctx context.Context) error {
 }
 
 // Start spawns worker goroutines that continuously write to the table.
-func (w *WriterValidator) Start() {
+func (w *WriterValidator) Start(t *testing.T) {
+	t.Helper()
 	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.started {
-		w.mu.Unlock()
 		return
 	}
 	w.started = true
-	w.ctx, w.cancel = context.WithCancel(context.Background())
-	w.mu.Unlock()
+	w.ctx, w.cancel = context.WithCancel(t.Context())
 
 	for i := 0; i < w.workerCount; i++ {
 		w.wg.Add(1)
@@ -126,19 +129,27 @@ func (w *WriterValidator) Start() {
 
 // Stop signals all worker goroutines to stop and waits for them to complete.
 func (w *WriterValidator) Stop() {
-	w.mu.Lock()
-	if !w.started {
-		w.mu.Unlock()
+	// Get cancel func while holding lock (defer ensures unlock)
+	cancel := func() context.CancelFunc {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if !w.started {
+			return nil
+		}
+		return w.cancel
+	}()
+
+	if cancel == nil {
 		return
 	}
-	w.mu.Unlock()
 
-	w.cancel()
+	// Cancel and wait outside lock to avoid deadlock with workers
+	cancel()
 	w.wg.Wait()
 
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.started = false
-	w.mu.Unlock()
 }
 
 // worker runs the write loop using a ticker.
@@ -203,7 +214,9 @@ func (w *WriterValidator) Stats() (successful, failed int) {
 }
 
 // Verify checks that all successful writes are present in at least one of the provided poolers.
-func (w *WriterValidator) Verify(ctx context.Context, poolers []*endtoend.MultiPoolerTestClient) error {
+func (w *WriterValidator) Verify(t *testing.T, poolers []*endtoend.MultiPoolerTestClient) error {
+	t.Helper()
+
 	w.mu.Lock()
 	successfulIDs := make([]int64, len(w.successful))
 	copy(successfulIDs, w.successful)
@@ -218,7 +231,7 @@ func (w *WriterValidator) Verify(ctx context.Context, poolers []*endtoend.MultiP
 
 	for _, pooler := range poolers {
 		query := fmt.Sprintf("SELECT id FROM %s", w.tableName)
-		resp, err := pooler.ExecuteQuery(ctx, query, 0)
+		resp, err := pooler.ExecuteQuery(t.Context(), query, 0)
 		if err != nil {
 			return fmt.Errorf("failed to execute query: %w", err)
 		}
