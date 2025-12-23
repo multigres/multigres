@@ -55,24 +55,6 @@ func TestInit_TopoMissingRoot(t *testing.T) {
 	assert.Contains(t, err.Error(), "topo-global-root must be non-empty")
 }
 
-// TestInit_TopoMissingImplementation verifies that Init() returns an error when
-// topo-implementation is not configured.
-func TestInit_TopoMissingImplementation(t *testing.T) {
-	cmd, _ := CreateMultiOrchCommand()
-
-	cmd.SetArgs([]string{
-		"--watch-targets", "db1/shard1",
-		"--topo-global-server-addresses", "localhost:2379",
-		"--topo-global-root", "/multigres/global",
-		"--config-file-not-found-handling", "ignore",
-	})
-
-	err := cmd.Execute()
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "topo-implementation must be configured")
-}
-
 // Note: Testing watch-targets validation requires a working topo connection.
 // The multiorch/init.go validates watch-targets after topo.Open() succeeds,
 // so we can't test "watch-targets is required" error without a running topo server.

@@ -53,23 +53,6 @@ func TestInit_TopoMissingRoot(t *testing.T) {
 	assert.Contains(t, err.Error(), "topo-global-root must be non-empty")
 }
 
-// TestInit_TopoMissingImplementation verifies that Init() returns an error when
-// topo-implementation is not configured.
-func TestInit_TopoMissingImplementation(t *testing.T) {
-	cmd, _ := CreateMultiGatewayCommand()
-
-	cmd.SetArgs([]string{
-		"--topo-global-server-addresses", "localhost:2379",
-		"--topo-global-root", "/multigres/global",
-		"--config-file-not-found-handling", "ignore",
-	})
-
-	err := cmd.Execute()
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "topo-implementation must be configured")
-}
-
 // Note: Testing listener failure requires a working topo connection.
 // The multigateway/init.go creates the PostgreSQL listener after topo.Open() succeeds,
 // so we can't test "failed to create PostgreSQL listener" error without a running topo server.

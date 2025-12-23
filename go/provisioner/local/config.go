@@ -37,7 +37,6 @@ type CellConfig struct {
 
 // TopologyConfig holds the configuration for cluster topology
 type TopologyConfig struct {
-	Backend        string       `yaml:"backend"`
 	GlobalRootPath string       `yaml:"global-root-path"`
 	Cells          []CellConfig `yaml:"cells"`
 }
@@ -202,7 +201,6 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 			Port:    ports.DefaultEtcdPort,
 		},
 		Topology: TopologyConfig{
-			Backend:        "etcd2",
 			GlobalRootPath: "/multigres/global",
 			Cells: []CellConfig{
 				{

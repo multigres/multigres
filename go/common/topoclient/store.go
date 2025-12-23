@@ -83,6 +83,9 @@ const (
 	// to connect to a multigres cluster: database information
 	// and cell locations.
 	GlobalCell = "global"
+
+	// DefaultTopoImplementation is the default topology implementation.
+	DefaultTopoImplementation = "etcd"
 )
 
 // Filenames for all object types.
@@ -275,7 +278,6 @@ type cellConn struct {
 
 // TopoConfig holds topology configuration using viperutil values
 type TopoConfig struct {
-	implementation         viperutil.Value[string]
 	globalServerAddresses  viperutil.Value[[]string]
 	globalRoot             viperutil.Value[string]
 	readConcurrency        viperutil.Value[int64]
@@ -286,11 +288,6 @@ type TopoConfig struct {
 // NewTopoConfig creates a new TopoConfig with default values
 func NewTopoConfig(reg *viperutil.Registry) *TopoConfig {
 	return &TopoConfig{
-		implementation: viperutil.Configure(reg, "topo-implementation", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "topo-implementation",
-			Dynamic:  false,
-		}),
 		globalServerAddresses: viperutil.Configure(reg, "topo-global-server-addresses", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "topo-global-server-addresses",
@@ -323,7 +320,6 @@ func NewTopoConfig(reg *viperutil.Registry) *TopoConfig {
 
 // RegisterFlags registers all topo flags with the given FlagSet
 func (tc *TopoConfig) RegisterFlags(fs *pflag.FlagSet) {
-	fs.String("topo-implementation", tc.implementation.Default(), "the topology implementation to use")
 	fs.StringSlice("topo-global-server-addresses", tc.globalServerAddresses.Default(), "the address of the global topology server")
 	fs.String("topo-global-root", tc.globalRoot.Default(), "the path of the global topology data in the global topology server")
 	fs.Int64("topo-read-concurrency", tc.readConcurrency.Default(), "Maximum concurrency of topo reads per global or local cell.")
@@ -331,7 +327,6 @@ func (tc *TopoConfig) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("remote-operation-timeout", tc.remoteOperationTimeout.Default(), "time to wait for a remote operation")
 
 	viperutil.BindFlags(fs,
-		tc.implementation,
 		tc.globalServerAddresses,
 		tc.globalRoot,
 		tc.readConcurrency,
@@ -439,12 +434,11 @@ func OpenServer(implementation, root string, serverAddrs []string, config *TopoC
 }
 
 // Open returns a topology store using the command-line parameter flags
-// for implementation, address, and root. It returns an error if
-// required configuration is missing or if an error occurs.
+// for address and root. It returns an error if required configuration
+// is missing or if an error occurs.
 func (config *TopoConfig) Open() (Store, error) {
 	addresses := config.globalServerAddresses.Get()
 	root := config.globalRoot.Get()
-	implementation := config.implementation.Get()
 
 	if len(addresses) == 0 {
 		return nil, fmt.Errorf("topo-global-server-addresses must be configured")
@@ -453,22 +447,9 @@ func (config *TopoConfig) Open() (Store, error) {
 		return nil, fmt.Errorf("topo-global-root must be non-empty")
 	}
 
-	if implementation == "" {
-		// Build a helpful message showing available implementations
-		var available []string
-		for name := range factories {
-			available = append(available, name)
-		}
-
-		if len(available) == 0 {
-			return nil, fmt.Errorf("topo-implementation must be configured. Available: none (no implementations registered)")
-		}
-		return nil, fmt.Errorf("topo-implementation must be configured. Available: %s", strings.Join(available, ", "))
-	}
-
-	ts, err := OpenServer(implementation, root, addresses, config)
+	ts, err := OpenServer(DefaultTopoImplementation, root, addresses, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open topo server (implementation=%s, addresses=%v, root=%s): %w", implementation, addresses, root, err)
+		return nil, fmt.Errorf("failed to open topo server (implementation=%s, addresses=%v, root=%s): %w", DefaultTopoImplementation, addresses, root, err)
 	}
 	return ts, nil
 }

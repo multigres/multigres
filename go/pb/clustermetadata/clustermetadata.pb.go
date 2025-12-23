@@ -21,12 +21,13 @@
 package clustermetadata
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -340,7 +341,7 @@ func (ID_ComponentType) EnumDescriptor() ([]byte, []int) {
 type GlobalTopoConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// implementation indicates the type of topology service in use
-	// (for example: "etcd2",  "memory").
+	// (for example: "etcd",  "memory").
 	Implementation string `protobuf:"bytes,1,opt,name=implementation,proto3" json:"implementation,omitempty"`
 	// server is the network address (host:port) of the topology service.
 	// Can be a list list for HA setups.
