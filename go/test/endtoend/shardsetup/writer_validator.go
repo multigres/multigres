@@ -220,8 +220,7 @@ func (w *WriterValidator) Verify(ctx context.Context, poolers []*endtoend.MultiP
 		query := fmt.Sprintf("SELECT id FROM %s", w.tableName)
 		resp, err := pooler.ExecuteQuery(ctx, query, 0)
 		if err != nil {
-			// Log but continue - pooler might be down during failover
-			continue
+			return fmt.Errorf("failed to execute query: %w", err)
 		}
 
 		for _, row := range resp.Rows {
