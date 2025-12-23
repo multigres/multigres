@@ -42,8 +42,8 @@ type MultiGateway struct {
 	serviceID viperutil.Value[string]
 	// pgPort is the PostgreSQL protocol listen port
 	pgPort viperutil.Value[int]
-	// poolerDiscovery handles discovery of multipoolers
-	poolerDiscovery *PoolerDiscovery
+	// poolerDiscovery handles discovery of multipoolers across all cells
+	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
@@ -140,13 +140,13 @@ func (mg *MultiGateway) Init() error {
 	}
 
 	// This doesn't change
-	mg.serverStatus.Cell = mg.cell.Get()
+	mg.serverStatus.LocalCell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 
-	// Start pooler discovery first
-	mg.poolerDiscovery = NewPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
+	// Start pooler discovery (watches all cells)
+	mg.poolerDiscovery = NewGlobalPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
 	mg.poolerDiscovery.Start()
-	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
+	logger.Info("Global pooler discovery started", "local_cell", mg.cell.Get())
 
 	// Initialize PoolerGateway for managing pooler connections
 	mg.poolerGateway = poolergateway.NewPoolerGateway(mg.poolerDiscovery, logger)
