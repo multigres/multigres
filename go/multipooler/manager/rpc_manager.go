@@ -101,13 +101,13 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	}
 
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	inRecovery, err := pm.isInRecovery(ctx)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if !inRecovery {
+	if isPrimary {
 		pm.logger.ErrorContext(ctx, "SetPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
@@ -269,7 +269,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	poolerStatus.WalPosition = walPosition
 
 	// Try to get detailed status based on PostgreSQL role
-	inRecovery, err := pm.isInRecovery(ctx)
+	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		// Can't determine role - return what we have
 		pm.logger.WarnContext(ctx, "Failed to check PostgreSQL role, returning partial status", "error", err)
@@ -277,8 +277,8 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	}
 
 	// Populate role-specific status
-	if !inRecovery {
-		// Acting as primary - get primary status (skip guardrails since we already checked role)
+	if isPrimary {
+		// Acting as primary - get primary status (skip guardrails since we already checked isPrimary)
 		primaryStatus, err := pm.getPrimaryStatusInternal(ctx)
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Failed to get primary status", "error", err)
@@ -288,7 +288,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		poolerStatus.PrimaryStatus = primaryStatus
 		return poolerStatus, nil
 	}
-	// Acting as standby - get replication status (skip guardrails since we already checked role)
+	// Acting as standby - get replication status (skip guardrails since we already checked isPrimary)
 	replStatus, err := pm.getStandbyStatusInternal(ctx)
 	if err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get standby replication status", "error", err)

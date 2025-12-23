@@ -136,18 +136,21 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		// Do this check BEFORE updating term so we can reject early
 		if !wasPrimary {
 			var lastMsgReceiptTime *time.Time
-			result, queryErr := pm.query(ctx, "SELECT last_msg_receipt_time::text FROM pg_stat_wal_receiver")
-			if queryErr != nil || len(result.Rows) == 0 {
+			result, queryErr := pm.query(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver")
+			if queryErr != nil {
 				// No WAL receiver (disconnected standby) - this is EXPECTED during failover
 				// when the primary just died. Don't reject - proceed with acceptance.
 				// The standby's data may still be recent even without an active WAL receiver.
 				pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
 					"term", req.Term)
-			} else if timeStr, _ := executor.GetString(result.Rows[0], 0); timeStr != "" {
-				// Parse the timestamp
-				t, parseErr := time.Parse("2006-01-02 15:04:05.999999-07", timeStr)
-				if parseErr == nil {
-					lastMsgReceiptTime = &t
+			} else {
+				queryErr = executor.ScanSingleRow(result, &lastMsgReceiptTime)
+				if queryErr != nil {
+					// No WAL receiver (disconnected standby) - this is EXPECTED during failover
+					// when the primary just died. Don't reject - proceed with acceptance.
+					// The standby's data may still be recent even without an active WAL receiver.
+					pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
+						"term", req.Term)
 				}
 			}
 			if lastMsgReceiptTime != nil {
@@ -297,16 +300,16 @@ func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensu
 			ErrorMessage: "database connection not available",
 		}, nil
 	}
-	if len(result.Rows) == 0 {
+	var status, conninfo string
+	err = executor.ScanSingleRow(result, &status, &conninfo)
+	if err != nil {
 		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
+		//nolint:nilerr // Error is communicated via response struct, not error return
 		return &consensusdatapb.CanReachPrimaryResponse{
 			Reachable:    false,
 			ErrorMessage: "no active WAL receiver",
 		}, nil
 	}
-
-	status, _ := executor.GetString(result.Rows[0], 0)
-	conninfo, _ := executor.GetString(result.Rows[0], 1)
 
 	// If status is "stopping", the connection is not healthy
 	if status == "stopping" {
