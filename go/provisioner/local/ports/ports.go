@@ -41,4 +41,7 @@ const (
 
 	// Pgctld
 	DefaultPgctldGRPC = 15470
+
+	// pgBackRest TLS server (base port, add cell index for multi-cell setups)
+	DefaultPgBackRestTLSPort = 8432
 )

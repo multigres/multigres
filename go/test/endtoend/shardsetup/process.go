@@ -58,7 +58,7 @@ type ProcessInstance struct {
 	WatchTargets []string // Database/tablegroup/shard targets to watch (multiorch)
 }
 
-// Start starts the process instance (pgctld, multipooler, or multiorch).
+// Start starts the process instance (pgctld, multipooler, multiorch, or pgbackrest-server).
 // Follows the proven pattern from multipooler/setup_test.go.
 func (p *ProcessInstance) Start(t *testing.T) error {
 	t.Helper()
@@ -70,6 +70,8 @@ func (p *ProcessInstance) Start(t *testing.T) error {
 		return p.startMultipooler(t)
 	case "multiorch":
 		return p.startMultiOrch(t)
+	case "pgbackrest-server":
+		return p.startPgBackRestServer(t)
 	}
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
@@ -200,6 +202,58 @@ func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 	}
 	t.Logf("MultiOrch is ready")
 
+	return nil
+}
+
+// startPgBackRestServer starts a pgBackRest TLS server instance.
+// DataDir is the base directory for pgBackRest server logs (log subdir will be created under it).
+// Note: While the pgbackrest server itself doesn't acquire locks, when it handles remote requests
+// it spawns child processes that may need locks. The PGBACKREST_LOCK_PATH environment variable
+// ensures these child processes use the correct lock directory instead of the system default
+// /tmp/pgbackrest/. The server command doesn't support --lock-path as a CLI option.
+func (p *ProcessInstance) startPgBackRestServer(t *testing.T) error {
+	t.Helper()
+
+	// Create log directory as subdirectory of DataDir
+	logPath := filepath.Join(p.DataDir, "log")
+	if err := os.MkdirAll(logPath, 0o755); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Derive lock-path from the config file's directory
+	// Config is at .../pooler-N/data/pgbackrest.conf, lock dir is .../pooler-N/data/pgbackrest-lock
+	configDir := filepath.Dir(p.ConfigFile)
+	lockPath := filepath.Join(configDir, "pgbackrest-lock")
+
+	t.Logf("Starting %s with config '%s', log-path '%s', lock-path '%s', TLS port %d",
+		p.Name, p.ConfigFile, logPath, lockPath, p.GrpcPort)
+
+	// Start the pgbackrest server with explicit log path
+	// Note: --lock-path is NOT a valid server option, so we use environment variable instead
+	p.Process = exec.Command("pgbackrest",
+		"--config="+p.ConfigFile,
+		"--log-path="+logPath,
+		"--log-level-console=off",
+		"--log-level-file=info",
+		"server")
+
+	// Set lock-path via environment variable for child processes spawned by the TLS server
+	p.Process.Env = append(os.Environ(), "PGBACKREST_LOCK_PATH="+lockPath)
+
+	t.Logf("Running pgbackrest server command: %v (with PGBACKREST_LOCK_PATH=%s)", p.Process.Args, lockPath)
+
+	// Start the process
+	if err := p.Process.Start(); err != nil {
+		return fmt.Errorf("failed to start %s: %w", p.Name, err)
+	}
+	t.Logf("%s process started with PID %d", p.Name, p.Process.Process.Pid)
+
+	// Wait for TLS port to be available
+	if err := WaitForPortReady(t, p.Name, p.GrpcPort, 5*time.Second); err != nil {
+		return err
+	}
+
+	t.Logf("%s started successfully on TLS port %d", p.Name, p.GrpcPort)
 	return nil
 }
 

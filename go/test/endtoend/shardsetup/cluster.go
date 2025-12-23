@@ -55,6 +55,15 @@ type ShardSetup struct {
 	// Multiorch instances (can have multiple)
 	MultiOrchInstances map[string]*ProcessInstance
 
+	// pgBackRest TLS server instances indexed by multipooler name
+	PgBackRestServers map[string]*ProcessInstance
+
+	// TLS certificate paths for pgBackRest
+	TLSCACertPath     string
+	TLSCAKeyPath      string
+	TLSServerCertPath string
+	TLSServerKeyPath  string
+
 	// BaselineGucs stores the GUC values captured after bootstrap completes.
 	// These are the "clean state" values that ValidateCleanState checks against
 	// and that cleanup restores to. Structure: node name → GUC name → value.
@@ -268,6 +277,13 @@ func (s *ShardSetup) Cleanup() {
 		}
 		if inst.Pgctld != nil {
 			inst.Pgctld.Stop()
+		}
+	}
+
+	// Stop pgBackRest TLS server instances
+	for _, server := range s.PgBackRestServers {
+		if server != nil {
+			server.Stop()
 		}
 	}
 

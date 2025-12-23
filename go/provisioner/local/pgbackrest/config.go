@@ -37,31 +37,42 @@ func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]b
 	return cmd.CombinedOutput()
 }
 
+// PgBackRestTLSConfig holds TLS configuration for pgBackRest server/client
+type PgBackRestTLSConfig struct {
+	CertFile string // Path to certificate file
+	KeyFile  string // Path to private key file
+	CAFile   string // Path to CA certificate file
+	Address  string // Address to bind TLS server ("*" for all interfaces) - only for server config
+	Port     int    // Port for TLS server/client connection
+}
+
 // PgHost represents a PostgreSQL host configuration for pgBackRest
 type PgHost struct {
-	DataPath  string // Path to PostgreSQL data directory
-	Host      string // PostgreSQL hostname (use "localhost" for TCP connection)
-	Port      int    // PostgreSQL port
-	SocketDir string // PostgreSQL Unix socket directory
-	User      string // PostgreSQL user for connections
-	Database  string // PostgreSQL database for connections
+	DataPath      string               // Path to PostgreSQL data directory (for local access)
+	Host          string               // PostgreSQL hostname (use "localhost" for TCP connection)
+	Port          int                  // PostgreSQL port
+	SocketDir     string               // PostgreSQL Unix socket directory (for local access)
+	User          string               // PostgreSQL user for connections
+	Database      string               // PostgreSQL database for connections
+	PgBackRestTLS *PgBackRestTLSConfig // pgBackRest TLS configuration for remote access (nil means local access)
 }
 
 // Config holds the configuration parameters for pgBackRest
 type Config struct {
-	StanzaName      string   // Name of the backup stanza (usually service ID or similar)
-	PgDataPath      string   // Path to PostgreSQL data directory (pg1)
-	PgHost          string   // PostgreSQL hostname (pg1, use "localhost" for TCP connection)
-	PgPort          int      // PostgreSQL port (pg1)
-	PgSocketDir     string   // PostgreSQL Unix socket directory (pg1)
-	PgUser          string   // PostgreSQL user for connections (pg1)
-	PgPassword      string   // PostgreSQL password (for local development only, pg1)
-	PgDatabase      string   // PostgreSQL database for connections (pg1)
-	AdditionalHosts []PgHost // Additional PostgreSQL hosts (pg2, pg3, etc.) for multi-host setups
-	LogPath         string   // Path for pgBackRest logs
-	SpoolPath       string   // Path for pgBackRest spool directory
-	LockPath        string   // Path for pgBackRest lock files
-	RetentionFull   int      // Number of full backups to retain
+	StanzaName      string               // Name of the backup stanza (usually service ID or similar)
+	PgDataPath      string               // Path to PostgreSQL data directory (pg1)
+	PgHost          string               // PostgreSQL hostname (pg1, use "localhost" for TCP connection)
+	PgPort          int                  // PostgreSQL port (pg1)
+	PgSocketDir     string               // PostgreSQL Unix socket directory (pg1)
+	PgUser          string               // PostgreSQL user for connections (pg1)
+	PgPassword      string               // PostgreSQL password (for local development only, pg1)
+	PgDatabase      string               // PostgreSQL database for connections (pg1)
+	AdditionalHosts []PgHost             // Additional PostgreSQL hosts (pg2, pg3, etc.) for multi-host setups
+	LogPath         string               // Path for pgBackRest logs
+	SpoolPath       string               // Path for pgBackRest spool directory
+	LockPath        string               // Path for pgBackRest lock files
+	RetentionFull   int                  // Number of full backups to retain
+	PgBackRestTLS   *PgBackRestTLSConfig // TLS server configuration (nil for no TLS server)
 }
 
 // GenerateConfig creates a pgBackRest configuration file content for a backup stanza.
@@ -83,14 +94,27 @@ func GenerateConfig(cfg Config) string {
 	sb.WriteString("link-all=y\n")
 	// Set console logging to info level for readable output during operations
 	sb.WriteString("log-level-console=info\n")
-	// Set file logging to detail level for comprehensive debugging and audit trails
-	sb.WriteString("log-level-file=detail\n")
+	// Set file logging to the same level as console logging
+	sb.WriteString("log-level-file=info\n")
 	// Enable subprocess logging to capture output from parallel processes
 	sb.WriteString("log-subprocess=y\n")
 	// Disable resume to avoid potential issues with partial backups
 	sb.WriteString("resume=n\n")
 	// Force an immediate checkpoint when starting backups to speed up the backup process
 	sb.WriteString("start-fast=y\n")
+
+	// TLS server configuration (if enabled)
+	if cfg.PgBackRestTLS != nil {
+		sb.WriteString(fmt.Sprintf("tls-server-cert-file=%s\n", cfg.PgBackRestTLS.CertFile))
+		sb.WriteString(fmt.Sprintf("tls-server-key-file=%s\n", cfg.PgBackRestTLS.KeyFile))
+		sb.WriteString(fmt.Sprintf("tls-server-ca-file=%s\n", cfg.PgBackRestTLS.CAFile))
+		sb.WriteString(fmt.Sprintf("tls-server-address=%s\n", cfg.PgBackRestTLS.Address))
+		sb.WriteString(fmt.Sprintf("tls-server-port=%d\n", cfg.PgBackRestTLS.Port))
+		// Allow clients with certificate CN "pgbackrest" to execute any command
+		// Format: tls-server-auth=<cn>=<command> where * means any command
+		sb.WriteString("tls-server-auth=pgbackrest=*\n")
+	}
+
 	// Note: stanza is a command-line only option, not a config file option
 	sb.WriteString("\n")
 
@@ -116,22 +140,40 @@ func GenerateConfig(cfg Config) string {
 	}
 
 	// Additional hosts (pg2, pg3, etc.)
-	// For local tests with Unix sockets, specify path, socket-path, and port
 	for i, host := range cfg.AdditionalHosts {
 		pgNum := i + 2 // pg2, pg3, etc.
-		sb.WriteString(fmt.Sprintf("pg%d-path=%s\n", pgNum, host.DataPath))
 
-		// For remote hosts (TCP), specify host details
-		if host.Host != "" {
-			sb.WriteString(fmt.Sprintf("pg%d-host=%s\n", pgNum, host.Host))
-			sb.WriteString(fmt.Sprintf("pg%d-host-type=tcp\n", pgNum))
+		// Path is needed for restore operations
+		if host.DataPath != "" {
+			sb.WriteString(fmt.Sprintf("pg%d-path=%s\n", pgNum, host.DataPath))
 		}
 
-		// For Unix sockets, specify both socket-path and port
-		// Port determines the socket filename (e.g., .s.PGSQL.5432)
+		// Host connection for pgBackRest file transfer
+		if host.Host != "" {
+			sb.WriteString(fmt.Sprintf("pg%d-host=%s\n", pgNum, host.Host))
+		}
+
+		// TLS-based remote access for file transfer
+		if host.PgBackRestTLS != nil {
+			sb.WriteString(fmt.Sprintf("pg%d-host-type=tls\n", pgNum))
+			sb.WriteString(fmt.Sprintf("pg%d-host-port=%d\n", pgNum, host.PgBackRestTLS.Port))
+			if host.PgBackRestTLS.CAFile != "" {
+				sb.WriteString(fmt.Sprintf("pg%d-host-ca-file=%s\n", pgNum, host.PgBackRestTLS.CAFile))
+			}
+			if host.PgBackRestTLS.CertFile != "" {
+				sb.WriteString(fmt.Sprintf("pg%d-host-cert-file=%s\n", pgNum, host.PgBackRestTLS.CertFile))
+			}
+			if host.PgBackRestTLS.KeyFile != "" {
+				sb.WriteString(fmt.Sprintf("pg%d-host-key-file=%s\n", pgNum, host.PgBackRestTLS.KeyFile))
+			}
+		}
+
+		// PostgreSQL socket for local pg queries
 		if host.SocketDir != "" {
 			sb.WriteString(fmt.Sprintf("pg%d-socket-path=%s\n", pgNum, host.SocketDir))
 		}
+
+		// PostgreSQL port for pg queries, such as for `pg_start_backup()`
 		sb.WriteString(fmt.Sprintf("pg%d-port=%d\n", pgNum, host.Port))
 
 		if host.User != "" {

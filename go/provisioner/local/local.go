@@ -883,6 +883,92 @@ type PgctldProvisionResult struct {
 	LogFile string
 }
 
+// provisionPgBackRestServer provisions a pgBackRest TLS server for a cell
+func (p *localProvisioner) provisionPgBackRestServer(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
+	// Sanity check: ensure this method is called for pgbackrest-server service
+	if req.Service != "pgbackrest-server" {
+		return nil, fmt.Errorf("provisionPgBackRestServer called for wrong service type: %s", req.Service)
+	}
+
+	// Get cell parameter
+	cell := req.Params["cell"].(string)
+
+	// Check if pgbackrest-server is already running
+	existingService, err := p.findRunningDbService("pgbackrest-server", req.DatabaseName, cell)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for existing pgbackrest-server service: %w", err)
+	}
+	if existingService != nil {
+		fmt.Printf("pgbackrest-server is already running (PID %d) ✓\n", existingService.PID)
+		return &provisioner.ProvisionResult{
+			ServiceName: "pgbackrest-server",
+			FQDN:        existingService.FQDN,
+			Ports:       existingService.Ports,
+			Metadata: map[string]any{
+				"service_id": existingService.ID,
+				"log_file":   existingService.LogFile,
+			},
+		}, nil
+	}
+
+	// Get cell-specific multipooler config (pgbackrest-server shares config with multipooler)
+	multipoolerConfig, err := p.getCellServiceConfig(cell, "multipooler")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get multipooler config for cell %s: %w", cell, err)
+	}
+
+	// Get pooler directory from multipooler config
+	poolerDir := ""
+	if val, ok := multipoolerConfig["pooler_dir"].(string); ok && val != "" {
+		poolerDir = val
+	} else {
+		return nil, fmt.Errorf("pooler_dir not found in multipooler config for cell %s", cell)
+	}
+
+	// Generate service ID
+	serviceID := fmt.Sprintf("pgbackrest-server-%s", cell)
+
+	// Paths for pgbackrest server
+	pgbackrestConfigPath := filepath.Join(poolerDir, "pgbackrest.conf")
+	pgbackrestLogPath := filepath.Join(p.config.RootWorkingDir, "logs", "dbs", "postgres", "pgbackrest")
+
+	// Start pgbackrest TLS server
+	fmt.Printf("⚙️  - Starting pgbackrest-server for cell %s...", cell)
+	result, err := StartPgBackRestServer(ctx, pgbackrestConfigPath, pgbackrestLogPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start pgBackRest TLS server: %w", err)
+	}
+	fmt.Printf(" PID %d ✓\n", result.PID)
+
+	// Create provision state
+	service := &LocalProvisionedService{
+		ID:         serviceID,
+		Service:    "pgbackrest-server",
+		PID:        result.PID,
+		BinaryPath: "pgbackrest", // pgbackrest binary
+		Ports:      map[string]int{},
+		FQDN:       "localhost",
+		LogFile:    result.LogFile,
+		StartedAt:  time.Now(),
+		Metadata:   map[string]any{"cell": cell},
+	}
+
+	// Save service state to disk
+	if err := p.saveServiceState(service, req.DatabaseName); err != nil {
+		fmt.Printf("Warning: failed to save service state: %v\n", err)
+	}
+
+	return &provisioner.ProvisionResult{
+		ServiceName: "pgbackrest-server",
+		FQDN:        "localhost",
+		Ports:       map[string]int{},
+		Metadata: map[string]any{
+			"service_id": serviceID,
+			"log_file":   result.LogFile,
+		},
+	}, nil
+}
+
 // provisionMultiOrch provisions multi-orchestrator using local binary
 func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
 	// Sanity check: ensure this method is called for multiorch service
@@ -1102,6 +1188,8 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 	case "multiorch":
 		fallthrough
 	case "multiadmin":
+		fallthrough
+	case "pgbackrest-server":
 		return p.deprovisionService(ctx, req)
 	case "multipooler":
 		// multipooler requires special handling to clean up pgbackrest logs
@@ -1613,7 +1701,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 
 	// Calculate total number of services to provision
-	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell
+	numServices := len(cellNames) * 4 // multigateway + multipooler + multiorch + pgbackrest-server per cell
 	resultsChan := make(chan provisionResult, numServices)
 
 	// Start all services in parallel
@@ -1675,6 +1763,23 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			result, err := p.provisionMultiOrch(ctx, req)
 			if err != nil {
 				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multiorch in cell %s: %w", cell, err)}
+				return
+			}
+			resultsChan <- provisionResult{result: result}
+		}()
+
+		// Start pgbackrest-server
+		go func() {
+			req := &provisioner.ProvisionRequest{
+				Service:      "pgbackrest-server",
+				DatabaseName: databaseName,
+				Params: map[string]any{
+					"cell": cell,
+				},
+			}
+			result, err := p.provisionPgBackRestServer(ctx, req)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision pgbackrest-server in cell %s: %w", cell, err)}
 				return
 			}
 			resultsChan <- provisionResult{result: result}
