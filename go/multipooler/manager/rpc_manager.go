@@ -459,6 +459,14 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 			fmt.Sprintf("unsupported operation: %s", operation.String()))
 	}
 
+	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList completed successfully",
+		"operation", operation,
+		"old_value", currentValue,
+		"new_value", updatedStandbys,
+		"reload_config", reloadConfig,
+		"consensus_term", consensusTerm,
+		"force", force)
+
 	// Validate that the final list is not empty
 	if len(updatedStandbys) == 0 {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
