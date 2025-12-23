@@ -189,7 +189,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Get PostgreSQL port from config or use default
-	pgPort := ports.DefaultPostgresPort
+	pgPort := ports.DefaultLocalPostgresPort
 	if port, ok := pgctldConfig["pg_port"].(int); ok && port > 0 {
 		pgPort = port
 	}
