@@ -143,8 +143,7 @@ func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, erro
 func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	sql := fmt.Sprintf("SELECT pg_last_wal_replay_lsn() >= %s::pg_lsn", ast.QuoteStringLiteral(targetLsn))
-	result, err := pm.query(queryCtx, sql)
+	result, err := pm.queryArgs(queryCtx, "SELECT pg_last_wal_replay_lsn() >= $1::pg_lsn", targetLsn)
 	if err != nil {
 		return false, mterrors.Wrap(err, "failed to check if replay LSN reached target")
 	}

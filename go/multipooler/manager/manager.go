@@ -222,20 +222,37 @@ func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryServi
 	return pm.qsc.InternalQueryService()
 }
 
-// query executes a query using the internal querier and returns the result.
+// query executes a query using the internal query service and returns the result.
 // This is a convenience method for internal manager operations.
 func (pm *MultiPoolerManager) query(ctx context.Context, sql string) (*query.QueryResult, error) {
-	querier := pm.internalQueryService()
-	if querier == nil {
-		return nil, fmt.Errorf("internal querier not available")
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, fmt.Errorf("internal query service not available")
 	}
-	return querier.Query(ctx, sql)
+	return queryService.Query(ctx, sql)
 }
 
 // exec executes a command that doesn't return rows.
 // This is a convenience method for internal manager operations.
 func (pm *MultiPoolerManager) exec(ctx context.Context, sql string) error {
 	_, err := pm.query(ctx, sql)
+	return err
+}
+
+// queryArgs executes a parameterized query using the internal query service and returns the result.
+// This is a convenience method for internal manager operations that helps prevent SQL injection.
+func (pm *MultiPoolerManager) queryArgs(ctx context.Context, sql string, args ...any) (*query.QueryResult, error) {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, fmt.Errorf("internal query service not available")
+	}
+	return queryService.QueryArgs(ctx, sql, args...)
+}
+
+// execArgs executes a parameterized command that doesn't return rows.
+// This is a convenience method for internal manager operations that helps prevent SQL injection.
+func (pm *MultiPoolerManager) execArgs(ctx context.Context, sql string, args ...any) error {
+	_, err := pm.queryArgs(ctx, sql, args...)
 	return err
 }
 
@@ -1084,9 +1101,7 @@ func (pm *MultiPoolerManager) terminateWriteConnections(ctx context.Context) (in
 
 	// Terminate each write connection
 	for _, pid := range pids {
-		// PIDs are system-generated integers, safe to format directly
-		sql := fmt.Sprintf("SELECT pg_terminate_backend(%d)", pid)
-		if err := pm.exec(ctx, sql); err != nil {
+		if err := pm.execArgs(ctx, "SELECT pg_terminate_backend($1)", pid); err != nil {
 			pm.logger.WarnContext(ctx, "Failed to terminate write connection", "pid", pid, "error", err)
 		}
 	}
