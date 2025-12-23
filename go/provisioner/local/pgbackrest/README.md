@@ -6,13 +6,23 @@ pgBackRest has specific ways of doing things and handles many backup-related tas
 
 Here are the main parts of pgBackRest's design that affect Multigres:
 
-- It has a config file (usually `pgbackrest.conf`) that specifies the backup storage location (known as the pgBackRest repo), a list of all Postgres replicas that may perform backups, and other options.
-- Because the role of each replica can change over time, the config does _not_ specify whether each replica is a primary or standby. This information is determined at runtime by pgBackRest by querying each Postgres cluster directly.
-- pgBackRest has an optional server mode. It acts as a TLS-secured rsyncd-like server that is used by the pgBackRest command-line tool to copy required files from the primary. Multigres needs this.
+- It has a config file (usually `pgbackrest.conf`) that specifies the backup
+  storage location (known as the pgBackRest repo), a list of all Postgres
+  replicas that may perform backups, and other options.
+- Because the role of each replica can change over time, the config does _not_
+  specify whether each replica is a primary or standby. This information is
+  determined at runtime by pgBackRest by querying each Postgres cluster
+  directly.
+- pgBackRest has an optional server mode. It acts as a TLS-secured rsyncd-like
+  server that is used by the pgBackRest command-line tool to copy required files
+  from the primary. Multigres needs this.
 - Backing up a standby requires:
-  1. pgBackRest running on the standby Postgres host (or the pgBackRest server running there). It backs up PGDATA files through the file system.
+  1. pgBackRest running on the standby Postgres host (or the pgBackRest server
+     running there). It backs up PGDATA files through the file system.
   2. Postgres client connection to the primary Postgres cluster
-  3. TLS connection to a pgBackRest server running on the primary Postgres host. (They also allow SSH connections, which are not recommended in many production environments.)
+  3. TLS connection to a pgBackRest server running on the primary Postgres
+     host. (They also allow SSH connections, which are not recommended in many
+     production environments.)
 - When backing up a standby, it does not allow you to specify which standby to backup. This is addressed in our design below.
 
 ## How Multigres creates pgBackRest configs
@@ -76,8 +86,13 @@ pg3-database=postgres
 
 There are some things to note:
 
-1. All of these Postgres clusters are just replicas. At backup or restore time, pgBackRest will determine which of them is the primary.
-2. The Postgres instance associated with this cell is listed as pg1 and uses local socket access. The order of the replicas does not matter, except for one thing: pgBackRest uses the first declared standby when you allow it to backup from standby. So, Multigres must control the ordering of the replicas in pgbackrest.conf.
+1. All of these Postgres clusters are just replicas. At backup or restore time,
+   pgBackRest will determine which of them is the primary.
+2. The Postgres instance associated with this cell is listed as pg1 and uses
+   local socket access. The order of the replicas does not matter, except for
+   one thing: pgBackRest uses the first declared standby when you allow it to
+   backup from standby. So, Multigres must control the ordering of the replicas
+   in pgbackrest.conf.
 3. Remote replicas (pg2, pg3) use TLS connections to retrieve files from other nodes when needed.
 4. There is one _stanza_ called `multigres`, under which all the replicas are declared.
 
@@ -165,11 +180,15 @@ For each cell, the local provisioner launches an instance of pgBackRest in TLS s
 
 1. During `GeneratePgBackRestConfigs()`, the provisioner generates TLS certificates:
    - A shared CA certificate and key (`<backup_repo>/tls/ca.crt`, `ca.key`)
-   - A shared server certificate and key (`<backup_repo>/tls/server.crt`, `server.key`)
+   - A shared server certificate and key (`<backup_repo>/tls/server.crt`,
+     `server.key`)
 
 2. Each `pgbackrest.conf` includes:
-   - TLS server configuration (`tls-server-cert-file`, `tls-server-key-file`, `tls-server-ca-file`, `tls-server-address`, `tls-server-port`)
-   - TLS client configuration for connecting to other nodes (`pgN-host-type=tls`, `pgN-host-port`, `pgN-host-ca-file`, `pgN-host-cert-file`, `pgN-host-key-file`)
+   - TLS server configuration (`tls-server-cert-file`, `tls-server-key-file`,
+     `tls-server-ca-file`, `tls-server-address`, `tls-server-port`)
+   - TLS client configuration for connecting to other nodes
+     (`pgN-host-type=tls`, `pgN-host-port`, `pgN-host-ca-file`,
+     `pgN-host-cert-file`, `pgN-host-key-file`)
    - Server authorization (`tls-server-auth=pgbackrest=*`) allowing clients with certificate CN "pgbackrest" to execute any command
 
 3. During database provisioning, a `pgbackrest-server` service is started for each cell via `StartPgBackRestServer()`.
@@ -192,27 +211,38 @@ The base port is defined in `ports.DefaultPgBackRestTLSPort`.
 
 The `tls.go` file provides two functions for certificate generation:
 
-- `GenerateCA()` - Creates a self-signed ECDSA P256 CA certificate (valid for 10 years)
-- `GenerateServerCert()` - Creates a server certificate signed by the CA with ServerAuth and ClientAuth extended key usage (valid for 1 year)
+- `GenerateCA()` - Creates a self-signed ECDSA P256 CA certificate (valid for
+  10 years)
+- `GenerateServerCert()` - Creates a server certificate signed by the CA with
+  ServerAuth and ClientAuth extended key usage (valid for 1 year)
 
 The server certificate uses CN "pgbackrest" and includes SANs for `localhost`, `127.0.0.1`, and `::1`.
 
 ## Summary of pgbackrest.conf generation rules
 
-### Every pooler has its own `pgbackrest.conf`.
+### Every pooler has its own `pgbackrest.conf`
 
-- Its own Postgres instance is listed first (as `pg1-*`), because that's the implicit target of restores and the first choice for backup source.
-- The other poolers have entries (`pg2-*`, `pg3-*`, etc.) are needed because of the potential for inter-pooler TCP connections.
+- Its own Postgres instance is listed first (as `pg1-*`), because that's the
+  implicit target of restores and the first choice for backup source.
+- The other poolers have entries (`pg2-*`, `pg3-*`, etc.) are needed because of
+  the potential for inter-pooler TCP connections.
 
 ### Backing up a primary database
 
-When backing up a primary (e.g. during bootstrap), pgBackRest does not need to connect to other poolers. However, it will _attempt_ to connect to other poolers to verify replication status, etc. So, if during bootstrap, if the standbys are potentially not available, the backup may fail or timeout. A fix for this (implemented in some test code) is to initially create a `pgbackrest.conf` that does not reference the standbys. Then, after bootstrap has completed, the primary would then have a full `pgbackrest.conf` file.
+When backing up a primary (e.g. during bootstrap), pgBackRest does not need to
+connect to other poolers. However, it will _attempt_ to connect to other
+poolers to verify replication status, etc. So, if during bootstrap, if the
+standbys are potentially not available, the backup may fail or timeout. A fix
+for this (implemented in some test code) is to initially create a
+`pgbackrest.conf` that does not reference the standbys. Then, after bootstrap
+has completed, the primary would then have a full `pgbackrest.conf` file.
 
 ### Backing up a standby database
 
 A pgBackRest process on the standby initiates two connections to the primary pooler node:
 
-1. pgBackRest TLS server: used for retrieving `pg_control` and other files that must come from the primary
+1. pgBackRest TLS server: used for retrieving `pg_control` and other files that
+   must come from the primary
 2. Postgres server port: for issuing `pg_start_backup()`
 
 This is why each `pgbackrest.conf` needs to have the `pgN-*` entries for the other poolers.
