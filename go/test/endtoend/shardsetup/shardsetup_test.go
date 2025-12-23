@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -326,4 +327,53 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 	// Verify clean state validation passes
 	err := setup.ValidateCleanState()
 	require.NoError(t, err, "ValidateCleanState should pass after reset")
+}
+
+// TestShardSetup_WriterValidator validates that the WriterValidator utility works correctly.
+// Writes to the primary and verifies all successful writes replicate to standbys.
+func TestShardSetup_WriterValidator(t *testing.T) {
+	skipIfShort(t)
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := t.Context()
+
+	// Create a writer validator pointing to the primary
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	validator, cleanup, err := NewWriterValidator(ctx, primaryClient.Pooler,
+		WithWorkerCount(4),
+		WithWriteInterval(10*time.Millisecond),
+	)
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	// Start writes
+	validator.Start()
+
+	// Let writes accumulate
+	time.Sleep(200 * time.Millisecond)
+
+	// Stop writes
+	validator.Stop()
+
+	successful, failed := validator.Stats()
+	t.Logf("WriterValidator stats: %d successful, %d failed", successful, failed)
+	require.Greater(t, successful, 0, "should have some successful writes")
+
+	// Collect all pooler clients for verification
+	var poolers []*endtoend.MultiPoolerTestClient
+	poolers = append(poolers, primaryClient.Pooler)
+	for _, standby := range setup.GetStandbys() {
+		standbyClient := setup.NewClient(t, standby.Name)
+		defer standbyClient.Close()
+		poolers = append(poolers, standbyClient.Pooler)
+	}
+
+	// Wait for replication to catch up, then verify
+	require.Eventually(t, func() bool {
+		err := validator.Verify(ctx, poolers)
+		return err == nil
+	}, 5*time.Second, 100*time.Millisecond, "all successful writes should be present across poolers")
 }
