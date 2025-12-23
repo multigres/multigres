@@ -103,7 +103,8 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 
 	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
-	// Use require.Eventually to wait for manager to be ready
+	// Use require.Eventually to wait for manager to be ready.
+	// Use 60s timeout to accommodate coverage-instrumented binaries which are slower.
 	require.Eventually(t, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -117,7 +118,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 			t.Fatalf("Manager failed to initialize: %s", resp.ErrorMessage)
 		}
 		return resp.State == "ready"
-	}, 30*time.Second, 100*time.Millisecond, "Manager should become ready within 30 seconds")
+	}, 60*time.Second, 100*time.Millisecond, "Manager should become ready within 60 seconds")
 
 	t.Logf("Manager %s is ready", manager.Name)
 }

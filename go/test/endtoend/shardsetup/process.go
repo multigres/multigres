@@ -253,8 +253,9 @@ func (p *ProcessInstance) startPgBackRestServer(t *testing.T) error {
 	}
 	t.Logf("%s process started with PID %d", p.Name, p.Process.Process.Pid)
 
-	// Wait for TLS port to be available
-	if err := WaitForPortReady(t, p.Name, p.GrpcPort, 5*time.Second); err != nil {
+	// Wait for TLS port to be available.
+	// Use 15s timeout to accommodate coverage-instrumented binaries which are slower.
+	if err := WaitForPortReady(t, p.Name, p.GrpcPort, 15*time.Second); err != nil {
 		return err
 	}
 
