@@ -102,7 +102,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Break replication using RPC (while multiorch is NOT running)
 	t.Logf("Breaking replication on %s via RPC...", replicaName)
-	breakReplicationViaRPC(t, replicaClient)
+	breakReplication(t, replicaClient)
 
 	// Insert data on primary while replication is broken
 	t.Log("Inserting data on primary while replication is broken...")
@@ -155,7 +155,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Break replication a second time to verify multiorch can fix it repeatedly
 	t.Logf("Breaking replication on %s via RPC (second time)...", replicaName)
-	breakReplicationViaRPC(t, replicaClient)
+	breakReplication(t, replicaClient)
 
 	// Insert more data on primary while replication is broken again
 	t.Log("Inserting more data on primary while replication is broken (second time)...")
@@ -203,7 +203,6 @@ func TestFixReplication(t *testing.T) {
 	// This tests the ReplicaNotInStandbyListAnalyzer
 	t.Log("Testing fix for replica not in standby list...")
 	// Start multiorch again - it should detect and fix the broken replication
-	t.Log("Starting multiorch to detect and fix replication (second time)...")
 	multiorch.Stop()
 
 	// Remove replica from standby list (without breaking replication)
@@ -258,9 +257,9 @@ func verifyReplicationStreaming(t *testing.T, client *shardsetup.MultipoolerClie
 		resp.Status.PrimaryConnInfo.Host, resp.Status.LastReceiveLsn)
 }
 
-// breakReplicationViaRPC stops replication and clears primary_conninfo using the RPC API.
+// breakReplication stops replication and clears primary_conninfo using the RPC API.
 // It waits until the replication is confirmed broken before returning.
-func breakReplicationViaRPC(t *testing.T, client *shardsetup.MultipoolerClient) {
+func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
