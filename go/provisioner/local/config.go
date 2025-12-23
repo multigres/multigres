@@ -121,7 +121,7 @@ type PgctldConfig struct {
 	PgPort         int    `yaml:"pg-port"`          // PostgreSQL port
 	PgDatabase     string `yaml:"pg-database"`      // PostgreSQL database name
 	PgUser         string `yaml:"pg-user"`          // PostgreSQL username
-	PgPwfile       string `yaml:"pg-pwfile"`        // PostgreSQL password file path (optional)
+	PgPwfile       string `yaml:"pg-pwfile"`        // Source password file path; copied to pooler-dir/pgpassword.txt during init
 	Timeout        int    `yaml:"timeout"`          // Operation timeout in seconds
 	LogLevel       string `yaml:"log-level"`        // Log level
 }
@@ -240,7 +240,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Shard:          shard,
 					ServiceID:      serviceIDZone1,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
-					PgPort:         ports.DefaultPostgresPort, // Same as pgctld for this zone
+					PgPort:         ports.DefaultLocalPostgresPort, // Same as pgctld for this zone
 					BackupConf:     filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgbackrest.conf"),
 					HttpPort:       ports.DefaultMultipoolerHTTP,
 					GrpcPort:       ports.DefaultMultipoolerGRPC,
@@ -261,10 +261,9 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
 					GrpcPort:       ports.DefaultPgctldGRPC,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone1.sock"),
-					PgPort:         ports.DefaultPostgresPort,
+					PgPort:         ports.DefaultLocalPostgresPort,
 					PgDatabase:     dbName,
 					PgUser:         "postgres",
-					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone1), "pgpassword.txt"),
 					Timeout:        30,
 					LogLevel:       "info",
 				},
@@ -274,7 +273,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Path:     filepath.Join(binDir, "multigateway"),
 					HttpPort: ports.DefaultMultigatewayHTTP + 1,
 					GrpcPort: ports.DefaultMultigatewayGRPC + 1,
-					PgPort:   ports.DefaultPostgresPort + 1,
+					PgPort:   ports.DefaultMultigatewayPG + 1,
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
@@ -284,7 +283,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Shard:          shard,
 					ServiceID:      serviceIDZone2,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
-					PgPort:         ports.DefaultPostgresPort + 1,
+					PgPort:         ports.DefaultLocalPostgresPort + 1,
 					BackupConf:     filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgbackrest.conf"),
 					HttpPort:       ports.DefaultMultipoolerHTTP + 1,
 					GrpcPort:       ports.DefaultMultipoolerGRPC + 1,
@@ -305,7 +304,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
 					GrpcPort:       ports.DefaultPgctldGRPC + 1,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone2.sock"),
-					PgPort:         ports.DefaultPostgresPort + 1,
+					PgPort:         ports.DefaultLocalPostgresPort + 1,
 					PgDatabase:     dbName,
 					PgUser:         "postgres",
 					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
@@ -318,7 +317,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Path:     filepath.Join(binDir, "multigateway"),
 					HttpPort: ports.DefaultMultigatewayHTTP + 2,
 					GrpcPort: ports.DefaultMultigatewayGRPC + 2,
-					PgPort:   ports.DefaultPostgresPort + 2,
+					PgPort:   ports.DefaultMultigatewayPG + 2,
 					LogLevel: "info",
 				},
 				Multipooler: MultipoolerConfig{
@@ -328,7 +327,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Shard:          shard,
 					ServiceID:      serviceIDZone3,
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone3),
-					PgPort:         ports.DefaultPostgresPort + 2,
+					PgPort:         ports.DefaultLocalPostgresPort + 2,
 					BackupConf:     filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgbackrest.conf"),
 					HttpPort:       ports.DefaultMultipoolerHTTP + 2,
 					GrpcPort:       ports.DefaultMultipoolerGRPC + 2,
@@ -349,7 +348,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone3),
 					GrpcPort:       ports.DefaultPgctldGRPC + 2,
 					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone3.sock"),
-					PgPort:         ports.DefaultPostgresPort + 2,
+					PgPort:         ports.DefaultLocalPostgresPort + 2,
 					PgDatabase:     dbName,
 					PgUser:         "postgres",
 					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgpassword.txt"),
@@ -451,7 +450,6 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"pg_port":          cellServices.Pgctld.PgPort,
 			"pg_database":      cellServices.Pgctld.PgDatabase,
 			"pg_user":          cellServices.Pgctld.PgUser,
-			"pg_pwfile":        cellServices.Pgctld.PgPwfile,
 			"timeout":          cellServices.Pgctld.Timeout,
 			"log_level":        cellServices.Pgctld.LogLevel,
 		}, nil

@@ -62,7 +62,7 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 			st, ok := status.FromError(err)
 			if ok && st.Message() == "unknown service multipoolermanager.MultiPoolerManager" {
 				t.Logf("Got 'unknown service' error - checking multipooler logs:")
-				setup.PrimaryMultipooler.logRecentOutput(t, "Debug - unknown service error")
+				setup.PrimaryMultipooler.LogRecentOutput(t, "Debug - unknown service error")
 			}
 		}
 
@@ -274,10 +274,10 @@ func TestPrimaryStatus(t *testing.T) {
 		require.NotEmpty(t, statusResp.Status.ConnectedFollowers, "Should have at least one follower")
 
 		// Find our standby in the followers list
-		expectedAppName := fmt.Sprintf("test-cell_%s", setup.StandbyMultipooler.ServiceID)
+		expectedAppName := fmt.Sprintf("test-cell_%s", setup.StandbyMultipooler.Name)
 		foundStandby := false
 		for _, follower := range statusResp.Status.ConnectedFollowers {
-			if follower.Cell == "test-cell" && follower.Name == setup.StandbyMultipooler.ServiceID {
+			if follower.Cell == "test-cell" && follower.Name == setup.StandbyMultipooler.Name {
 				foundStandby = true
 				break
 			}
@@ -378,7 +378,7 @@ func TestGetFollowers(t *testing.T) {
 		}, 10*time.Second, 500*time.Millisecond, "Standby should be connected (from default setup)")
 
 		// Configure synchronous replication with the standby
-		standbyID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.ServiceID)
+		standbyID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.Name)
 		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -410,7 +410,7 @@ func TestGetFollowers(t *testing.T) {
 
 		follower := followersResp.Followers[0]
 		assert.Equal(t, "test-cell", follower.FollowerId.Cell, "Follower cell should match")
-		assert.Equal(t, setup.StandbyMultipooler.ServiceID, follower.FollowerId.Name, "Follower name should match")
+		assert.Equal(t, setup.StandbyMultipooler.Name, follower.FollowerId.Name, "Follower name should match")
 		assert.True(t, follower.IsConnected, "Follower should be connected")
 		assert.NotEmpty(t, follower.ApplicationName, "Application name should be set")
 
@@ -447,7 +447,7 @@ func TestGetFollowers(t *testing.T) {
 		}, 10*time.Second, 500*time.Millisecond, "Standby should be connected (from default setup)")
 
 		// Configure synchronous replication with the standby
-		standbyID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.ServiceID)
+		standbyID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.Name)
 		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
@@ -510,7 +510,7 @@ func TestGetFollowers(t *testing.T) {
 		assert.False(t, follower.IsConnected, "Follower should be disconnected")
 		assert.Nil(t, follower.ReplicationStats, "Replication stats should be nil for disconnected follower")
 		assert.Equal(t, "test-cell", follower.FollowerId.Cell, "Follower cell should still match")
-		assert.Equal(t, setup.StandbyMultipooler.ServiceID, follower.FollowerId.Name, "Follower name should still match")
+		assert.Equal(t, setup.StandbyMultipooler.Name, follower.FollowerId.Name, "Follower name should still match")
 
 		t.Log("Verified: Follower disconnect is correctly reflected in GetFollowers response")
 	})
@@ -531,7 +531,7 @@ func TestGetFollowers(t *testing.T) {
 		}, 10*time.Second, 500*time.Millisecond, "Standby should be connected (from default setup)")
 
 		// Configure synchronous replication with real standby + fake standby
-		connectedID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.ServiceID)
+		connectedID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.Name)
 		disconnectedID := makeMultipoolerID("test-cell", "missing-standby")
 		configReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
@@ -574,7 +574,7 @@ func TestGetFollowers(t *testing.T) {
 			if follower.IsConnected {
 				connectedCount++
 				assert.NotNil(t, follower.ReplicationStats, "Connected follower should have stats")
-				assert.Equal(t, setup.StandbyMultipooler.ServiceID, follower.FollowerId.Name, "Connected follower name should match")
+				assert.Equal(t, setup.StandbyMultipooler.Name, follower.FollowerId.Name, "Connected follower name should match")
 			} else {
 				disconnectedCount++
 				assert.Nil(t, follower.ReplicationStats, "Disconnected follower should not have stats")
