@@ -366,8 +366,9 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 	t.Logf("Removed replica %s from standby list via RPC", replicaName)
 
 	// Verify the replica is no longer in the standby list
-	require.False(t, isReplicaInStandbyList(t, primaryClient, replicaName),
-		"replica %s should not be in standby list after removal", replicaName)
+	require.Eventually(t, func() bool {
+		return !isReplicaInStandbyList(t, primaryClient, replicaName)
+	}, 5*time.Second, 1*time.Second, "replica should not be in standby list after removal")
 }
 
 // waitForReplicationFixed polls until multiorch fixes the replication
