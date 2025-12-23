@@ -214,18 +214,18 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	return pm, nil
 }
 
-// internalQuerier returns the InternalQuerier for executing queries via the connection pool.
-func (pm *MultiPoolerManager) internalQuerier() executor.InternalQuerier {
+// internalQueryService returns the InternalQueryService for executing queries via the connection pool.
+func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryService {
 	if pm.qsc == nil {
 		return nil
 	}
-	return pm.qsc.InternalQuerier()
+	return pm.qsc.InternalQueryService()
 }
 
 // query executes a query using the internal querier and returns the result.
 // This is a convenience method for internal manager operations.
 func (pm *MultiPoolerManager) query(ctx context.Context, sql string) (*query.QueryResult, error) {
-	querier := pm.internalQuerier()
+	querier := pm.internalQueryService()
 	if querier == nil {
 		return nil, fmt.Errorf("internal querier not available")
 	}
@@ -295,8 +295,8 @@ func (pm *MultiPoolerManager) Open() error {
 
 // startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
-	// Create the replication tracker using the executor's InternalQuerier
-	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQuerier(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
+	// Create the replication tracker using the executor's InternalQueryService
+	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQueryService(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
 
 	// Check if we're connected to a primary
 	isPrimary, err := pm.isPrimary(ctx)

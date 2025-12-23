@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// Querier is a mock implementation of executor.InternalQuerier for testing.
+// Querier is a mock implementation of executor.InternalQueryService for testing.
 type Querier struct {
 	mu       sync.Mutex
 	patterns []queryPattern
@@ -45,8 +45,8 @@ func NewQuerier() *Querier {
 	return &Querier{}
 }
 
-// Compile-time check that Querier implements InternalQuerier.
-var _ executor.InternalQuerier = (*Querier)(nil)
+// Compile-time check that Querier implements InternalQueryService.
+var _ executor.InternalQueryService = (*Querier)(nil)
 
 // AddQueryPattern adds a query pattern with an expected result.
 func (m *Querier) AddQueryPattern(pattern string, result *query.QueryResult) {
@@ -103,7 +103,7 @@ func (m *Querier) AddQueryPatternOnce(pattern string, result *query.QueryResult)
 	})
 }
 
-// Query implements executor.InternalQuerier.
+// Query implements executor.InternalQueryService.
 func (m *Querier) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
 	m.mu.Lock()
 	matchedIndex := -1
@@ -138,6 +138,12 @@ func (m *Querier) Query(ctx context.Context, queryStr string) (*query.QueryResul
 		return nil, matched.err
 	}
 	return matched.result, nil
+}
+
+// QueryArgs implements executor.InternalQueryService.
+// For the mock, arguments are ignored and matching is done solely on the query string.
+func (m *Querier) QueryArgs(ctx context.Context, queryStr string, args ...any) (*query.QueryResult, error) {
+	return m.Query(ctx, queryStr)
 }
 
 // MakeQueryResult creates a query.QueryResult from columns and rows.

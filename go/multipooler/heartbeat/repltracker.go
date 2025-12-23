@@ -33,7 +33,7 @@ type ReplTracker struct {
 }
 
 // NewReplTracker creates a new ReplTracker.
-func NewReplTracker(querier executor.InternalQuerier, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *ReplTracker {
+func NewReplTracker(querier executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *ReplTracker {
 	return &ReplTracker{
 		hw: NewWriter(querier, logger, shardID, poolerID, intervalMs),
 		hr: NewReader(querier, logger, shardID),

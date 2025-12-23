@@ -37,7 +37,7 @@ var (
 // Writer runs on primary databases and writes heartbeats to the heartbeat
 // table at regular intervals.
 type Writer struct {
-	querier  executor.InternalQuerier
+	querier  executor.InternalQueryService
 	logger   *slog.Logger
 	shardID  []byte
 	poolerID string
@@ -58,7 +58,7 @@ type Writer struct {
 // NewWriter creates a new heartbeat writer.
 //
 // We do not support on-demand or disabled heartbeats at this time.
-func NewWriter(querier executor.InternalQuerier, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
+func NewWriter(querier executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
 	interval := time.Duration(intervalMs) * time.Millisecond
 	if intervalMs <= 0 {
 		interval = defaultHeartbeatInterval

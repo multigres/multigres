@@ -43,9 +43,9 @@ func (m *mockPoolerController) IsServing() bool            { return true }
 func (m *mockPoolerController) SetServingType(context.Context, clustermetadatapb.PoolerServingStatus) error {
 	return nil
 }
-func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { return nil, nil }
-func (m *mockPoolerController) InternalQuerier() executor.InternalQuerier    { return m.querier }
-func (m *mockPoolerController) RegisterGRPCServices()                        {}
+func (m *mockPoolerController) Executor() (queryservice.QueryService, error)        { return nil, nil }
+func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService { return m.querier }
+func (m *mockPoolerController) RegisterGRPCServices()                               {}
 
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 

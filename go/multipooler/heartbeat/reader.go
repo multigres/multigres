@@ -41,7 +41,7 @@ const (
 // Lag is calculated by comparing the most recent timestamp in the heartbeat
 // table against the current time at read time.
 type Reader struct {
-	querier  executor.InternalQuerier
+	querier  executor.InternalQueryService
 	logger   *slog.Logger
 	shardID  []byte
 	interval time.Duration
@@ -61,7 +61,7 @@ type Reader struct {
 }
 
 // NewReader returns a new heartbeat reader.
-func NewReader(querier executor.InternalQuerier, logger *slog.Logger, shardID []byte) *Reader {
+func NewReader(querier executor.InternalQueryService, logger *slog.Logger, shardID []byte) *Reader {
 	return &Reader{
 		querier:  querier,
 		logger:   logger,
