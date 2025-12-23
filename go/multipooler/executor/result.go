@@ -99,7 +99,9 @@ func scanValue(val []byte, dest any) error {
 		}
 		*d = v
 	case *time.Time:
-		// Try common PostgreSQL timestamp formats
+		// PostgreSQL timestamp formats from the PostgreSQL documentation:
+		// https://www.postgresql.org/docs/current/datatype-datetime.html#DATATYPE-DATETIME-OUTPUT
+		// We support the ISO 8601 style formats commonly returned by PostgreSQL.
 		for _, format := range []string{
 			"2006-01-02 15:04:05.999999-07",
 			"2006-01-02 15:04:05.999999",
