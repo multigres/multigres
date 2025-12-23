@@ -195,7 +195,7 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 		status.LastReceiveLsn = *receiveLsn
 	}
 	if lastXactTime != nil {
-		status.LastReplayLsn = *lastXactTime
+		status.LastXactReplayTimestamp = *lastXactTime
 	}
 
 	// Parse primary_conninfo into structured format
