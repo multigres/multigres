@@ -24,7 +24,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -415,7 +414,6 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
-	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
 
 	// Get cell-specific multigateway config
@@ -470,7 +468,6 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 		"--pg-port", fmt.Sprintf("%d", pgPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
-		"--topo-implementation", topoBackend,
 		"--cell", cell,
 		"--log-level", logLevel,
 		"--log-output", logFile,
@@ -575,7 +572,6 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
-	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
 
 	// Get log level
@@ -605,7 +601,6 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
-		"--topo-implementation", topoBackend,
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--service-map", "grpc-multiadmin",
@@ -695,7 +690,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
-	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
 
 	// Get cell-specific multipooler config
@@ -798,7 +792,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
-		"--topo-implementation", topoBackend,
 		"--cell", cell,
 		"--database", database,
 		"--table-group", tableGroup,
@@ -914,7 +907,6 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Get parameters from request
 	etcdAddress := req.Params["etcd_address"].(string)
-	topoBackend := req.Params["topo_backend"].(string)
 	topoGlobalRoot := req.Params["topo_global_root"].(string)
 	cell = req.Params["cell"].(string)
 
@@ -963,7 +955,6 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 		"--grpc-port", fmt.Sprintf("%d", grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
-		"--topo-implementation", topoBackend,
 		"--cell", cell,
 		"--watch-targets", req.DatabaseName,
 		"--log-level", logLevel,
@@ -1316,7 +1307,6 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 		Service: constants.ServiceMultiadmin,
 		Params: map[string]any{
 			"etcd_address":     etcdAddress,
-			"topo_backend":     topoConfig.Backend,
 			"topo_global_root": topoConfig.GlobalRootPath,
 		},
 	}
@@ -1571,7 +1561,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Println("=== Registering database in topology ===")
 	fmt.Printf("⚙️  - Registering database: %s\n", databaseName)
 
-	ts, err := topoclient.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -1628,7 +1618,6 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 				DatabaseName: databaseName,
 				Params: map[string]any{
 					"etcd_address":     etcdAddress,
-					"topo_backend":     topoConfig.Backend,
 					"topo_global_root": topoConfig.GlobalRootPath,
 					"cell":             cell,
 				},
@@ -1648,7 +1637,6 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 				DatabaseName: databaseName,
 				Params: map[string]any{
 					"etcd_address":     etcdAddress,
-					"topo_backend":     topoConfig.Backend,
 					"topo_global_root": topoConfig.GlobalRootPath,
 					"cell":             cell,
 				},
@@ -1668,7 +1656,6 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 				DatabaseName: databaseName,
 				Params: map[string]any{
 					"etcd_address":     etcdAddress,
-					"topo_backend":     topoConfig.Backend,
 					"topo_global_root": topoConfig.GlobalRootPath,
 					"cell":             cell,
 				},
@@ -1723,7 +1710,7 @@ func (p *localProvisioner) setupDefaultCell(ctx context.Context, cellName, etcdA
 	topoConfig := p.config.Topology
 
 	// Create topology store using configured backend
-	ts, err := topoclient.OpenServer(topoConfig.Backend, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, topoConfig.GlobalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -1870,13 +1857,6 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 	}
 	if err := yaml.Unmarshal(yamlData, typedConfig); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	// Validate topology backend
-	availableBackends := topoclient.GetAvailableImplementations()
-	validBackend := slices.Contains(availableBackends, typedConfig.Topology.Backend)
-	if !validBackend {
-		return fmt.Errorf("invalid topo backend: %s (available: %v)", typedConfig.Topology.Backend, availableBackends)
 	}
 
 	// Validate required topology fields
