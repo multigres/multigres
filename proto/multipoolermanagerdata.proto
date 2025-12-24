@@ -88,26 +88,21 @@ message StartReplicationResponse {
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
-  // Pooler ID of the primary (e.g., "pooler-1")
-  string primary_pooler_id = 1;
-
-  // Primary server hostname
-  string host = 2;
-
-  // Primary server port
-  int32 port = 3;
+  // Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
+  // The postgres port is extracted from port_map["postgres"].
+  clustermetadata.MultiPooler primary = 1;
 
   // Whether to stop replication before making changes
-  bool stop_replication_before = 4;
+  bool stop_replication_before = 2;
 
   // Whether to start replication after making changes
-  bool start_replication_after = 5;
+  bool start_replication_after = 3;
 
   // Current term for consensus (used by MultiOrch during initialization)
-  int64 current_term = 6;
+  int64 current_term = 4;
 
   // Force the operation even if the term doesn't match
-  bool force = 7;
+  bool force = 5;
 }
 
 message SetPrimaryConnInfoResponse {
