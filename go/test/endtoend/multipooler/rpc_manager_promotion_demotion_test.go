@@ -105,6 +105,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Now configure the demoted server to replicate from the standby (which will be promoted)
 		t.Log("Configuring demoted primary to replicate from standby...")
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			PrimaryPoolerId:       "test-primary-id",
 			Host:                  "localhost",
 			Port:                  int32(setup.StandbyMultipooler.PgPort),
 			StopReplicationBefore: false,
@@ -256,6 +257,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// Configure demoted primary to replicate from standby
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			PrimaryPoolerId:       "test-primary-id",
 			Host:                  "localhost",
 			Port:                  int32(setup.StandbyMultipooler.PgPort),
 			StopReplicationBefore: false,
@@ -298,6 +300,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// Configure demoted primary to replicate from standby
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			PrimaryPoolerId:       "test-primary-id",
 			Host:                  "localhost",
 			Port:                  int32(setup.StandbyMultipooler.PgPort),
 			StopReplicationBefore: false,
@@ -394,6 +397,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// Configure demoted primary to replicate from standby
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			PrimaryPoolerId:       "test-primary-id",
 			Host:                  "localhost",
 			Port:                  int32(setup.StandbyMultipooler.PgPort),
 			StopReplicationBefore: false,
@@ -453,6 +457,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Configure the demoted server to replicate from the standby
 		t.Log("Configuring demoted primary to replicate from standby...")
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			PrimaryPoolerId:       "test-primary-id",
 			Host:                  "localhost",
 			Port:                  int32(setup.StandbyMultipooler.PgPort),
 			StopReplicationBefore: false,

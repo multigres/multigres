@@ -268,6 +268,7 @@ func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient) {
 	// Clear primary_conninfo by setting it to empty host
 	// Use StopReplicationBefore=true to stop WAL receiver first
 	_, err := client.Manager.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		PrimaryPoolerId:       "test-primary-id",
 		Host:                  "",
 		Port:                  0,
 		StopReplicationBefore: true,
