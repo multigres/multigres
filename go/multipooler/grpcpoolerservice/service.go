@@ -22,6 +22,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -379,4 +380,72 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 			return status.Errorf(codes.InvalidArgument, "unexpected phase: %v", req.Phase)
 		}
 	}
+}
+
+// StreamPoolerHealth streams health updates to the client.
+// Sends an initial health state immediately, then updates when state changes.
+func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealthRequest, stream multipoolerpb.MultiPoolerService_StreamPoolerHealthServer) error {
+	ctx := stream.Context()
+
+	// Check if pooler is initialized
+	if s.pooler == nil {
+		return status.Error(codes.Unavailable, "pooler not initialized")
+	}
+
+	// Get the health provider
+	hp := s.pooler.HealthProvider()
+	if hp == nil {
+		return status.Error(codes.Unavailable, "health provider not initialized")
+	}
+
+	// Subscribe to health updates
+	initialState, healthChan, err := hp.SubscribeHealth(ctx)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to subscribe to health: %v", err)
+	}
+
+	// Send initial health state
+	if initialState != nil {
+		if err := stream.Send(healthStateToProto(initialState)); err != nil {
+			return err
+		}
+	}
+
+	// Stream updates until client disconnects or context is cancelled
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case state, ok := <-healthChan:
+			if !ok {
+				// Channel closed, stream ended
+				return nil
+			}
+			if err := stream.Send(healthStateToProto(state)); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// healthStateToProto converts internal health state to proto response.
+func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPoolerHealthResponse {
+	resp := &multipoolerpb.StreamPoolerHealthResponse{
+		Target:        state.Target,
+		PoolerId:      state.PoolerID,
+		ServingStatus: state.ServingStatus,
+	}
+
+	if state.PrimaryObservation != nil {
+		resp.PrimaryObservation = &multipoolerpb.PrimaryObservation{
+			PrimaryId: state.PrimaryObservation.PrimaryID,
+			Term:      state.PrimaryObservation.Term,
+		}
+	}
+
+	if state.RecommendedStalenessTimeout > 0 {
+		resp.RecommendedStalenessTimeout = durationpb.New(state.RecommendedStalenessTimeout)
+	}
+
+	return resp
 }

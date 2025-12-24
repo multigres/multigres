@@ -43,6 +43,7 @@ const (
 	MultiPoolerService_Describe_FullMethodName            = "/multipoolerservice.MultiPoolerService/Describe"
 	MultiPoolerService_GetAuthCredentials_FullMethodName  = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
 	MultiPoolerService_CopyBidiExecute_FullMethodName     = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
+	MultiPoolerService_StreamPoolerHealth_FullMethodName  = "/multipoolerservice.MultiPoolerService/StreamPoolerHealth"
 )
 
 // MultiPoolerServiceClient is the client API for MultiPoolerService service.
@@ -74,6 +75,19 @@ type MultiPoolerServiceClient interface {
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error)
+	// StreamPoolerHealth streams health updates from the multipooler.
+	//
+	// The server sends an initial health response immediately upon connection,
+	// then pushes updates whenever the health state changes. If no state change
+	// occurs within the heartbeat interval, the server sends a heartbeat to
+	// confirm the stream is alive.
+	//
+	// Clients MUST implement a staleness timeout. The recommended timeout is provided
+	// in recommended_staleness_timeout_seconds in each response. If no message is
+	// received within this timeout, the pooler should be marked unhealthy.
+	//
+	// Each response contains the full health state (not incremental updates).
+	StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error)
 }
 
 type multiPoolerServiceClient struct {
@@ -165,6 +179,25 @@ func (c *multiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_CopyBidiExecuteClient = grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
 
+func (c *multiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[3], MultiPoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamPoolerHealthRequest, StreamPoolerHealthResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamPoolerHealthClient = grpc.ServerStreamingClient[StreamPoolerHealthResponse]
+
 // MultiPoolerServiceServer is the server API for MultiPoolerService service.
 // All implementations must embed UnimplementedMultiPoolerServiceServer
 // for forward compatibility.
@@ -194,6 +227,19 @@ type MultiPoolerServiceServer interface {
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error
+	// StreamPoolerHealth streams health updates from the multipooler.
+	//
+	// The server sends an initial health response immediately upon connection,
+	// then pushes updates whenever the health state changes. If no state change
+	// occurs within the heartbeat interval, the server sends a heartbeat to
+	// confirm the stream is alive.
+	//
+	// Clients MUST implement a staleness timeout. The recommended timeout is provided
+	// in recommended_staleness_timeout_seconds in each response. If no message is
+	// received within this timeout, the pooler should be marked unhealthy.
+	//
+	// Each response contains the full health state (not incremental updates).
+	StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
 
@@ -221,6 +267,9 @@ func (UnimplementedMultiPoolerServiceServer) GetAuthCredentials(context.Context,
 }
 func (UnimplementedMultiPoolerServiceServer) CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method CopyBidiExecute not implemented")
+}
+func (UnimplementedMultiPoolerServiceServer) StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamPoolerHealth not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
 func (UnimplementedMultiPoolerServiceServer) testEmbeddedByValue()                            {}
@@ -326,6 +375,17 @@ func _MultiPoolerService_CopyBidiExecute_Handler(srv interface{}, stream grpc.Se
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_CopyBidiExecuteServer = grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
 
+func _MultiPoolerService_StreamPoolerHealth_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamPoolerHealthRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MultiPoolerServiceServer).StreamPoolerHealth(m, &grpc.GenericServerStream[StreamPoolerHealthRequest, StreamPoolerHealthResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamPoolerHealthServer = grpc.ServerStreamingServer[StreamPoolerHealthResponse]
+
 // MultiPoolerService_ServiceDesc is the grpc.ServiceDesc for MultiPoolerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -362,6 +422,11 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _MultiPoolerService_CopyBidiExecute_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "StreamPoolerHealth",
+			Handler:       _MultiPoolerService_StreamPoolerHealth_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "multipoolerservice.proto",
