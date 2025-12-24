@@ -152,13 +152,6 @@ func (a *FixReplicationAction) fixNotReplicating(
 		"replica", replica.MultiPooler.Id.Name,
 		"primary", primary.MultiPooler.Id.Name)
 
-	// Get the primary's postgres port
-	primaryPort, ok := primary.MultiPooler.PortMap["postgres"]
-	if !ok {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"primary %s has no postgres port configured", primary.MultiPooler.Id.Name)
-	}
-
 	// Get the current consensus term from the primary
 	consensusResp, err := a.rpcClient.ConsensusStatus(ctx, primary.MultiPooler, &consensusdatapb.StatusRequest{})
 	if err != nil {
@@ -173,9 +166,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 
 	// Configure primary_conninfo on the replica
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		PrimaryPoolerId:       primary.MultiPooler.Id.Name,
-		Host:                  primary.MultiPooler.Hostname,
-		Port:                  primaryPort,
+		Primary:               primary.MultiPooler,
 		StopReplicationBefore: true,
 		StartReplicationAfter: true,
 		CurrentTerm:           consensusTerm,
@@ -184,8 +175,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 
 	a.logger.InfoContext(ctx, "setting primary connection info",
 		"replica", replica.MultiPooler.Id.Name,
-		"primary_host", req.Host,
-		"primary_port", req.Port,
+		"primary", primary.MultiPooler.Id.Name,
 		"consensus_term", consensusTerm)
 
 	_, err = a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
