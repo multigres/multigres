@@ -71,23 +71,3 @@ func TestGetAuthCredentials_Validation(t *testing.T) {
 		assert.Contains(t, st.Message(), "pooler not initialized")
 	})
 }
-
-func TestEscapeString(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"simple", "simple"},
-		{"with'quote", "with''quote"},
-		{"multiple'quotes'here", "multiple''quotes''here"},
-		{"", ""},
-		{"no special chars", "no special chars"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := escapeString(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}

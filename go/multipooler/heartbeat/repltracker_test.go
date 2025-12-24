@@ -25,15 +25,15 @@ import (
 )
 
 func TestReplTrackerMakePrimary(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(querier, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	assert.False(t, rt.IsPrimary())
@@ -51,10 +51,10 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 }
 
 func TestReplTrackerMakeNonPrimary(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
-	querier.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
 		[]string{"ts"},
 		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
 	))
@@ -63,7 +63,7 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(querier, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	rt.MakePrimary()
@@ -87,15 +87,15 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 }
 
 func TestReplTrackerEnableHeartbeat(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(querier, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	rt.hw.Open()
@@ -127,11 +127,11 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 }
 
 func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 
 	// Setup queries for both writer and reader
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
-	querier.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
 		[]string{"ts"},
 		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
 	))
@@ -140,7 +140,7 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(querier, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	// Use shorter intervals for testing
