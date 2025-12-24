@@ -240,7 +240,16 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "SetPrimaryConnInfo times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
-				return manager.SetPrimaryConnInfo(ctx, "test-primary-id", "localhost", 5432, false, false, 1, true)
+				primary := &clustermetadatapb.MultiPooler{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      "zone1",
+						Name:      "test-primary",
+					},
+					Hostname: "localhost",
+					PortMap:  map[string]int32{"postgres": 5432},
+				}
+				return manager.SetPrimaryConnInfo(ctx, primary, false, false, 1, true)
 			},
 		},
 		{
@@ -941,20 +950,32 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	err = pm.SetTerm(ctx, term)
 	require.NoError(t, err)
 
-	// Call SetPrimaryConnInfo with a specific primaryPoolerID
-	testPrimaryPoolerID := "primary-pooler-123"
-	err = pm.SetPrimaryConnInfo(ctx, testPrimaryPoolerID, "primary-host", 5432, false, false, 1, false)
+	// Call SetPrimaryConnInfo with a specific primary MultiPooler
+	testPrimaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "primary-pooler-123",
+	}
+	primary := &clustermetadatapb.MultiPooler{
+		Id:       testPrimaryID,
+		Hostname: "primary-host",
+		PortMap:  map[string]int32{"postgres": 5432},
+	}
+	err = pm.SetPrimaryConnInfo(ctx, primary, false, false, 1, false)
 	require.NoError(t, err)
 
 	// Verify all mock expectations were met
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 
-	// Verify the primaryPoolerID is stored in the manager
+	// Verify the primaryPoolerID is stored in the manager as a *clustermetadatapb.ID
 	pm.mu.Lock()
 	storedPrimaryPoolerID := pm.primaryPoolerID
 	pm.mu.Unlock()
 
-	assert.Equal(t, testPrimaryPoolerID, storedPrimaryPoolerID, "primaryPoolerID should be stored correctly")
+	require.NotNil(t, storedPrimaryPoolerID, "primaryPoolerID should be stored")
+	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primaryPoolerID component should match")
+	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primaryPoolerID cell should match")
+	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primaryPoolerID name should match")
 }
 
 func TestReplicationStatus(t *testing.T) {
