@@ -538,10 +538,17 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		t.Log("Restoring original state...")
 
 		// Configure demoted primary to replicate from standby
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      setup.CellName,
+				Name:      setup.StandbyMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
+		}
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       setup.StandbyMultipooler.Name,
-			Host:                  "localhost",
-			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           newTerm,

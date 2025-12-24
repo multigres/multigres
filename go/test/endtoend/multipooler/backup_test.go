@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -305,10 +306,17 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			// Configure replication after restore
 			t.Log("Configuring replication after restore...")
+			primary := &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "test-cell",
+					Name:      setup.PrimaryMultipooler.Name,
+				},
+				Hostname: "localhost",
+				PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+			}
 			setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-				PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
-				Host:                  "localhost",
-				Port:                  int32(setup.PrimaryPgctld.PgPort),
+				Primary:               primary,
 				StartReplicationAfter: true,
 				StopReplicationBefore: false,
 				CurrentTerm:           1,
@@ -816,10 +824,17 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 		defer standbyConn.Close()
 
 		standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,

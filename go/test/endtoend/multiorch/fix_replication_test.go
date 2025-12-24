@@ -265,12 +265,10 @@ func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Clear primary_conninfo by setting it to empty host
+	// Clear primary_conninfo by setting it to nil
 	// Use StopReplicationBefore=true to stop WAL receiver first
 	_, err := client.Manager.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		PrimaryPoolerId:       "",
-		Host:                  "",
-		Port:                  0,
+		Primary:               nil, // nil primary clears the connection
 		StopReplicationBefore: true,
 		StartReplicationAfter: false,
 		Force:                 true, // Force to bypass term check
