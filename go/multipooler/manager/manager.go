@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -419,18 +418,9 @@ func (pm *MultiPoolerManager) GetMultiPooler() (*topoclient.MultiPoolerInfo, Man
 	return pm.multipooler, pm.state, pm.stateError
 }
 
-// getBackupConfigPath returns the path to the pgbackrest config file
-func (pm *MultiPoolerManager) getBackupConfigPath() string {
-	return filepath.Join(pm.config.PoolerDir, "pgbackrest.conf")
-}
-
-// getBackupStanza returns the pgbackrest stanza name
-func (pm *MultiPoolerManager) getBackupStanza() string {
-	// Use configured stanza name if set, otherwise fallback to service ID
-	if pm.config.PgBackRestStanza != "" {
-		return pm.config.PgBackRestStanza
-	}
-	return pm.serviceID.Name
+// stanzaName returns the pgbackrest stanza name
+func (pm *MultiPoolerManager) stanzaName() string {
+	return "multigres"
 }
 
 // getPgCtldClient returns the pgctld gRPC client
