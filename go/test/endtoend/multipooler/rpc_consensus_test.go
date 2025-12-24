@@ -539,7 +539,7 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 
 		// Configure demoted primary to replicate from standby
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.StandbyMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.StandbyMultipooler.PgPort),
 			StopReplicationBefore: false,

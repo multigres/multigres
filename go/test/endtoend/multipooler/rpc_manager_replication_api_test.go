@@ -132,7 +132,7 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err, "SetTerm should succeed on standby")
 
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
@@ -184,7 +184,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Try to set primary conn info with stale term (current term is 1, we'll try with 0)
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
@@ -231,7 +231,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		t.Log("Calling SetPrimaryConnInfo with StopReplicationBefore=true, StartReplicationAfter=false...")
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: false, // Don't start after
@@ -291,7 +291,7 @@ func TestReplicationAPIs(t *testing.T) {
 		require.NoError(t, err, "SetTerm should succeed on standby")
 
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: false, // Don't start after
@@ -918,7 +918,7 @@ func TestReplicationAPIs(t *testing.T) {
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
@@ -985,7 +985,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Re-enable replication using SetPrimaryConnInfo
 		t.Log("Re-enabling replication...")
 		setPrimaryReq = &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
@@ -1117,7 +1117,7 @@ func TestStandbyReplicationStatus(t *testing.T) {
 		// Configure replication
 		t.Log("Configuring replication on standby...")
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
@@ -1175,7 +1175,7 @@ func TestStandbyReplicationStatus(t *testing.T) {
 		require.NoError(t, err, "SetTerm should succeed on standby")
 
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: false,
@@ -1279,7 +1279,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 
 		t.Log("Configuring replication on standby...")
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
@@ -1732,7 +1732,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 
 		t.Log("Ensuring standby is connected to primary and replicating...")
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,

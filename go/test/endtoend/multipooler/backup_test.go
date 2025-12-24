@@ -306,7 +306,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Configure replication after restore
 			t.Log("Configuring replication after restore...")
 			setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-				PrimaryPoolerId:       "test-primary-id",
+				PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 				Host:                  "localhost",
 				Port:                  int32(setup.PrimaryPgctld.PgPort),
 				StartReplicationAfter: true,
@@ -817,7 +817,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 		standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,

@@ -238,7 +238,7 @@ func TestPrimaryStatus(t *testing.T) {
 
 		// Ensure standby is connected and replicating
 		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			PrimaryPoolerId:       "test-primary-id",
+			PrimaryPoolerId:       setup.PrimaryMultipooler.Name,
 			Host:                  "localhost",
 			Port:                  int32(setup.PrimaryPgctld.PgPort),
 			StartReplicationAfter: true,
