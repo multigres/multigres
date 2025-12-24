@@ -102,23 +102,3 @@ func (m *mockHealthStream) Context() context.Context {
 func (m *mockHealthStream) Send(*multipoolerpb.StreamPoolerHealthResponse) error {
 	return nil
 }
-
-func TestEscapeString(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"simple", "simple"},
-		{"with'quote", "with''quote"},
-		{"multiple'quotes'here", "multiple''quotes''here"},
-		{"", ""},
-		{"no special chars", "no special chars"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := escapeString(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}

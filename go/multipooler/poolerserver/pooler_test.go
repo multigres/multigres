@@ -87,7 +87,7 @@ func TestNewQueryPoolerServer_CustomInternalUser(t *testing.T) {
 				internalUser: tt.internalUser,
 			}
 
-			pooler := NewQueryPoolerServer(logger, mockMgr)
+			pooler := NewQueryPoolerServer(logger, mockMgr, nil)
 
 			require.NotNil(t, pooler)
 			assert.Equal(t, logger, pooler.logger)
@@ -115,7 +115,7 @@ func TestNewQueryPoolerServer_InternalUserPassthrough(t *testing.T) {
 		internalUser: customUser,
 	}
 
-	pooler := NewQueryPoolerServer(logger, mockMgr)
+	pooler := NewQueryPoolerServer(logger, mockMgr, nil)
 
 	require.NotNil(t, pooler)
 
