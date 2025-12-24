@@ -90,7 +90,12 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 	var port int32
 	if primary != nil {
 		host = primary.Hostname
-		port = primary.PortMap["postgres"]
+		var ok bool
+		port, ok = primary.PortMap["postgres"]
+		if !ok {
+			return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+				"primary %s has no postgres port configured", primary.Id.Name)
+		}
 	}
 
 	// Store primary pooler ID (nil if clearing)
