@@ -85,13 +85,21 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 		return err
 	}
 
-	// Extract host and port from the MultiPooler
-	host := primary.Hostname
-	port := primary.PortMap["postgres"]
+	// Extract host and port from the MultiPooler (nil means clear the config)
+	var host string
+	var port int32
+	if primary != nil {
+		host = primary.Hostname
+		port = primary.PortMap["postgres"]
+	}
 
-	// Store primary pooler ID
+	// Store primary pooler ID (nil if clearing)
 	pm.mu.Lock()
-	pm.primaryPoolerID = primary.Id
+	if primary != nil {
+		pm.primaryPoolerID = primary.Id
+	} else {
+		pm.primaryPoolerID = nil
+	}
 	pm.mu.Unlock()
 
 	// Call the locked version that assumes action lock is already held
