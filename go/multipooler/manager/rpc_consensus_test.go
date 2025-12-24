@@ -154,9 +154,9 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-B",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPattern("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -180,7 +180,7 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-B",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    false,
 			expectedTerm:                        5,
@@ -204,9 +204,9 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-A",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPattern("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        5,
@@ -225,9 +225,9 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				// isInRecovery check - returns false (not in recovery = primary)
-				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 				// demoteLocked fails at checkDemotionState or another early step
 				// Simulate failure by not setting up expected queries for demotion steps
 			},
@@ -248,12 +248,12 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				// isInRecovery check - returns true (in recovery = standby/demoted)
-				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				// Since in recovery, check if caught up with replication
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPattern("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -272,15 +272,15 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				// isInRecovery check - returns true (in recovery = standby)
-				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				// WAL receiver query returns error (disconnected standby)
-				m.AddQueryPatternWithError("SELECT last_msg_receipt_time", fmt.Errorf("no rows"))
+				m.AddQueryPatternOnceWithError("SELECT last_msg_receipt_time", fmt.Errorf("no rows"))
 				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
-				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// pauseReplication - pg_reload_conf
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -299,16 +299,16 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				// isInRecovery check - returns true (standby)
-				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				// WAL receiver check - connected and caught up
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPattern("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
-				m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// pauseReplication - pg_reload_conf
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -344,9 +344,9 @@ func TestBeginTerm(t *testing.T) {
 			},
 			makeFilesystemReadOnly: true,
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPattern("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedError:        true,
 			expectedMemoryTerm:   5,
@@ -395,6 +395,7 @@ func TestBeginTerm(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
 			assert.Equal(t, tt.expectedAcceptedTermFromCoordinator, persistedTerm.AcceptedTermFromCoordinatorId.GetName())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 
@@ -466,6 +467,7 @@ func TestBeginTerm(t *testing.T) {
 					assert.Equal(t, tt.expectedMemoryLeader, loadedTerm.AcceptedTermFromCoordinatorId.GetName(), "Disk leader should match initial state after save failure")
 				}
 			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -648,7 +650,7 @@ func TestCanReachPrimary(t *testing.T) {
 			requestPort: 5432,
 			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=localhost port=5432 user=replicator application_name=test-cell_standby-1"
-				m.AddQueryPattern("SELECT status, conninfo FROM pg_stat_wal_receiver",
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
 					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable: true,
@@ -659,7 +661,7 @@ func TestCanReachPrimary(t *testing.T) {
 			requestHost: "localhost",
 			requestPort: 5432,
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPattern("SELECT status, conninfo FROM pg_stat_wal_receiver",
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
 					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{}))
 			},
 			expectedReachable:     false,
@@ -672,7 +674,7 @@ func TestCanReachPrimary(t *testing.T) {
 			requestPort: 5432,
 			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=localhost port=5432 user=replicator"
-				m.AddQueryPattern("SELECT status, conninfo FROM pg_stat_wal_receiver",
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
 					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"stopping", conninfo}}))
 			},
 			expectedReachable:     false,
@@ -685,7 +687,7 @@ func TestCanReachPrimary(t *testing.T) {
 			requestPort: 5432,
 			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=other-host port=5432 user=replicator"
-				m.AddQueryPattern("SELECT status, conninfo FROM pg_stat_wal_receiver",
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
 					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable:     false,
@@ -698,7 +700,7 @@ func TestCanReachPrimary(t *testing.T) {
 			requestPort: 5432,
 			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=localhost port=5433 user=replicator"
-				m.AddQueryPattern("SELECT status, conninfo FROM pg_stat_wal_receiver",
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
 					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable:     false,
@@ -721,7 +723,7 @@ func TestCanReachPrimary(t *testing.T) {
 			requestPort: 5432,
 			setupMock: func(m *mock.QueryService) {
 				conninfo := "invalid format without equals"
-				m.AddQueryPattern("SELECT status, conninfo FROM pg_stat_wal_receiver",
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
 					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable:     false,
@@ -762,6 +764,7 @@ func TestCanReachPrimary(t *testing.T) {
 			} else {
 				assert.Empty(t, resp.ErrorMessage)
 			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -795,10 +798,10 @@ func TestConsensusStatus(t *testing.T) {
 			termInMemory: true,
 			setupMock: func(m *mock.QueryService) {
 				// Health check SELECT 1
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				m.AddQueryPattern("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/4000000"}}))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+				m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/4000000"}}))
 			},
 			expectedCurrentTerm: 5,
 			expectedIsHealthy:   true,
@@ -815,11 +818,11 @@ func TestConsensusStatus(t *testing.T) {
 			termInMemory: true,
 			setupMock: func(m *mock.QueryService) {
 				// Health check SELECT 1
-				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
 				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				// queryReplicationStatus() expects full replication status query
-				m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
 					[]string{
 						"pg_last_wal_replay_lsn",
 						"pg_last_wal_receive_lsn",
@@ -859,7 +862,7 @@ func TestConsensusStatus(t *testing.T) {
 			termInMemory: true,
 			setupMock: func(m *mock.QueryService) {
 				// Health check fails
-				m.AddQueryPatternWithError("SELECT 1", fmt.Errorf("connection refused"))
+				m.AddQueryPatternOnceWithError("SELECT 1", fmt.Errorf("connection refused"))
 			},
 			expectedCurrentTerm: 4,
 			expectedIsHealthy:   false,
@@ -936,6 +939,7 @@ func TestConsensusStatus(t *testing.T) {
 				assert.Equal(t, tt.expectedCurrentTerm, currentTerm, "Term should be loaded into memory")
 				pm.actionLock.Release(inspectCtx)
 			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }

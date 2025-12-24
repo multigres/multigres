@@ -103,6 +103,35 @@ func (m *QueryService) AddQueryPatternOnce(pattern string, result *query.QueryRe
 	})
 }
 
+// AddQueryPatternOnceWithError adds a query pattern that returns an error and is consumed after the first match.
+func (m *QueryService) AddQueryPatternOnceWithError(pattern string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.patterns = append(m.patterns, queryPattern{
+		pattern:     regexp.MustCompile(pattern),
+		err:         err,
+		consumeOnce: true,
+	})
+}
+
+// ExpectationsWereMet returns an error if any consumeOnce patterns were not matched.
+// This is useful for verifying that all expected queries were executed.
+func (m *QueryService) ExpectationsWereMet() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var unmet []string
+	for _, p := range m.patterns {
+		if p.consumeOnce {
+			unmet = append(unmet, p.pattern.String())
+		}
+	}
+	if len(unmet) > 0 {
+		return fmt.Errorf("expected queries were not executed: %v", unmet)
+	}
+	return nil
+}
+
 // Query implements executor.InternalQueryService.
 func (m *QueryService) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
 	m.mu.Lock()

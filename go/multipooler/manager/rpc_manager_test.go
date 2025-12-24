@@ -202,7 +202,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 
 	// Set up mock query service for isInRecovery check during startup
 	mockQueryService := mock.NewQueryService()
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
 
 	// Start and wait for ready
@@ -363,7 +363,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 // Also note: Since we mark as initialized in these tests, we don't expect the isInitialized check.
 func expectStartupQueries(m *mock.QueryService) {
 	// Heartbeat startup: checks if DB is primary/replica
-	m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 }
 
 // createPgDataDir creates the pg_data directory with PG_VERSION file.
@@ -478,11 +478,13 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// All subsequent calls return "f" (PostgreSQL is already primary)
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
-	// Mock: Since already promoted, get current LSN
-	mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+	// Mock: Since already promoted, get current LSN (called twice - during processing and for final response)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -505,6 +507,7 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type, "Topology should be updated to PRIMARY")
 	pm.mu.Unlock()
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_FullyCompleteTopologyPrimary tests that Promote succeeds when everything is complete
@@ -526,11 +529,11 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// All subsequent calls return "f" (PostgreSQL is already primary)
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: Get current LSN (since already primary)
-	mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -548,6 +551,7 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
 	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary tests error when topology is PRIMARY but PG is not
@@ -564,7 +568,7 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 	expectStartupQueries(mockQueryService)
 
 	// Mock: checkPromotionState queries pg_is_in_recovery() - returns true (still standby!)
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -579,6 +583,7 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 	require.Error(t, err, "Should fail due to inconsistent state without force flag")
 	assert.Contains(t, err.Error(), "inconsistent state")
 	assert.Contains(t, err.Error(), "Manual intervention required")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_InconsistentStateFixedWithForce tests that force flag fixes inconsistent state
@@ -603,19 +608,19 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: Validate expected LSN
-	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/FEDCBA0", "t"}}))
 
 	// Mock: pg_promote() call to fix the inconsistency
-	mockQueryService.AddQueryPattern("SELECT pg_promote",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
 		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
-	mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -634,6 +639,7 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	assert.False(t, resp.WasAlreadyPrimary)
 	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_NothingCompleteYet tests promotion from scratch
@@ -658,19 +664,19 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: Validate expected LSN (pg_last_wal_replay_lsn + pg_is_wal_replay_paused)
-	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/5678ABC", "t"}}))
 
 	// Mock: pg_promote() call
-	mockQueryService.AddQueryPattern("SELECT pg_promote",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
 		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
-	mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/5678ABC"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -692,6 +698,7 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
 	pm.mu.Unlock()
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_LSNMismatchBeforePromotion tests that promotion fails if LSN doesn't match
@@ -703,11 +710,11 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 	expectStartupQueries(mockQueryService)
 
 	// PostgreSQL is still in recovery
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
 	// Mock: Check LSN - return different value than expected
-	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/9999999", "t"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -720,6 +727,7 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 	_, err := pm.Promote(ctx, 10, "0/1111111", nil, false /* force */)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "LSN")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_TermMismatch tests that promotion fails with wrong term
@@ -741,6 +749,7 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	_, err = pm.Promote(ctx, 5, "0/1234567", nil, false /* force */)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "term")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_SecondCallSucceedsAfterCompletion tests that calling Promote after completion succeeds (idempotent)
@@ -755,25 +764,31 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	// The sequence of pg_is_in_recovery calls is:
 	// 1. Startup heartbeat check - returns "t" (consumed)
 	// 2. Promote checkPromotionState - returns "t" (consumed)
-	// 3. waitForPromotionComplete polling - returns "f" (persistent)
+	// 3. waitForPromotionComplete polling - returns "f" (consumed on first call)
+	// 4. Second Promote call checkPromotionState - returns "f" (consumed on second call)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// Final pattern returns false (promotion complete)
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	// waitForPromotionComplete returns false (promotion complete)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	// Second Promote call returns false (already primary)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: Validate expected LSN
-	mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
 		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/AAA1111", "t"}}))
 
 	// Mock: pg_promote() call
-	mockQueryService.AddQueryPattern("SELECT pg_promote",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
 		mock.MakeQueryResult(nil, nil))
 
-	// Mock: Get current LSN
-	mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+	// Mock: Get current LSN (called twice - once after first promote, once in second call)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -798,6 +813,7 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	require.NoError(t, err, "Second call should succeed - idempotent operation")
 	assert.True(t, resp2.WasAlreadyPrimary, "Second call should report as already primary")
 	assert.Equal(t, "0/AAA1111", resp2.LsnPosition)
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation tests that empty expectedLSN skips validation
@@ -812,21 +828,21 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	// The sequence of pg_is_in_recovery calls is:
 	// 1. Startup heartbeat check - returns "t" (consumed)
 	// 2. Promote checkPromotionState - returns "t" (consumed)
-	// 3. waitForPromotionComplete polling - returns "f" (persistent)
+	// 3. waitForPromotionComplete polling - returns "f" (consumed)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
-	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: pg_promote() call (LSN validation skipped because expectedLSN is empty)
-	mockQueryService.AddQueryPattern("SELECT pg_promote",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
 		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
-	mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/BBBBBBB"}}))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -842,6 +858,7 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 
 	assert.False(t, resp.WasAlreadyPrimary)
 	assert.Equal(t, "0/BBBBBBB", resp.LsnPosition)
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 func TestReplicationStatus(t *testing.T) {
