@@ -112,21 +112,21 @@ func TestScanValue_Bool(t *testing.T) {
 		name        string
 		input       string
 		expected    bool
-		expectError bool
+		expectError string // empty means no error expected
 	}{
-		{"t", "t", true, false},
-		{"T", "T", true, false},
-		{"true", "true", true, false},
-		{"TRUE", "TRUE", true, false},
-		{"1", "1", true, false},
-		{"f", "f", false, false},
-		{"F", "F", false, false},
-		{"false", "false", false, false},
-		{"FALSE", "FALSE", false, false},
-		{"0", "0", false, false},
-		{"invalid", "invalid", false, true},
-		{"empty", "", false, true},
-		{"yes", "yes", false, true},
+		{"t", "t", true, ""},
+		{"T", "T", true, ""},
+		{"true", "true", true, ""},
+		{"TRUE", "TRUE", true, ""},
+		{"1", "1", true, ""},
+		{"f", "f", false, ""},
+		{"F", "F", false, ""},
+		{"false", "false", false, ""},
+		{"FALSE", "FALSE", false, ""},
+		{"0", "0", false, ""},
+		{"invalid", "invalid", false, `cannot parse "invalid" as bool`},
+		{"empty", "", false, `cannot parse "" as bool`},
+		{"yes", "yes", false, `cannot parse "yes" as bool`},
 	}
 
 	for _, tt := range tests {
@@ -134,8 +134,9 @@ func TestScanValue_Bool(t *testing.T) {
 			row := makeRow(tt.input)
 			var b bool
 			err := ScanRow(row, &b)
-			if tt.expectError {
+			if tt.expectError != "" {
 				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectError)
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, b)
@@ -173,16 +174,16 @@ func TestScanValue_Int(t *testing.T) {
 		name        string
 		input       string
 		expected    int
-		expectError bool
+		expectError string // empty means no error expected
 	}{
-		{"zero", "0", 0, false},
-		{"positive", "42", 42, false},
-		{"negative", "-42", -42, false},
-		{"large positive", "2147483647", 2147483647, false},
-		{"large negative", "-2147483648", -2147483648, false},
-		{"float", "42.5", 0, true},
-		{"not a number", "abc", 0, true},
-		{"empty", "", 0, true},
+		{"zero", "0", 0, ""},
+		{"positive", "42", 42, ""},
+		{"negative", "-42", -42, ""},
+		{"large positive", "2147483647", 2147483647, ""},
+		{"large negative", "-2147483648", -2147483648, ""},
+		{"float", "42.5", 0, `cannot parse "42.5" as int`},
+		{"not a number", "abc", 0, `cannot parse "abc" as int`},
+		{"empty", "", 0, `cannot parse "" as int`},
 	}
 
 	for _, tt := range tests {
@@ -190,8 +191,9 @@ func TestScanValue_Int(t *testing.T) {
 			row := makeRow(tt.input)
 			var i int
 			err := ScanRow(row, &i)
-			if tt.expectError {
+			if tt.expectError != "" {
 				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectError)
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, i)
@@ -205,16 +207,16 @@ func TestScanValue_Int32(t *testing.T) {
 		name        string
 		input       string
 		expected    int32
-		expectError bool
+		expectError string // empty means no error expected
 	}{
-		{"zero", "0", 0, false},
-		{"positive", "42", 42, false},
-		{"negative", "-42", -42, false},
-		{"max int32", "2147483647", 2147483647, false},
-		{"min int32", "-2147483648", -2147483648, false},
-		{"overflow", "2147483648", 0, true},
-		{"underflow", "-2147483649", 0, true},
-		{"not a number", "abc", 0, true},
+		{"zero", "0", 0, ""},
+		{"positive", "42", 42, ""},
+		{"negative", "-42", -42, ""},
+		{"max int32", "2147483647", 2147483647, ""},
+		{"min int32", "-2147483648", -2147483648, ""},
+		{"overflow", "2147483648", 0, `cannot parse "2147483648" as int32`},
+		{"underflow", "-2147483649", 0, `cannot parse "-2147483649" as int32`},
+		{"not a number", "abc", 0, `cannot parse "abc" as int32`},
 	}
 
 	for _, tt := range tests {
@@ -222,8 +224,9 @@ func TestScanValue_Int32(t *testing.T) {
 			row := makeRow(tt.input)
 			var i int32
 			err := ScanRow(row, &i)
-			if tt.expectError {
+			if tt.expectError != "" {
 				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectError)
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, i)
@@ -237,15 +240,15 @@ func TestScanValue_Int64(t *testing.T) {
 		name        string
 		input       string
 		expected    int64
-		expectError bool
+		expectError string // empty means no error expected
 	}{
-		{"zero", "0", 0, false},
-		{"positive", "42", 42, false},
-		{"negative", "-42", -42, false},
-		{"large positive", "9223372036854775807", 9223372036854775807, false},
-		{"large negative", "-9223372036854775808", -9223372036854775808, false},
-		{"overflow", "9223372036854775808", 0, true},
-		{"not a number", "abc", 0, true},
+		{"zero", "0", 0, ""},
+		{"positive", "42", 42, ""},
+		{"negative", "-42", -42, ""},
+		{"large positive", "9223372036854775807", 9223372036854775807, ""},
+		{"large negative", "-9223372036854775808", -9223372036854775808, ""},
+		{"overflow", "9223372036854775808", 0, `cannot parse "9223372036854775808" as int64`},
+		{"not a number", "abc", 0, `cannot parse "abc" as int64`},
 	}
 
 	for _, tt := range tests {
@@ -253,8 +256,9 @@ func TestScanValue_Int64(t *testing.T) {
 			row := makeRow(tt.input)
 			var i int64
 			err := ScanRow(row, &i)
-			if tt.expectError {
+			if tt.expectError != "" {
 				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectError)
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, i)
@@ -268,16 +272,16 @@ func TestScanValue_Float64(t *testing.T) {
 		name        string
 		input       string
 		expected    float64
-		expectError bool
+		expectError string // empty means no error expected
 	}{
-		{"zero", "0", 0.0, false},
-		{"positive", "42.5", 42.5, false},
-		{"negative", "-42.5", -42.5, false},
-		{"integer", "42", 42.0, false},
-		{"scientific notation", "1.5e10", 1.5e10, false},
-		{"negative exponent", "1.5e-10", 1.5e-10, false},
-		{"not a number", "abc", 0, true},
-		{"empty", "", 0, true},
+		{"zero", "0", 0.0, ""},
+		{"positive", "42.5", 42.5, ""},
+		{"negative", "-42.5", -42.5, ""},
+		{"integer", "42", 42.0, ""},
+		{"scientific notation", "1.5e10", 1.5e10, ""},
+		{"negative exponent", "1.5e-10", 1.5e-10, ""},
+		{"not a number", "abc", 0, `cannot parse "abc" as float64`},
+		{"empty", "", 0, `cannot parse "" as float64`},
 	}
 
 	for _, tt := range tests {
@@ -285,8 +289,9 @@ func TestScanValue_Float64(t *testing.T) {
 			row := makeRow(tt.input)
 			var f float64
 			err := ScanRow(row, &f)
-			if tt.expectError {
+			if tt.expectError != "" {
 				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectError)
 			} else {
 				require.NoError(t, err)
 				assert.InDelta(t, tt.expected, f, 1e-15)
@@ -300,58 +305,52 @@ func TestScanValue_Time(t *testing.T) {
 		name        string
 		input       string
 		expected    time.Time
-		expectError bool
+		expectError string // empty means no error expected
 	}{
 		{
-			name:        "timestamp with timezone offset",
-			input:       "2024-01-15 10:30:45.123456-07",
-			expected:    time.Date(2024, 1, 15, 10, 30, 45, 123456000, time.FixedZone("", -7*3600)),
-			expectError: false,
+			name:     "timestamp with timezone offset",
+			input:    "2024-01-15 10:30:45.123456-07",
+			expected: time.Date(2024, 1, 15, 10, 30, 45, 123456000, time.FixedZone("", -7*3600)),
 		},
 		{
-			name:        "timestamp with positive offset",
-			input:       "2024-01-15 10:30:45.123456+05",
-			expected:    time.Date(2024, 1, 15, 10, 30, 45, 123456000, time.FixedZone("", 5*3600)),
-			expectError: false,
+			name:     "timestamp with positive offset",
+			input:    "2024-01-15 10:30:45.123456+05",
+			expected: time.Date(2024, 1, 15, 10, 30, 45, 123456000, time.FixedZone("", 5*3600)),
 		},
 		{
-			name:        "timestamp without timezone (microseconds)",
-			input:       "2024-01-15 10:30:45.123456",
-			expected:    time.Date(2024, 1, 15, 10, 30, 45, 123456000, time.UTC),
-			expectError: false,
+			name:     "timestamp without timezone (microseconds)",
+			input:    "2024-01-15 10:30:45.123456",
+			expected: time.Date(2024, 1, 15, 10, 30, 45, 123456000, time.UTC),
 		},
 		{
-			name:        "timestamp without timezone (no microseconds)",
-			input:       "2024-01-15 10:30:45",
-			expected:    time.Date(2024, 1, 15, 10, 30, 45, 0, time.UTC),
-			expectError: false,
+			name:     "timestamp without timezone (no microseconds)",
+			input:    "2024-01-15 10:30:45",
+			expected: time.Date(2024, 1, 15, 10, 30, 45, 0, time.UTC),
 		},
 		{
-			name:        "RFC3339 format",
-			input:       "2024-01-15T10:30:45Z",
-			expected:    time.Date(2024, 1, 15, 10, 30, 45, 0, time.UTC),
-			expectError: false,
+			name:     "RFC3339 format",
+			input:    "2024-01-15T10:30:45Z",
+			expected: time.Date(2024, 1, 15, 10, 30, 45, 0, time.UTC),
 		},
 		{
-			name:        "RFC3339 with offset",
-			input:       "2024-01-15T10:30:45+05:30",
-			expected:    time.Date(2024, 1, 15, 10, 30, 45, 0, time.FixedZone("", 5*3600+30*60)),
-			expectError: false,
+			name:     "RFC3339 with offset",
+			input:    "2024-01-15T10:30:45+05:30",
+			expected: time.Date(2024, 1, 15, 10, 30, 45, 0, time.FixedZone("", 5*3600+30*60)),
 		},
 		{
 			name:        "invalid format",
 			input:       "not a timestamp",
-			expectError: true,
+			expectError: `cannot parse "not a timestamp" as time.Time`,
 		},
 		{
 			name:        "empty string",
 			input:       "",
-			expectError: true,
+			expectError: `cannot parse "" as time.Time`,
 		},
 		{
 			name:        "date only",
 			input:       "2024-01-15",
-			expectError: true,
+			expectError: `cannot parse "2024-01-15" as time.Time`,
 		},
 	}
 
@@ -360,8 +359,9 @@ func TestScanValue_Time(t *testing.T) {
 			row := makeRow(tt.input)
 			var tm time.Time
 			err := ScanRow(row, &tm)
-			if tt.expectError {
+			if tt.expectError != "" {
 				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectError)
 			} else {
 				require.NoError(t, err)
 				assert.True(t, tt.expected.Equal(tm), "expected %v, got %v", tt.expected, tm)
@@ -447,6 +447,7 @@ func TestGetString(t *testing.T) {
 	t.Run("nil row returns error", func(t *testing.T) {
 		_, err := GetString(nil, 0)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "row is nil")
 	})
 
 	t.Run("out of range returns error", func(t *testing.T) {
@@ -485,6 +486,7 @@ func TestGetInt(t *testing.T) {
 		row := makeRow("not a number")
 		_, err := GetInt(row, 0)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), `cannot parse "not a number" as int`)
 	})
 }
 

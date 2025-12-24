@@ -16,6 +16,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -54,8 +55,8 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*query.QueryResu
 	if err != nil {
 		return nil, err
 	}
-	if len(results) == 0 {
-		return nil, nil
+	if len(results) != 1 {
+		return nil, fmt.Errorf("unexepected number of results")
 	}
 	return results[0], nil
 }
@@ -76,8 +77,8 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*que
 	if err != nil {
 		return nil, err
 	}
-	if len(results) == 0 {
-		return nil, nil
+	if len(results) != 1 {
+		return nil, fmt.Errorf("unexepected number of results")
 	}
 	return results[0], nil
 }
