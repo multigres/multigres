@@ -128,8 +128,8 @@ type MultiPoolerManager struct {
 	// See design discussion for full details.
 	queryServingState clustermetadatapb.PoolerServingStatus
 
-	// primaryPoolerID is the pooler ID of the current primary. Set by SetPrimaryConnInfo on standbys. Empty on primaries.
-	primaryPoolerID string
+	// primaryPoolerID is the ID of the current primary. Set by SetPrimaryConnInfo on standbys. Nil on primaries.
+	primaryPoolerID *clustermetadatapb.ID
 }
 
 // promotionState tracks which parts of the promotion are complete
