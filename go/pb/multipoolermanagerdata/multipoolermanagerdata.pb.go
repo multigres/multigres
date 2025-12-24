@@ -662,18 +662,20 @@ func (*StartReplicationResponse) Descriptor() ([]byte, []int) {
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 type SetPrimaryConnInfoRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Pooler ID of the primary (e.g., "pooler-1")
+	PrimaryPoolerId string `protobuf:"bytes,1,opt,name=primary_pooler_id,json=primaryPoolerId,proto3" json:"primary_pooler_id,omitempty"`
 	// Primary server hostname
-	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Host string `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
 	// Primary server port
-	Port int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	Port int32 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
 	// Whether to stop replication before making changes
-	StopReplicationBefore bool `protobuf:"varint,3,opt,name=stop_replication_before,json=stopReplicationBefore,proto3" json:"stop_replication_before,omitempty"`
+	StopReplicationBefore bool `protobuf:"varint,4,opt,name=stop_replication_before,json=stopReplicationBefore,proto3" json:"stop_replication_before,omitempty"`
 	// Whether to start replication after making changes
-	StartReplicationAfter bool `protobuf:"varint,4,opt,name=start_replication_after,json=startReplicationAfter,proto3" json:"start_replication_after,omitempty"`
+	StartReplicationAfter bool `protobuf:"varint,5,opt,name=start_replication_after,json=startReplicationAfter,proto3" json:"start_replication_after,omitempty"`
 	// Current term for consensus (used by MultiOrch during initialization)
-	CurrentTerm int64 `protobuf:"varint,5,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
+	CurrentTerm int64 `protobuf:"varint,6,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
 	// Force the operation even if the term doesn't match
-	Force         bool `protobuf:"varint,6,opt,name=force,proto3" json:"force,omitempty"`
+	Force         bool `protobuf:"varint,7,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -706,6 +708,13 @@ func (x *SetPrimaryConnInfoRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SetPrimaryConnInfoRequest.ProtoReflect.Descriptor instead.
 func (*SetPrimaryConnInfoRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SetPrimaryConnInfoRequest) GetPrimaryPoolerId() string {
+	if x != nil {
+		return x.PrimaryPoolerId
+	}
+	return ""
 }
 
 func (x *SetPrimaryConnInfoRequest) GetHost() string {
@@ -3885,14 +3894,15 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x14\n" +
 	"\x12WaitForLSNResponse\"\x19\n" +
 	"\x17StartReplicationRequest\"\x1a\n" +
-	"\x18StartReplicationResponse\"\xec\x01\n" +
-	"\x19SetPrimaryConnInfoRequest\x12\x12\n" +
-	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x126\n" +
-	"\x17stop_replication_before\x18\x03 \x01(\bR\x15stopReplicationBefore\x126\n" +
-	"\x17start_replication_after\x18\x04 \x01(\bR\x15startReplicationAfter\x12!\n" +
-	"\fcurrent_term\x18\x05 \x01(\x03R\vcurrentTerm\x12\x14\n" +
-	"\x05force\x18\x06 \x01(\bR\x05force\"\x1c\n" +
+	"\x18StartReplicationResponse\"\x98\x02\n" +
+	"\x19SetPrimaryConnInfoRequest\x12*\n" +
+	"\x11primary_pooler_id\x18\x01 \x01(\tR\x0fprimaryPoolerId\x12\x12\n" +
+	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x03 \x01(\x05R\x04port\x126\n" +
+	"\x17stop_replication_before\x18\x04 \x01(\bR\x15stopReplicationBefore\x126\n" +
+	"\x17start_replication_after\x18\x05 \x01(\bR\x15startReplicationAfter\x12!\n" +
+	"\fcurrent_term\x18\x06 \x01(\x03R\vcurrentTerm\x12\x14\n" +
+	"\x05force\x18\a \x01(\bR\x05force\"\x1c\n" +
 	"\x1aSetPrimaryConnInfoResponse\"n\n" +
 	"\x16StopReplicationRequest\x12@\n" +
 	"\x04mode\x18\x01 \x01(\x0e2,.multipoolermanagerdata.ReplicationPauseModeR\x04mode\x12\x12\n" +

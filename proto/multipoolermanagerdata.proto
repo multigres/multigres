@@ -88,23 +88,26 @@ message StartReplicationResponse {
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
+  // Pooler ID of the primary (e.g., "pooler-1")
+  string primary_pooler_id = 1;
+
   // Primary server hostname
-  string host = 1;
+  string host = 2;
 
   // Primary server port
-  int32 port = 2;
+  int32 port = 3;
 
   // Whether to stop replication before making changes
-  bool stop_replication_before = 3;
+  bool stop_replication_before = 4;
 
   // Whether to start replication after making changes
-  bool start_replication_after = 4;
+  bool start_replication_after = 5;
 
   // Current term for consensus (used by MultiOrch during initialization)
-  int64 current_term = 5;
+  int64 current_term = 6;
 
   // Force the operation even if the term doesn't match
-  bool force = 6;
+  bool force = 7;
 }
 
 message SetPrimaryConnInfoResponse {
