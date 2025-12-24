@@ -183,9 +183,17 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			name: "SetPrimaryConnInfo",
 			method: func() error {
 				req := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-					PrimaryPoolerId: "test-primary-id",
-					Host:            "primary.example.com",
-					Port:            5432,
+					Primary: &clustermetadata.MultiPooler{
+						Id: &clustermetadata.ID{
+							Component: clustermetadata.ID_MULTIPOOLER,
+							Cell:      "zone1",
+							Name:      "test-primary-id",
+						},
+						Hostname: "primary.example.com",
+						PortMap: map[string]int32{
+							"postgres": 5432,
+						},
+					},
 				}
 				_, err := svc.SetPrimaryConnInfo(ctx, req)
 				return err
