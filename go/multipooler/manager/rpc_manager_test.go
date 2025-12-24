@@ -861,6 +861,102 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
+func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-replica",
+	}
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	t.Cleanup(cleanupPgctld)
+
+	// Create the database in topology with backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	// Create REPLICA multipooler
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Database:      database,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	tmpDir := t.TempDir()
+	createPgDataDir(t, tmpDir)
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PgctldAddr: pgctldAddr,
+		PoolerDir:  tmpDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+	pm, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+	defer pm.Close()
+
+	// Mark as initialized to skip auto-restore (not testing backup functionality)
+	err = pm.setInitialized()
+	require.NoError(t, err)
+
+	// Initialize consensus state
+	pm.mu.Lock()
+	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.mu.Unlock()
+
+	// Set up mock query service for isInRecovery check during startup
+	mockQueryService := mock.NewQueryService()
+	// REPLICA: pg_is_in_recovery returns true (in recovery) - for startup check
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	// REPLICA: pg_is_in_recovery returns true (in recovery) - for SetPrimaryConnInfo guardrail check
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	// SetPrimaryConnInfo executes ALTER SYSTEM SET primary_conninfo
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
+	// SetPrimaryConnInfo executes pg_reload_conf()
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	go pm.Start(senv)
+	require.Eventually(t, func() bool {
+		return pm.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	// Set consensus term first (required for SetPrimaryConnInfo)
+	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
+	err = pm.SetTerm(ctx, term)
+	require.NoError(t, err)
+
+	// Call SetPrimaryConnInfo with a specific primaryPoolerID
+	testPrimaryPoolerID := "primary-pooler-123"
+	err = pm.SetPrimaryConnInfo(ctx, testPrimaryPoolerID, "primary-host", 5432, false, false, 1, false)
+	require.NoError(t, err)
+
+	// Verify all mock expectations were met
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+
+	// Verify the primaryPoolerID is stored in the manager
+	pm.mu.Lock()
+	storedPrimaryPoolerID := pm.primaryPoolerID
+	pm.mu.Unlock()
+
+	assert.Equal(t, testPrimaryPoolerID, storedPrimaryPoolerID, "primaryPoolerID should be stored correctly")
+}
+
 func TestReplicationStatus(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
