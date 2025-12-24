@@ -240,7 +240,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "SetPrimaryConnInfo times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
-				return manager.SetPrimaryConnInfo(ctx, "localhost", 5432, false, false, 1, true)
+				return manager.SetPrimaryConnInfo(ctx, "test-primary-id", "localhost", 5432, false, false, 1, true)
 			},
 		},
 		{

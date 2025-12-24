@@ -56,6 +56,7 @@ func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanager
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
 	err := s.manager.SetPrimaryConnInfo(ctx,
+		req.PrimaryPoolerId,
 		req.Host,
 		req.Port,
 		req.StopReplicationBefore,

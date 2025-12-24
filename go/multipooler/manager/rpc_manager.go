@@ -68,7 +68,7 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primaryPoolerID string, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -84,6 +84,11 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	if err = pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
 		return err
 	}
+
+	// Store primary pooler ID
+	pm.mu.Lock()
+	pm.primaryPoolerID = primaryPoolerID
+	pm.mu.Unlock()
 
 	// Call the locked version that assumes action lock is already held
 	return pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter)
