@@ -403,7 +403,7 @@ func TestBeginTerm(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			// Create mock and set startup expectations BEFORE starting the manager
+			// Create mock and set ALL expectations BEFORE starting the manager
 			mockQueryService := mock.NewQueryService()
 			expectPrimaryStartupQueries(mockQueryService)
 			tt.setupMocks(mockQueryService)
