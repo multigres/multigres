@@ -173,6 +173,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 
 	// Configure primary_conninfo on the replica
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		PrimaryPoolerId:       primary.MultiPooler.Id.Name,
 		Host:                  primary.MultiPooler.Hostname,
 		Port:                  primaryPort,
 		StopReplicationBefore: true,
