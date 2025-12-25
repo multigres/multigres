@@ -190,6 +190,11 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	analysis.IsStale = !pooler.IsUpToDate
 	analysis.IsUnreachable = !pooler.IsLastCheckValid
 
+	// Store consensus term for stale primary detection
+	if pooler.ConsensusStatus != nil {
+		analysis.ConsensusTerm = pooler.ConsensusStatus.CurrentTerm
+	}
+
 	// If this is a PRIMARY, populate primary-specific fields and aggregate replica stats
 	if analysis.IsPrimary {
 		if pooler.PrimaryStatus != nil {
@@ -199,6 +204,9 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 
 		// Aggregate replica stats
 		g.aggregateReplicaStats(pooler, analysis, shardKey)
+
+		// Check for stale primary: look for other PRIMARYs in the same shard
+		g.detectOtherPrimary(analysis, shardKey, pooler)
 	}
 
 	// If this is a REPLICA, populate replica-specific fields
@@ -525,5 +533,48 @@ func (g *AnalysisGenerator) checkTimelineDivergence(
 		Description: fmt.Sprintf("replica %s is on timeline %d but primary is on timeline %d",
 			replica.MultiPooler.Id.Name, replicaTL.TimelineId, primaryTL.TimelineId),
 		AffectedPoolers: []*clustermetadatapb.ID{replica.MultiPooler.Id},
+	}
+}
+
+// detectOtherPrimary checks if there's another PRIMARY in the same shard.
+// If found, populates OtherPrimaryInShard and OtherPrimaryTerm on the analysis.
+// This is used to detect stale primaries that came back online after failover.
+func (g *AnalysisGenerator) detectOtherPrimary(
+	analysis *store.ReplicationAnalysis,
+	shardKey commontypes.ShardKey,
+	thisPooler *multiorchdatapb.PoolerHealthState,
+) {
+	poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]
+	if !ok {
+		return
+	}
+
+	thisIDStr := topoclient.MultiPoolerIDString(thisPooler.MultiPooler.Id)
+
+	for poolerID, pooler := range poolers {
+		// Skip self
+		if poolerID == thisIDStr {
+			continue
+		}
+
+		// Skip if not reachable (can't trust stale data)
+		if !pooler.IsLastCheckValid {
+			continue
+		}
+
+		// Check if this pooler also thinks it's PRIMARY
+		poolerType := pooler.PoolerType
+		if poolerType == clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED && pooler.MultiPooler != nil {
+			poolerType = pooler.MultiPooler.Type
+		}
+
+		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+			// Found another PRIMARY - one of them is stale!
+			analysis.OtherPrimaryInShard = pooler.MultiPooler.Id
+			if pooler.ConsensusStatus != nil {
+				analysis.OtherPrimaryTerm = pooler.ConsensusStatus.CurrentTerm
+			}
+			return // Found one, that's enough to trigger recovery
+		}
 	}
 }
