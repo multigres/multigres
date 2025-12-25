@@ -1523,6 +1523,16 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
 	fmt.Println("")
 
+	// Set default backup repository path if not specified
+	if p.config.BackupRepoPath == "" {
+		p.config.BackupRepoPath = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+	}
+
+	// Create the backup repository directory if it doesn't exist
+	if err := os.MkdirAll(p.config.BackupRepoPath, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create backup repository directory %s: %w", p.config.BackupRepoPath, err)
+	}
+
 	// Get topology configuration from provisioner config
 	topoConfig := p.config.Topology
 

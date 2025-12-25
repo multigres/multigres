@@ -47,7 +47,6 @@ type ProcessInstance struct {
 	PgPort      int    // Used by pgctld
 	PgctldAddr  string // Used by multipooler
 	EtcdAddr    string // Used by multipooler for topology
-	StanzaName  string // pgBackRest stanza name (used by multipooler)
 	Process     *exec.Cmd
 	Binary      string
 	Environment []string
@@ -129,11 +128,6 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--hostname", "localhost",
 		"--log-output", p.LogFile,
 		"--log-level", "debug",
-	}
-
-	// Add stanza name if configured
-	if p.StanzaName != "" {
-		args = append(args, "--pgbackrest-stanza", p.StanzaName)
 	}
 
 	// Start the multipooler server
