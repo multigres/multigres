@@ -68,7 +68,7 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *clustermetadatapb.MultiPooler, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -84,6 +84,28 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	if err = pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
 		return err
 	}
+
+	// Extract host and port from the MultiPooler (nil means clear the config)
+	var host string
+	var port int32
+	if primary != nil {
+		host = primary.Hostname
+		var ok bool
+		port, ok = primary.PortMap["postgres"]
+		if !ok {
+			return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+				"primary %s has no postgres port configured", primary.Id.Name)
+		}
+	}
+
+	// Store primary pooler ID (nil if clearing)
+	pm.mu.Lock()
+	if primary != nil {
+		pm.primaryPoolerID = primary.Id
+	} else {
+		pm.primaryPoolerID = nil
+	}
+	pm.mu.Unlock()
 
 	// Call the locked version that assumes action lock is already held
 	return pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter)

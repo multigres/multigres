@@ -131,9 +131,17 @@ func TestReplicationAPIs(t *testing.T) {
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
 
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
@@ -182,9 +190,17 @@ func TestReplicationAPIs(t *testing.T) {
 		defer cancel()
 
 		// Try to set primary conn info with stale term (current term is 1, we'll try with 0)
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           0, // Stale term (lower than current term 1)
@@ -228,9 +244,17 @@ func TestReplicationAPIs(t *testing.T) {
 		defer cancel()
 
 		t.Log("Calling SetPrimaryConnInfo with StopReplicationBefore=true, StartReplicationAfter=false...")
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: true,  // Stop before
 			CurrentTerm:           1,
@@ -287,9 +311,17 @@ func TestReplicationAPIs(t *testing.T) {
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
 
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
@@ -913,9 +945,17 @@ func TestReplicationAPIs(t *testing.T) {
 			},
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
@@ -979,9 +1019,17 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Re-enable replication using SetPrimaryConnInfo
 		t.Log("Re-enabling replication...")
+		primary = &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq = &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
@@ -1110,9 +1158,17 @@ func TestStandbyReplicationStatus(t *testing.T) {
 
 		// Configure replication
 		t.Log("Configuring replication on standby...")
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
@@ -1167,9 +1223,17 @@ func TestStandbyReplicationStatus(t *testing.T) {
 		})
 		require.NoError(t, err, "SetTerm should succeed on standby")
 
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: false,
 			StopReplicationBefore: true,
 			CurrentTerm:           1,
@@ -1270,9 +1334,17 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		require.NoError(t, err, "SetTerm should succeed on standby")
 
 		t.Log("Configuring replication on standby...")
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
@@ -1722,9 +1794,17 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		require.NoError(t, err, "SetTerm should succeed")
 
 		t.Log("Ensuring standby is connected to primary and replicating...")
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
