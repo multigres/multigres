@@ -127,6 +127,9 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	case types.ProblemReplicaNotReplicating, types.ProblemReplicaNotInStandbyList:
 		return a.fixNotReplicating(ctx, replica, primary)
 
+	case types.ProblemReplicaTimelineDiverged:
+		return a.fixDivergedTimeline(ctx, primary, replica)
+
 	// TODO: Future problem codes to handle
 	// case types.ProblemReplicaWrongPrimary:
 	//     return a.fixWrongPrimary(ctx, replica, primary, currentStatus)
@@ -434,6 +437,108 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 
 func (a *FixReplicationAction) Priority() types.Priority {
 	return types.PriorityHigh
+}
+
+// fixDivergedTimeline repairs a replica that has a diverged timeline using pg_rewind.
+//
+// TODO: This function requires pgctld client access, which is not currently available
+// in the FixReplicationAction struct. The architecture needs to be extended to either:
+// 1. Add pgctld proxy methods to the MultiPoolerClient interface, or
+// 2. Create a separate pgctld client factory that can be injected into this action.
+//
+// For now, this implementation shows the intended logic but will fail at runtime
+// when attempting to call pgctld methods that don't exist on rpcClient.
+//
+// When implementing, add this import:
+//
+//	pgctldservicepb "github.com/multigres/multigres/go/pb/pgctldservice"
+func (a *FixReplicationAction) fixDivergedTimeline(
+	ctx context.Context,
+	primary *multiorchdatapb.PoolerHealthState,
+	replica *multiorchdatapb.PoolerHealthState,
+) error {
+	a.logger.InfoContext(ctx, "fixing diverged timeline",
+		"replica", replica.MultiPooler.Id.Name,
+		"primary", primary.MultiPooler.Id.Name)
+
+	// TODO: Need to obtain pgctld client. The current architecture doesn't support this.
+	// Options:
+	// 1. Add pgctldClient field to FixReplicationAction struct
+	// 2. Add PgctldStop, PgctldStart, PgRewind methods to MultiPoolerClient interface
+	// 3. Create a separate pgctld client manager
+	//
+	// For now, we'll return an error indicating this is not yet implemented.
+	return mterrors.Errorf(mtrpcpb.Code_UNIMPLEMENTED,
+		"fixDivergedTimeline requires pgctld client access which is not yet implemented")
+
+	// The intended implementation would be:
+	/*
+		// 1. Stop PostgreSQL on replica via pgctld
+		a.logger.InfoContext(ctx, "stopping PostgreSQL on replica")
+		_, err := a.pgctldClient.Stop(ctx, replica.MultiPooler, &pgctldservicepb.StopRequest{
+			Mode: "fast",
+		})
+		if err != nil {
+			return mterrors.Wrap(err, "failed to stop PostgreSQL on replica")
+		}
+
+		// 2. Build source connection string for pg_rewind
+		primaryPort := primary.MultiPooler.PortMap["postgres"]
+		sourceConnStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
+			primary.MultiPooler.Hostname, primaryPort)
+
+		// 3. Run pg_rewind --dry-run to check feasibility
+		a.logger.InfoContext(ctx, "checking if pg_rewind is feasible")
+		dryRunReq := &pgctldservicepb.PgRewindRequest{
+			SourceServer: sourceConnStr,
+			DryRun:       true,
+		}
+		_, err = a.pgctldClient.PgRewind(ctx, replica.MultiPooler, dryRunReq)
+		if err != nil {
+			// pg_rewind not feasible - mark as DRAINED
+			a.logger.WarnContext(ctx, "pg_rewind not feasible, marking as DRAINED",
+				"replica", replica.MultiPooler.Id.Name,
+				"error", err)
+			return a.markPoolerDrained(ctx, replica)
+		}
+
+		// 4. Run actual pg_rewind
+		a.logger.InfoContext(ctx, "running pg_rewind")
+		rewindReq := &pgctldservicepb.PgRewindRequest{
+			SourceServer: sourceConnStr,
+			DryRun:       false,
+		}
+		_, err = a.pgctldClient.PgRewind(ctx, replica.MultiPooler, rewindReq)
+		if err != nil {
+			return mterrors.Wrap(err, "pg_rewind failed")
+		}
+
+		// 5. Start PostgreSQL
+		a.logger.InfoContext(ctx, "starting PostgreSQL after rewind")
+		_, err = a.pgctldClient.Start(ctx, replica.MultiPooler, &pgctldservicepb.StartRequest{})
+		if err != nil {
+			return mterrors.Wrap(err, "failed to start PostgreSQL after rewind")
+		}
+
+		// 6. Configure replication to primary
+		a.logger.InfoContext(ctx, "configuring replication after rewind")
+		return a.fixNotReplicating(ctx, primary, replica)
+	*/
+}
+
+// markPoolerDrained marks a pooler as DRAINED in the topology.
+//
+//nolint:unused // Will be used when fixDivergedTimeline is fully implemented
+func (a *FixReplicationAction) markPoolerDrained(ctx context.Context, pooler *multiorchdatapb.PoolerHealthState) error {
+	a.logger.InfoContext(ctx, "marking pooler as DRAINED", "pooler", pooler.MultiPooler.Id.Name)
+	_, err := a.topoStore.UpdateMultiPoolerFields(ctx, pooler.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
+		mp.Type = clustermetadatapb.PoolerType_POOLER_TYPE_DRAINED
+		return nil
+	})
+	if err != nil {
+		return mterrors.Wrap(err, "failed to mark pooler as DRAINED")
+	}
+	return nil
 }
 
 // =============================================================================

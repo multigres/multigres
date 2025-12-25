@@ -52,6 +52,7 @@ const (
 	ProblemReplicaLagging          ProblemCode = "ReplicaLagging"
 	ProblemReplicaMisconfigured    ProblemCode = "ReplicaMisconfigured"
 	ProblemReplicaIsWritable       ProblemCode = "ReplicaIsWritable"
+	ProblemReplicaTimelineDiverged ProblemCode = "ReplicaTimelineDiverged"
 
 	// Non-actionable: if all hosts are down, there is no way we can failover.
 	ProblemPrimaryAndReplicasDead ProblemCode = "PrimaryAndReplicasDead"
