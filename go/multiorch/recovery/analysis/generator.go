@@ -374,8 +374,9 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	analysis.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(primary, poolers)
 
 	// Check for timeline divergence between replica and primary
-	// For now, this just detects the problem but doesn't take action
-	_ = g.checkTimelineDivergence(primary, replica)
+	if divergedProblem := g.checkTimelineDivergence(primary, replica); divergedProblem != nil {
+		analysis.TimelineDiverged = true
+	}
 }
 
 // isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.

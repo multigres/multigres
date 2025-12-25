@@ -64,6 +64,7 @@ type ReplicationAnalysis struct {
 	PrimaryLSNStr          string
 	ReplicationLagBytes    int64
 	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
+	TimelineDiverged       bool // Whether this replica has a diverged timeline that needs pg_rewind
 
 	// Primary health details (for distinguishing pooler-down vs postgres-down)
 	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
