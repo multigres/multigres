@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
 )
@@ -49,12 +50,12 @@ type portal struct {
 }
 
 // HandleQuery handles a simple query protocol message.
-func (h *fakeHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(context.Context, *query.QueryResult) error) error {
+func (h *fakeHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(context.Context, *sqltypes.Result) error) error {
 	result, err := h.server.handleQuery(queryStr)
 	if err != nil {
 		return err
 	}
-	return callback(ctx, result)
+	return callback(ctx, sqltypes.ResultFromProto(result))
 }
 
 // HandleParse handles a Parse message for the extended query protocol.
@@ -94,7 +95,7 @@ func (h *fakeHandler) HandleBind(ctx context.Context, conn *server.Conn, portalN
 }
 
 // HandleExecute handles an Execute message for the extended query protocol.
-func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(context.Context, *query.QueryResult) error) error {
+func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(context.Context, *sqltypes.Result) error) error {
 	p, ok := h.portals[portalName]
 	if !ok {
 		return fmt.Errorf("portal %q not found", portalName)
@@ -105,7 +106,7 @@ func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, port
 	if err != nil {
 		return err
 	}
-	return callback(ctx, result)
+	return callback(ctx, sqltypes.ResultFromProto(result))
 }
 
 // HandleDescribe handles a Describe message.

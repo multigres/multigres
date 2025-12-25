@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/client"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -502,7 +503,9 @@ func MakeResult(columns []string, rows [][]any) *query.QueryResult {
 				values[j] = fmt.Appendf(nil, "%v", val)
 			}
 		}
-		queryRows[i] = &query.Row{Values: values}
+		// Convert to sqltypes.Row first, then to proto format
+		sqlRow := sqltypes.MakeRow(values)
+		queryRows[i] = sqlRow.ToProto()
 	}
 
 	return &query.QueryResult{
