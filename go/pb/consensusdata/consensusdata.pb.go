@@ -648,7 +648,7 @@ type TimelineInfo struct {
 	TimelineId int64 `protobuf:"varint,1,opt,name=timeline_id,json=timelineId,proto3" json:"timeline_id,omitempty"`
 	// Timeline history showing where each timeline forked
 	// Only populated for primaries (they have the full history)
-	History       []*TimelineForkPoint `protobuf:"bytes,2,rep,name=history,proto3" json:"history,omitempty"`
+	Histories     []*TimelineForkPoint `protobuf:"bytes,2,rep,name=histories,proto3" json:"histories,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -690,9 +690,9 @@ func (x *TimelineInfo) GetTimelineId() int64 {
 	return 0
 }
 
-func (x *TimelineInfo) GetHistory() []*TimelineForkPoint {
+func (x *TimelineInfo) GetHistories() []*TimelineForkPoint {
 	if x != nil {
-		return x.History
+		return x.Histories
 	}
 	return nil
 }
@@ -809,11 +809,11 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\fprimary_port\x18\x02 \x01(\x05R\vprimaryPort\"\\\n" +
 	"\x17CanReachPrimaryResponse\x12\x1c\n" +
 	"\treachable\x18\x01 \x01(\bR\treachable\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"k\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"o\n" +
 	"\fTimelineInfo\x12\x1f\n" +
 	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
-	"timelineId\x12:\n" +
-	"\ahistory\x18\x02 \x03(\v2 .consensusdata.TimelineForkPointR\ahistory\"}\n" +
+	"timelineId\x12>\n" +
+	"\thistories\x18\x02 \x03(\v2 .consensusdata.TimelineForkPointR\thistories\"}\n" +
 	"\x11TimelineForkPoint\x12\x1f\n" +
 	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
 	"timelineId\x12,\n" +
@@ -854,7 +854,7 @@ var file_consensusdata_proto_depIdxs = []int32{
 	0,  // 2: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
 	9,  // 3: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
 	11, // 4: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	10, // 5: consensusdata.TimelineInfo.history:type_name -> consensusdata.TimelineForkPoint
+	10, // 5: consensusdata.TimelineInfo.histories:type_name -> consensusdata.TimelineForkPoint
 	6,  // [6:6] is the sub-list for method output_type
 	6,  // [6:6] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name

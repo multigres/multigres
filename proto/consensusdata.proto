@@ -146,7 +146,7 @@ message TimelineInfo {
 
   // Timeline history showing where each timeline forked
   // Only populated for primaries (they have the full history)
-  repeated TimelineForkPoint history = 2;
+  repeated TimelineForkPoint histories = 2;
 }
 
 // A point where a timeline forked from its parent
