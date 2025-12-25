@@ -27,7 +27,7 @@ import (
 func TestReplTrackerMakePrimary(t *testing.T) {
 	queryService := mock.NewQueryService()
 
-	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
@@ -53,8 +53,8 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	queryService := mock.NewQueryService()
 
-	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
-	queryService.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
 		[]string{"ts"},
 		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
 	))
@@ -89,7 +89,7 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 func TestReplTrackerEnableHeartbeat(t *testing.T) {
 	queryService := mock.NewQueryService()
 
-	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
@@ -130,8 +130,8 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	// Setup queries for both writer and reader
-	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
-	queryService.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
 		[]string{"ts"},
 		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
 	))

@@ -204,7 +204,7 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-A",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("SELECT 1", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPattern("SELECT 1", mock.MakeQueryResult(nil, nil))
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
 				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
