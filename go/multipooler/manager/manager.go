@@ -455,7 +455,7 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	if pm.cachedMultipooler.multipooler != nil && pm.cachedMultipooler.multipooler.MultiPooler != nil {
 		return pm.cachedMultipooler.multipooler.Type
 	}
-	return clustermetadatapb.PoolerType_UNKNOWN
+	return clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED
 }
 
 // getMultipoolerIDString returns the multipooler ID as a string

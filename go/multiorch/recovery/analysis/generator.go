@@ -170,7 +170,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	// Nodes are never created with topology type PRIMARY, so health check is authoritative.
 	// Fall back to topology type only if health check type is UNKNOWN.
 	poolerType := pooler.PoolerType
-	if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
+	if poolerType == clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED {
 		poolerType = pooler.MultiPooler.Type
 	}
 
@@ -261,7 +261,7 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 
 			// Skip if not a replica - check health check type, fall back to topology
 			replicaType := pooler.PoolerType
-			if replicaType == clustermetadatapb.PoolerType_UNKNOWN {
+			if replicaType == clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED {
 				replicaType = pooler.MultiPooler.Type
 			}
 			if replicaType != clustermetadatapb.PoolerType_REPLICA {
@@ -420,7 +420,7 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 
 		// Skip non-replicas
 		replicaType := pooler.PoolerType
-		if replicaType == clustermetadatapb.PoolerType_UNKNOWN {
+		if replicaType == clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED {
 			replicaType = pooler.MultiPooler.Type
 		}
 		if replicaType != clustermetadatapb.PoolerType_REPLICA {
