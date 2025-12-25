@@ -44,13 +44,12 @@ import (
 // 8. Multiorch should run pg_rewind to repair P1
 // 9. Verify P1 rejoins as a replica of P2
 //
-// NOTE: This test is currently skipped because multiorch does not yet handle the
-// split-brain scenario where the old primary comes back online as a PRIMARY.
-// Timeline divergence detection and pg_rewind support are now implemented, but
-// multiorch needs a split-brain analyzer to detect and demote the stale primary.
+// This test verifies the complete stale primary detection and timeline divergence repair flow:
+// 1. StalePrimaryAnalyzer detects when old primary comes back with a lower consensus term
+// 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
+// 3. ReplicaTimelineDivergedAnalyzer detects the diverged timeline
+// 4. FixReplicationAction runs pg_rewind to repair the replica
 func TestDivergedTimelineRepair(t *testing.T) {
-	t.Skip("Skipping: Split-brain resolution not yet implemented - old primary comes back as PRIMARY and multiorch doesn't demote it")
-
 	if testing.Short() {
 		t.Skip("skipping TestDivergedTimelineRepair test in short mode")
 	}
