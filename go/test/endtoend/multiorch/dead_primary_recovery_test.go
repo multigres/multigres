@@ -30,6 +30,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -70,9 +71,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		cancel()
+		resp, err := client.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		client.Close()
 
 		require.NoError(t, err)
@@ -82,6 +81,26 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			resp.Status.ReplicationStatus.PrimaryConnInfo.Host,
 			resp.Status.ReplicationStatus.PrimaryConnInfo.Port)
 	}
+
+	// Start continuous writes to the primary before failover
+	primaryClient, err := shardsetup.NewMultipoolerClient(primary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer primaryClient.Close()
+
+	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, primaryClient.Pooler,
+		shardsetup.WithWorkerCount(4),
+		shardsetup.WithWriteInterval(10*time.Millisecond),
+	)
+	require.NoError(t, err)
+	t.Cleanup(validatorCleanup)
+
+	t.Logf("Starting continuous writes to primary...")
+	validator.Start(t)
+
+	// Let writes accumulate before failover
+	time.Sleep(200 * time.Millisecond)
+	preFailoverSuccess, preFailoverFailed := validator.Stats()
+	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
 	// Kill postgres on the primary (multipooler stays running to report unhealthy status)
 	t.Logf("Killing postgres on primary node %s to simulate database crash", oldPrimaryName)
@@ -94,6 +113,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
+	// Stop writes after failover
+	validator.Stop()
+	successfulWrites, failedWrites := validator.Stats()
+	t.Logf("Post-failover writes: %d successful, %d failed", successfulWrites, failedWrites)
+
 	// Verify new primary is functional
 	t.Run("verify new primary is functional", func(t *testing.T) {
 		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
@@ -103,10 +127,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err)
 		defer client.Close()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		resp, err := client.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 		require.True(t, resp.Status.IsInitialized, "New primary should be initialized")
 		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType, "New leader should have PRIMARY pooler type")
@@ -120,6 +141,52 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err = db.QueryRow("SELECT 1").Scan(&result)
 		require.NoError(t, err, "Should be able to query new primary")
 		assert.Equal(t, 1, result)
+	})
+
+	// Verify all successful writes are present on surviving nodes
+	t.Run("verify writes durability after failover", func(t *testing.T) {
+		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
+		require.NotNil(t, newPrimaryInst)
+
+		newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimaryInst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		defer newPrimaryClient.Close()
+
+		// Get the new primary's LSN position
+		primaryPosResp, err := newPrimaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
+		require.NoError(t, err, "Should be able to get new primary position")
+		primaryLSN := primaryPosResp.LsnPosition
+		t.Logf("New primary LSN: %s", primaryLSN)
+
+		// Collect pooler clients for the surviving nodes and wait for replica to catch up
+		var poolers []*endtoend.MultiPoolerTestClient
+		poolers = append(poolers, newPrimaryClient.Pooler)
+
+		for name, inst := range setup.Multipoolers {
+			if name == oldPrimaryName || name == newPrimaryName {
+				continue // Skip dead primary and already-added new primary
+			}
+			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+			require.NoError(t, err)
+			defer client.Close()
+
+			// Wait for replica to catch up to the new primary's LSN
+			_, err = client.Manager.WaitForLSN(utils.WithTimeout(t, 2*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
+				TargetLsn: primaryLSN,
+			})
+			require.NoError(t, err, "Replica %s should catch up to new primary LSN", name)
+			t.Logf("Replica %s caught up to LSN %s", name, primaryLSN)
+
+			poolers = append(poolers, client.Pooler)
+		}
+
+		require.Len(t, poolers, 2, "should have 2 surviving poolers")
+
+		// Verify writes - deterministic now that replication has caught up
+		err = validator.Verify(t, poolers)
+		require.NoError(t, err, "all successful writes should be present on surviving nodes")
+
+		t.Logf("Write durability verified: %d successful writes present on surviving nodes", successfulWrites)
 	})
 }
 

@@ -16,6 +16,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -24,17 +25,24 @@ import (
 // DefaultInternalUser is the default PostgreSQL user for internal queries.
 const DefaultInternalUser = "postgres"
 
-// InternalQuerier provides a simplified query interface for internal multipooler
+// InternalQueryService provides a simplified query interface for internal multipooler
 // components. It uses the connection pool with "postgres" user by default.
-type InternalQuerier interface {
+type InternalQueryService interface {
 	// Query executes a query and returns the result.
 	Query(ctx context.Context, query string) (*query.QueryResult, error)
+
+	// Query executes a query with arguments and returns the result.
+	// This is a convenience method that accepts Go values as arguments and converts
+	// them to the appropriate text format for PostgreSQL.
+	// Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
+	// float32, float64, bool, and time.Time.
+	QueryArgs(ctx context.Context, query string, args ...any) (*query.QueryResult, error)
 }
 
-// Compile-time check that Executor implements InternalQuerier.
-var _ InternalQuerier = (*Executor)(nil)
+// Compile-time check that Executor implements InternalQueryService.
+var _ InternalQueryService = (*Executor)(nil)
 
-// Query implements InternalQuerier for simple internal queries.
+// Query implements InternalQueryService for simple internal queries.
 // It executes a query using the "postgres" user and returns the first result.
 func (e *Executor) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
 	conn, err := e.poolManager.GetRegularConn(ctx, DefaultInternalUser)
@@ -47,8 +55,30 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*query.QueryResu
 	if err != nil {
 		return nil, err
 	}
-	if len(results) == 0 {
-		return nil, nil
+	if len(results) != 1 {
+		return nil, fmt.Errorf("unexepected number of results")
+	}
+	return results[0], nil
+}
+
+// QueryArgs implements InternalQueryService for simple internal queries.
+// This is a convenience method that accepts Go values as arguments and converts
+// them to the appropriate text format for PostgreSQL.
+// Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
+// float32, float64, bool, and time.Time.
+func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*query.QueryResult, error) {
+	conn, err := e.poolManager.GetRegularConn(ctx, DefaultInternalUser)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Recycle()
+
+	results, err := conn.Conn.QueryArgs(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != 1 {
+		return nil, fmt.Errorf("unexepected number of results")
 	}
 	return results[0], nil
 }

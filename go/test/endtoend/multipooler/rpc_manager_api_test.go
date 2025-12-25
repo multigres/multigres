@@ -234,9 +234,17 @@ func TestPrimaryStatus(t *testing.T) {
 		t.Log("Testing PrimaryStatus with connected follower...")
 
 		// Ensure standby is connected and replicating
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,

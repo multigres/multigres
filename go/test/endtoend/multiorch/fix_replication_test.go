@@ -12,32 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package multiorch
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
 // TestFixReplication tests multiorch's ability to detect a replica with broken
 // replication and automatically fix it by configuring primary_conninfo.
 //
 // The test:
-// 1. Sets up a 2-zone cluster with primary and replica
-// 2. Identifies which zone is the replica
-// 3. Breaks replication by stopping replication and clearing primary_conninfo
-// 4. Verifies multiorch detects the problem and fixes replication
+// 1. Sets up a 3-node cluster with primary and 2 replicas
+// 2. Breaks replication by stopping replication and clearing primary_conninfo
+// 3. Verifies multiorch detects the problem and fixes replication
 func TestFixReplication(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TestFixReplication test in short mode")
@@ -46,62 +42,56 @@ func TestFixReplication(t *testing.T) {
 		t.Skip("Skipping end-to-end fix replication test (short mode or no postgres binaries)")
 	}
 
-	// Setup test cluster (2 zones: primary + replica)
-	clusterSetup, cleanup := setupTestCluster(t)
-	t.Cleanup(cleanup)
-	t.Logf("Test cluster ready in directory: %s", clusterSetup.TempDir)
+	// Setup test cluster (3 nodes: primary + 2 replicas)
+	// We need 3 nodes because the "remove from standby list" test requires
+	// at least one standby remaining after removal (list can't be empty).
+	// Note: multiorch is NOT started yet - we'll start it after breaking replication
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+	)
+	defer cleanup()
 
-	// Identify primary and replica zones
-	// Wait for pooler types to be assigned (not UNKNOWN) before proceeding
-	zone1Addr := fmt.Sprintf("localhost:%d", clusterSetup.PortConfig.Zones[0].MultipoolerGRPCPort)
-	zone2Addr := fmt.Sprintf("localhost:%d", clusterSetup.PortConfig.Zones[1].MultipoolerGRPCPort)
+	t.Logf("Test cluster ready in directory: %s", setup.TempDir)
+	t.Logf("Identified primary: %s", setup.PrimaryName)
 
-	t.Log("Waiting for pooler types to be assigned...")
-	zone1Type, err := WaitForPoolerTypeAssigned(t, zone1Addr, 30*time.Second)
-	require.NoError(t, err, "zone1 pooler type should be assigned")
-
-	zone2Type, err := WaitForPoolerTypeAssigned(t, zone2Addr, 30*time.Second)
-	require.NoError(t, err, "zone2 pooler type should be assigned")
-
-	var primaryAddr, replicaAddr string
-	var replicaZoneName string
-	if zone1Type == clustermetadatapb.PoolerType_PRIMARY {
-		primaryAddr = zone1Addr
-		replicaAddr = zone2Addr
-		replicaZoneName = "zone2"
-		require.Equal(t, clustermetadatapb.PoolerType_REPLICA, zone2Type, "zone2 should be REPLICA when zone1 is PRIMARY")
-	} else {
-		primaryAddr = zone2Addr
-		replicaAddr = zone1Addr
-		replicaZoneName = "zone1"
-		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, zone2Type, "zone2 should be PRIMARY when zone1 is not PRIMARY")
-		require.Equal(t, clustermetadatapb.PoolerType_REPLICA, zone1Type, "zone1 should be REPLICA when zone2 is PRIMARY")
+	// Find the replica name
+	var replicaName string
+	for name := range setup.Multipoolers {
+		if name != setup.PrimaryName {
+			replicaName = name
+			break
+		}
 	}
-	t.Logf("Identified primary: %s, replica: %s (addr: %s)", primaryAddr, replicaZoneName, replicaAddr)
+	require.NotEmpty(t, replicaName, "should have a replica")
+	t.Logf("Identified replica: %s", replicaName)
 
 	// Create test clients for primary and replica
-	primaryClient, err := NewMultiPoolerTestClient(primaryAddr)
-	require.NoError(t, err, "should be able to create primary client")
+	primaryClient := setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
 
-	replicaClient, err := NewMultiPoolerTestClient(replicaAddr)
+	replicaInst := setup.GetMultipoolerInstance(replicaName)
+	require.NotNil(t, replicaInst, "replica instance should exist")
+
+	replicaClient, err := shardsetup.NewMultipoolerClient(replicaInst.Multipooler.GrpcPort)
 	require.NoError(t, err, "should be able to create replica client")
 	defer replicaClient.Close()
 
 	// Create a test table on primary
 	t.Log("Creating test table on primary...")
-	_, err = primaryClient.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS fix_replication_test (id SERIAL PRIMARY KEY, data TEXT)", 0)
+	_, err = primaryClient.Pooler.ExecuteQuery(context.Background(), "CREATE TABLE IF NOT EXISTS fix_replication_test (id SERIAL PRIMARY KEY, data TEXT)", 0)
 	require.NoError(t, err, "should be able to create test table")
 
-	// Verify replication is currently working
+	// Verify replication is currently working (before we break it)
 	t.Log("Verifying replication is working before breaking it...")
-	verifyReplicationStreaming(t, replicaAddr)
+	verifyReplicationStreaming(t, replicaClient)
 
 	// Wait for CREATE TABLE to be replicated to replica before breaking replication.
-	// This ensures the table exists on the replica when we query it later.
 	t.Log("Waiting for table to be replicated to replica...")
 	require.Eventually(t, func() bool {
-		_, err := replicaClient.ExecuteQuery(context.Background(), "SELECT 1 FROM fix_replication_test LIMIT 0", 0)
+		_, err := replicaClient.Pooler.ExecuteQuery(context.Background(), "SELECT 1 FROM fix_replication_test LIMIT 0", 0)
 		if err != nil {
 			t.Logf("Table not yet on replica: %v", err)
 			return false
@@ -110,35 +100,33 @@ func TestFixReplication(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond, "table should be replicated to replica")
 	t.Log("Table verified on replica")
 
-	// Break replication using RPC
-	t.Logf("Breaking replication on %s via RPC...", replicaZoneName)
-	breakReplicationViaRPC(t, replicaAddr)
-
-	// Verify replication is broken
-	t.Log("Verifying replication is broken...")
-	require.Eventually(t, func() bool {
-		return isReplicationBroken(t, replicaAddr)
-	}, 10*time.Second, 500*time.Millisecond, "replication should be broken after clearing primary_conninfo")
+	// Break replication using RPC (while multiorch is NOT running)
+	t.Logf("Breaking replication on %s via RPC...", replicaName)
+	breakReplication(t, replicaClient)
 
 	// Insert data on primary while replication is broken
 	t.Log("Inserting data on primary while replication is broken...")
-	_, err = primaryClient.ExecuteQuery(context.Background(), "INSERT INTO fix_replication_test (data) VALUES ('inserted_while_broken')", 0)
+	_, err = primaryClient.Pooler.ExecuteQuery(context.Background(), "INSERT INTO fix_replication_test (data) VALUES ('inserted_while_broken')", 0)
 	require.NoError(t, err, "should be able to insert data on primary")
 
 	// Verify data is NOT visible on replica (replication is broken)
 	t.Log("Verifying data is NOT yet visible on replica...")
-	result, err := replicaClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken'", 1)
+	result, err := replicaClient.Pooler.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken'", 1)
 	require.NoError(t, err, "should be able to query replica")
 	require.Equal(t, "0", string(result.Rows[0].Values[0]), "data should NOT be visible on replica while replication is broken")
 
+	// NOW start multiorch - it should detect and fix the broken replication
+	t.Log("Starting multiorch to detect and fix replication...")
+	setup.StartMultiOrchs(t)
+
 	// Wait for multiorch to detect and fix the replication
 	t.Log("Waiting for multiorch to detect and fix replication...")
-	waitForReplicationFixed(t, replicaAddr, 60*time.Second)
+	waitForReplicationFixed(t, replicaClient, 10*time.Second)
 
 	// Verify data IS now visible on replica after fix
 	t.Log("Verifying data IS now visible on replica after fix...")
 	require.Eventually(t, func() bool {
-		result, err := replicaClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken'", 1)
+		result, err := replicaClient.Pooler.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken'", 1)
 		if err != nil {
 			t.Logf("Error querying replica: %v", err)
 			return false
@@ -154,40 +142,45 @@ func TestFixReplication(t *testing.T) {
 	// Verify replica was added to primary's synchronous standby list
 	t.Log("Verifying replica is in primary's synchronous standby list...")
 	require.Eventually(t, func() bool {
-		return isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
+		return isReplicaInStandbyList(t, primaryClient, replicaName)
 	}, 10*time.Second, 1*time.Second, "replica should be added to primary's synchronous standby list")
 
 	t.Log("First fix completed successfully, breaking replication again...")
 
-	// Break replication a second time to verify multiorch can fix it repeatedly
-	t.Logf("Breaking replication on %s via RPC (second time)...", replicaZoneName)
-	breakReplicationViaRPC(t, replicaAddr)
+	// Stop multiorch before breaking replication again
+	t.Log("Stopping multiorch before breaking replication again...")
+	multiorch := setup.GetMultiOrch("multiorch")
+	require.NotNil(t, multiorch, "multiorch instance should exist")
+	multiorch.Stop()
 
-	// Note: We skip verifying the broken state on the second attempt because multiorch's
-	// recovery cycle (500ms) may fix replication before we can observe it. The first
-	// break/verify cycle already proves the break mechanism works. Here we only need
-	// to verify multiorch can fix replication repeatedly.
-	t.Log("Proceeding to verify multiorch fixes replication (second time)...")
+	// Break replication a second time to verify multiorch can fix it repeatedly
+	t.Logf("Breaking replication on %s via RPC (second time)...", replicaName)
+	breakReplication(t, replicaClient)
 
 	// Insert more data on primary while replication is broken again
 	t.Log("Inserting more data on primary while replication is broken (second time)...")
-	_, err = primaryClient.ExecuteQuery(context.Background(), "INSERT INTO fix_replication_test (data) VALUES ('inserted_while_broken_2')", 0)
+	_, err = primaryClient.Pooler.ExecuteQuery(context.Background(), "INSERT INTO fix_replication_test (data) VALUES ('inserted_while_broken_2')", 0)
 	require.NoError(t, err, "should be able to insert data on primary")
 
 	// Verify new data is NOT visible on replica
 	t.Log("Verifying new data is NOT yet visible on replica...")
-	result, err = replicaClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken_2'", 1)
+	result, err = replicaClient.Pooler.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken_2'", 1)
 	require.NoError(t, err, "should be able to query replica")
 	require.Equal(t, "0", string(result.Rows[0].Values[0]), "new data should NOT be visible on replica while replication is broken")
 
+	// Start multiorch again - it should detect and fix the broken replication
+	t.Log("Starting multiorch to detect and fix replication (second time)...")
+	err = multiorch.Start(t)
+	require.NoError(t, err, "should be able to restart multiorch")
+
 	// Wait for multiorch to detect and fix the replication again
 	t.Log("Waiting for multiorch to detect and fix replication (second time)...")
-	waitForReplicationFixed(t, replicaAddr, 60*time.Second)
+	waitForReplicationFixed(t, replicaClient, 60*time.Second)
 
 	// Verify new data IS now visible on replica after second fix
 	t.Log("Verifying new data IS now visible on replica after second fix...")
 	require.Eventually(t, func() bool {
-		result, err := replicaClient.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken_2'", 1)
+		result, err := replicaClient.Pooler.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken_2'", 1)
 		if err != nil {
 			t.Logf("Error querying replica: %v", err)
 			return false
@@ -203,52 +196,52 @@ func TestFixReplication(t *testing.T) {
 	// Verify replica is still in primary's synchronous standby list after second fix
 	t.Log("Verifying replica is in primary's synchronous standby list (after second fix)...")
 	require.Eventually(t, func() bool {
-		return isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
+		return isReplicaInStandbyList(t, primaryClient, replicaName)
 	}, 10*time.Second, 1*time.Second, "replica should be in primary's synchronous standby list after second fix")
 
 	// Test case: Replica not in standby list (but replication is working)
 	// This tests the ReplicaNotInStandbyListAnalyzer
 	t.Log("Testing fix for replica not in standby list...")
+	// Start multiorch again - it should detect and fix the broken replication
+	multiorch.Stop()
 
 	// Remove replica from standby list (without breaking replication)
 	// Note: multiorch may re-add it very quickly, so we just verify:
 	// 1. The removal RPC succeeds
 	// 2. Multiorch ensures the replica is back in the list
 	// 3. Replication continues working throughout
-	t.Logf("Removing replica %s from primary's standby list...", replicaZoneName)
-	removeReplicaFromStandbyList(t, primaryAddr, replicaZoneName)
+	t.Logf("Removing replica %s from primary's standby list...", replicaName)
+	removeReplicaFromStandbyList(t, primaryClient, replicaName)
 
 	// Verify replication is still working (primary_conninfo should still be configured)
 	t.Log("Verifying replication is still working after standby list removal...")
-	verifyReplicationStreaming(t, replicaAddr)
+	verifyReplicationStreaming(t, replicaClient)
+
+	t.Log("Starting multiorch to detect and fix replication (second time)...")
+	err = multiorch.Start(t)
+	require.NoError(t, err, "should be able to restart multiorch")
 
 	// Multiorch should detect the missing standby and add it back
 	// (it may already be back due to fast detection)
 	t.Log("Verifying multiorch maintains replica in standby list...")
 	require.Eventually(t, func() bool {
-		return isReplicaInStandbyList(t, primaryAddr, replicaZoneName)
-	}, 10*time.Second, 1*time.Second, "multiorch should maintain replica in primary's synchronous standby list")
+		return isReplicaInStandbyList(t, primaryClient, replicaName)
+	}, 5*time.Second, 1*time.Second, "multiorch should maintain replica in primary's synchronous standby list")
 
 	// Verify replication is still working after fix
 	t.Log("Verifying replication is still working after standby list fix...")
-	verifyReplicationStreaming(t, replicaAddr)
+	verifyReplicationStreaming(t, replicaClient)
 
 	t.Log("TestFixReplication completed successfully")
 }
 
 // verifyReplicationStreaming checks that the replica has replication configured and is receiving WAL
-func verifyReplicationStreaming(t *testing.T, multipoolerAddr string) {
+func verifyReplicationStreaming(t *testing.T, client *shardsetup.MultipoolerClient) {
 	t.Helper()
-
-	conn, err := grpc.NewClient(multipoolerAddr, grpccommon.LocalClientDialOptions()...)
-	require.NoError(t, err, "Failed to create gRPC client")
-	defer conn.Close()
-
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	ctx := utils.WithTimeout(t, 5*time.Second)
 
-	resp, err := managerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+	resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	require.NoError(t, err, "StandbyReplicationStatus should succeed")
 	require.NotNil(t, resp.Status, "Status should not be nil")
 
@@ -263,47 +256,37 @@ func verifyReplicationStreaming(t *testing.T, multipoolerAddr string) {
 		resp.Status.PrimaryConnInfo.Host, resp.Status.LastReceiveLsn)
 }
 
-// breakReplicationViaRPC stops replication and clears primary_conninfo using the RPC API
-func breakReplicationViaRPC(t *testing.T, multipoolerAddr string) {
+// breakReplication stops replication and clears primary_conninfo using the RPC API.
+// It waits until the replication is confirmed broken before returning.
+func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient) {
 	t.Helper()
-
-	conn, err := grpc.NewClient(multipoolerAddr, grpccommon.LocalClientDialOptions()...)
-	require.NoError(t, err, "Failed to create gRPC client")
-	defer conn.Close()
-
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
-	// Clear primary_conninfo by setting it to empty host
+	// Clear primary_conninfo by setting it to nil
 	// Use StopReplicationBefore=true to stop WAL receiver first
-	_, err = managerClient.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-		Host:                  "",
-		Port:                  0,
+	_, err := client.Manager.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		Primary:               nil, // nil primary clears the connection
 		StopReplicationBefore: true,
 		StartReplicationAfter: false,
 		Force:                 true, // Force to bypass term check
 	})
 	require.NoError(t, err, "SetPrimaryConnInfo (clear) should succeed")
 	t.Log("Cleared primary_conninfo via RPC")
+
+	// Wait until replication is confirmed broken
+	require.Eventually(t, func() bool {
+		return isReplicationBroken(t, client)
+	}, 10*time.Second, 500*time.Millisecond, "replication should be broken after clearing primary_conninfo")
 }
 
 // isReplicationBroken checks if replication is no longer configured/streaming
-func isReplicationBroken(t *testing.T, multipoolerAddr string) bool {
+func isReplicationBroken(t *testing.T, client *shardsetup.MultipoolerClient) bool {
 	t.Helper()
-
-	conn, err := grpc.NewClient(multipoolerAddr, grpccommon.LocalClientDialOptions()...)
-	if err != nil {
-		t.Logf("Failed to create gRPC client: %v", err)
-		return false
-	}
-	defer conn.Close()
-
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	ctx := utils.WithTimeout(t, 5*time.Second)
 
-	resp, err := managerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+	resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	if err != nil {
 		t.Logf("StandbyReplicationStatus failed: %v", err)
 		return false
@@ -324,21 +307,12 @@ func isReplicationBroken(t *testing.T, multipoolerAddr string) bool {
 }
 
 // isReplicaInStandbyList checks if the replica is in the primary's synchronous standby list
-func isReplicaInStandbyList(t *testing.T, primaryAddr string, replicaZoneName string) bool {
+func isReplicaInStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerClient, replicaName string) bool {
 	t.Helper()
-
-	conn, err := grpc.NewClient(primaryAddr, grpccommon.LocalClientDialOptions()...)
-	if err != nil {
-		t.Logf("Failed to create gRPC client: %v", err)
-		return false
-	}
-	defer conn.Close()
-
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	ctx := utils.WithTimeout(t, 5*time.Second)
 
-	resp, err := managerClient.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
+	resp, err := primaryClient.Manager.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
 	if err != nil {
 		t.Logf("PrimaryStatus failed: %v", err)
 		return false
@@ -349,60 +323,56 @@ func isReplicaInStandbyList(t *testing.T, primaryAddr string, replicaZoneName st
 		return false
 	}
 
-	// Look for the replica in the standby list
+	// Look for the replica in the standby list by Name
+	// In shardsetup, standbys are identified by Name (e.g., "pooler-1", "pooler-2")
 	for _, standbyID := range resp.Status.SyncReplicationConfig.StandbyIds {
-		if standbyID.Cell == replicaZoneName {
-			t.Logf("Found replica %s in standby list", replicaZoneName)
+		if standbyID.Name == replicaName {
+			t.Logf("Found replica %s in standby list", replicaName)
 			return true
 		}
 	}
 
 	t.Logf("Replica %s not yet in standby list, current standbys: %v",
-		replicaZoneName, resp.Status.SyncReplicationConfig.StandbyIds)
+		replicaName, resp.Status.SyncReplicationConfig.StandbyIds)
 	return false
 }
 
-// removeReplicaFromStandbyList removes the replica from the primary's synchronous standby list
-func removeReplicaFromStandbyList(t *testing.T, primaryAddr string, replicaZoneName string) {
+// removeReplicaFromStandbyList removes the replica from the primary's synchronous standby list.
+// It verifies the replica is no longer in the list before returning.
+func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerClient, replicaName string) {
 	t.Helper()
-
-	conn, err := grpc.NewClient(primaryAddr, grpccommon.LocalClientDialOptions()...)
-	require.NoError(t, err, "Failed to create gRPC client")
-	defer conn.Close()
-
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	// Use UpdateSynchronousStandbyList to remove the replica
-	_, err = managerClient.UpdateSynchronousStandbyList(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
+	// In shardsetup, the ID uses Cell="test-cell" and Name=replicaName
+	_, err := primaryClient.Manager.UpdateSynchronousStandbyList(ctx, &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
 		Operation: multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE,
 		StandbyIds: []*clustermetadatapb.ID{{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      replicaZoneName,
-			Name:      "multipooler",
+			Cell:      "test-cell",
+			Name:      replicaName,
 		}},
 		ReloadConfig: true,
 		Force:        true, // Force to bypass term check
 	})
 	require.NoError(t, err, "UpdateSynchronousStandbyList (remove) should succeed")
-	t.Logf("Removed replica %s from standby list via RPC", replicaZoneName)
+	t.Logf("Removed replica %s from standby list via RPC", replicaName)
+
+	// Verify the replica is no longer in the standby list
+	require.Eventually(t, func() bool {
+		return !isReplicaInStandbyList(t, primaryClient, replicaName)
+	}, 5*time.Second, 1*time.Second, "replica should not be in standby list after removal")
 }
 
 // waitForReplicationFixed polls until multiorch fixes the replication
-func waitForReplicationFixed(t *testing.T, multipoolerAddr string, timeout time.Duration) {
+func waitForReplicationFixed(t *testing.T, client *shardsetup.MultipoolerClient, timeout time.Duration) {
 	t.Helper()
-
-	conn, err := grpc.NewClient(multipoolerAddr, grpccommon.LocalClientDialOptions()...)
-	require.NoError(t, err, "Failed to create gRPC client")
-	defer conn.Close()
-
-	managerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
 
 	require.Eventually(t, func() bool {
 		ctx := utils.WithTimeout(t, 5*time.Second)
 
-		resp, err := managerClient.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+		resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 		if err != nil {
 			t.Logf("Error checking replication status: %v", err)
 			return false

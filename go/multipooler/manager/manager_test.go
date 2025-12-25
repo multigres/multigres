@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -423,6 +424,11 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			manager, err := NewMultiPoolerManager(logger, config)
 			require.NoError(t, err)
 			defer manager.Close()
+
+			// Set up mock query service for isInRecovery check during startup
+			mockQueryService := mock.NewQueryService()
+			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+			manager.qsc = &mockPoolerController{queryService: mockQueryService}
 
 			// Start and wait for ready
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
