@@ -40,26 +40,30 @@ const (
 type PoolerType int32
 
 const (
-	// UNKNOWN this is not a valid type.
+	// POOLER_TYPE_UNSPECIFIED is not a valid type.
 	// It is useful during upgrades to detect when a value is not initialized
-	PoolerType_UNKNOWN PoolerType = 0
+	PoolerType_POOLER_TYPE_UNSPECIFIED PoolerType = 0
 	// PRIMARY is the primary server for the shard. Only PRIMARY allows DMLs.
 	PoolerType_PRIMARY PoolerType = 1
 	// REPLICA replicates from leader. It is used to read only traffic
 	PoolerType_REPLICA PoolerType = 2
+	// POOLER_TYPE_DRAINED is used for poolers that are temporarily removed from serving traffic
+	PoolerType_POOLER_TYPE_DRAINED PoolerType = 3
 )
 
 // Enum value maps for PoolerType.
 var (
 	PoolerType_name = map[int32]string{
-		0: "UNKNOWN",
+		0: "POOLER_TYPE_UNSPECIFIED",
 		1: "PRIMARY",
 		2: "REPLICA",
+		3: "POOLER_TYPE_DRAINED",
 	}
 	PoolerType_value = map[string]int32{
-		"UNKNOWN": 0,
-		"PRIMARY": 1,
-		"REPLICA": 2,
+		"POOLER_TYPE_UNSPECIFIED": 0,
+		"PRIMARY":                 1,
+		"REPLICA":                 2,
+		"POOLER_TYPE_DRAINED":     3,
 	}
 )
 
@@ -636,7 +640,7 @@ func (x *MultiPooler) GetType() PoolerType {
 	if x != nil {
 		return x.Type
 	}
-	return PoolerType_UNKNOWN
+	return PoolerType_POOLER_TYPE_UNSPECIFIED
 }
 
 func (x *MultiPooler) GetServingStatus() PoolerServingStatus {
@@ -1152,12 +1156,13 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"quorumType\x12%\n" +
 	"\x0erequired_count\x18\x02 \x01(\x05R\rrequiredCount\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12T\n" +
-	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback*3\n" +
+	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback*\\\n" +
 	"\n" +
-	"PoolerType\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\v\n" +
+	"PoolerType\x12\x1b\n" +
+	"\x17POOLER_TYPE_UNSPECIFIED\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
-	"\aREPLICA\x10\x02*m\n" +
+	"\aREPLICA\x10\x02\x12\x17\n" +
+	"\x13POOLER_TYPE_DRAINED\x10\x03*m\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
 	"\vNOT_SERVING\x10\x01\x12\n" +
