@@ -330,7 +330,9 @@ type StatusResponse struct {
 	// Cell identifier
 	Cell string `protobuf:"bytes,7,opt,name=cell,proto3" json:"cell,omitempty"`
 	// Current role (primary/replica)
-	Role          string `protobuf:"bytes,9,opt,name=role,proto3" json:"role,omitempty"`
+	Role string `protobuf:"bytes,9,opt,name=role,proto3" json:"role,omitempty"`
+	// Timeline information for divergence detection
+	TimelineInfo  *TimelineInfo `protobuf:"bytes,10,opt,name=timeline_info,json=timelineInfo,proto3" json:"timeline_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -412,6 +414,13 @@ func (x *StatusResponse) GetRole() string {
 		return x.Role
 	}
 	return ""
+}
+
+func (x *StatusResponse) GetTimelineInfo() *TimelineInfo {
+	if x != nil {
+		return x.TimelineInfo
+	}
+	return nil
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table
@@ -632,6 +641,126 @@ func (x *CanReachPrimaryResponse) GetErrorMessage() string {
 	return ""
 }
 
+// Timeline information from PostgreSQL
+type TimelineInfo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Current timeline ID (from pg_control_checkpoint())
+	TimelineId int64 `protobuf:"varint,1,opt,name=timeline_id,json=timelineId,proto3" json:"timeline_id,omitempty"`
+	// Timeline history showing where each timeline forked
+	// Only populated for primaries (they have the full history)
+	History       []*TimelineForkPoint `protobuf:"bytes,2,rep,name=history,proto3" json:"history,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TimelineInfo) Reset() {
+	*x = TimelineInfo{}
+	mi := &file_consensusdata_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TimelineInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TimelineInfo) ProtoMessage() {}
+
+func (x *TimelineInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TimelineInfo.ProtoReflect.Descriptor instead.
+func (*TimelineInfo) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *TimelineInfo) GetTimelineId() int64 {
+	if x != nil {
+		return x.TimelineId
+	}
+	return 0
+}
+
+func (x *TimelineInfo) GetHistory() []*TimelineForkPoint {
+	if x != nil {
+		return x.History
+	}
+	return nil
+}
+
+// A point where a timeline forked from its parent
+type TimelineForkPoint struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The timeline that was created
+	TimelineId int64 `protobuf:"varint,1,opt,name=timeline_id,json=timelineId,proto3" json:"timeline_id,omitempty"`
+	// The timeline it forked from
+	ParentTimelineId int64 `protobuf:"varint,2,opt,name=parent_timeline_id,json=parentTimelineId,proto3" json:"parent_timeline_id,omitempty"`
+	// LSN where the fork occurred
+	ForkLsn       string `protobuf:"bytes,3,opt,name=fork_lsn,json=forkLsn,proto3" json:"fork_lsn,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TimelineForkPoint) Reset() {
+	*x = TimelineForkPoint{}
+	mi := &file_consensusdata_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TimelineForkPoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TimelineForkPoint) ProtoMessage() {}
+
+func (x *TimelineForkPoint) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TimelineForkPoint.ProtoReflect.Descriptor instead.
+func (*TimelineForkPoint) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *TimelineForkPoint) GetTimelineId() int64 {
+	if x != nil {
+		return x.TimelineId
+	}
+	return 0
+}
+
+func (x *TimelineForkPoint) GetParentTimelineId() int64 {
+	if x != nil {
+		return x.ParentTimelineId
+	}
+	return 0
+}
+
+func (x *TimelineForkPoint) GetForkLsn() string {
+	if x != nil {
+		return x.ForkLsn
+	}
+	return ""
+}
+
 var File_consensusdata_proto protoreflect.FileDescriptor
 
 const file_consensusdata_proto_rawDesc = "" +
@@ -656,7 +785,7 @@ const file_consensusdata_proto_rawDesc = "" +
 	"demote_lsn\x18\x04 \x01(\tR\tdemoteLsn\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xf7\x01\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xb9\x02\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
 	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
 	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
@@ -666,7 +795,9 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\vis_eligible\x18\x06 \x01(\bR\n" +
 	"isEligible\x12\x12\n" +
 	"\x04cell\x18\a \x01(\tR\x04cell\x12\x12\n" +
-	"\x04role\x18\t \x01(\tR\x04role\"2\n" +
+	"\x04role\x18\t \x01(\tR\x04role\x12@\n" +
+	"\rtimeline_info\x18\n" +
+	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
 	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xa6\x01\n" +
 	"\x16LeadershipViewResponse\x12\x1b\n" +
@@ -678,7 +809,16 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\fprimary_port\x18\x02 \x01(\x05R\vprimaryPort\"\\\n" +
 	"\x17CanReachPrimaryResponse\x12\x1c\n" +
 	"\treachable\x18\x01 \x01(\bR\treachable\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessageB4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"k\n" +
+	"\fTimelineInfo\x12\x1f\n" +
+	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
+	"timelineId\x12:\n" +
+	"\ahistory\x18\x02 \x03(\v2 .consensusdata.TimelineForkPointR\ahistory\"}\n" +
+	"\x11TimelineForkPoint\x12\x1f\n" +
+	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
+	"timelineId\x12,\n" +
+	"\x12parent_timeline_id\x18\x02 \x01(\x03R\x10parentTimelineId\x12\x19\n" +
+	"\bfork_lsn\x18\x03 \x01(\tR\aforkLsnB4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
 
 var (
 	file_consensusdata_proto_rawDescOnce sync.Once
@@ -692,7 +832,7 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 	return file_consensusdata_proto_rawDescData
 }
 
-var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_consensusdata_proto_goTypes = []any{
 	(*WALPosition)(nil),             // 0: consensusdata.WALPosition
 	(*BeginTermRequest)(nil),        // 1: consensusdata.BeginTermRequest
@@ -703,19 +843,23 @@ var file_consensusdata_proto_goTypes = []any{
 	(*LeadershipViewResponse)(nil),  // 6: consensusdata.LeadershipViewResponse
 	(*CanReachPrimaryRequest)(nil),  // 7: consensusdata.CanReachPrimaryRequest
 	(*CanReachPrimaryResponse)(nil), // 8: consensusdata.CanReachPrimaryResponse
-	(*timestamppb.Timestamp)(nil),   // 9: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),      // 10: clustermetadata.ID
+	(*TimelineInfo)(nil),            // 9: consensusdata.TimelineInfo
+	(*TimelineForkPoint)(nil),       // 10: consensusdata.TimelineForkPoint
+	(*timestamppb.Timestamp)(nil),   // 11: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),      // 12: clustermetadata.ID
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	9,  // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	10, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
+	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	12, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
 	0,  // 2: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	9,  // 3: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	4,  // [4:4] is the sub-list for method output_type
-	4,  // [4:4] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	9,  // 3: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
+	11, // 4: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	10, // 5: consensusdata.TimelineInfo.history:type_name -> consensusdata.TimelineForkPoint
+	6,  // [6:6] is the sub-list for method output_type
+	6,  // [6:6] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
@@ -729,7 +873,7 @@ func file_consensusdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_consensusdata_proto_rawDesc), len(file_consensusdata_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

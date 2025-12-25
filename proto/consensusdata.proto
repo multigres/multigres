@@ -100,6 +100,9 @@ message StatusResponse {
 
   // Current role (primary/replica)
   string role = 9;
+
+  // Timeline information for divergence detection
+  TimelineInfo timeline_info = 10;
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table
@@ -134,4 +137,26 @@ message CanReachPrimaryResponse {
 
   // Error message if not reachable
   string error_message = 2;
+}
+
+// Timeline information from PostgreSQL
+message TimelineInfo {
+  // Current timeline ID (from pg_control_checkpoint())
+  int64 timeline_id = 1;
+
+  // Timeline history showing where each timeline forked
+  // Only populated for primaries (they have the full history)
+  repeated TimelineForkPoint history = 2;
+}
+
+// A point where a timeline forked from its parent
+message TimelineForkPoint {
+  // The timeline that was created
+  int64 timeline_id = 1;
+
+  // The timeline it forked from
+  int64 parent_timeline_id = 2;
+
+  // LSN where the fork occurred
+  string fork_lsn = 3;
 }
