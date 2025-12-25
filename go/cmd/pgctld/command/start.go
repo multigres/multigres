@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -246,6 +247,11 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	cmd := exec.Command("pg_ctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// On macOS, set LC_ALL to avoid "postmaster became multithreaded during startup"
+	// This happens when the locale is not properly set in the environment
+	if runtime.GOOS == "darwin" {
+		cmd.Env = append(os.Environ(), "LC_ALL=en_US.UTF-8")
+	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start PostgreSQL with pg_ctl: %w", err)

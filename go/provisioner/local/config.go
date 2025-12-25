@@ -487,7 +487,25 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 	}
 	sort.Strings(allCells)
 
-	for _, cellName := range allCells {
+	// Generate TLS certificates for pgBackRest (shared across all nodes)
+	tlsDir := filepath.Join(p.config.BackupRepoPath, "tls")
+	caCertPath := filepath.Join(tlsDir, "ca.crt")
+	caKeyPath := filepath.Join(tlsDir, "ca.key")
+	serverCertPath := filepath.Join(tlsDir, "server.crt")
+	serverKeyPath := filepath.Join(tlsDir, "server.key")
+
+	// Generate CA certificate
+	if err := pgbackrest.GenerateCA(caCertPath, caKeyPath); err != nil {
+		return fmt.Errorf("failed to generate pgBackRest CA: %w", err)
+	}
+
+	// Generate shared server certificate for all nodes
+	if err := pgbackrest.GenerateServerCert(caCertPath, caKeyPath, serverCertPath, serverKeyPath, "pgbackrest"); err != nil {
+		return fmt.Errorf("failed to generate pgBackRest server cert: %w", err)
+	}
+	fmt.Printf("✓ - pgBackRest TLS certificates generated\n")
+
+	for i, cellName := range allCells {
 		cellServices := p.config.Cells[cellName]
 
 		// Use default backup config path if not specified in config
@@ -496,27 +514,31 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			backupConfPath = filepath.Join(cellServices.Multipooler.PoolerDir, "pgbackrest.conf")
 		}
 
-		// Build AdditionalHosts with all other clusters
-		// Each cluster treats itself as pg1 and others as pg2, pg3, etc.
+		// Build AdditionalHosts with all other clusters using TLS
 		var additionalHosts []pgbackrest.PgHost
-		for _, otherCellName := range allCells {
+		for j, otherCellName := range allCells {
 			if otherCellName == cellName {
-				// Skip self - this is pg1
-				continue
+				continue // Skip self - this is pg1
 			}
 			otherCellServices := p.config.Cells[otherCellName]
+
 			additionalHosts = append(additionalHosts, pgbackrest.PgHost{
 				DataPath:  filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_data"),
-				Host:      "", // Empty for local Unix socket connections
+				Host:      "localhost", // TLS connection to localhost
 				Port:      otherCellServices.Multipooler.PgPort,
 				SocketDir: filepath.Join(otherCellServices.Multipooler.PoolerDir, "pg_sockets"),
 				User:      constants.DefaultPostgresUser,
 				Database:  constants.DefaultPostgresDatabase,
+				PgBackRestTLS: &pgbackrest.PgBackRestTLSConfig{
+					Port:     ports.DefaultPgBackRestTLSPort + j,
+					CAFile:   caCertPath,
+					CertFile: serverCertPath,
+					KeyFile:  serverKeyPath,
+				},
 			})
 		}
 
 		// Create per-pooler spool and lock directories inside backup repo
-		// This prevents conflicts when multiple poolers run pgbackrest operations simultaneously
 		poolerID := cellServices.Multipooler.ServiceID
 		pgBackRestSpoolPath := filepath.Join(p.config.BackupRepoPath, "spool", "pooler_"+poolerID)
 		if err := os.MkdirAll(pgBackRestSpoolPath, 0o755); err != nil {
@@ -528,8 +550,7 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			return fmt.Errorf("failed to create pgBackRest lock directory %s: %w", pgBackRestLockPath, err)
 		}
 
-		// Generate pgBackRest config for this pooler
-		// Use a shared stanza name for all clusters in the HA setup
+		// Generate pgBackRest config for this pooler with TLS
 		backupCfg := pgbackrest.Config{
 			StanzaName:      "multigres",
 			PgDataPath:      filepath.Join(cellServices.Multipooler.PoolerDir, "pg_data"),
@@ -542,7 +563,14 @@ func (p *localProvisioner) GeneratePgBackRestConfigs() error {
 			LogPath:         pgBackRestLogPath,
 			SpoolPath:       pgBackRestSpoolPath,
 			LockPath:        pgBackRestLockPath,
-			RetentionFull:   7, // Number of days' worth of full backups to retain
+			RetentionFull:   7,
+			PgBackRestTLS: &pgbackrest.PgBackRestTLSConfig{
+				CertFile: serverCertPath,
+				KeyFile:  serverKeyPath,
+				CAFile:   caCertPath,
+				Address:  "0.0.0.0",
+				Port:     ports.DefaultPgBackRestTLSPort + i,
+			},
 		}
 
 		// Write the pgBackRest config file

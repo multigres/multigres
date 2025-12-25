@@ -534,3 +534,60 @@ func TestStanzaCreateWithRunner(t *testing.T) {
 		assert.Contains(t, capturedArgs, "stanza-create")
 	})
 }
+
+func TestGenerateConfig_WithTLS(t *testing.T) {
+	cfg := Config{
+		StanzaName:    "multigres",
+		PgDataPath:    "/data/pg1",
+		PgPort:        5432,
+		PgSocketDir:   "/var/run/postgresql",
+		PgUser:        "postgres",
+		PgDatabase:    "postgres",
+		LogPath:       "/logs",
+		RetentionFull: 2,
+		PgBackRestTLS: &PgBackRestTLSConfig{
+			CertFile: "/certs/server.crt",
+			KeyFile:  "/certs/server.key",
+			CAFile:   "/certs/ca.crt",
+			Address:  "*",
+			Port:     8432,
+		},
+		AdditionalHosts: []PgHost{
+			{
+				Host:     "node2",
+				DataPath: "/data/pg2",
+				Port:     5433,
+				User:     "postgres",
+				Database: "postgres",
+				PgBackRestTLS: &PgBackRestTLSConfig{
+					Port:     8433,
+					CAFile:   "/certs/ca.crt",
+					CertFile: "/certs/server.crt",
+					KeyFile:  "/certs/server.key",
+				},
+			},
+		},
+	}
+
+	content := GenerateConfig(cfg)
+
+	// Verify TLS server config in global section
+	assert.Contains(t, content, "tls-server-cert-file=/certs/server.crt")
+	assert.Contains(t, content, "tls-server-key-file=/certs/server.key")
+	assert.Contains(t, content, "tls-server-ca-file=/certs/ca.crt")
+	assert.Contains(t, content, "tls-server-address=*")
+	assert.Contains(t, content, "tls-server-port=8432")
+
+	// Verify pg1-path exists (local node)
+	assert.Contains(t, content, "pg1-path=/data/pg1")
+
+	// Verify pg2 uses TLS host type
+	assert.Contains(t, content, "pg2-path=/data/pg2")
+	assert.Contains(t, content, "pg2-host=node2")
+	assert.Contains(t, content, "pg2-host-type=tls")
+	assert.Contains(t, content, "pg2-host-port=8433")
+	assert.Contains(t, content, "pg2-host-ca-file=/certs/ca.crt")
+	assert.Contains(t, content, "pg2-host-cert-file=/certs/server.crt")
+	assert.Contains(t, content, "pg2-host-key-file=/certs/server.key")
+	assert.Contains(t, content, "pg2-port=5433")
+}
