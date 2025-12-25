@@ -123,6 +123,21 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 	return lsn, nil
 }
 
+// getTimelineID gets the current timeline ID from pg_control_checkpoint()
+func (pm *MultiPoolerManager) getTimelineID(ctx context.Context) (int64, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT timeline_id FROM pg_control_checkpoint()")
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to get timeline ID")
+	}
+	var timelineID int64
+	if err := executor.ScanSingleRow(result, &timelineID); err != nil {
+		return 0, mterrors.Wrap(err, "failed to scan timeline ID result")
+	}
+	return timelineID, nil
+}
+
 // querySchemaExists checks if the multigres schema exists in the database
 func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
