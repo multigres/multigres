@@ -93,6 +93,9 @@ func TestPool_GetWithSettings(t *testing.T) {
 	assert.Equal(t, settings, pooled.Conn.Settings())
 
 	pooled.Recycle()
+
+	// Verify SET was actually called.
+	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0, "SET command should have been called")
 }
 
 func TestPool_Close(t *testing.T) {
@@ -228,4 +231,8 @@ func TestConn_ResetSettings(t *testing.T) {
 	assert.Nil(t, pooled.Conn.Settings())
 
 	pooled.Recycle()
+
+	// Verify both SET and RESET were actually called.
+	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0, "SET command should have been called")
+	assert.Greater(t, server.GetPatternCalledNum(`RESET .+`), 0, "RESET command should have been called")
 }

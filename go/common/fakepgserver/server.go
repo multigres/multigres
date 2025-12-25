@@ -63,6 +63,9 @@ type Server struct {
 	// patternData is a map of regexp queries to results.
 	patternData map[string]exprResult
 
+	// patternCalled keeps track of how many times each pattern was matched.
+	patternCalled map[string]int
+
 	// queryCalled keeps track of how many times a query was called.
 	queryCalled map[string]int
 
@@ -106,6 +109,7 @@ func New(t testing.TB) *Server {
 		data:                     make(map[string]*query.QueryResult),
 		rejectedData:             make(map[string]error),
 		queryCalled:              make(map[string]int),
+		patternCalled:            make(map[string]int),
 		queryPatternUserCallback: make(map[*regexp.Regexp]func(string)),
 		patternData:              make(map[string]exprResult),
 	}
@@ -225,6 +229,7 @@ func (s *Server) RemoveQueryPattern(queryPattern string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.patternData, queryPattern)
+	delete(s.patternCalled, queryPattern)
 }
 
 // RejectQueryPattern allows a query pattern to be rejected with an error.
@@ -244,6 +249,7 @@ func (s *Server) ClearQueryPattern() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.patternData = make(map[string]exprResult)
+	s.patternCalled = make(map[string]int)
 }
 
 // AddQueryPatternWithCallback is similar to AddQueryPattern: in addition it calls the provided callback function.
@@ -270,6 +276,7 @@ func (s *Server) DeleteAllQueries() {
 	s.data = make(map[string]*query.QueryResult)
 	s.patternData = make(map[string]exprResult)
 	s.queryCalled = make(map[string]int)
+	s.patternCalled = make(map[string]int)
 }
 
 // AddRejectedQuery adds a query which will be rejected at execution time.
@@ -349,6 +356,29 @@ func (s *Server) VerifyAllExecutedOrFail() {
 	}
 }
 
+// GetPatternCalledNum returns how many times a pattern was matched.
+func (s *Server) GetPatternCalledNum(pattern string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.patternCalled[pattern]
+}
+
+// VerifyAllPatternsUsedOrFail checks that all registered patterns were matched at least once.
+func (s *Server) VerifyAllPatternsUsedOrFail() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var unused []string
+	for pattern := range s.patternData {
+		if s.patternCalled[pattern] == 0 {
+			unused = append(unused, pattern)
+		}
+	}
+	if len(unused) > 0 {
+		s.t.Errorf("%v: not all query patterns were used. unused patterns: %v", s.name, unused)
+	}
+}
+
 // SetNeverFail makes unmatched queries return empty results instead of errors.
 func (s *Server) SetNeverFail(neverFail bool) {
 	s.neverFail.Store(neverFail)
@@ -382,6 +412,7 @@ func (s *Server) handleQuery(q string) (*query.QueryResult, error) {
 	// Check query patterns from AddQueryPattern().
 	for _, pat := range s.patternData {
 		if pat.expr.MatchString(q) {
+			s.patternCalled[pat.queryPattern]++
 			userCallback, ok := s.queryPatternUserCallback[pat.expr]
 			s.mu.Unlock()
 			if ok {

@@ -83,6 +83,9 @@ func TestPool_TerminateBackend(t *testing.T) {
 	success, err := pool.TerminateBackend(ctx, 12345)
 	require.NoError(t, err)
 	assert.True(t, success)
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
 }
 
 func TestPool_TerminateBackend_NotFound(t *testing.T) {
@@ -104,6 +107,9 @@ func TestPool_TerminateBackend_NotFound(t *testing.T) {
 	success, err := pool.TerminateBackend(ctx, 99999)
 	require.NoError(t, err)
 	assert.False(t, success)
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
 }
 
 func TestPool_CancelBackend(t *testing.T) {
@@ -125,6 +131,9 @@ func TestPool_CancelBackend(t *testing.T) {
 	success, err := pool.CancelBackend(ctx, 12345)
 	require.NoError(t, err)
 	assert.True(t, success)
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
 }
 
 func TestPool_CancelBackend_NotFound(t *testing.T) {
@@ -146,6 +155,9 @@ func TestPool_CancelBackend_NotFound(t *testing.T) {
 	success, err := pool.CancelBackend(ctx, 99999)
 	require.NoError(t, err)
 	assert.False(t, success)
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
 }
 
 func TestPool_Close(t *testing.T) {
