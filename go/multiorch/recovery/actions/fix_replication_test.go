@@ -17,6 +17,7 @@ package actions
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -484,4 +485,251 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	// Verify SetPrimaryConnInfo was still called (configuration was attempted)
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+}
+
+func TestFixReplicationAction_ExecuteDivergedTimelineSuccess(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	fakeClient := rpcclient.NewFakeClient()
+
+	// Setup responses for successful rewind flow
+	fakeClient.RewindToSourceResponses = map[string]*multipoolermanagerdatapb.RewindToSourceResponse{
+		"multipooler-cell1-replica1": {Success: true},
+	}
+	fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+	})
+	fakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
+		"multipooler-cell1-primary": {CurrentTerm: 1},
+	}
+	fakeClient.StandbyReplicationStatusResponses = map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+		"multipooler-cell1-replica1": {
+			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn: "0/1234",
+			},
+		},
+	}
+	fakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
+		"multipooler-cell1-replica1": {},
+	}
+	fakeClient.UpdateSynchronousStandbyListResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
+		"multipooler-cell1-primary": {},
+	}
+
+	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+
+	// Add replica and primary to store
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1",
+	}
+	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replicaID,
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+	})
+	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "primary",
+			},
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname:   "primary.example.com",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	})
+
+	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+
+	problem := types.Problem{
+		Code: types.ProblemReplicaTimelineDiverged,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		PoolerID: replicaID,
+	}
+
+	err := action.Execute(ctx, problem)
+
+	require.NoError(t, err)
+
+	// Verify RewindToSource was called (dry-run and actual)
+	callLog := fakeClient.GetCallLog()
+	rewindCalls := 0
+	for _, call := range callLog {
+		if strings.Contains(call, "RewindToSource") {
+			rewindCalls++
+		}
+	}
+	assert.Equal(t, 2, rewindCalls, "RewindToSource should be called twice (dry-run + actual)")
+
+	// Verify SetPrimaryConnInfo was called to configure replication
+	assert.Contains(t, callLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+}
+
+func TestFixReplicationAction_ExecuteDivergedTimelineDryRunFails(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	// Create multipooler in topo so UpdateMultiPoolerFields works
+	err := ts.CreateMultiPooler(ctx, &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "cell1",
+			Name:      "replica1",
+		},
+		Database:   "testdb",
+		TableGroup: "default",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+	})
+	require.NoError(t, err)
+
+	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	fakeClient := rpcclient.NewFakeClient()
+
+	// Dry-run fails - pg_rewind not feasible
+	fakeClient.RewindToSourceResponses = map[string]*multipoolermanagerdatapb.RewindToSourceResponse{
+		"multipooler-cell1-replica1": {Success: false, ErrorMessage: "could not find common ancestor"},
+	}
+	fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+	})
+	fakeClient.StandbyReplicationStatusResponses = map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+		"multipooler-cell1-replica1": {Status: &multipoolermanagerdatapb.StandbyReplicationStatus{}},
+	}
+
+	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1",
+	}
+	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replicaID,
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+	})
+	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "primary",
+			},
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname:   "primary.example.com",
+			PortMap:    map[string]int32{"postgres": 5432},
+		},
+	})
+
+	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+
+	problem := types.Problem{
+		Code: types.ProblemReplicaTimelineDiverged,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		PoolerID: replicaID,
+	}
+
+	err = action.Execute(ctx, problem)
+
+	// Should succeed (marking as DRAINED is not an error)
+	require.NoError(t, err)
+
+	// Verify pooler was marked as DRAINED in topology
+	mp, err := ts.GetMultiPooler(ctx, replicaID)
+	require.NoError(t, err)
+	assert.Equal(t, clustermetadatapb.PoolerType_POOLER_TYPE_DRAINED, mp.Type)
+}
+
+func TestFixReplicationAction_ExecuteDivergedTimelinePrimaryNoPort(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	fakeClient := rpcclient.NewFakeClient()
+	fakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+	})
+	fakeClient.StandbyReplicationStatusResponses = map[string]*multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+		"multipooler-cell1-replica1": {Status: &multipoolermanagerdatapb.StandbyReplicationStatus{}},
+	}
+
+	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1",
+	}
+	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:         replicaID,
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_REPLICA,
+		},
+	})
+	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "primary",
+			},
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       clustermetadatapb.PoolerType_PRIMARY,
+			Hostname:   "primary.example.com",
+			PortMap:    map[string]int32{}, // No postgres port!
+		},
+	})
+
+	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+
+	problem := types.Problem{
+		Code: types.ProblemReplicaTimelineDiverged,
+		ShardKey: commontypes.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		PoolerID: replicaID,
+	}
+
+	err := action.Execute(ctx, problem)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no postgres port configured")
 }
