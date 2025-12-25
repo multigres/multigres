@@ -55,7 +55,7 @@ func (h *fakeHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryS
 	if err != nil {
 		return err
 	}
-	return callback(ctx, sqltypes.ResultFromProto(result))
+	return callback(ctx, result)
 }
 
 // HandleParse handles a Parse message for the extended query protocol.
@@ -106,7 +106,7 @@ func (h *fakeHandler) HandleExecute(ctx context.Context, conn *server.Conn, port
 	if err != nil {
 		return err
 	}
-	return callback(ctx, sqltypes.ResultFromProto(result))
+	return callback(ctx, result)
 }
 
 // HandleDescribe handles a Describe message.
