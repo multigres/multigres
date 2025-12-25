@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
@@ -30,11 +31,11 @@ const DefaultStreamingBatchSize = 2 * 1024 * 1024 // 2MB
 
 // Query executes a simple query and returns all results.
 // For large result sets, consider using QueryStreaming instead.
-func (c *Conn) Query(ctx context.Context, queryStr string) ([]*query.QueryResult, error) {
-	var results []*query.QueryResult
-	var currentResult *query.QueryResult
+func (c *Conn) Query(ctx context.Context, queryStr string) ([]*sqltypes.Result, error) {
+	var results []*sqltypes.Result
+	var currentResult *sqltypes.Result
 
-	err := c.QueryStreaming(ctx, queryStr, func(ctx context.Context, result *query.QueryResult) error {
+	err := c.QueryStreaming(ctx, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
 		// Accumulate rows into the current result.
 		if currentResult == nil {
 			currentResult = result
@@ -45,7 +46,7 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*query.QueryResult
 		// CommandTag being set signals the end of a result set.
 		if result.CommandTag != "" {
 			if currentResult == nil {
-				currentResult = &query.QueryResult{}
+				currentResult = &sqltypes.Result{}
 			}
 			currentResult.CommandTag = result.CommandTag
 			currentResult.RowsAffected = result.RowsAffected
@@ -71,7 +72,7 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*query.QueryResult
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
 // For large result sets, multiple callbacks with rows, final one includes CommandTag.
 // For multi-statement queries, this pattern repeats for each statement.
-func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
@@ -103,10 +104,10 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 // in a clean state. Callback errors are captured but do not stop message processing.
 // Context cancellation should be handled by the caller (e.g., by killing the query
 // on the server side) rather than here, to avoid leaving unread messages on the wire.
-func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	// Track state for current result set.
 	var currentFields []*query.Field
-	var batchedRows []*query.Row
+	var batchedRows []*sqltypes.Row
 	var batchedSize int
 
 	// Track the first error encountered. We continue processing messages to drain
@@ -120,7 +121,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 		if len(batchedRows) == 0 || callback == nil {
 			return
 		}
-		result := &query.QueryResult{
+		result := &sqltypes.Result{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
@@ -142,11 +143,10 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 		case protocol.MsgRowDescription:
 			// Start of a new result set - parse and store fields.
 			// Fields will be included in the first batch callback.
-			result := &query.QueryResult{}
-			if err := c.parseRowDescription(body, result); err != nil {
+			currentFields, err = c.parseRowDescription(body)
+			if err != nil {
 				return err
 			}
-			currentFields = result.Fields
 
 		case protocol.MsgDataRow:
 			row, err := c.parseDataRow(body)
@@ -172,7 +172,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			// Send final batch with CommandTag (signals end of result set).
 			// This combines any remaining rows with the command completion.
 			if callback != nil && firstErr == nil {
-				result := &query.QueryResult{
+				result := &sqltypes.Result{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
@@ -189,7 +189,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 		case protocol.MsgEmptyQueryResponse:
 			// Empty query, call callback with empty result.
 			if callback != nil && firstErr == nil {
-				firstErr = callback(ctx, &query.QueryResult{})
+				firstErr = callback(ctx, &sqltypes.Result{})
 			}
 
 		case protocol.MsgReadyForQuery:
@@ -227,69 +227,70 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 // to use the mterrors package with proper error codes. These errors indicate connection-level failures
 // (truncated/incomplete messages) and should be categorized so that isConnectionError() in
 // regular_conn.go can detect them using error codes instead of string matching.
-func (c *Conn) parseRowDescription(body []byte, result *query.QueryResult) error {
+func (c *Conn) parseRowDescription(body []byte) ([]*query.Field, error) {
 	reader := NewMessageReader(body)
 
 	fieldCount, err := reader.ReadInt16()
 	if err != nil {
-		return fmt.Errorf("failed to read field count: %w", err)
+		return nil, fmt.Errorf("failed to read field count: %w", err)
 	}
 
-	result.Fields = make([]*query.Field, fieldCount)
+	fields := make([]*query.Field, fieldCount)
 
 	for i := range fieldCount {
 		field := &query.Field{}
 
 		field.Name, err = reader.ReadString()
 		if err != nil {
-			return fmt.Errorf("failed to read field name: %w", err)
+			return nil, fmt.Errorf("failed to read field name: %w", err)
 		}
 
 		tableOID, err := reader.ReadUint32()
 		if err != nil {
-			return fmt.Errorf("failed to read table OID: %w", err)
+			return nil, fmt.Errorf("failed to read table OID: %w", err)
 		}
 		field.TableOid = tableOID
 
 		attrNum, err := reader.ReadInt16()
 		if err != nil {
-			return fmt.Errorf("failed to read attribute number: %w", err)
+			return nil, fmt.Errorf("failed to read attribute number: %w", err)
 		}
 		field.TableAttributeNumber = int32(attrNum)
 
 		dataTypeOID, err := reader.ReadUint32()
 		if err != nil {
-			return fmt.Errorf("failed to read data type OID: %w", err)
+			return nil, fmt.Errorf("failed to read data type OID: %w", err)
 		}
 		field.DataTypeOid = dataTypeOID
 		field.Type = ast.Oid(dataTypeOID).String()
 
 		dataTypeSize, err := reader.ReadInt16()
 		if err != nil {
-			return fmt.Errorf("failed to read data type size: %w", err)
+			return nil, fmt.Errorf("failed to read data type size: %w", err)
 		}
 		field.DataTypeSize = int32(dataTypeSize)
 
 		typeMod, err := reader.ReadInt32()
 		if err != nil {
-			return fmt.Errorf("failed to read type modifier: %w", err)
+			return nil, fmt.Errorf("failed to read type modifier: %w", err)
 		}
 		field.TypeModifier = typeMod
 
 		formatCode, err := reader.ReadInt16()
 		if err != nil {
-			return fmt.Errorf("failed to read format code: %w", err)
+			return nil, fmt.Errorf("failed to read format code: %w", err)
 		}
 		field.Format = int32(formatCode)
 
-		result.Fields[i] = field
+		fields[i] = field
 	}
 
-	return nil
+	return fields, nil
 }
 
 // parseDataRow parses a DataRow message.
-func (c *Conn) parseDataRow(body []byte) (*query.Row, error) {
+// Returns sqltypes.Row where nil values represent NULL.
+func (c *Conn) parseDataRow(body []byte) (*sqltypes.Row, error) {
 	reader := NewMessageReader(body)
 
 	columnCount, err := reader.ReadInt16()
@@ -297,8 +298,8 @@ func (c *Conn) parseDataRow(body []byte) (*query.Row, error) {
 		return nil, fmt.Errorf("failed to read column count: %w", err)
 	}
 
-	row := &query.Row{
-		Values: make([][]byte, columnCount),
+	row := &sqltypes.Row{
+		Values: make([]sqltypes.Value, columnCount),
 	}
 
 	for i := range columnCount {
@@ -306,6 +307,7 @@ func (c *Conn) parseDataRow(body []byte) (*query.Row, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read column value: %w", err)
 		}
+		// nil for NULL, []byte{} for empty string - preserved correctly
 		row.Values[i] = value
 	}
 

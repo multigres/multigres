@@ -17,6 +17,7 @@ package server
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -56,7 +57,7 @@ type Handler interface {
 	// After all callbacks complete, ReadyForQuery ('Z') is sent once.
 	//
 	// Returns an error if query execution or result streaming fails.
-	HandleQuery(ctx context.Context, conn *Conn, query string, callback func(ctx context.Context, result *query.QueryResult) error) error
+	HandleQuery(ctx context.Context, conn *Conn, query string, callback func(ctx context.Context, result *sqltypes.Result) error) error
 
 	// HandleParse processes a Parse message ('P') for the extended query protocol.
 	// Prepares a statement with the given name and parameter types.
@@ -77,7 +78,7 @@ type Handler interface {
 	// portalName: name of the portal to execute (empty for unnamed portal)
 	// maxRows: maximum number of rows to return (0 for no limit)
 	// callback: function called for each result chunk
-	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error
+	HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error
 
 	// HandleDescribe processes a Describe message ('D').
 	// Returns description of a prepared statement or portal.
