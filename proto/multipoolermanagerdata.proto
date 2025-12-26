@@ -378,6 +378,18 @@ message PromoteRequest {
   // Force the operation even if term validation fails
   // Should only be used in recovery scenarios
   bool force = 4;
+
+  // Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
+  string reason = 5;
+
+  // Coordinator ID that ran this election
+  string coordinator_id = 6;
+
+  // List of pooler names that were in the cohort
+  repeated string cohort_members = 7;
+
+  // List of pooler names that accepted the term during BeginTerm
+  repeated string accepted_members = 8;
 }
 
 message PromoteResponse {

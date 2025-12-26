@@ -2203,9 +2203,17 @@ type PromoteRequest struct {
 	SyncReplicationConfig *ConfigureSynchronousReplicationRequest `protobuf:"bytes,3,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
 	// Force the operation even if term validation fails
 	// Should only be used in recovery scenarios
-	Force         bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	// Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
+	Reason string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Coordinator ID that ran this election
+	CoordinatorId string `protobuf:"bytes,6,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
+	// List of pooler names that were in the cohort
+	CohortMembers []string `protobuf:"bytes,7,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	// List of pooler names that accepted the term during BeginTerm
+	AcceptedMembers []string `protobuf:"bytes,8,rep,name=accepted_members,json=acceptedMembers,proto3" json:"accepted_members,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PromoteRequest) Reset() {
@@ -2264,6 +2272,34 @@ func (x *PromoteRequest) GetForce() bool {
 		return x.Force
 	}
 	return false
+}
+
+func (x *PromoteRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *PromoteRequest) GetCoordinatorId() string {
+	if x != nil {
+		return x.CoordinatorId
+	}
+	return ""
+}
+
+func (x *PromoteRequest) GetCohortMembers() []string {
+	if x != nil {
+		return x.CohortMembers
+	}
+	return nil
+}
+
+func (x *PromoteRequest) GetAcceptedMembers() []string {
+	if x != nil {
+		return x.AcceptedMembers
+	}
+	return nil
 }
 
 type PromoteResponse struct {
@@ -3973,12 +4009,16 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x11ChangeTypeRequest\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\"\x14\n" +
-	"\x12ChangeTypeResponse\"\xe8\x01\n" +
+	"\x12ChangeTypeResponse\"\xf9\x02\n" +
 	"\x0ePromoteRequest\x12%\n" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12!\n" +
 	"\fexpected_lsn\x18\x02 \x01(\tR\vexpectedLsn\x12v\n" +
 	"\x17sync_replication_config\x18\x03 \x01(\v2>.multipoolermanagerdata.ConfigureSynchronousReplicationRequestR\x15syncReplicationConfig\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\"\x8b\x01\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\x12%\n" +
+	"\x0ecoordinator_id\x18\x06 \x01(\tR\rcoordinatorId\x12%\n" +
+	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\x12)\n" +
+	"\x10accepted_members\x18\b \x03(\tR\x0facceptedMembers\"\x8b\x01\n" +
 	"\x0fPromoteResponse\x12!\n" +
 	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\x12.\n" +
 	"\x13was_already_primary\x18\x02 \x01(\bR\x11wasAlreadyPrimary\x12%\n" +
