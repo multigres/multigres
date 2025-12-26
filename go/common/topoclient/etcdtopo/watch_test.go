@@ -53,7 +53,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
-// TestWatchTopoVersion tests how the topoclient.Version values work within the etcd2topo
+// TestWatchTopoVersion tests how the topoclient.Version values work within the etcdtopo
 // Watch implementation. Today, those logical versions are based on the key's
 // ModRevision value, which is a monotonically increasing int64 value. See
 // https://github.com/vitessio/vitess/pull/15847 for additional details and the

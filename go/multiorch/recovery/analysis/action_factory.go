@@ -66,3 +66,8 @@ func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
 	poolerStore := store.NewPoolerStore(f.poolerStore, f.rpcClient, f.logger)
 	return actions.NewFixReplicationAction(f.rpcClient, poolerStore, f.topoStore, f.logger)
 }
+
+// Logger returns the factory's logger for use by analyzers.
+func (f *RecoveryActionFactory) Logger() *slog.Logger {
+	return f.logger
+}

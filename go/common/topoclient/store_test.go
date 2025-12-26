@@ -435,19 +435,13 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, "orchs", OrchsPath)
 }
 
-func TestOpen_ValidConfiguration(t *testing.T) {
+func TestOpenServer_ValidConfiguration(t *testing.T) {
 	factories = make(map[string]Factory)
 	factory := newMockFactory()
 	RegisterFactory("test-impl", factory)
-	reg := viperutil.NewRegistry()
-	cfg := NewTopoConfig(reg)
-	cfg.implementation.Set("test-impl")
-	cfg.globalServerAddresses.Set([]string{"localhost:2181"})
-	cfg.globalRoot.Set("/test")
 
-	// Call Open - should succeed
-	ts, err := cfg.Open()
-	require.NoError(t, err, "Open should succeed")
+	ts, err := OpenServer("test-impl", "/test", []string{"localhost:2181"}, NewDefaultTopoConfig())
+	require.NoError(t, err, "OpenServer should succeed")
 	require.NotNil(t, ts, "Store should not be nil")
 
 	// Verify factory was called
@@ -460,7 +454,6 @@ func TestOpen_ValidConfiguration(t *testing.T) {
 func TestTopoConfigOpen_MissingAddresses(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	cfg := NewTopoConfig(reg)
-	cfg.implementation.Set("test-impl")
 	cfg.globalRoot.Set("/test")
 	// Don't set globalServerAddresses
 
@@ -472,25 +465,12 @@ func TestTopoConfigOpen_MissingAddresses(t *testing.T) {
 func TestTopoConfigOpen_MissingRoot(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	cfg := NewTopoConfig(reg)
-	cfg.implementation.Set("test-impl")
 	cfg.globalServerAddresses.Set([]string{"localhost:2181"})
 	// Don't set globalRoot
 
 	_, err := cfg.Open()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "topo-global-root must be non-empty")
-}
-
-func TestTopoConfigOpen_MissingImplementation(t *testing.T) {
-	reg := viperutil.NewRegistry()
-	cfg := NewTopoConfig(reg)
-	cfg.globalServerAddresses.Set([]string{"localhost:2181"})
-	cfg.globalRoot.Set("/test")
-	// Don't set implementation
-
-	_, err := cfg.Open()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "topo-implementation must be configured")
 }
 
 func TestStatus_InitiallyEmpty(t *testing.T) {

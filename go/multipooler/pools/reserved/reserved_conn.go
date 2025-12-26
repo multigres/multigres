@@ -52,8 +52,8 @@ type Conn struct {
 	// (no client activity) before expiring. A value of 0 means no timeout.
 	inactivityTimeout time.Duration
 
-	// expiryTime is when this connection will expire if not accessed.
-	expiryTime time.Time
+	// expiryNanos stores the expiry time as Unix nanoseconds for atomic access.
+	expiryNanos atomic.Int64
 
 	// released indicates whether this connection has been released.
 	released atomic.Bool
@@ -194,7 +194,7 @@ func (c *Conn) SetInactivityTimeout(timeout time.Duration) {
 // Called when the connection is accessed to extend its lifetime.
 func (c *Conn) ResetExpiryTime() {
 	if c.inactivityTimeout > 0 {
-		c.expiryTime = time.Now().Add(c.inactivityTimeout)
+		c.expiryNanos.Store(time.Now().Add(c.inactivityTimeout).UnixNano())
 	}
 }
 
@@ -203,7 +203,7 @@ func (c *Conn) IsTimedOut() bool {
 	if c.inactivityTimeout <= 0 {
 		return false
 	}
-	return time.Now().After(c.expiryTime)
+	return time.Now().UnixNano() > c.expiryNanos.Load()
 }
 
 // InactivityTimeout returns the inactivity timeout duration.

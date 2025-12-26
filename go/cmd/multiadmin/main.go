@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multiadmin"
 
 	"github.com/spf13/cobra"
@@ -30,7 +31,7 @@ func CreateMultiAdminCommand() (*cobra.Command, *multiadmin.MultiAdmin) {
 	ma := multiadmin.NewMultiAdmin()
 
 	cmd := &cobra.Command{
-		Use:   "multiadmin",
+		Use:   constants.ServiceMultiadmin,
 		Short: "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Long:  "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Args:  cobra.NoArgs,

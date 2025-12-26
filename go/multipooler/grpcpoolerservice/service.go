@@ -18,13 +18,13 @@ package grpcpoolerservice
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/parser/ast"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
@@ -113,8 +113,8 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 
 	// Query pg_authid for the user's password hash.
 	// Note: This requires superuser access to read pg_authid.
-	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = '%s' LIMIT 1",
-		escapeString(req.Username))
+	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
+		ast.QuoteStringLiteral(req.Username))
 
 	options := &querypb.ExecuteOptions{MaxRows: 1}
 	result, err := executor.ExecuteQuery(ctx, nil, query, options)
@@ -136,12 +136,6 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	return &multipoolerpb.GetAuthCredentialsResponse{
 		ScramHash: scramHash,
 	}, nil
-}
-
-// escapeString escapes a string for safe use in SQL queries.
-// This doubles single quotes for PostgreSQL.
-func escapeString(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 // Describe returns metadata about a prepared statement or portal.

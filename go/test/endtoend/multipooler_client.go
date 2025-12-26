@@ -60,21 +60,6 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 
 	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
 
-	// Test the connection by making a simple RPC call with a short timeout
-	ctx, cancel := context.WithTimeout(context.TODO(), 2*time.Second)
-	defer cancel()
-
-	// Try to make a basic ExecuteQuery call to test connectivity
-	_, err = client.ExecuteQuery(ctx, &multipoolerpb.ExecuteQueryRequest{
-		Query: "SELECT 1",
-	})
-	// We expect this to fail for non-existent servers
-	// The specific error doesn't matter, we just want to know if we can connect
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to connect to multipooler at %s: %w", addr, err)
-	}
-
 	return &MultiPoolerTestClient{
 		conn:   conn,
 		client: client,

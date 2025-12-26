@@ -64,4 +64,14 @@ type ReplicationAnalysis struct {
 	PrimaryLSNStr          string
 	ReplicationLagBytes    int64
 	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
+
+	// Primary health details (for distinguishing pooler-down vs postgres-down)
+	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
+	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)
+
+	// ReplicasConnectedToPrimary is true only if ALL replicas in the shard are still
+	// connected to the primary Postgres (have primary_conninfo configured and are receiving WAL).
+	// Used to avoid failover when only the primary pooler is down but Postgres is still running.
+	// If even one replica has lost connection, this is false.
+	ReplicasConnectedToPrimary bool
 }

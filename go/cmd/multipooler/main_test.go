@@ -55,22 +55,3 @@ func TestInit_TopoMissingRoot(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "topo-global-root must be non-empty")
 }
-
-// TestInit_TopoMissingImplementation verifies that Init() returns an error when
-// topo-implementation is not configured.
-func TestInit_TopoMissingImplementation(t *testing.T) {
-	cmd, _ := CreateMultiPoolerCommand()
-
-	cmd.SetArgs([]string{
-		"--database", "testdb",
-		"--table-group", "default",
-		"--topo-global-server-addresses", "localhost:2379",
-		"--topo-global-root", "/multigres/global",
-		"--config-file-not-found-handling", "ignore",
-	})
-
-	err := cmd.Execute()
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "topo-implementation must be configured")
-}

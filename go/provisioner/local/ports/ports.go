@@ -41,4 +41,7 @@ const (
 
 	// Pgctld
 	DefaultPgctldGRPC = 15470
+
+	// Local Provisioner Defaults
+	DefaultLocalPostgresPort = 25432
 )

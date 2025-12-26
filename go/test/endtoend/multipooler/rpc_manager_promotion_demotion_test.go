@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/test/utils"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -104,9 +105,17 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// Now configure the demoted server to replicate from the standby (which will be promoted)
 		t.Log("Configuring demoted primary to replicate from standby...")
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.StandbyMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
+		}
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true, // Start replication immediately
 			CurrentTerm:           1,
@@ -255,9 +264,17 @@ func TestDemoteAndPromote(t *testing.T) {
 		assert.False(t, demoteResp1.WasAlreadyDemoted)
 
 		// Configure demoted primary to replicate from standby
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.StandbyMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
+		}
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           5,
@@ -297,9 +314,17 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "Demote should succeed")
 
 		// Configure demoted primary to replicate from standby
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.StandbyMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
+		}
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           6,
@@ -393,9 +418,17 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "Demote should succeed")
 
 		// Configure demoted primary to replicate from standby
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.StandbyMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
+		}
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           8,
@@ -452,9 +485,17 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// Configure the demoted server to replicate from the standby
 		t.Log("Configuring demoted primary to replicate from standby...")
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.StandbyMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
+		}
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           9,

@@ -23,6 +23,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/multipooler"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
@@ -35,7 +36,7 @@ func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
 	mp := multipooler.NewMultiPooler(telemetry)
 
 	cmd := &cobra.Command{
-		Use:   "multipooler",
+		Use:   constants.ServiceMultipooler,
 		Short: "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
 		Long:  "Multipooler provides connection pooling and communicates with pgctld via gRPC to serve queries from multigateway instances.",
 		Args:  cobra.NoArgs,
@@ -46,7 +47,7 @@ func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
 			return run(cmd, args, mp)
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := telemetry.InitForCommand(cmd, "multipooler", false /* startSpan */); err != nil {
+			if _, err := telemetry.InitForCommand(cmd, constants.ServiceMultipooler, false /* startSpan */); err != nil {
 				return fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 			}
 

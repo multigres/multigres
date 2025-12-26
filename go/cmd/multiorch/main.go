@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/multiorch"
 
 	"github.com/spf13/cobra"
@@ -30,7 +31,7 @@ func CreateMultiOrchCommand() (*cobra.Command, *multiorch.MultiOrch) {
 	mo := multiorch.NewMultiOrch()
 
 	cmd := &cobra.Command{
-		Use:   "multiorch",
+		Use:   constants.ServiceMultiorch,
 		Short: "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
 		Long:  "Multiorch orchestrates cluster operations including consensus protocol management, failover detection and repair, and health monitoring of multipooler instances.",
 		Args:  cobra.NoArgs,

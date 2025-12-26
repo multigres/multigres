@@ -33,7 +33,7 @@ option go_package = "github.com/multigres/multigres/go/pb/clustermetadata";
 // configure the global topo.
 message GlobalTopoConfig {
   // implementation indicates the type of topology service in use
-  // (for example: "etcd2",  "memory").
+  // (for example: "etcd",  "memory").
   string implementation = 1;
 
   // server is the network address (host:port) of the topology service.

@@ -19,34 +19,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/tools/fakepgdb"
+	"github.com/multigres/multigres/go/multipooler/executor/mock"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestReplTrackerMakePrimary(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
+	queryService := mock.NewQueryService()
 
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
-	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]any{{"0/1A2B3C4D"}},
-	})
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	assert.False(t, rt.IsPrimary())
@@ -64,34 +51,19 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 }
 
 func TestReplTrackerMakeNonPrimary(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
+	queryService := mock.NewQueryService()
 
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
-	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]any{{"0/1A2B3C4D"}},
-	})
-	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
-		Columns: []string{"ts"},
-		Rows: [][]any{
-			{time.Now().Add(-5 * time.Second).UnixNano()},
-		},
-	})
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
+		[]string{"ts"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+	))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	rt.MakePrimary()
@@ -115,28 +87,15 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 }
 
 func TestReplTrackerEnableHeartbeat(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
+	queryService := mock.NewQueryService()
 
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
-	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]any{{"0/1A2B3C4D"}},
-	})
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	rt.hw.Open()
@@ -168,35 +127,20 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 }
 
 func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
-	db := fakepgdb.New(t)
-	sqlDB := db.OpenDB()
-	defer sqlDB.Close()
+	queryService := mock.NewQueryService()
 
 	// Setup queries for both writer and reader
-	db.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", &fakepgdb.ExpectedResult{
-		Columns: []string{},
-		Rows:    [][]any{},
-	})
-	db.AddQueryPattern("SELECT pg_backend_pid\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_backend_pid"},
-		Rows:    [][]any{{int64(12345)}},
-	})
-	db.AddQueryPattern("SELECT pg_current_wal_lsn\\(\\)", &fakepgdb.ExpectedResult{
-		Columns: []string{"pg_current_wal_lsn"},
-		Rows:    [][]any{{"0/1A2B3C4D"}},
-	})
-	db.AddQuery("SELECT ts FROM multigres.heartbeat WHERE shard_id = $1", &fakepgdb.ExpectedResult{
-		Columns: []string{"ts"},
-		Rows: [][]any{
-			{time.Now().Add(-5 * time.Second).UnixNano()},
-		},
-	})
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
+		[]string{"ts"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+	))
 
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(sqlDB, logger, shardID, poolerID, 250)
+	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
 	// Use shorter intervals for testing

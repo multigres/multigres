@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/provisioner"
 )
 
@@ -282,7 +283,7 @@ func (p *localProvisioner) loadGlobalServices() ([]*LocalProvisionedService, err
 			serviceID := parts[1]
 
 			// Load global services (non-etcd services can be included here)
-			if serviceName == "multiadmin" || serviceName == "etcd" {
+			if serviceName == constants.ServiceMultiadmin || serviceName == "etcd" {
 				req := &provisioner.DeprovisionRequest{
 					Service:      serviceName,
 					ServiceID:    serviceID,
@@ -348,21 +349,21 @@ func (p *localProvisioner) getExpectedPortsForDbService(serviceName, cell string
 	}
 
 	switch serviceName {
-	case "multigateway":
+	case constants.ServiceMultigateway:
 		if httpPort, ok := cellConfig["http_port"].(int); ok {
 			ports["http"] = httpPort
 		}
 		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
 			ports["grpc"] = grpcPort
 		}
-	case "multipooler":
+	case constants.ServiceMultipooler:
 		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
 			ports["grpc"] = grpcPort
 		}
 		if httpPort, ok := cellConfig["http_port"].(int); ok && httpPort > 0 {
 			ports["http"] = httpPort
 		}
-	case "multiorch":
+	case constants.ServiceMultiorch:
 		if grpcPort, ok := cellConfig["grpc_port"].(int); ok {
 			ports["grpc"] = grpcPort
 		}
@@ -380,28 +381,28 @@ func (p *localProvisioner) getExpectedPortsForService(serviceName string) map[st
 	ports := make(map[string]int)
 
 	switch serviceName {
-	case "multigateway":
+	case constants.ServiceMultigateway:
 		if httpPort, ok := serviceConfig["http_port"].(int); ok {
 			ports["http"] = httpPort
 		}
 		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
 			ports["grpc"] = grpcPort
 		}
-	case "multipooler":
+	case constants.ServiceMultipooler:
 		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
 			ports["grpc"] = grpcPort
 		}
 		if httpPort, ok := serviceConfig["http_port"].(int); ok && httpPort > 0 {
 			ports["http"] = httpPort
 		}
-	case "multiorch":
+	case constants.ServiceMultiorch:
 		if grpcPort, ok := serviceConfig["grpc_port"].(int); ok {
 			ports["grpc"] = grpcPort
 		}
 		if httpPort, ok := serviceConfig["http_port"].(int); ok && httpPort > 0 {
 			ports["http"] = httpPort
 		}
-	case "multiadmin":
+	case constants.ServiceMultiadmin:
 		if httpPort, ok := serviceConfig["http_port"].(int); ok {
 			ports["http"] = httpPort
 		}

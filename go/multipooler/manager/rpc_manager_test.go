@@ -16,15 +16,12 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"testing"
 	"time"
 
-	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -34,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -82,7 +80,7 @@ func TestPrimaryPosition(t *testing.T) {
 			name:          "PRIMARY pooler passes type check",
 			poolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			expectError:   true,
-			errorContains: "database connection failed", // Will fail on DB connection, not type check
+			errorContains: "failed to get current WAL LSN", // Will fail on WAL LSN query, not type check
 		},
 	}
 
@@ -121,6 +119,14 @@ func TestPrimaryPosition(t *testing.T) {
 			manager, err := NewMultiPoolerManager(logger, config)
 			require.NoError(t, err)
 			defer manager.Close()
+
+			// Set up mock query service for isInRecovery check during startup
+			mockQueryService := mock.NewQueryService()
+			// PRIMARY: pg_is_in_recovery returns false (not in recovery)
+			// REPLICA: pg_is_in_recovery returns true (in recovery)
+			isReplica := tt.poolerType == clustermetadatapb.PoolerType_REPLICA
+			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{isReplica}}))
+			manager.qsc = &mockPoolerController{queryService: mockQueryService}
 
 			// Mark as initialized to skip auto-restore (not testing backup functionality)
 			err = manager.setInitialized()
@@ -194,6 +200,11 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Close()
 
+	// Set up mock query service for isInRecovery check during startup
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
+	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+
 	// Start and wait for ready
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go manager.Start(senv)
@@ -229,7 +240,16 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "SetPrimaryConnInfo times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
-				return manager.SetPrimaryConnInfo(ctx, "localhost", 5432, false, false, 1, true)
+				primary := &clustermetadatapb.MultiPooler{
+					Id: &clustermetadatapb.ID{
+						Component: clustermetadatapb.ID_MULTIPOOLER,
+						Cell:      "zone1",
+						Name:      "test-primary",
+					},
+					Hostname: "localhost",
+					PortMap:  map[string]int32{"postgres": 5432},
+				}
+				return manager.SetPrimaryConnInfo(ctx, primary, false, false, 1, true)
 			},
 		},
 		{
@@ -344,24 +364,15 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	}
 }
 
-// newMockDB creates a mock database for testing and registers cleanup.
-func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
-	mockDB, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
-	require.NoError(t, err)
-	t.Cleanup(func() { mockDB.Close() })
-	return mockDB, mock
-}
-
 // expectStartupQueries adds expectations for queries that happen during manager startup.
 // The manager is created as a REPLICA, so pg_is_in_recovery() returns true,
 // which causes the heartbeat reader to start (not writer).
 // Note: Schema creation is now handled by multiorch during bootstrap initialization,
 // so we no longer expect CREATE SCHEMA or CREATE TABLE queries here.
 // Also note: Since we mark as initialized in these tests, we don't expect the isInitialized check.
-func expectStartupQueries(mock sqlmock.Sqlmock) {
+func expectStartupQueries(m *mock.QueryService) {
 	// Heartbeat startup: checks if DB is primary/replica
-	mock.ExpectQuery("SELECT pg_is_in_recovery").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 }
 
 // createPgDataDir creates the pg_data directory with PG_VERSION file.
@@ -374,7 +385,7 @@ func createPgDataDir(t *testing.T, poolerDir string) {
 }
 
 // setupPromoteTestManager creates a manager configured as a REPLICA for promotion tests.
-func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, string) {
+func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -430,8 +441,8 @@ func setupPromoteTestManager(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager,
 	err = pm.setInitialized()
 	require.NoError(t, err)
 
-	// Assign mock DB BEFORE starting the manager to avoid race conditions
-	pm.db = mockDB
+	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go pm.Start(senv)
@@ -468,22 +479,24 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	// 3. No sync replication config requested
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
 
-	// Mock: checkPromotionState queries pg_is_in_recovery() - returns false (already promoted)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	// Note: We don't call expectStartupQueries here because we need fine-grained control.
+	// Startup heartbeat check returns "t" (we're configured as REPLICA initially)
+	// But checkPromotionState should return "f" (PG is already primary)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// All subsequent calls return "f" (PostgreSQL is already primary)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
-	// Mock: Since already promoted, get current LSN
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/ABCDEF0"))
+	// Mock: Since already promoted, get current LSN (called twice - during processing and for final response)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
 
-	// Mock: Get final LSN (after topology update)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/ABCDEF0"))
-
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Topology is still REPLICA (this is what the guard rail checks)
 	pm.mu.Lock()
@@ -503,8 +516,7 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type, "Topology should be updated to PRIMARY")
 	pm.mu.Unlock()
-
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_FullyCompleteTopologyPrimary tests that Promote succeeds when everything is complete
@@ -518,18 +530,22 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	// 3. No sync replication config requested (so it matches by default)
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
 
-	// Mock: checkPromotionState queries pg_is_in_recovery() - returns false (already primary)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	// Note: We don't call expectStartupQueries here because we need fine-grained control.
+	// Startup heartbeat check returns "t" (we're configured as REPLICA initially)
+	// But checkPromotionState should return "f" (PG is already primary)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// All subsequent calls return "f" (PostgreSQL is already primary)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: Get current LSN (since already primary)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/FEDCBA0"))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Topology is already PRIMARY
 	pm.mu.Lock()
@@ -544,8 +560,7 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	assert.True(t, resp.WasAlreadyPrimary, "Should report as already primary")
 	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
-
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary tests error when topology is PRIMARY but PG is not
@@ -558,14 +573,14 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 	// This indicates a serious problem that requires manual intervention
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
+	expectStartupQueries(mockQueryService)
 
 	// Mock: checkPromotionState queries pg_is_in_recovery() - returns true (still standby!)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
@@ -577,8 +592,7 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 	require.Error(t, err, "Should fail due to inconsistent state without force flag")
 	assert.Contains(t, err.Error(), "inconsistent state")
 	assert.Contains(t, err.Error(), "Manual intervention required")
-
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_InconsistentStateFixedWithForce tests that force flag fixes inconsistent state
@@ -591,30 +605,34 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	// With force=true, it should complete the missing promotion steps
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
 
-	// Mock: checkPromotionState queries pg_is_in_recovery() - returns true (still standby!)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	// Note: We don't call expectStartupQueries here because we need fine-grained control.
+	// The sequence of pg_is_in_recovery calls is:
+	// 1. Startup heartbeat check - returns "t" (consumed)
+	// 2. Promote checkPromotionState - returns "t" (consumed) - still in recovery
+	// 3. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: Validate expected LSN
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}).AddRow("0/FEDCBA0", true))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/FEDCBA0", "t"}}))
 
 	// Mock: pg_promote() call to fix the inconsistency
-	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_promote()")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	// Mock: Wait for promotion
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
+		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/FEDCBA0"))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Topology shows PRIMARY (inconsistent!)
 	pm.mu.Lock()
@@ -630,8 +648,7 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	assert.False(t, resp.WasAlreadyPrimary)
 	assert.Equal(t, int64(10), resp.ConsensusTerm)
 	assert.Equal(t, "0/FEDCBA0", resp.LsnPosition)
-
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_NothingCompleteYet tests promotion from scratch
@@ -644,34 +661,34 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	// 3. No sync replication configured
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
 
-	// Mock: pg_is_in_recovery() returns true (still standby)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	// Note: We don't call expectStartupQueries here because we need fine-grained control.
+	// The sequence of pg_is_in_recovery calls is:
+	// 1. Startup heartbeat check - returns "t" (consumed)
+	// 2. Promote checkPromotionState - returns "t" (consumed) - still in recovery
+	// 3. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: Validate expected LSN (pg_last_wal_replay_lsn + pg_is_wal_replay_paused)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}).AddRow("0/5678ABC", true))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/5678ABC", "t"}}))
 
 	// Mock: pg_promote() call
-	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_promote()")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	// Mock: Wait for promotion - first check returns true (still in recovery)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-
-	// Mock: Second check returns false (promotion complete)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
+		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/5678ABC"))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/5678ABC"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Topology is REPLICA
 	pm.mu.Lock()
@@ -690,8 +707,7 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	pm.mu.Lock()
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
 	pm.mu.Unlock()
-
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_LSNMismatchBeforePromotion tests that promotion fails if LSN doesn't match
@@ -699,18 +715,18 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 	ctx := context.Background()
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
+	expectStartupQueries(mockQueryService)
 
 	// PostgreSQL is still in recovery
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 
 	// Mock: Check LSN - return different value than expected
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}).AddRow("0/9999999", true))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/9999999", "t"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	pm.mu.Lock()
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
@@ -720,8 +736,7 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 	_, err := pm.Promote(ctx, 10, "0/1111111", nil, false /* force */)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "LSN")
-
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_TermMismatch tests that promotion fails with wrong term
@@ -729,10 +744,10 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	ctx := context.Background()
 
 	// Create mock - only startup expectations needed because term validation happens before test DB queries
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
+	expectStartupQueries(mockQueryService)
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Explicitly set the term to 10 to ensure we have the expected value using SetTerm
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
@@ -743,9 +758,7 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	_, err = pm.Promote(ctx, 5, "0/1234567", nil, false /* force */)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "term")
-
-	// No database queries should happen if term validation fails
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_SecondCallSucceedsAfterCompletion tests that calling Promote after completion succeeds (idempotent)
@@ -753,28 +766,41 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	ctx := context.Background()
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
 
-	// Setup for first call - complete promotion
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}).AddRow("0/AAA1111", true))
-	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_promote()")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/AAA1111"))
+	// Note: We don't call expectStartupQueries here because we need fine-grained control
+	// over which pg_is_in_recovery calls return "t" (in recovery) vs "f" (primary).
+	// The sequence of pg_is_in_recovery calls is:
+	// 1. Startup heartbeat check - returns "t" (consumed)
+	// 2. Promote checkPromotionState - returns "t" (consumed)
+	// 3. waitForPromotionComplete polling - returns "f" (consumed on first call)
+	// 4. Second Promote call checkPromotionState - returns "f" (consumed on second call)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// waitForPromotionComplete returns false (promotion complete)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	// Second Promote call returns false (already primary)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
-	// Setup for second call - everything already complete
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/AAA1111"))
+	// Mock: Validate expected LSN
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/AAA1111", "t"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	// Mock: pg_promote() call
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
+		mock.MakeQueryResult(nil, nil))
+
+	// Mock: Get current LSN (called twice - once after first promote, once in second call)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
+
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	pm.mu.Lock()
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
@@ -791,12 +817,12 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Second call should SUCCEED - topology is PRIMARY and everything is consistent (idempotent)
+	// The pg_is_in_recovery pattern already returns "f" (false) since the first call consumed the "t" patterns
 	resp2, err := pm.Promote(ctx, 10, "0/AAA1111", nil, false /* force */)
 	require.NoError(t, err, "Second call should succeed - idempotent operation")
 	assert.True(t, resp2.WasAlreadyPrimary, "Second call should report as already primary")
 	assert.Equal(t, "0/AAA1111", resp2.LsnPosition)
-
-	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
 // TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation tests that empty expectedLSN skips validation
@@ -804,26 +830,31 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	ctx := context.Background()
 
 	// Create mock and set ALL expectations BEFORE starting the manager
-	mockDB, mock := newMockDB(t)
-	expectStartupQueries(mock)
+	mockQueryService := mock.NewQueryService()
 
-	// PostgreSQL is still in recovery
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+	// Note: We don't call expectStartupQueries here because we need fine-grained control
+	// over which pg_is_in_recovery calls return "t" (in recovery) vs "f" (primary).
+	// The sequence of pg_is_in_recovery calls is:
+	// 1. Startup heartbeat check - returns "t" (consumed)
+	// 2. Promote checkPromotionState - returns "t" (consumed)
+	// 3. waitForPromotionComplete polling - returns "f" (consumed)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
 	// Mock: pg_promote() call (LSN validation skipped because expectedLSN is empty)
-	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_promote()")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	// Mock: Wait for promotion
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
+		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()::text")).
-		WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/BBBBBBB"))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/BBBBBBB"}}))
 
-	pm, _ := setupPromoteTestManager(t, mockDB)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	pm.mu.Lock()
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
@@ -836,8 +867,115 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 
 	assert.False(t, resp.WasAlreadyPrimary)
 	assert.Equal(t, "0/BBBBBBB", resp.LsnPosition)
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
 
-	require.NoError(t, mock.ExpectationsWereMet())
+func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-replica",
+	}
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	t.Cleanup(cleanupPgctld)
+
+	// Create the database in topology with backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	// Create REPLICA multipooler
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Database:      database,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	tmpDir := t.TempDir()
+	createPgDataDir(t, tmpDir)
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		PgctldAddr: pgctldAddr,
+		PoolerDir:  tmpDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+	pm, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+	defer pm.Close()
+
+	// Mark as initialized to skip auto-restore (not testing backup functionality)
+	err = pm.setInitialized()
+	require.NoError(t, err)
+
+	// Initialize consensus state
+	pm.mu.Lock()
+	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.mu.Unlock()
+
+	// Set up mock query service for isInRecovery check during startup
+	mockQueryService := mock.NewQueryService()
+	// REPLICA: pg_is_in_recovery returns true (in recovery) - for startup check
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	// REPLICA: pg_is_in_recovery returns true (in recovery) - for SetPrimaryConnInfo guardrail check
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	// SetPrimaryConnInfo executes ALTER SYSTEM SET primary_conninfo
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
+	// SetPrimaryConnInfo executes pg_reload_conf()
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	go pm.Start(senv)
+	require.Eventually(t, func() bool {
+		return pm.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	// Set consensus term first (required for SetPrimaryConnInfo)
+	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
+	err = pm.SetTerm(ctx, term)
+	require.NoError(t, err)
+
+	// Call SetPrimaryConnInfo with a specific primary MultiPooler
+	testPrimaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "primary-pooler-123",
+	}
+	primary := &clustermetadatapb.MultiPooler{
+		Id:       testPrimaryID,
+		Hostname: "primary-host",
+		PortMap:  map[string]int32{"postgres": 5432},
+	}
+	err = pm.SetPrimaryConnInfo(ctx, primary, false, false, 1, false)
+	require.NoError(t, err)
+
+	// Verify all mock expectations were met
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+
+	// Verify the primaryPoolerID is stored in the manager as a *clustermetadatapb.ID
+	pm.mu.Lock()
+	storedPrimaryPoolerID := pm.primaryPoolerID
+	pm.mu.Unlock()
+
+	require.NotNil(t, storedPrimaryPoolerID, "primaryPoolerID should be stored")
+	assert.Equal(t, testPrimaryID.Component, storedPrimaryPoolerID.Component, "primaryPoolerID component should match")
+	assert.Equal(t, testPrimaryID.Cell, storedPrimaryPoolerID.Cell, "primaryPoolerID cell should match")
+	assert.Equal(t, testPrimaryID.Name, storedPrimaryPoolerID.Name, "primaryPoolerID name should match")
 }
 
 func TestReplicationStatus(t *testing.T) {
@@ -887,44 +1025,33 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
+		// Create mock query service and inject it
+		mockQueryService := mock.NewQueryService()
+
+		// Status() calls isInRecovery() to determine role
+		// pg_is_in_recovery returns false (not in recovery = primary)
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		// getPrimaryLSN()
+		mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/12345678"}}))
+		// getConnectedFollowerIDs()
+		mockQueryService.AddQueryPattern("SELECT application_name",
+			mock.MakeQueryResult([]string{"application_name"}, nil))
+		// getSynchronousReplicationConfig()
+		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
+			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
+		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
+			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
+
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
 		require.Eventually(t, func() bool {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Create mock database and inject it
-		db, mock, err := sqlmock.New()
-		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
-		pm.db = db
-
-		// Status() calls isPrimary() multiple times via different code paths:
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 3. getWALPosition() -> getPrimaryLSN() (since isPrimary=true)
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 5. getPrimaryStatusInternal() -> getPrimaryLSN()
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 6. getPrimaryStatusInternal() -> getConnectedFollowerIDs()
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT application_name")).
-			WillReturnRows(sqlmock.NewRows([]string{"application_name"}))
-		// 7. getPrimaryStatusInternal() -> getSynchronousReplicationConfig()
-		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_standby_names")).
-			WillReturnRows(sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow(""))
-		// 8. getSynchronousReplicationConfig() -> SHOW synchronous_commit
-		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_commit")).
-			WillReturnRows(sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("on"))
 
 		// Call ReplicationStatus
 		status, err := pm.Status(ctx)
@@ -936,8 +1063,6 @@ func TestReplicationStatus(t *testing.T) {
 		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated")
 		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil for PRIMARY")
 		assert.Equal(t, "0/12345678", status.PrimaryStatus.Lsn)
-
-		require.NoError(t, mock.ExpectationsWereMet())
 	})
 
 	t.Run("REPLICA_pooler_returns_replication_status", func(t *testing.T) {
@@ -982,48 +1107,36 @@ func TestReplicationStatus(t *testing.T) {
 		err = pm.setInitialized()
 		require.NoError(t, err)
 
+		// Create mock query service and inject it
+		mockQueryService := mock.NewQueryService()
+
+		// Status() calls isInRecovery() - returns true (in recovery = standby)
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+		// getStandbyReplayLSN()
+		mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+			mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/12345600"}}))
+		// queryReplicationStatus()
+		mockQueryService.AddQueryPattern("pg_last_wal_receive_lsn",
+			mock.MakeQueryResult(
+				[]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"primary_conninfo",
+				},
+				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test"}}))
+
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
 		require.Eventually(t, func() bool {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Create mock database and inject it
-		db, mock, err := sqlmock.New()
-		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
-		pm.db = db
-
-		// Status() calls isPrimary() multiple times via different code paths:
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 3. getWALPosition() -> getStandbyReplayLSN() (since isPrimary=false)
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn"}).AddRow("0/12345600"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 5. getStandbyStatusInternal() -> queryReplicationStatus()
-		mock.ExpectQuery(regexp.QuoteMeta(`SELECT
-		pg_last_wal_replay_lsn(),
-		pg_last_wal_receive_lsn(),
-		pg_is_wal_replay_paused(),
-		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`)).
-			WillReturnRows(sqlmock.NewRows([]string{
-				"pg_last_wal_replay_lsn",
-				"pg_last_wal_receive_lsn",
-				"pg_is_wal_replay_paused",
-				"pg_get_wal_replay_pause_state",
-				"pg_last_xact_replay_timestamp",
-				"primary_conninfo",
-			}).AddRow("0/12345600", "0/12345678", false, "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test"))
 
 		// Call ReplicationStatus
 		status, err := pm.Status(ctx)
@@ -1035,8 +1148,6 @@ func TestReplicationStatus(t *testing.T) {
 		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil for REPLICA")
 		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated")
 		assert.Equal(t, "0/12345600", status.ReplicationStatus.LastReplayLsn)
-
-		require.NoError(t, mock.ExpectationsWereMet())
 	})
 
 	t.Run("Mismatch_PRIMARY_topology_but_standby_postgres", func(t *testing.T) {
@@ -1076,49 +1187,36 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
+		// Create mock query service and inject it
+		mockQueryService := mock.NewQueryService()
+
+		// PostgreSQL is actually a standby (pg_is_in_recovery = true)
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+		// getStandbyReplayLSN()
+		mockQueryService.AddQueryPattern("SELECT pg_last_wal_replay_lsn",
+			mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/12345600"}}))
+		// queryReplicationStatus()
+		mockQueryService.AddQueryPattern("pg_last_wal_receive_lsn",
+			mock.MakeQueryResult(
+				[]string{
+					"pg_last_wal_replay_lsn",
+					"pg_last_wal_receive_lsn",
+					"pg_is_wal_replay_paused",
+					"pg_get_wal_replay_pause_state",
+					"pg_last_xact_replay_timestamp",
+					"primary_conninfo",
+				},
+				[][]any{{"0/12345600", "0/12345678", "f", "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test"}}))
+
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
 		require.Eventually(t, func() bool {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Create mock database and inject it
-		db, mock, err := sqlmock.New()
-		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
-		pm.db = db
-
-		// Status() calls isPrimary() multiple times via different code paths:
-		// PostgreSQL is actually a standby (pg_is_in_recovery = true)
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 3. getWALPosition() -> getStandbyReplayLSN() (since isPrimary=false)
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_last_wal_replay_lsn()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_last_wal_replay_lsn"}).AddRow("0/12345600"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-		// 5. getStandbyStatusInternal() -> queryReplicationStatus()
-		mock.ExpectQuery(regexp.QuoteMeta(`SELECT
-		pg_last_wal_replay_lsn(),
-		pg_last_wal_receive_lsn(),
-		pg_is_wal_replay_paused(),
-		pg_get_wal_replay_pause_state(),
-		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`)).
-			WillReturnRows(sqlmock.NewRows([]string{
-				"pg_last_wal_replay_lsn",
-				"pg_last_wal_receive_lsn",
-				"pg_is_wal_replay_paused",
-				"pg_get_wal_replay_pause_state",
-				"pg_last_xact_replay_timestamp",
-				"primary_conninfo",
-			}).AddRow("0/12345600", "0/12345678", false, "not paused", "2025-01-01 00:00:00", "host=primary port=5432 user=repl application_name=test"))
 
 		// Call Status - now returns status with mismatch observable
 		status, err := pm.Status(ctx)
@@ -1129,8 +1227,6 @@ func TestReplicationStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, status.PoolerType)
 		assert.Nil(t, status.PrimaryStatus, "PrimaryStatus should be nil since PostgreSQL is a standby")
 		assert.NotNil(t, status.ReplicationStatus, "ReplicationStatus should be populated since PostgreSQL is a standby")
-
-		require.NoError(t, mock.ExpectationsWereMet())
 	})
 
 	t.Run("Mismatch_REPLICA_topology_but_primary_postgres", func(t *testing.T) {
@@ -1175,45 +1271,32 @@ func TestReplicationStatus(t *testing.T) {
 		err = pm.setInitialized()
 		require.NoError(t, err)
 
+		// Create mock query service and inject it
+		mockQueryService := mock.NewQueryService()
+
+		// PostgreSQL is actually a primary (pg_is_in_recovery = false)
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		// getPrimaryLSN()
+		mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
+			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/12345678"}}))
+		// getConnectedFollowerIDs()
+		mockQueryService.AddQueryPattern("SELECT application_name",
+			mock.MakeQueryResult([]string{"application_name"}, nil))
+		// getSynchronousReplicationConfig()
+		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
+			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
+		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
+			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
+
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
 		require.Eventually(t, func() bool {
 			return pm.GetState() == ManagerStateReady
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Create mock database and inject it
-		db, mock, err := sqlmock.New()
-		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
-		pm.db = db
-
-		// Status() calls isPrimary() multiple times via different code paths:
-		// PostgreSQL is actually a primary (pg_is_in_recovery = false)
-		// 1. getRole() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 2. getWALPosition() -> isPrimary() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 3. getWALPosition() -> getPrimaryLSN() (since isPrimary=true)
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 4. Direct isPrimary() call in Status() -> pg_is_in_recovery
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_is_in_recovery()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-		// 5. getPrimaryStatusInternal() -> getPrimaryLSN()
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_current_wal_lsn()")).
-			WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/12345678"))
-		// 6. getPrimaryStatusInternal() -> getConnectedFollowerIDs()
-		mock.ExpectQuery(regexp.QuoteMeta("SELECT application_name")).
-			WillReturnRows(sqlmock.NewRows([]string{"application_name"}))
-		// 7. getPrimaryStatusInternal() -> getSynchronousReplicationConfig()
-		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_standby_names")).
-			WillReturnRows(sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow(""))
-		// 8. getSynchronousReplicationConfig() -> SHOW synchronous_commit
-		mock.ExpectQuery(regexp.QuoteMeta("SHOW synchronous_commit")).
-			WillReturnRows(sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("on"))
 
 		// Call Status - now returns status with mismatch observable
 		status, err := pm.Status(ctx)
@@ -1224,7 +1307,5 @@ func TestReplicationStatus(t *testing.T) {
 		assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, status.PoolerType)
 		assert.NotNil(t, status.PrimaryStatus, "PrimaryStatus should be populated since PostgreSQL is a primary")
 		assert.Nil(t, status.ReplicationStatus, "ReplicationStatus should be nil since PostgreSQL is a primary")
-
-		require.NoError(t, mock.ExpectationsWereMet())
 	})
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
@@ -96,7 +97,7 @@ func NewMultiOrch() *MultiOrch {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mo *MultiOrch) Init() error {
-	if err := mo.senv.Init("multiorch"); err != nil {
+	if err := mo.senv.Init(constants.ServiceMultiorch); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	// Get the configured logger

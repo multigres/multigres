@@ -155,4 +155,9 @@ service MultiPoolerManager {
   // GetBackups retrieves backup information
   rpc GetBackups(multipoolermanagerdata.GetBackupsRequest)
     returns (multipoolermanagerdata.GetBackupsResponse);
+
+  // GetBackupByJobId queries a backup by its job_id annotation.
+  // Returns the backup metadata if found, or nil backup if not.
+  rpc GetBackupByJobId(multipoolermanagerdata.GetBackupByJobIdRequest)
+      returns (multipoolermanagerdata.GetBackupByJobIdResponse);
 }

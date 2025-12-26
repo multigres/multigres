@@ -67,6 +67,9 @@ fi
 # Get unique directories of the Go files
 gopackages=$(echo "$gofiles" | xargs -n1 dirname | sort -u | paste -sd ' ' -)
 
+# Verify config is valid (catches invalid options that 'run' silently ignores)
+golangci-lint config verify
+
 # Lint the Go packages
 echo "Linting $gopackages"
 # shellcheck disable=SC2086

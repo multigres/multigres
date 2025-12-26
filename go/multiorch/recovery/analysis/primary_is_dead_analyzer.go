@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 )
@@ -35,6 +36,10 @@ func (a *PrimaryIsDeadAnalyzer) Name() types.CheckName {
 }
 
 func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
+	if a.factory == nil {
+		return nil, errors.New("recovery action factory not initialized")
+	}
+
 	// Only analyze replicas (primaries can't report themselves as dead)
 	if poolerAnalysis.IsPrimary {
 		return nil, nil
@@ -45,21 +50,31 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, nil
 	}
 
-	// Early return if primary is reachable - no problem to report
-	if poolerAnalysis.PrimaryPoolerID != nil && poolerAnalysis.PrimaryReachable {
-		return nil, nil
-	}
-
-	// At this point:
-	// - This is an initialized replica
-	// - Either no primary exists (PrimaryPoolerID == nil) or primary is unreachable
-	// Only trigger if a primary exists but is unreachable.
+	// Skip if no primary exists in topology
 	if poolerAnalysis.PrimaryPoolerID == nil {
 		return nil, nil
 	}
 
-	if a.factory == nil {
-		return nil, errors.New("recovery action factory not initialized")
+	// Early return if primary is fully reachable (pooler up AND Postgres running)
+	if poolerAnalysis.PrimaryReachable {
+		return nil, nil
+	}
+
+	// At this point, PrimaryReachable is false. This can happen in two cases:
+	// 1. Primary pooler is reachable but Postgres is down -> FAILOVER
+	// 2. Primary pooler is unreachable -> need to check if Postgres is still running
+	//
+	// For case 2, we check if ALL replicas are still connected to the primary Postgres.
+	// If they are, Postgres is still running and only the pooler process is down.
+	// In this case, we do NOT trigger failover - the operator should restart the pooler.
+	if !poolerAnalysis.PrimaryPoolerReachable && poolerAnalysis.ReplicasConnectedToPrimary {
+		// Primary pooler is down but Postgres is still running (replicas are connected).
+		// Do not trigger failover - operator should restart the pooler process.
+		a.factory.Logger().Warn("primary pooler unreachable but postgres still running",
+			"shard_key", poolerAnalysis.ShardKey.String(),
+			"primary_pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PrimaryPoolerID),
+			"action", "operator should restart pooler process")
+		return nil, nil
 	}
 
 	return []types.Problem{{

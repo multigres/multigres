@@ -184,6 +184,11 @@ func PostgresConfigFile(poolerDir string) string {
 	return path.Join(PostgresDataDir(poolerDir), "postgresql.conf")
 }
 
+// PostgresPasswordFile returns the conventional location of the PostgreSQL password file.
+func PostgresPasswordFile(poolerDir string) string {
+	return path.Join(poolerDir, "pgpassword.txt")
+}
+
 // MakePostgresConf will substitute values in the template
 func (cnf *PostgresServerConfig) MakePostgresConf(templateContent string) (string, error) {
 	pgTemplate, err := template.New("").Parse(templateContent)

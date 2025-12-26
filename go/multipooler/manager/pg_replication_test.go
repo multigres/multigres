@@ -16,19 +16,16 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
-	"regexp"
 	"testing"
 
-	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multipooler/executor/mock"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -683,37 +680,33 @@ func TestApplyReplaceOperation(t *testing.T) {
 	}
 }
 
-func TestIsPrimary(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
+func TestIsInRecovery(t *testing.T) {
 	tests := []struct {
 		name         string
-		setupMock    func(sqlmock.Sqlmock)
+		setupMock    func(*mock.QueryService)
 		expectError  bool
 		expectResult bool
 	}{
 		{
 			name: "primary server - not in recovery",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false)
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").WillReturnRows(rows)
-			},
-			expectError:  false,
-			expectResult: true,
-		},
-		{
-			name: "standby server - in recovery",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true)
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			},
 			expectError:  false,
 			expectResult: false,
 		},
 		{
+			name: "standby server - in recovery",
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+			},
+			expectError:  false,
+			expectResult: true,
+		},
+		{
 			name: "query error",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").WillReturnError(sql.ErrConnDone)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("SELECT pg_is_in_recovery", fmt.Errorf("connection done"))
 			},
 			expectError: true,
 		},
@@ -721,19 +714,12 @@ func TestIsPrimary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mock)
-
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			result, err := pm.isPrimary(ctx)
+			result, err := pm.isInRecovery(ctx)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -741,43 +727,38 @@ func TestIsPrimary(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectResult, result)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
 func TestGetPrimaryLSN(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
 	tests := []struct {
 		name        string
-		setupMock   func(sqlmock.Sqlmock)
+		setupMock   func(*mock.QueryService)
 		expectError bool
 		expectedLSN string
 	}{
 		{
 			name: "successful query",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/3000000")
-				mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)::text").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/3000000"}}))
 			},
 			expectError: false,
 			expectedLSN: "0/3000000",
 		},
 		{
 			name: "different LSN format",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("1/ABCD1234")
-				mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)::text").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"1/ABCD1234"}}))
 			},
 			expectError: false,
 			expectedLSN: "1/ABCD1234",
 		},
 		{
 			name: "query error",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)::text").WillReturnError(sql.ErrConnDone)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("SELECT pg_current_wal_lsn", fmt.Errorf("connection done"))
 			},
 			expectError: true,
 		},
@@ -785,16 +766,9 @@ func TestGetPrimaryLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mock)
-
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			result, err := pm.getPrimaryLSN(ctx)
@@ -805,43 +779,38 @@ func TestGetPrimaryLSN(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedLSN, result)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
 func TestGetStandbyReplayLSN(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
 	tests := []struct {
 		name        string
-		setupMock   func(sqlmock.Sqlmock)
+		setupMock   func(*mock.QueryService)
 		expectError bool
 		expectedLSN string
 	}{
 		{
 			name: "successful query",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{"pg_last_wal_replay_lsn"}).AddRow("0/2000000")
-				mock.ExpectQuery("SELECT pg_last_wal_replay_lsn\\(\\)::text").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"0/2000000"}}))
 			},
 			expectError: false,
 			expectedLSN: "0/2000000",
 		},
 		{
 			name: "different LSN format",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{"pg_last_wal_replay_lsn"}).AddRow("5/FFFF0000")
-				mock.ExpectQuery("SELECT pg_last_wal_replay_lsn\\(\\)::text").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn"}, [][]any{{"5/FFFF0000"}}))
 			},
 			expectError: false,
 			expectedLSN: "5/FFFF0000",
 		},
 		{
 			name: "query error",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT pg_last_wal_replay_lsn\\(\\)::text").WillReturnError(sql.ErrConnDone)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("SELECT pg_last_wal_replay_lsn", fmt.Errorf("connection done"))
 			},
 			expectError: true,
 		},
@@ -849,16 +818,9 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mock)
-
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			result, err := pm.getStandbyReplayLSN(ctx)
@@ -869,30 +831,26 @@ func TestGetStandbyReplayLSN(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedLSN, result)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
 func TestGetSynchronousReplicationConfig(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
 	tests := []struct {
 		name           string
-		setupMock      func(sqlmock.Sqlmock)
+		setupMock      func(*mock.QueryService)
 		expectError    bool
 		validateResult func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration)
 	}{
 		{
 			name: "FIRST method with multiple standbys",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows1 := sqlmock.NewRows([]string{"synchronous_standby_names"}).
-					AddRow(`FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`)
-				mock.ExpectQuery("SHOW synchronous_standby_names").WillReturnRows(rows1)
-
-				rows2 := sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("on")
-				mock.ExpectQuery("SHOW synchronous_commit").WillReturnRows(rows2)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
+					[]string{"synchronous_standby_names"},
+					[][]any{{`FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`}}))
+				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
+					[]string{"synchronous_commit"}, [][]any{{"on"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
@@ -904,13 +862,12 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "ANY method with single standby",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows1 := sqlmock.NewRows([]string{"synchronous_standby_names"}).
-					AddRow(`ANY 1 ("zone1_replica-1")`)
-				mock.ExpectQuery("SHOW synchronous_standby_names").WillReturnRows(rows1)
-
-				rows2 := sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("remote_apply")
-				mock.ExpectQuery("SHOW synchronous_commit").WillReturnRows(rows2)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
+					[]string{"synchronous_standby_names"},
+					[][]any{{`ANY 1 ("zone1_replica-1")`}}))
+				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
+					[]string{"synchronous_commit"}, [][]any{{"remote_apply"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
@@ -924,12 +881,11 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "empty synchronous_standby_names",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows1 := sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow("")
-				mock.ExpectQuery("SHOW synchronous_standby_names").WillReturnRows(rows1)
-
-				rows2 := sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("local")
-				mock.ExpectQuery("SHOW synchronous_commit").WillReturnRows(rows2)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
+					[]string{"synchronous_standby_names"}, [][]any{{""}}))
+				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
+					[]string{"synchronous_commit"}, [][]any{{"local"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
@@ -939,12 +895,11 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "synchronous_commit off",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows1 := sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow("")
-				mock.ExpectQuery("SHOW synchronous_standby_names").WillReturnRows(rows1)
-
-				rows2 := sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("off")
-				mock.ExpectQuery("SHOW synchronous_commit").WillReturnRows(rows2)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
+					[]string{"synchronous_standby_names"}, [][]any{{""}}))
+				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
+					[]string{"synchronous_commit"}, [][]any{{"off"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
@@ -953,12 +908,11 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "synchronous_commit remote_write",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows1 := sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow("")
-				mock.ExpectQuery("SHOW synchronous_standby_names").WillReturnRows(rows1)
-
-				rows2 := sqlmock.NewRows([]string{"synchronous_commit"}).AddRow("remote_write")
-				mock.ExpectQuery("SHOW synchronous_commit").WillReturnRows(rows2)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
+					[]string{"synchronous_standby_names"}, [][]any{{""}}))
+				m.AddQueryPatternOnce("SHOW synchronous_commit", mock.MakeQueryResult(
+					[]string{"synchronous_commit"}, [][]any{{"remote_write"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, config *multipoolermanagerdatapb.SynchronousReplicationConfiguration) {
@@ -967,18 +921,17 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 		},
 		{
 			name: "query error on synchronous_standby_names",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SHOW synchronous_standby_names").WillReturnError(sql.ErrConnDone)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("SHOW synchronous_standby_names", fmt.Errorf("connection done"))
 			},
 			expectError: true,
 		},
 		{
 			name: "query error on synchronous_commit",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows1 := sqlmock.NewRows([]string{"synchronous_standby_names"}).AddRow("")
-				mock.ExpectQuery("SHOW synchronous_standby_names").WillReturnRows(rows1)
-
-				mock.ExpectQuery("SHOW synchronous_commit").WillReturnError(sql.ErrConnDone)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SHOW synchronous_standby_names", mock.MakeQueryResult(
+					[]string{"synchronous_standby_names"}, [][]any{{""}}))
+				m.AddQueryPatternOnceWithError("SHOW synchronous_commit", fmt.Errorf("connection done"))
 			},
 			expectError: true,
 		},
@@ -986,16 +939,9 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mock)
-
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			result, err := pm.getSynchronousReplicationConfig(ctx)
@@ -1010,8 +956,7 @@ func TestGetSynchronousReplicationConfig(t *testing.T) {
 					tt.validateResult(t, result)
 				}
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -1022,8 +967,8 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 		synchronousMethod multipoolermanagerdatapb.SynchronousMethod
 		numSync           int32
 		standbyIDs        []*clustermetadatapb.ID
+		setupMock         func(*mock.QueryService)
 		expectError       bool
-		expectedValue     string
 	}{
 		{
 			name:              "FIRST method with multiple standbys",
@@ -1033,8 +978,10 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 				{Cell: "cell1", Name: "pooler1"},
 				{Cell: "cell1", Name: "pooler2"},
 			},
-			expectError:   false,
-			expectedValue: `FIRST 1 ("cell1_pooler1", "cell1_pooler2")`,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
 		},
 		{
 			name:              "ANY method with multiple standbys",
@@ -1045,8 +992,10 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 				{Cell: "cell2", Name: "pooler2"},
 				{Cell: "cell2", Name: "pooler3"},
 			},
-			expectError:   false,
-			expectedValue: `ANY 2 ("cell1_pooler1", "cell2_pooler2", "cell2_pooler3")`,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
 		},
 		{
 			name:              "db exec error",
@@ -1055,42 +1004,28 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			standbyIDs: []*clustermetadatapb.ID{
 				{Cell: "cell1", Name: "pooler1"},
 			},
-			expectError:   true,
-			expectedValue: `FIRST 1 ("cell1_pooler1")`,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", fmt.Errorf("exec error"))
+			},
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
-
-			expectedSQL := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = '%s'", tt.expectedValue)
-			if tt.expectError {
-				mock.ExpectExec(regexp.QuoteMeta(expectedSQL)).
-					WillReturnError(fmt.Errorf("exec error"))
-			} else {
-				mock.ExpectExec(regexp.QuoteMeta(expectedSQL)).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err = pm.setSynchronousStandbyNames(ctx, tt.synchronousMethod, tt.numSync, tt.standbyIDs)
+			err := pm.setSynchronousStandbyNames(ctx, tt.synchronousMethod, tt.numSync, tt.standbyIDs)
 
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -1099,43 +1034,53 @@ func TestValidateExpectedLSN(t *testing.T) {
 	tests := []struct {
 		name          string
 		expectedLSN   string
-		currentLSN    string
-		isPaused      bool
-		queryError    error
+		setupMock     func(*mock.QueryService)
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name:        "empty expectedLSN - no validation",
 			expectedLSN: "",
+			setupMock:   func(m *mock.QueryService) {},
 			expectError: false,
 		},
 		{
 			name:        "LSN match with paused replay",
 			expectedLSN: "0/3000000",
-			currentLSN:  "0/3000000",
-			isPaused:    true,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"},
+					[][]any{{"0/3000000", "t"}}))
+			},
 			expectError: false,
 		},
 		{
 			name:        "LSN match with running replay (warning only)",
 			expectedLSN: "0/3000000",
-			currentLSN:  "0/3000000",
-			isPaused:    false,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"},
+					[][]any{{"0/3000000", "f"}}))
+			},
 			expectError: false,
 		},
 		{
-			name:          "LSN mismatch",
-			expectedLSN:   "0/3000000",
-			currentLSN:    "0/2000000",
-			isPaused:      true,
+			name:        "LSN mismatch",
+			expectedLSN: "0/3000000",
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"},
+					[][]any{{"0/2000000", "t"}}))
+			},
 			expectError:   true,
 			errorContains: "LSN mismatch",
 		},
 		{
-			name:          "query error",
-			expectedLSN:   "0/3000000",
-			queryError:    fmt.Errorf("database error"),
+			name:        "query error",
+			expectedLSN: "0/3000000",
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("SELECT pg_last_wal_replay_lsn", fmt.Errorf("database error"))
+			},
 			expectError:   true,
 			errorContains: "failed to get current replay LSN",
 		},
@@ -1143,47 +1088,12 @@ func TestValidateExpectedLSN(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Skip mock setup if expectedLSN is empty (function returns early)
-			if tt.expectedLSN == "" {
-				mockDB, _, err := sqlmock.New()
-				require.NoError(t, err)
-				defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-				logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-				pm := &MultiPoolerManager{
-					logger: logger,
-					db:     mockDB,
-				}
-
-				ctx := context.Background()
-				err = pm.validateExpectedLSN(ctx, tt.expectedLSN)
-				assert.NoError(t, err)
-				return
-			}
-
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
-
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
-
-			query := "SELECT pg_last_wal_replay_lsn()::text, pg_is_wal_replay_paused()"
-			if tt.queryError != nil {
-				mock.ExpectQuery(regexp.QuoteMeta(query)).
-					WillReturnError(tt.queryError)
-			} else {
-				rows := sqlmock.NewRows([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}).
-					AddRow(tt.currentLSN, tt.isPaused)
-				mock.ExpectQuery(regexp.QuoteMeta(query)).
-					WillReturnRows(rows)
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err = pm.validateExpectedLSN(ctx, tt.expectedLSN)
+			err := pm.validateExpectedLSN(ctx, tt.expectedLSN)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1193,8 +1103,7 @@ func TestValidateExpectedLSN(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -1332,13 +1241,11 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 }
 
 func TestPauseReplication(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
 	tests := []struct {
 		name           string
 		mode           multipoolermanagerdatapb.ReplicationPauseMode
 		wait           bool
-		setupMock      func(mock sqlmock.Sqlmock)
+		setupMock      func(*mock.QueryService)
 		expectError    bool
 		errorContains  string
 		expectStatus   bool // true if we expect a non-nil status to be returned
@@ -1348,28 +1255,11 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayOnly with wait=true",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: true,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect pg_wal_replay_pause() call
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect waitForReplicationPause query
-				rows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/3000000",
-					"0/3000100",
-					true,
-					"paused",
-					"2025-01-15 10:00:00+00",
-					"host=primary port=5432",
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432"}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1382,22 +1272,18 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayOnly with wait=false",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect pg_wal_replay_pause() call only
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				// No wait query expected
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
-			expectStatus: false, // Should return nil when not waiting
+			expectStatus: false,
 		},
 		{
 			name: "PauseReplayOnly fails on pause command",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY,
 			wait: true,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnError(fmt.Errorf("permission denied"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("SELECT pg_wal_replay_pause", fmt.Errorf("permission denied"))
 			},
 			expectError:   true,
 			errorContains: "failed to pause WAL replay",
@@ -1406,37 +1292,13 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly with wait=true",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: true,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect ALTER SYSTEM RESET primary_conninfo
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect pg_reload_conf()
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect waitForReceiverDisconnect (COUNT query)
-				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
-					WillReturnRows(countRows)
-
-				// Then expect queryReplicationStatus
-				rows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/4000000",
-					nil, // receiver stopped, so receive_lsn might be null
-					false,
-					"not paused",
-					"2025-01-15 11:00:00+00",
-					"", // empty primary_conninfo after reset
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", ""}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1450,16 +1312,9 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly with wait=false",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect ALTER SYSTEM RESET primary_conninfo
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect pg_reload_conf()
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// No status query expected
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
 			expectStatus: false,
@@ -1468,9 +1323,8 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly fails on ALTER SYSTEM",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnError(fmt.Errorf("permission denied"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM RESET primary_conninfo", fmt.Errorf("permission denied"))
 			},
 			expectError:   true,
 			errorContains: "failed to clear primary_conninfo",
@@ -1479,11 +1333,9 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReceiverOnly fails on reload",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnError(fmt.Errorf("reload failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", fmt.Errorf("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload PostgreSQL configuration",
@@ -1492,59 +1344,19 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver with wait=true",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: true,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect ALTER SYSTEM RESET primary_conninfo
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect pg_reload_conf()
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect waitForReceiverDisconnect (COUNT query)
-				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
-					WillReturnRows(countRows)
-
-				// waitForReceiverDisconnect calls queryReplicationStatus when count is 0
-				statusRows1 := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/5000000",
-					nil,
-					false, // not paused yet
-					"not paused",
-					"2025-01-15 12:00:00+00",
-					"",
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(statusRows1)
-
-				// Then expect pg_wal_replay_pause() call
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect waitForReplicationPause query
-				statusRows2 := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/5000000",
-					nil,
-					true,
-					"paused",
-					"2025-01-15 12:00:00+00",
-					"",
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(statusRows2)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				// First query for waitForReceiverDisconnect - consumed after first match
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", ""}}))
+				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
+				// Second query for waitForReplicationPause
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", ""}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1557,43 +1369,14 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver with wait=false",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// Expect ALTER SYSTEM RESET primary_conninfo
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect pg_reload_conf()
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// Expect waitForReceiverDisconnect (COUNT query) - always waits even with wait=false
-				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
-					WillReturnRows(countRows)
-
-				// waitForReceiverDisconnect calls queryReplicationStatus when count is 0
-				statusRows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/5000000",
-					nil,
-					false,
-					"not paused",
-					"2025-01-15 12:00:00+00",
-					"",
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(statusRows)
-
-				// Then expect pg_wal_replay_pause() call
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-
-				// No final status query expected for wait=false
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", ""}}))
+				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
 			expectStatus: false,
@@ -1602,10 +1385,8 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver fails on clearing conninfo",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// Fails on first operation now (clearing primary_conninfo)
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnError(fmt.Errorf("reset failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM RESET primary_conninfo", fmt.Errorf("reset failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to clear primary_conninfo",
@@ -1614,14 +1395,10 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver fails on receiver disconnect wait",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				// Fail on receiver disconnect check
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
-					WillReturnError(fmt.Errorf("query failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("SELECT COUNT", fmt.Errorf("query failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to query pg_stat_wal_receiver",
@@ -1630,34 +1407,14 @@ func TestPauseReplication(t *testing.T) {
 			name: "PauseReplayAndReceiver fails on pause",
 			mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			wait: false,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				countRows := sqlmock.NewRows([]string{"count"}).AddRow(0)
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM pg_stat_wal_receiver")).
-					WillReturnRows(countRows)
-				// waitForReceiverDisconnect calls queryReplicationStatus when count is 0
-				statusRows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/5000000",
-					nil,
-					false,
-					"not paused",
-					"2025-01-15 12:00:00+00",
-					"",
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(statusRows)
-				// Now fail on pause
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_wal_replay_pause()")).
-					WillReturnError(fmt.Errorf("pause failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", ""}}))
+				m.AddQueryPatternOnceWithError("SELECT pg_wal_replay_pause", fmt.Errorf("pause failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to pause WAL replay",
@@ -1666,16 +1423,9 @@ func TestPauseReplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mock)
-
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			status, err := pm.pauseReplication(ctx, tt.mode, tt.wait)
@@ -1697,47 +1447,39 @@ func TestPauseReplication(t *testing.T) {
 					assert.Nil(t, status, "Expected nil status when wait=false")
 				}
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
 func TestResetPrimaryConnInfo(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
 	tests := []struct {
 		name          string
-		setupMock     func(mock sqlmock.Sqlmock)
+		setupMock     func(*mock.QueryService)
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name: "successful reset",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},
 		{
 			name: "ALTER SYSTEM fails",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnError(fmt.Errorf("permission denied"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM RESET primary_conninfo", fmt.Errorf("permission denied"))
 			},
 			expectError:   true,
 			errorContains: "failed to clear primary_conninfo",
 		},
 		{
 			name: "pg_reload_conf fails",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("ALTER SYSTEM RESET primary_conninfo")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("SELECT pg_reload_conf()")).
-					WillReturnError(fmt.Errorf("reload failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", fmt.Errorf("reload failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to reload PostgreSQL configuration",
@@ -1746,19 +1488,12 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			tt.setupMock(mock)
-
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err = pm.resetPrimaryConnInfo(ctx)
+			err := pm.resetPrimaryConnInfo(ctx)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -1768,40 +1503,24 @@ func TestResetPrimaryConnInfo(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
 func TestQueryReplicationStatus(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
 	tests := []struct {
 		name           string
-		setupMock      func(mock sqlmock.Sqlmock)
+		setupMock      func(*mock.QueryService)
 		expectError    bool
 		validateResult func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus)
 	}{
 		{
 			name: "All fields with valid values",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/3000000",              // replay_lsn
-					"0/3000100",              // receive_lsn
-					false,                    // is_paused
-					"not paused",             // pause_state
-					"2025-01-15 10:00:00+00", // last_xact_time
-					"host=primary port=5432", // primary_conninfo
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/3000000", "0/3000100", "f", "not paused", "2025-01-15 10:00:00+00", "host=primary port=5432"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1816,23 +1535,10 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "NULL LSN values (primary server case)",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					nil,          // replay_lsn is NULL on primary
-					nil,          // receive_lsn is NULL on primary
-					false,        // is_paused
-					"not paused", // pause_state
-					nil,          // last_xact_time is NULL on primary
-					"",           // empty primary_conninfo on primary
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"", "", "f", "not paused", "", ""}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1845,23 +1551,10 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "Paused replication with valid LSNs",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/4000000",              // replay_lsn
-					"0/4000200",              // receive_lsn
-					true,                     // is_paused
-					"paused",                 // pause_state
-					"2025-01-15 11:00:00+00", // last_xact_time
-					"host=primary port=5432 user=replicator application_name=standby1",
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/4000000", "0/4000200", "t", "paused", "2025-01-15 11:00:00+00", "host=primary port=5432 user=replicator application_name=standby1"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1879,23 +1572,10 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "Mixed NULL and valid values",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				rows := sqlmock.NewRows([]string{
-					"pg_last_wal_replay_lsn",
-					"pg_last_wal_receive_lsn",
-					"pg_is_wal_replay_paused",
-					"pg_get_wal_replay_pause_state",
-					"pg_last_xact_replay_timestamp",
-					"current_setting",
-				}).AddRow(
-					"0/5000000",              // replay_lsn is valid
-					nil,                      // receive_lsn is NULL (e.g., no active connection)
-					false,                    // is_paused
-					"not paused",             // pause_state
-					nil,                      // last_xact_time is NULL
-					"host=primary port=5432", // primary_conninfo
-				)
-				mock.ExpectQuery("SELECT").WillReturnRows(rows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
+					[][]any{{"0/5000000", "", "f", "not paused", "", "host=primary port=5432"}}))
 			},
 			expectError: false,
 			validateResult: func(t *testing.T, status *multipoolermanagerdatapb.StandbyReplicationStatus) {
@@ -1907,8 +1587,8 @@ func TestQueryReplicationStatus(t *testing.T) {
 		},
 		{
 			name: "Query error",
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT").WillReturnError(sql.ErrConnDone)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("pg_last_wal_replay_lsn", fmt.Errorf("connection done"))
 			},
 			expectError: true,
 		},
@@ -1916,25 +1596,13 @@ func TestQueryReplicationStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock database
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock("default", "0-inf")
 
-			// Setup mock expectations
-			tt.setupMock(mock)
+			tt.setupMock(mockQueryService)
 
-			// Create minimal manager with mock DB
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
-
-			// Call the method
 			ctx := context.Background()
 			status, err := pm.queryReplicationStatus(ctx)
 
-			// Validate results
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Nil(t, status)
@@ -1945,9 +1613,7 @@ func TestQueryReplicationStatus(t *testing.T) {
 					tt.validateResult(t, status)
 				}
 			}
-
-			// Ensure all expectations were met
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }

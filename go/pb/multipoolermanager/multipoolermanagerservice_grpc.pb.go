@@ -60,6 +60,7 @@ const (
 	MultiPoolerManager_Backup_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Backup"
 	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
 	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
+	MultiPoolerManager_GetBackupByJobId_FullMethodName                = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -131,6 +132,9 @@ type MultiPoolerManagerClient interface {
 	RestoreFromBackup(ctx context.Context, in *multipoolermanagerdata.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
 	// GetBackups retrieves backup information
 	GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error)
+	// GetBackupByJobId queries a backup by its job_id annotation.
+	// Returns the backup metadata if found, or nil backup if not.
+	GetBackupByJobId(ctx context.Context, in *multipoolermanagerdata.GetBackupByJobIdRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -401,6 +405,16 @@ func (c *multiPoolerManagerClient) GetBackups(ctx context.Context, in *multipool
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) GetBackupByJobId(ctx context.Context, in *multipoolermanagerdata.GetBackupByJobIdRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.GetBackupByJobIdResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_GetBackupByJobId_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerManagerServer is the server API for MultiPoolerManager service.
 // All implementations must embed UnimplementedMultiPoolerManagerServer
 // for forward compatibility.
@@ -470,6 +484,9 @@ type MultiPoolerManagerServer interface {
 	RestoreFromBackup(context.Context, *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
 	// GetBackups retrieves backup information
 	GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error)
+	// GetBackupByJobId queries a backup by its job_id annotation.
+	// Returns the backup metadata if found, or nil backup if not.
+	GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -557,6 +574,9 @@ func (UnimplementedMultiPoolerManagerServer) RestoreFromBackup(context.Context, 
 }
 func (UnimplementedMultiPoolerManagerServer) GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBackupByJobId not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 func (UnimplementedMultiPoolerManagerServer) testEmbeddedByValue()                            {}
@@ -1047,6 +1067,24 @@ func _MultiPoolerManager_GetBackups_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_GetBackupByJobId_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetBackupByJobIdRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).GetBackupByJobId(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_GetBackupByJobId_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).GetBackupByJobId(ctx, req.(*multipoolermanagerdata.GetBackupByJobIdRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerManager_ServiceDesc is the grpc.ServiceDesc for MultiPoolerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1157,6 +1195,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBackups",
 			Handler:    _MultiPoolerManager_GetBackups_Handler,
+		},
+		{
+			MethodName: "GetBackupByJobId",
+			Handler:    _MultiPoolerManager_GetBackupByJobId_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

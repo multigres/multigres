@@ -22,6 +22,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -51,12 +52,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 	pc := &PgCtlCommand{
 		reg: reg,
 		pgDatabase: viperutil.Configure(reg, "pg-database", viperutil.Options[string]{
-			Default:  "postgres",
+			Default:  constants.DefaultPostgresDatabase,
 			FlagName: "pg-database",
 			Dynamic:  false,
 		}),
 		pgUser: viperutil.Configure(reg, "pg-user", viperutil.Options[string]{
-			Default:  "postgres",
+			Default:  constants.DefaultPostgresUser,
 			FlagName: "pg-user",
 			Dynamic:  false,
 		}),
@@ -88,7 +89,7 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 	var span trace.Span
 
 	root := &cobra.Command{
-		Use:   "pgctld",
+		Use:   constants.ServicePgctld,
 		Short: "PostgreSQL control daemon for Multigres",
 		Long: `pgctld manages PostgreSQL server instances within the Multigres cluster.
 It provides lifecycle management including start, stop, restart, and configuration
@@ -98,7 +99,7 @@ management for PostgreSQL servers.`,
 			pc.lg.SetupLogging()
 			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
 			var err error
-			if span, err = pc.telemetry.InitForCommand(cmd, "pgctld", cmd.Use != "server" /* startSpan */); err != nil {
+			if span, err = pc.telemetry.InitForCommand(cmd, constants.ServicePgctld, cmd.Use != "server" /* startSpan */); err != nil {
 				return fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 			}
 

@@ -19,71 +19,82 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"regexp"
 	"testing"
 
-	"github.com/DATA-DOG/go-sqlmock"
-
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/multipooler/executor"
+	"github.com/multigres/multigres/go/multipooler/executor/mock"
+	"github.com/multigres/multigres/go/multipooler/poolerserver"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// newTestManagerWithMultipooler creates a test MultiPoolerManager with a mock DB and config
-func newTestManagerWithMultipooler(t *testing.T, tableGroup, shard string) (*MultiPoolerManager, sqlmock.Sqlmock) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+// mockPoolerController implements poolerserver.PoolerController for testing.
+type mockPoolerController struct {
+	queryService *mock.QueryService
+}
 
-	mockDB, mock, err := sqlmock.New()
-	require.NoError(t, err)
+func (m *mockPoolerController) Open(context.Context) error { return nil }
+func (m *mockPoolerController) Close() error               { return nil }
+func (m *mockPoolerController) IsHealthy() error           { return nil }
+func (m *mockPoolerController) IsServing() bool            { return true }
+func (m *mockPoolerController) SetServingType(context.Context, clustermetadatapb.PoolerServingStatus) error {
+	return nil
+}
+func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { return nil, nil }
+func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService {
+	return m.queryService
+}
+func (m *mockPoolerController) RegisterGRPCServices() {}
+
+var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
+
+// newTestManagerWithMock creates a test MultiPoolerManager with a mock query service
+func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *mock.QueryService) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mockQueryService := mock.NewQueryService()
 
 	pm := &MultiPoolerManager{
 		logger: logger,
-		db:     mockDB,
+		qsc:    &mockPoolerController{queryService: mockQueryService},
 		config: &Config{
 			TableGroup: tableGroup,
 			Shard:      shard,
 		},
 	}
 
-	return pm, mock
+	return pm, mockQueryService
 }
 
 func TestCreateSidecarSchema(t *testing.T) {
 	tests := []struct {
 		name          string
 		tableGroup    string
-		setupMock     func(mock sqlmock.Sqlmock)
+		setupMock     func(m *mock.QueryService)
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name:       "successful schema creation for default tablegroup",
 			tableGroup: constants.DefaultTableGroup,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.heartbeat")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.durability_policy")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE INDEX IF NOT EXISTS idx_durability_policy_active")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.tablegroup")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.table")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.shard")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.tablegroup", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.tablegroup_table", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.shard", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},
 		{
 			name:       "schema creation fails",
 			tableGroup: constants.DefaultTableGroup,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
-					WillReturnError(fmt.Errorf("permission denied"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("CREATE SCHEMA IF NOT EXISTS multigres", fmt.Errorf("permission denied"))
 			},
 			expectError:   true,
 			errorContains: "failed to create multigres schema",
@@ -91,11 +102,9 @@ func TestCreateSidecarSchema(t *testing.T) {
 		{
 			name:       "heartbeat table creation fails",
 			tableGroup: constants.DefaultTableGroup,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.heartbeat")).
-					WillReturnError(fmt.Errorf("table creation failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.heartbeat", fmt.Errorf("table creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create heartbeat table",
@@ -103,13 +112,10 @@ func TestCreateSidecarSchema(t *testing.T) {
 		{
 			name:       "durability_policy table creation fails",
 			tableGroup: constants.DefaultTableGroup,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.heartbeat")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.durability_policy")).
-					WillReturnError(fmt.Errorf("table creation failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.durability_policy", fmt.Errorf("table creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create durability_policy table",
@@ -117,15 +123,11 @@ func TestCreateSidecarSchema(t *testing.T) {
 		{
 			name:       "index creation fails",
 			tableGroup: constants.DefaultTableGroup,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.heartbeat")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.durability_policy")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE INDEX IF NOT EXISTS idx_durability_policy_active")).
-					WillReturnError(fmt.Errorf("index creation failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", fmt.Errorf("index creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create durability_policy index",
@@ -133,17 +135,12 @@ func TestCreateSidecarSchema(t *testing.T) {
 		{
 			name:       "tablegroup table creation fails",
 			tableGroup: constants.DefaultTableGroup,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("CREATE SCHEMA IF NOT EXISTS multigres")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.heartbeat")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.durability_policy")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE INDEX IF NOT EXISTS idx_durability_policy_active")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE IF NOT EXISTS multigres.tablegroup")).
-					WillReturnError(fmt.Errorf("table creation failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.tablegroup", fmt.Errorf("table creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create tablegroup table",
@@ -152,10 +149,9 @@ func TestCreateSidecarSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mock := newTestManagerWithMultipooler(t, tt.tableGroup, constants.DefaultShard)
-			defer pm.db.Close()
+			pm, mockQueryService := newTestManagerWithMock(tt.tableGroup, constants.DefaultShard)
 
-			tt.setupMock(mock)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			err := pm.createSidecarSchema(ctx)
@@ -168,20 +164,17 @@ func TestCreateSidecarSchema(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
 
 func TestInsertDurabilityPolicy(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
 	tests := []struct {
 		name          string
 		policyName    string
 		quorumRule    []byte
-		setupMock     func(mock sqlmock.Sqlmock)
+		setupMock     func(m *mock.QueryService)
 		expectError   bool
 		errorContains string
 	}{
@@ -189,10 +182,8 @@ func TestInsertDurabilityPolicy(t *testing.T) {
 			name:       "successful insert",
 			policyName: "default-policy",
 			quorumRule: []byte(`{"required_count": 1, "quorum_type": "ANY"}`),
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.durability_policy")).
-					WithArgs("default-policy", []byte(`{"required_count": 1, "quorum_type": "ANY"}`)).
-					WillReturnResult(sqlmock.NewResult(1, 1))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.durability_policy", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},
@@ -200,11 +191,9 @@ func TestInsertDurabilityPolicy(t *testing.T) {
 			name:       "insert with conflict (idempotent)",
 			policyName: "existing-policy",
 			quorumRule: []byte(`{"required_count": 2, "quorum_type": "FIRST"}`),
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// ON CONFLICT DO NOTHING returns 0 rows affected
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.durability_policy")).
-					WithArgs("existing-policy", []byte(`{"required_count": 2, "quorum_type": "FIRST"}`)).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+			setupMock: func(m *mock.QueryService) {
+				// ON CONFLICT DO NOTHING still succeeds
+				m.AddQueryPatternOnce("INSERT INTO multigres.durability_policy", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},
@@ -212,10 +201,8 @@ func TestInsertDurabilityPolicy(t *testing.T) {
 			name:       "insert fails with db error",
 			policyName: "test-policy",
 			quorumRule: []byte(`{"required_count": 1}`),
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.durability_policy")).
-					WithArgs("test-policy", []byte(`{"required_count": 1}`)).
-					WillReturnError(fmt.Errorf("connection refused"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.durability_policy", fmt.Errorf("connection refused"))
 			},
 			expectError:   true,
 			errorContains: "failed to insert durability policy",
@@ -224,10 +211,8 @@ func TestInsertDurabilityPolicy(t *testing.T) {
 			name:       "insert with complex quorum rule",
 			policyName: "complex-policy",
 			quorumRule: []byte(`{"required_count": 3, "quorum_type": "ANY", "cells": ["zone1", "zone2", "zone3"]}`),
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.durability_policy")).
-					WithArgs("complex-policy", []byte(`{"required_count": 3, "quorum_type": "ANY", "cells": ["zone1", "zone2", "zone3"]}`)).
-					WillReturnResult(sqlmock.NewResult(1, 1))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.durability_policy", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},
@@ -235,19 +220,12 @@ func TestInsertDurabilityPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockDB, mock, err := sqlmock.New()
-			require.NoError(t, err)
-			defer mockDB.Close()
+			pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
 
-			tt.setupMock(mock)
-
-			pm := &MultiPoolerManager{
-				logger: logger,
-				db:     mockDB,
-			}
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err = pm.insertDurabilityPolicy(ctx, tt.policyName, tt.quorumRule)
+			err := pm.insertDurabilityPolicy(ctx, tt.policyName, tt.quorumRule)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -257,8 +235,7 @@ func TestInsertDurabilityPolicy(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -268,7 +245,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 		name          string
 		tableGroup    string
 		shard         string
-		setupMock     func(mock sqlmock.Sqlmock)
+		setupMock     func(m *mock.QueryService)
 		expectError   bool
 		errorContains string
 	}{
@@ -276,16 +253,10 @@ func TestInitializeMultischemaData(t *testing.T) {
 			name:       "successful data initialization",
 			tableGroup: constants.DefaultTableGroup,
 			shard:      constants.DefaultShard,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs(constants.DefaultTableGroup).
-					WillReturnResult(sqlmock.NewResult(1, 1))
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT oid FROM multigres.tablegroup WHERE name = $1")).
-					WithArgs(constants.DefaultTableGroup).
-					WillReturnRows(sqlmock.NewRows([]string{"oid"}).AddRow(1))
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.shard")).
-					WithArgs(int64(1), constants.DefaultShard).
-					WillReturnResult(sqlmock.NewResult(1, 1))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.tablegroup", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT oid FROM multigres.tablegroup", mock.MakeQueryResult([]string{"oid"}, [][]any{{int64(1)}}))
+				m.AddQueryPatternOnce("INSERT INTO multigres.shard", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},
@@ -293,7 +264,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 			name:          "rejects non-default tablegroup",
 			tableGroup:    "custom",
 			shard:         constants.DefaultShard,
-			setupMock:     func(mock sqlmock.Sqlmock) {},
+			setupMock:     func(m *mock.QueryService) {},
 			expectError:   true,
 			errorContains: "only default tablegroup is supported",
 		},
@@ -301,7 +272,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 			name:          "rejects non-default shard",
 			tableGroup:    constants.DefaultTableGroup,
 			shard:         "shard-1",
-			setupMock:     func(mock sqlmock.Sqlmock) {},
+			setupMock:     func(m *mock.QueryService) {},
 			expectError:   true,
 			errorContains: "only shard " + constants.DefaultShard + " is supported",
 		},
@@ -309,10 +280,8 @@ func TestInitializeMultischemaData(t *testing.T) {
 			name:       "tablegroup insert fails",
 			tableGroup: constants.DefaultTableGroup,
 			shard:      constants.DefaultShard,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs(constants.DefaultTableGroup).
-					WillReturnError(fmt.Errorf("insert failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.tablegroup", fmt.Errorf("insert failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to insert tablegroup",
@@ -321,16 +290,10 @@ func TestInitializeMultischemaData(t *testing.T) {
 			name:       "shard insert fails",
 			tableGroup: constants.DefaultTableGroup,
 			shard:      constants.DefaultShard,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs(constants.DefaultTableGroup).
-					WillReturnResult(sqlmock.NewResult(1, 1))
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT oid FROM multigres.tablegroup WHERE name = $1")).
-					WithArgs(constants.DefaultTableGroup).
-					WillReturnRows(sqlmock.NewRows([]string{"oid"}).AddRow(1))
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.shard")).
-					WithArgs(int64(1), constants.DefaultShard).
-					WillReturnError(fmt.Errorf("insert failed"))
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.tablegroup", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT oid FROM multigres.tablegroup", mock.MakeQueryResult([]string{"oid"}, [][]any{{int64(1)}}))
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.shard", fmt.Errorf("insert failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to insert shard",
@@ -339,17 +302,11 @@ func TestInitializeMultischemaData(t *testing.T) {
 			name:       "idempotent insert (conflict)",
 			tableGroup: constants.DefaultTableGroup,
 			shard:      constants.DefaultShard,
-			setupMock: func(mock sqlmock.Sqlmock) {
-				// ON CONFLICT DO NOTHING returns 0 rows affected
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.tablegroup")).
-					WithArgs(constants.DefaultTableGroup).
-					WillReturnResult(sqlmock.NewResult(0, 0))
-				mock.ExpectQuery(regexp.QuoteMeta("SELECT oid FROM multigres.tablegroup WHERE name = $1")).
-					WithArgs(constants.DefaultTableGroup).
-					WillReturnRows(sqlmock.NewRows([]string{"oid"}).AddRow(1))
-				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO multigres.shard")).
-					WithArgs(int64(1), constants.DefaultShard).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+			setupMock: func(m *mock.QueryService) {
+				// ON CONFLICT DO NOTHING still succeeds
+				m.AddQueryPatternOnce("INSERT INTO multigres.tablegroup", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT oid FROM multigres.tablegroup", mock.MakeQueryResult([]string{"oid"}, [][]any{{int64(1)}}))
+				m.AddQueryPatternOnce("INSERT INTO multigres.shard", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
 		},
@@ -357,10 +314,9 @@ func TestInitializeMultischemaData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mock := newTestManagerWithMultipooler(t, tt.tableGroup, tt.shard)
-			defer pm.db.Close()
+			pm, mockQueryService := newTestManagerWithMock(tt.tableGroup, tt.shard)
 
-			tt.setupMock(mock)
+			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
 			err := pm.initializeMultischemaData(ctx)
@@ -373,8 +329,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }

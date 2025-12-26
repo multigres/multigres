@@ -21,6 +21,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -54,7 +55,7 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 		grpcServer: servenv.NewGrpcServer(pc.reg),
 		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
 	}
-	serverCmd.senv.InitServiceMap("grpc", "pgctld")
+	serverCmd.senv.InitServiceMap("grpc", constants.ServicePgctld)
 	root.AddCommand(serverCmd.createCommand())
 }
 
@@ -89,7 +90,7 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 }
 
 func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
-	if err := s.senv.Init("pgctld"); err != nil {
+	if err := s.senv.Init(constants.ServicePgctld); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 
@@ -109,7 +110,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		)
 
 		// Register gRPC service with the global GRPCServer
-		if s.grpcServer.CheckServiceMap("pgctld", s.senv) {
+		if s.grpcServer.CheckServiceMap(constants.ServicePgctld, s.senv) {
 			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
 		// TODO(sougou): Add http server
@@ -308,9 +309,9 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	// Convert status string to protobuf enum
 	var status pb.ServerStatus
 	switch result.Status {
-	case "STOPPED":
+	case statusStopped:
 		status = pb.ServerStatus_STOPPED
-	case "RUNNING":
+	case statusRunning:
 		status = pb.ServerStatus_RUNNING
 	default:
 		status = pb.ServerStatus_STOPPED
@@ -354,7 +355,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)
+	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}

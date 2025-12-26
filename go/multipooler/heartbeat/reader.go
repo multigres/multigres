@@ -18,13 +18,15 @@ package heartbeat
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multipooler/executor"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/tools/timer"
 )
@@ -39,11 +41,11 @@ const (
 // Lag is calculated by comparing the most recent timestamp in the heartbeat
 // table against the current time at read time.
 type Reader struct {
-	db       *sql.DB
-	logger   *slog.Logger
-	shardID  []byte
-	interval time.Duration
-	now      func() time.Time
+	queryService executor.InternalQueryService
+	logger       *slog.Logger
+	shardID      []byte
+	interval     time.Duration
+	now          func() time.Time
 
 	runMu  sync.Mutex
 	isOpen bool
@@ -59,14 +61,14 @@ type Reader struct {
 }
 
 // NewReader returns a new heartbeat reader.
-func NewReader(db *sql.DB, logger *slog.Logger, shardID []byte) *Reader {
+func NewReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte) *Reader {
 	return &Reader{
-		db:       db,
-		logger:   logger,
-		shardID:  shardID,
-		now:      time.Now,
-		interval: defaultHeartbeatReadInterval,
-		ticks:    timer.NewTimer(defaultHeartbeatReadInterval),
+		queryService: queryService,
+		logger:       logger,
+		shardID:      shardID,
+		now:          time.Now,
+		interval:     defaultHeartbeatReadInterval,
+		ticks:        timer.NewTimer(defaultHeartbeatReadInterval),
 	}
 }
 
@@ -80,7 +82,6 @@ func (r *Reader) Open() {
 
 	r.logger.Info("Heartbeat Reader: opening")
 
-	// TODO: open connection pools
 	r.lastKnownTime = r.now()
 	r.ticks.Start(func() { r.readHeartbeat() })
 	r.isOpen = true
@@ -153,13 +154,19 @@ func (r *Reader) readHeartbeat() {
 // fetchMostRecentHeartbeat fetches the most recently recorded heartbeat from the heartbeat table,
 // returning the timestamp of the heartbeat in nanoseconds.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
-	var tsNano int64
-	// TODO: get connection from pool when we have pools
-	err := r.db.QueryRowContext(ctx,
+	result, err := r.queryService.QueryArgs(ctx,
 		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
-		r.shardID).Scan(&tsNano)
+		r.shardID)
 	if err != nil {
 		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
+	}
+	if result == nil || len(result.Rows) == 0 {
+		return 0, mterrors.Wrap(fmt.Errorf("no heartbeat found"), "failed to fetch heartbeat")
+	}
+
+	tsNano, err := strconv.ParseInt(string(result.Rows[0].Values[0]), 10, 64)
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 	return tsNano, nil
 }
@@ -195,23 +202,29 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), r.interval)
 	defer cancel()
 
-	var view LeadershipView
-	var tsNano int64
-
-	err := r.db.QueryRowContext(ctx, `
-		SELECT leader_id, ts
-		FROM multigres.heartbeat
-		WHERE shard_id = $1
-	`, r.shardID).Scan(&view.LeaderID, &tsNano)
+	result, err := r.queryService.QueryArgs(ctx,
+		"SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = $1",
+		r.shardID)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read leadership view")
 	}
+	if result == nil || len(result.Rows) == 0 {
+		return nil, mterrors.Wrap(fmt.Errorf("no heartbeat found"), "failed to read leadership view")
+	}
 
-	// Convert nanoseconds to time.Time
-	view.LastHeartbeat = time.Unix(0, tsNano)
+	row := result.Rows[0]
+	tsNano, err := strconv.ParseInt(string(row.Values[1]), 10, 64)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
+	}
+
+	view := &LeadershipView{
+		LeaderID:      string(row.Values[0]),
+		LastHeartbeat: time.Unix(0, tsNano),
+	}
 
 	// Calculate replication lag
 	view.ReplicationLag = r.now().Sub(view.LastHeartbeat)
 
-	return &view, nil
+	return view, nil
 }
