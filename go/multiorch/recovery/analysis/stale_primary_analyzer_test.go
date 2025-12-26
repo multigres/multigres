@@ -86,7 +86,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 0, "should not flag this node when it has higher term")
 	})
 
-	t.Run("demotes this node when terms are equal (safe default)", func(t *testing.T) {
+	t.Run("does not demote when terms are equal (prevents double demotion)", func(t *testing.T) {
+		// When terms are equal, neither node should demote to avoid both nodes
+		// demoting simultaneously and leaving the shard without a primary.
+		// This unusual state should be resolved through normal failover or manual intervention.
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
 		analysis := &store.ReplicationAnalysis{
 			PoolerID: &clustermetadatapb.ID{
@@ -103,13 +106,13 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "primary-b",
 			},
-			OtherPrimaryTerm: 5, // Same term
+			OtherPrimaryTerm: 5, // Same term - neither should demote
 		}
 
 		problems, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should demote when terms are equal")
+		require.Len(t, problems, 0, "should NOT demote when terms are equal to prevent double demotion")
 	})
 
 	t.Run("ignores replicas", func(t *testing.T) {

@@ -60,8 +60,10 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 
 	// Multiple primaries detected! Determine which one is stale.
 	// The one with the lower consensus term is stale and should be demoted.
-	// If terms are equal, we demote THIS node to be safe (let the other one win).
-	isThisNodeStale := poolerAnalysis.ConsensusTerm <= poolerAnalysis.OtherPrimaryTerm
+	// If terms are equal, neither node demotes - this is an unusual state that
+	// should be resolved through normal failover or manual intervention.
+	// Using strict < prevents both nodes from demoting simultaneously.
+	isThisNodeStale := poolerAnalysis.ConsensusTerm < poolerAnalysis.OtherPrimaryTerm
 
 	if !isThisNodeStale {
 		// The other node is stale, not this one.
