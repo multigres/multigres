@@ -785,16 +785,32 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
-	// Demote is an operational cleanup, not a leadership change.
-	// Accept if term >= currentTerm to ensure the request isn't stale.
-	// Equal or higher terms are safe.
-	// Note: we still update the term, as this may arrive after a leader
-	// appointment that this (now old) primary missed due to a network partition.
-	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+
+	// Validate the term but DON'T update yet. We only update the term AFTER
+	// successful demotion to avoid a race where a failed demote (e.g., postgres
+	// not ready) updates the term, causing subsequent detection to see equal
+	// terms and skip demotion.
+	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
 
-	return pm.demoteLocked(ctx, consensusTerm, drainTimeout)
+	// Perform the actual demotion
+	resp, err := pm.demoteLocked(ctx, consensusTerm, drainTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only update term AFTER successful demotion
+	// This ensures the stale primary keeps its lower term until it's actually demoted,
+	// allowing subsequent detection to continue flagging it as stale.
+	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
+		// Log but don't fail - demotion succeeded, term update is secondary
+		pm.logger.WarnContext(ctx, "Failed to update term after demotion",
+			"error", err,
+			"consensus_term", consensusTerm)
+	}
+
+	return resp, nil
 }
 
 // demoteLocked performs the core demotion logic.

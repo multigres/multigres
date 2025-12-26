@@ -778,6 +778,77 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 	return nil
 }
 
+// validateTerm validates that the request term is not stale (>= current term).
+// Unlike validateAndUpdateTerm, this does NOT update the term.
+// This is used when we want to defer the term update until after an operation succeeds.
+// If force is true, validation is skipped.
+func (pm *MultiPoolerManager) validateTerm(ctx context.Context, requestTerm int64, force bool) error {
+	if force {
+		return nil // Skip validation if force is set
+	}
+
+	currentTerm, err := pm.getCurrentTermNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current term: %w", err)
+	}
+
+	// Check if consensus term has been initialized (term 0 means uninitialized)
+	if currentTerm == 0 {
+		pm.logger.ErrorContext(ctx, "Consensus term not initialized",
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"consensus term not initialized, must be explicitly set via SetTerm (use force=true to bypass)")
+	}
+
+	// Reject stale requests
+	if requestTerm < currentTerm {
+		pm.logger.ErrorContext(ctx, "Consensus term too old, rejecting request",
+			"request_term", requestTerm,
+			"current_term", currentTerm,
+			"service_id", pm.serviceID.String())
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("consensus term too old: request term %d is less than current term %d (use force=true to bypass)",
+				requestTerm, currentTerm))
+	}
+
+	// Accept equal or newer terms
+	return nil
+}
+
+// updateTermIfNewer updates the consensus term if the provided term is newer than current.
+// This is used to decouple term validation from term update, allowing updates to occur
+// only after an operation succeeds.
+func (pm *MultiPoolerManager) updateTermIfNewer(ctx context.Context, requestTerm int64) error {
+	currentTerm, err := pm.getCurrentTermNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current term: %w", err)
+	}
+
+	if requestTerm <= currentTerm {
+		// Already at or past this term
+		return nil
+	}
+
+	pm.mu.Lock()
+	cs := pm.consensusState
+	pm.mu.Unlock()
+
+	if cs == nil {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "consensus state not initialized")
+	}
+
+	pm.logger.InfoContext(ctx, "Updating to newer term after successful operation",
+		"request_term", requestTerm,
+		"old_term", currentTerm,
+		"service_id", pm.serviceID.String())
+
+	if err := cs.UpdateTermAndSave(ctx, requestTerm); err != nil {
+		return mterrors.Wrap(err, "failed to update consensus term")
+	}
+
+	return nil
+}
+
 // validateTermExactMatch validates that the request term exactly matches the current term.
 // Unlike validateAndUpdateTerm, this does NOT update the term automatically.
 // This is used for Promote to ensure the node was properly recruited before promotion.

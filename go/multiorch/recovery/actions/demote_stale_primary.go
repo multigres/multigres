@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -39,6 +40,11 @@ var _ types.RecoveryAction = (*DemoteStalePrimaryAction)(nil)
 
 // DefaultDrainTimeout is the default time to wait for connections to drain during demotion.
 const DefaultDrainTimeout = 30 * time.Second
+
+// StalePrimaryDrainTimeout is a shorter drain timeout for stale primaries.
+// Stale primaries that just came back online typically have no active connections,
+// so we use a shorter timeout to speed up demotion.
+const StalePrimaryDrainTimeout = 5 * time.Second
 
 // DemoteStalePrimaryAction demotes a stale primary that was detected after failover.
 // It uses the Demote RPC with the correct primary's term to force the stale primary
@@ -102,6 +108,15 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 		return fmt.Errorf("stale primary %s not found in store", poolerIDStr)
 	}
 
+	// Check if postgres is running on the stale primary before attempting demote.
+	// Demote requires postgres to be healthy. If postgres is not running yet,
+	// we should skip this attempt and let the next recovery cycle retry once
+	// postgres is ready. This avoids wasting time on RPCs that will fail.
+	if !stalePrimary.IsPostgresRunning {
+		return mterrors.New(mtrpcpb.Code_UNAVAILABLE,
+			fmt.Sprintf("postgres not running on stale primary %s, skipping demote attempt", poolerIDStr))
+	}
+
 	// Find the correct primary (the one with higher term) to get its term
 	correctPrimaryTerm, err := a.findCorrectPrimaryTerm(ctx, problem.ShardKey, poolerIDStr)
 	if err != nil {
@@ -114,9 +129,10 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 
 	// Call Demote RPC with the correct primary's term
 	// The Demote RPC accepts term >= currentTerm and performs the demotion
+	// Use a shorter drain timeout for stale primaries since they typically have no active connections
 	demoteResp, err := a.rpcClient.Demote(ctx, stalePrimary.MultiPooler, &multipoolermanagerdatapb.DemoteRequest{
 		ConsensusTerm: correctPrimaryTerm,
-		DrainTimeout:  durationpb.New(DefaultDrainTimeout),
+		DrainTimeout:  durationpb.New(StalePrimaryDrainTimeout),
 		Force:         false, // Respect term validation
 	})
 	if err != nil {

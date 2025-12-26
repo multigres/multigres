@@ -139,7 +139,7 @@ func restartPostgres(t *testing.T, node *shardsetup.MultipoolerInstance) {
 	err := endtoend.StartPostgreSQL(t, grpcAddr)
 	require.NoError(t, err, "should start postgres via pgctld")
 
-	// Wait for postgres to be ready
+	// Wait for postgres to be ready (direct connection)
 	socketDir := filepath.Join(node.Pgctld.DataDir, "pg_sockets")
 	require.Eventually(t, func() bool {
 		db := connectToPostgres(t, socketDir, node.Pgctld.PgPort)
@@ -151,6 +151,25 @@ func restartPostgres(t *testing.T, node *shardsetup.MultipoolerInstance) {
 		err := db.QueryRow("SELECT 1").Scan(&result)
 		return err == nil
 	}, 30*time.Second, 1*time.Second, "postgres should start")
+
+	// Also wait for multipooler to report postgres as running
+	// This ensures multiorch will see the node as ready when it polls
+	require.Eventually(t, func() bool {
+		client, err := shardsetup.NewMultipoolerClient(node.Multipooler.GrpcPort)
+		if err != nil {
+			return false
+		}
+		defer client.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		if err != nil {
+			return false
+		}
+		return resp.Status.PostgresRunning
+	}, 30*time.Second, 500*time.Millisecond, "multipooler should report postgres as running")
 
 	t.Logf("Postgres restarted successfully on %s", node.Name)
 }
