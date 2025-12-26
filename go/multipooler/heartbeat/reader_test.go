@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/multipooler/executor/mock"
-	"github.com/multigres/multigres/go/tools/timer"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +39,7 @@ func TestReaderReadHeartbeat(t *testing.T) {
 		[][]any{{now.Add(-10 * time.Second).UnixNano()}},
 	))
 
-	tr.readHeartbeat()
+	tr.readHeartbeat(t.Context())
 	lag, err := tr.Status()
 
 	require.NoError(t, err)
@@ -60,7 +59,7 @@ func TestReaderReadHeartbeatError(t *testing.T) {
 
 	// Don't add any query - this will cause an error
 
-	tr.readHeartbeat()
+	tr.readHeartbeat(t.Context())
 	lag, err := tr.Status()
 
 	require.Error(t, err)
@@ -156,7 +155,6 @@ func newTestReader(_ *testing.T, queryService *mock.QueryService, frozenTime *ti
 	tr := NewReader(queryService, logger, shardID)
 	// Use 250ms interval for tests to oversample
 	tr.interval = 250 * time.Millisecond
-	tr.ticks = timer.NewTimer(250 * time.Millisecond)
 
 	if frozenTime != nil {
 		tr.now = func() time.Time {

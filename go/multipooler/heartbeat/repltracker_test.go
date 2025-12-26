@@ -143,9 +143,8 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	// Use shorter intervals for testing
+	// Use shorter interval for testing
 	rt.hr.interval = 250 * time.Millisecond
-	rt.hr.ticks.SetInterval(250 * time.Millisecond)
 
 	// Start as primary
 	rt.MakePrimary()
