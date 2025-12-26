@@ -25,7 +25,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
-	"github.com/multigres/multigres/go/tools/timer"
 )
 
 // Make these modifiable for testing.
@@ -43,17 +42,15 @@ type Writer struct {
 	interval     time.Duration
 	now          func() time.Time
 
-	mu sync.Mutex
-	// isOpen must be modified while holding mu, but can be read without
-	// the mutex to avoid deadlock between Close() and the timer callback.
-	isOpen      atomic.Bool
-	ticks       *timer.Timer
+	mu     sync.Mutex
+	closed bool
+	ctx    context.Context
+	cancel context.CancelFunc
+	timer  *time.Timer
+	wg     sync.WaitGroup
+
 	writes      atomic.Int64
 	writeErrors atomic.Int64
-
-	// For canceling ongoing writes
-	writeMu     sync.Mutex
-	writeCancel context.CancelFunc
 }
 
 // NewWriter creates a new heartbeat writer.
@@ -71,7 +68,6 @@ func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, 
 		poolerID:     poolerID,
 		interval:     interval,
 		now:          time.Now,
-		ticks:        timer.NewTimer(interval),
 	}
 }
 
@@ -79,71 +75,96 @@ func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, 
 func (w *Writer) Open() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.isOpen.Load() {
-		return
+
+	if w.timer != nil {
+		return // Already open
 	}
-	w.isOpen.Store(true)
 
 	w.logger.Info("Heartbeat Writer: opening")
 
-	w.enableWrites()
+	//nolint:gocritic // TODO: use ctxutil.Detach() after #393 merges
+	w.ctx, w.cancel = context.WithCancel(context.Background())
+	w.closed = false
+	w.scheduleNextWrite()
 }
 
-// Close stops the heartbeat writer and periodic ticket.
+// scheduleNextWrite schedules the next heartbeat write.
+// Must be called while holding w.mu.
+func (w *Writer) scheduleNextWrite() {
+	w.timer = time.AfterFunc(w.interval, w.writeHeartbeat)
+}
+
+// Close stops the heartbeat writer. After Close returns, no more heartbeat
+// writes will be made and any in-flight write has completed.
 func (w *Writer) Close() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	if !w.isOpen.Load() {
-		return
+	if w.timer == nil {
+		w.mu.Unlock()
+		return // Already closed or never opened
 	}
-	// Set isOpen to false BEFORE disableWrites to allow the timer callback
-	// to check this without acquiring the mutex (avoiding deadlock).
-	w.isOpen.Store(false)
 
 	w.logger.Info("Heartbeat Writer: closing")
 
-	w.disableWrites()
+	// Mark as closed and cancel context to unblock any in-flight write
+	w.closed = true
+	if w.cancel != nil {
+		w.cancel()
+	}
+
+	// Stop the timer to prevent new writes from being scheduled
+	w.timer.Stop()
+	w.timer = nil
+	w.ctx = nil
+	w.cancel = nil
+
+	w.mu.Unlock()
+
+	// Wait for any in-flight write to complete
+	w.wg.Wait()
 
 	w.logger.Info("Heartbeat Writer: closed")
 }
 
 // IsOpen returns true if the writer is open.
 func (w *Writer) IsOpen() bool {
-	return w.isOpen.Load()
-}
-
-// enableWrites activates heartbeat writes
-// Internal method to be called only from Open.
-func (w *Writer) enableWrites() {
-	w.ticks.Start(w.writeHeartbeat)
-}
-
-// disableWrites deactivates heartbeat writes.
-// Order of operations:
-//  1. Writer is marked closed (by caller). This prevents new writeHeartbeats from running.
-//  2. Cancel the context for any ongoing write to unblock it.
-//  3. Stop the ticks and wait for any in-flight callback to complete.
-//
-// Context cancellation handles query termination automatically via the connection pool.
-func (w *Writer) disableWrites() {
-	// Cancel any ongoing write to unblock it
-	w.writeMu.Lock()
-	if w.writeCancel != nil {
-		w.writeCancel()
-	}
-	w.writeMu.Unlock()
-
-	// Stop waits for the callback to complete
-	w.ticks.Stop()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.timer != nil && !w.closed
 }
 
 // writeHeartbeat updates the heartbeat row with the current time in nanoseconds.
 func (w *Writer) writeHeartbeat() {
-	if !w.IsOpen() {
+	w.mu.Lock()
+
+	if w.closed || w.ctx == nil {
+		w.mu.Unlock()
 		return
 	}
-	if err := w.write(); err != nil {
-		w.recordError(err)
+
+	// Track this write so Close() can wait for it to complete
+	w.wg.Add(1)
+	defer w.wg.Done()
+
+	// Create write context while holding the lock to ensure w.ctx is valid
+	writeCtx, cancel := context.WithTimeout(w.ctx, w.interval)
+
+	// Release lock during the actual write to avoid blocking Close()
+	w.mu.Unlock()
+
+	err := w.write(writeCtx)
+	cancel()
+
+	// Re-acquire lock to update state and schedule next write
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed {
+		return
+	}
+
+	if err != nil {
+		w.logger.Error("Failed to write heartbeat", "error", err)
+		w.writeErrors.Add(1)
 	} else {
 		w.writes.Add(1)
 		w.logger.Debug("Heartbeat written",
@@ -151,18 +172,13 @@ func (w *Writer) writeHeartbeat() {
 			"pooler_id", w.poolerID,
 			"ts", w.now().UnixNano())
 	}
+
+	// Schedule next write only after this one completes
+	w.scheduleNextWrite()
 }
 
 // write writes a single heartbeat update.
-func (w *Writer) write() error {
-	ctx, cancel := context.WithDeadline(context.TODO(), w.now().Add(w.interval))
-
-	// Track this write so it can be canceled
-	w.writeMu.Lock()
-	w.writeCancel = cancel
-	w.writeMu.Unlock()
-
-	// Get current timestamp in nanoseconds
+func (w *Writer) write(ctx context.Context) error {
 	tsNano := w.now().UnixNano()
 
 	_, err := w.queryService.QueryArgs(ctx, `
@@ -177,15 +193,6 @@ func (w *Writer) write() error {
 	}
 
 	return nil
-}
-
-// recordError logs and records an error.
-func (w *Writer) recordError(err error) {
-	if err == nil {
-		return
-	}
-	w.logger.Error("Failed to write heartbeat", "error", err)
-	w.writeErrors.Add(1)
 }
 
 // Writes returns the number of successful heartbeat writes.
