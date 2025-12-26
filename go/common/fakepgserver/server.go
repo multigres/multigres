@@ -18,6 +18,7 @@
 package fakepgserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,6 +30,7 @@ import (
 	"testing"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -93,6 +95,37 @@ type exprResult struct {
 	err          string
 }
 
+// testHashProvider implements scram.PasswordHashProvider for testing.
+// It accepts a fixed password for any user/database combination.
+type testHashProvider struct {
+	hash *scram.ScramHash
+}
+
+// TestPassword is the password clients must use to authenticate with fakepgserver.
+const TestPassword = "test"
+
+var (
+	testSalt       = []byte("fakepgserversalt")
+	testIterations = 4096
+)
+
+func newTestHashProvider() *testHashProvider {
+	saltedPassword := scram.ComputeSaltedPassword(TestPassword, testSalt, testIterations)
+	clientKey := scram.ComputeClientKey(saltedPassword)
+	return &testHashProvider{
+		hash: &scram.ScramHash{
+			Iterations: testIterations,
+			Salt:       testSalt,
+			StoredKey:  scram.ComputeStoredKey(clientKey),
+			ServerKey:  scram.ComputeServerKey(saltedPassword),
+		},
+	}
+}
+
+func (p *testHashProvider) GetPasswordHash(_ context.Context, _, _ string) (*scram.ScramHash, error) {
+	return p.hash, nil
+}
+
 // ExpectedExecuteFetch defines for an expected query the to be faked output.
 // It is used for ordered expected output.
 type ExpectedExecuteFetch struct {
@@ -121,9 +154,10 @@ func New(t testing.TB) *Server {
 	// Create listener on random port.
 	var err error
 	s.listener, err = server.NewListener(server.ListenerConfig{
-		Address: "127.0.0.1:0", // Random available port.
-		Handler: handler,
-		Logger:  slog.Default(),
+		Address:      "127.0.0.1:0", // Random available port.
+		Handler:      handler,
+		HashProvider: newTestHashProvider(),
+		Logger:       slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("fakepgserver: failed to create listener: %v", err)
@@ -181,6 +215,7 @@ func (s *Server) ClientConfig() *client.Config {
 		Host:     host,
 		Port:     portNum,
 		User:     "test",
+		Password: TestPassword,
 		Database: "testdb",
 	}
 }
