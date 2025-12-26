@@ -58,6 +58,10 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 		return err
 	}
 
+	if err := pm.createLeadershipHistoryTable(ctx); err != nil {
+		return err
+	}
+
 	// Create multischema global tables for the default tablegroup
 	pm.logger.InfoContext(ctx, "Creating multischema global tables for default tablegroup")
 
@@ -168,6 +172,34 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 		ON multigres.durability_policy(is_active)
 		WHERE is_active = true`); err != nil {
 		return mterrors.Wrap(err, "failed to create durability_policy index")
+	}
+
+	return nil
+}
+
+// createLeadershipHistoryTable creates the leadership_history table and its indexes
+func (pm *MultiPoolerManager) createLeadershipHistoryTable(ctx context.Context) error {
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.leadership_history (
+		id BIGSERIAL PRIMARY KEY,
+		term_number BIGINT NOT NULL,
+		leader_id TEXT NOT NULL,
+		coordinator_id TEXT NOT NULL,
+		wal_position TEXT NOT NULL,
+		reason TEXT NOT NULL,
+		cohort_members JSONB NOT NULL,
+		accepted_members JSONB NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`); err != nil {
+		return mterrors.Wrap(err, "failed to create leadership_history table")
+	}
+
+	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_leadership_history_term
+		ON multigres.leadership_history(term_number DESC)`); err != nil {
+		return mterrors.Wrap(err, "failed to create leadership_history index")
 	}
 
 	return nil
