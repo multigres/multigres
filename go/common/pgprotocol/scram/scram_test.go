@@ -90,11 +90,14 @@ func TestParseClientFirstMessage(t *testing.T) {
 		assert.Contains(t, err.Error(), "channel binding")
 	})
 
-	t.Run("missing username", func(t *testing.T) {
+	t.Run("missing username attribute - valid (fallback handled later)", func(t *testing.T) {
+		// PostgreSQL allows empty username in SCRAM client-first-message.
+		// The authenticator will use the startup message username as fallback.
 		msg := "n,,r=nonce"
-		_, err := parseClientFirstMessage(msg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "username")
+		parsed, err := parseClientFirstMessage(msg)
+		require.NoError(t, err)
+		assert.Equal(t, "", parsed.username)
+		assert.Equal(t, "nonce", parsed.clientNonce)
 	})
 
 	t.Run("missing nonce", func(t *testing.T) {
@@ -109,11 +112,14 @@ func TestParseClientFirstMessage(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("empty username", func(t *testing.T) {
+	t.Run("empty username - valid (fallback handled later)", func(t *testing.T) {
+		// PostgreSQL allows empty username in SCRAM client-first-message.
+		// The authenticator will use the startup message username as fallback.
 		msg := "n,,n=,r=nonce"
-		_, err := parseClientFirstMessage(msg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "username")
+		parsed, err := parseClientFirstMessage(msg)
+		require.NoError(t, err)
+		assert.Equal(t, "", parsed.username)
+		assert.Equal(t, "nonce", parsed.clientNonce)
 	})
 
 	t.Run("empty nonce", func(t *testing.T) {

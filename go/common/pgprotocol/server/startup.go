@@ -236,7 +236,9 @@ func (c *Conn) authenticate() error {
 	}
 
 	// Process client-first-message and generate server-first-message.
-	serverFirstMessage, err := auth.HandleClientFirst(c.ctx, clientFirstMessage)
+	// Pass the username from the startup message as fallback for clients that
+	// send empty username in SCRAM (like pgx).
+	serverFirstMessage, err := auth.HandleClientFirst(c.ctx, clientFirstMessage, c.user)
 	if err != nil {
 		if errors.Is(err, scram.ErrUserNotFound) {
 			c.logger.Warn("authentication failed: user not found", "user", c.user)
@@ -361,6 +363,15 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 	dataLen, err := reader.ReadInt32()
 	if err != nil {
 		return "", fmt.Errorf("failed to read data length: %w", err)
+	}
+
+	// Handle case where client sends no initial data (length = -1).
+	// This shouldn't happen for SCRAM-SHA-256, but some clients may do this.
+	if dataLen == -1 {
+		return "", fmt.Errorf("client sent SASLInitialResponse with no initial data (length=-1)")
+	}
+	if dataLen < 0 {
+		return "", fmt.Errorf("invalid SASL data length: %d", dataLen)
 	}
 
 	// Read SASL data.
