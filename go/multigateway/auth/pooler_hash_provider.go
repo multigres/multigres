@@ -32,24 +32,39 @@ type PoolerClient interface {
 	GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error)
 }
 
+// PoolerDiscoverer provides pooler clients for authentication.
+// At authentication time, the provider selects an appropriate pooler
+// from what discovery knows is currently available.
+type PoolerDiscoverer interface {
+	// GetPoolerClient returns a PoolerClient for the given database.
+	// The implementation chooses which pooler to use based on availability.
+	GetPoolerClient(ctx context.Context, database string) (PoolerClient, error)
+}
+
 // PoolerHashProvider implements scram.PasswordHashProvider by fetching
 // credentials from multipooler via gRPC.
 type PoolerHashProvider struct {
-	client PoolerClient
+	discoverer PoolerDiscoverer
 }
 
 // NewPoolerHashProvider creates a new PoolerHashProvider.
-// The client should be a connection to a multipooler instance.
-func NewPoolerHashProvider(client PoolerClient) *PoolerHashProvider {
+// The discoverer is used at authentication time to select an available
+// pooler for the target database.
+func NewPoolerHashProvider(discoverer PoolerDiscoverer) *PoolerHashProvider {
 	return &PoolerHashProvider{
-		client: client,
+		discoverer: discoverer,
 	}
 }
 
 // GetPasswordHash retrieves the SCRAM-SHA-256 hash for a user from multipooler.
 // Returns scram.ErrUserNotFound if the user does not exist or has no password.
 func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, database string) (*scram.ScramHash, error) {
-	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
+	client, err := p.discoverer.GetPoolerClient(ctx, database)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pooler client for database %q: %w", database, err)
+	}
+
+	resp, err := client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
 		Database: database,
 		Username: username,
 	})

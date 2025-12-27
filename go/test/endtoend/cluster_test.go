@@ -463,7 +463,7 @@ func findReadyMultigateway(t *testing.T, ctx context.Context, pgPorts []int) (in
 		}
 
 		for _, port := range pgPorts {
-			connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", port)
+			connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=2", port)
 			db, err := sql.Open("postgres", connStr)
 			if err != nil {
 				continue
