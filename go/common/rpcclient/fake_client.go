@@ -93,6 +93,9 @@ type FakeClient struct {
 
 	// CallLog tracks which methods were called for verification in tests
 	CallLog []string
+
+	// Request tracking for verification in tests
+	PromoteRequests map[string]*multipoolermanagerdatapb.PromoteRequest
 }
 
 // NewFakeClient creates a new FakeClient with empty response maps.
@@ -131,6 +134,7 @@ func NewFakeClient() *FakeClient {
 		GetBackupByJobIdResponses:                make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		Errors:                                   make(map[string]error),
 		CallLog:                                  make([]string, 0),
+		PromoteRequests:                          make(map[string]*multipoolermanagerdatapb.PromoteRequest),
 	}
 }
 
@@ -555,6 +559,11 @@ func (f *FakeClient) GetFollowers(ctx context.Context, pooler *clustermetadatapb
 func (f *FakeClient) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("Promote", poolerID)
+
+	// Record the request for test verification
+	f.mu.Lock()
+	f.PromoteRequests[poolerID] = request
+	f.mu.Unlock()
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
