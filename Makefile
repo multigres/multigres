@@ -28,7 +28,7 @@ export ETCD_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin
 BIN_DIR = bin
 
-.PHONY: all build build-all clean install test test-coverage proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage proto tools parser help
 
 ##@ General
 
@@ -104,6 +104,13 @@ build-release: ## Build Go binaries (release, static, stripped).
 
 # Build everything (proto + parser + binaries)
 build-all: proto parser build ## Build everything (proto + parser + binaries).
+
+# TODO(sougou): images is a temporary convenience target for a demo.
+# To run it, you need to have Docker installed.
+# There is a kind cluster demo under the demo directory that uses these image tags.
+images:
+	docker build -t multigres/multigres:latest .
+	docker build -f Dockerfile.pgctld -t multigres/pgctld-postgres:latest .
 
 # Install binaries to GOPATH/bin
 install: ## Install binaries to GOPATH/bin.

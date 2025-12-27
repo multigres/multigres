@@ -74,7 +74,8 @@ func (re *Engine) refreshClusterMetadata() {
 		re.logger.Debug("refreshed poolers for target", "target", target.String(), "count", count)
 	}
 
-	re.logger.Info("cluster metadata refresh complete",
+	// Info level log is too spammy
+	re.logger.Debug("cluster metadata refresh complete",
 		"cells", len(cells),
 		"total_poolers", totalPoolers,
 	)

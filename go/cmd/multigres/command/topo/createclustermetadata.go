@@ -37,7 +37,6 @@ func CreateClusterMetadataCommand() *cobra.Command {
 
 	// Add command-specific flags
 	cmd.Flags().String("global-topo-address", "localhost:2379", "Address of the of the global topo server (e.g., localhost:2379)")
-	cmd.Flags().String("topo-implementation", "etcd2", "Topo implementation for internal use")
 	cmd.Flags().String("global-topo-root", "/multigres/test/global", "Root path for the cluster in the global topo server")
 	cmd.Flags().StringSlice("cells", []string{"zone1"}, "List of cells")
 	cmd.Flags().String("durability-policy", "none", "Cluster Durability Policy")
@@ -53,14 +52,13 @@ func createClusterMetadata(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	globalTopoAddress, _ := cmd.Flags().GetString("global-topo-address")
-	topoImplementation, _ := cmd.Flags().GetString("topo-implementation")
 	globalTopoRoot, _ := cmd.Flags().GetString("global-topo-root")
 	cells, _ := cmd.Flags().GetStringSlice("cells")
 	durabilityPolicy, _ := cmd.Flags().GetString("durability-policy")
 	backupLocation, _ := cmd.Flags().GetString("backup-location")
 
 	// Create topology store using configured backend
-	ts, err := topoclient.OpenServer(topoImplementation, globalTopoRoot, []string{globalTopoAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer("etcd", globalTopoRoot, []string{globalTopoAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
