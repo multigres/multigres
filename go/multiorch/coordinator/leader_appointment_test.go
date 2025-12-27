@@ -420,7 +420,13 @@ func TestPropagate(t *testing.T) {
 			Description:   "Test quorum",
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
+		// Build cohort and recruited lists for the test
+		cohort := []*multiorchdatapb.PoolerHealthState{candidate}
+		cohort = append(cohort, standbys...)
+		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
+		recruited = append(recruited, standbys...)
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
 		require.NoError(t, err)
 	})
 
@@ -453,7 +459,13 @@ func TestPropagate(t *testing.T) {
 			Description:   "Test quorum",
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
+		// Build cohort and recruited lists for the test
+		cohort := []*multiorchdatapb.PoolerHealthState{candidate}
+		cohort = append(cohort, standbys...)
+		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
+		recruited = append(recruited, standbys...)
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
 		// Should succeed even though one standby failed
 		require.NoError(t, err)
 	})
