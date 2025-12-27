@@ -364,3 +364,85 @@ func TestInitializeMultischemaData(t *testing.T) {
 		})
 	}
 }
+
+func TestInsertLeadershipHistory(t *testing.T) {
+	tests := []struct {
+		name            string
+		termNumber      int64
+		leaderID        string
+		coordinatorID   string
+		walPosition     string
+		reason          string
+		cohortMembers   []string
+		acceptedMembers []string
+		setupMock       func(m *mock.QueryService)
+		expectError     bool
+		errorContains   string
+	}{
+		{
+			name:            "successful insert",
+			termNumber:      1,
+			leaderID:        "leader-1",
+			coordinatorID:   "coordinator-1",
+			walPosition:     "0/1234567",
+			reason:          "promotion",
+			cohortMembers:   []string{"member-1", "member-2", "member-3"},
+			acceptedMembers: []string{"member-1", "member-2"},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
+		},
+		{
+			name:            "insert fails with database error",
+			termNumber:      2,
+			leaderID:        "leader-2",
+			coordinatorID:   "coordinator-2",
+			walPosition:     "0/2345678",
+			reason:          "failover",
+			cohortMembers:   []string{"member-1", "member-2"},
+			acceptedMembers: []string{"member-1"},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", fmt.Errorf("connection refused"))
+			},
+			expectError:   true,
+			errorContains: "failed to insert leadership history",
+		},
+		{
+			name:            "insert with empty cohort and accepted members arrays",
+			termNumber:      3,
+			leaderID:        "leader-3",
+			coordinatorID:   "coordinator-3",
+			walPosition:     "0/3456789",
+			reason:          "bootstrap",
+			cohortMembers:   []string{},
+			acceptedMembers: []string{},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+			tt.setupMock(mockQueryService)
+
+			ctx := context.Background()
+			err := pm.insertLeadershipHistory(ctx, tt.termNumber, tt.leaderID, tt.coordinatorID,
+				tt.walPosition, tt.reason, tt.cohortMembers, tt.acceptedMembers)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
