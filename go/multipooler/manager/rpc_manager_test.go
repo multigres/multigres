@@ -870,6 +870,68 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
+// TestPromote_WithElectionMetadata tests that Promote accepts and uses election metadata fields
+func TestPromote_WithElectionMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock and set ALL expectations BEFORE starting the manager
+	mockQueryService := mock.NewQueryService()
+
+	// Startup heartbeat check returns "t" (we're configured as REPLICA initially)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// checkPromotionState returns "t" (still in recovery)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+
+	// Mock: Validate expected LSN (pg_last_wal_replay_lsn + pg_is_wal_replay_paused)
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/1234567", "t"}}))
+
+	// Mock: pg_promote() call
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
+		mock.MakeQueryResult(nil, nil))
+
+	// Mock: Get final LSN
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/1234567"}}))
+
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
+
+	// Topology is REPLICA
+	pm.mu.Lock()
+	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	pm.mu.Unlock()
+
+	// Call Promote with election metadata
+	reason := "dead_primary"
+	coordinatorID := "coordinator-1"
+	cohortMembers := []string{"pooler-1", "pooler-2", "pooler-3"}
+	acceptedMembers := []string{"pooler-1", "pooler-3"}
+
+	resp, err := pm.Promote(ctx, 10, "0/1234567", nil, false /* force */, reason, coordinatorID, cohortMembers, acceptedMembers)
+	require.NoError(t, err, "Promote should succeed with election metadata")
+	require.NotNil(t, resp)
+
+	assert.False(t, resp.WasAlreadyPrimary)
+	assert.Equal(t, int64(10), resp.ConsensusTerm)
+	assert.Equal(t, "0/1234567", resp.LsnPosition)
+
+	// Verify topology was updated
+	pm.mu.Lock()
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
+	pm.mu.Unlock()
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+
+	// Note: We don't directly test that insertLeadershipHistory is called with the correct metadata
+	// because that would require mocking the database layer. The leadership history functionality
+	// will be tested by the actual implementation. This test verifies that the Promote method
+	// accepts the new parameters without error and completes successfully.
+}
+
 func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
