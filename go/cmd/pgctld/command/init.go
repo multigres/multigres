@@ -139,7 +139,7 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
-	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
+	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", pgUser)
 
 	// Capture both stdout and stderr to include in error messages
 	output, err := cmd.CombinedOutput()
