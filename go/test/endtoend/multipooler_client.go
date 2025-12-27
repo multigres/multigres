@@ -191,7 +191,7 @@ func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
 	assert.Equal(t, "test_column", result.Fields[0].Name, "Field name should match")
 	assert.Len(t, result.Rows, 1, "Should have one row")
 	assert.Len(t, result.Rows[0].Values, 1, "Row should have one value")
-	assert.Equal(t, []byte("1"), result.Rows[0].Values[0], "Value should be '1'")
+	assert.Equal(t, "1", string(result.Rows[0].Values[0]), "Value should be '1'")
 }
 
 // TestCreateTable tests creating a table
