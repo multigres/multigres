@@ -822,6 +822,20 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 		return nil, err
 	}
 
+	// === Clear sync replication FIRST ===
+	// When a stale primary comes back online after failover:
+	// 1. It still has synchronous_standby_names configured
+	// 2. No standbys are connected (they're all connected to the new primary)
+	// 3. Any writes (like heartbeat) block indefinitely waiting for sync acknowledgment
+	// 4. This can cause the demote flow to timeout
+	//
+	// By clearing sync replication first, we unblock any pending writes and ensure
+	// subsequent operations in this demote flow won't block on sync acknowledgment.
+	if err := pm.clearSyncReplicationForDemotion(ctx); err != nil {
+		// Log but continue - the demote might still work if queries aren't blocked
+		pm.logger.WarnContext(ctx, "Failed to clear sync replication early in demote, continuing anyway", "error", err)
+	}
+
 	// === Validation & State Check ===
 
 	// Guard rail: Demote can only be called on a PRIMARY
