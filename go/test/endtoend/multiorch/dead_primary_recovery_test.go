@@ -21,6 +21,7 @@ package multiorch
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -141,6 +142,54 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err = db.QueryRow("SELECT 1").Scan(&result)
 		require.NoError(t, err, "Should be able to query new primary")
 		assert.Equal(t, 1, result)
+	})
+
+	// Verify leadership_history records the failover
+	t.Run("verify leadership_history after failover", func(t *testing.T) {
+		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
+		require.NotNil(t, newPrimaryInst, "new primary instance should exist")
+
+		socketDir := filepath.Join(newPrimaryInst.Pgctld.DataDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, newPrimaryInst.Pgctld.PgPort)
+		defer db.Close()
+
+		// Query the leadership_history table for the latest record
+		query := `SELECT term_number, leader_id, coordinator_id, wal_position, reason,
+				  cohort_members, accepted_members, created_at
+				  FROM multigres.leadership_history
+				  ORDER BY term_number DESC
+				  LIMIT 1`
+
+		var termNumber int64
+		var leaderID, coordinatorID, walPosition, reason string
+		var cohortMembersJSON, acceptedMembersJSON string
+		var createdAt time.Time
+
+		err := db.QueryRow(query).Scan(&termNumber, &leaderID, &coordinatorID, &walPosition,
+			&reason, &cohortMembersJSON, &acceptedMembersJSON, &createdAt)
+		require.NoError(t, err, "Should be able to query leadership_history")
+
+		// Assertions
+		assert.Greater(t, termNumber, int64(1), "term_number should be greater than 1 (this is a re-election)")
+		assert.Contains(t, leaderID, newPrimaryName, "leader_id should contain new primary name")
+		assert.NotEmpty(t, coordinatorID, "coordinator_id should not be empty")
+		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
+		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
+
+		// Verify cohort_members and accepted_members are valid JSON arrays
+		var cohortMembers, acceptedMembers []string
+		err = json.Unmarshal([]byte(cohortMembersJSON), &cohortMembers)
+		require.NoError(t, err, "cohort_members should be valid JSON array")
+		err = json.Unmarshal([]byte(acceptedMembersJSON), &acceptedMembers)
+		require.NoError(t, err, "accepted_members should be valid JSON array")
+
+		assert.NotEmpty(t, cohortMembers, "cohort_members should not be empty")
+		assert.NotEmpty(t, acceptedMembers, "accepted_members should not be empty")
+		assert.LessOrEqual(t, len(acceptedMembers), len(cohortMembers),
+			"accepted_members should not exceed cohort_members")
+
+		t.Logf("Leadership history verified: term=%d, leader=%s, coordinator=%s, reason=%s",
+			termNumber, leaderID, coordinatorID, reason)
 	})
 
 	// Verify all successful writes are present on surviving nodes
