@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -322,5 +323,39 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully inserted durability policy", "policy_name", policyName)
+	return nil
+}
+
+// insertLeadershipHistory inserts a leadership history record into the leadership_history table.
+//
+//nolint:unused // Will be used in Task 6 when Promote method is updated
+func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termNumber int64, leaderID, coordinatorID, walPosition, reason string, cohortMembers, acceptedMembers []string) error {
+	pm.logger.InfoContext(ctx, "Inserting leadership history",
+		"term", termNumber,
+		"leader", leaderID,
+		"coordinator", coordinatorID,
+		"reason", reason)
+
+	cohortJSON, err := json.Marshal(cohortMembers)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to marshal cohort_members")
+	}
+
+	acceptedJSON, err := json.Marshal(acceptedMembers)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to marshal accepted_members")
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
+		(term_number, leader_id, coordinator_id, wal_position, reason, cohort_members, accepted_members)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)`,
+		termNumber, leaderID, coordinatorID, walPosition, reason, cohortJSON, acceptedJSON)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to insert leadership history")
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully inserted leadership history", "term", termNumber)
 	return nil
 }
