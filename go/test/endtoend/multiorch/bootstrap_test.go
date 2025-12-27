@@ -246,8 +246,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		assert.Equal(t, expectedLeaderID, leaderID, "leader_id should match primary")
 
 		// Verify coordinator_id is the multiorch's ID (not hardcoded "bootstrap")
-		assert.NotEmpty(t, coordinatorID, "coordinator_id should be non-empty")
-		assert.NotEqual(t, "bootstrap", coordinatorID, "coordinator_id should be multiorch ID, not 'bootstrap'")
+		// The coordinator_id is a randomly generated 8-character string (from multiorch registration)
+		assert.NotEmpty(t, coordinatorID, "coordinator_id should not be empty")
+		assert.Len(t, coordinatorID, 8, "coordinator_id should be 8 characters (random ID)")
 
 		// Verify WAL position is non-empty
 		assert.NotEmpty(t, walPosition, "wal_position should be non-empty")

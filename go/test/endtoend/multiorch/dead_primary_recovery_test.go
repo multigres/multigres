@@ -173,6 +173,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.Greater(t, termNumber, int64(1), "term_number should be greater than 1 (this is a re-election)")
 		assert.Contains(t, leaderID, newPrimaryName, "leader_id should contain new primary name")
 		assert.NotEmpty(t, coordinatorID, "coordinator_id should not be empty")
+		// The coordinator_id is a randomly generated 8-character string (from multiorch registration)
+		assert.Len(t, coordinatorID, 8, "coordinator_id should be 8 characters (random ID)")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
 		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
 
