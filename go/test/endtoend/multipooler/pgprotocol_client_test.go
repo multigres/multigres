@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pgprotocol/client"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestPgProtocolClientConnection tests basic connection establishment.
@@ -37,8 +38,7 @@ func TestPgProtocolClientConnection(t *testing.T) {
 	setup := getSharedTestSetup(t)
 
 	t.Run("connect_and_close", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 10*time.Second)
 
 		conn, err := client.Connect(ctx, &client.Config{
 			Host:        "localhost",
@@ -68,8 +68,7 @@ func TestPgProtocolClientConnection(t *testing.T) {
 	})
 
 	t.Run("connection_state", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 10*time.Second)
 
 		conn, err := client.Connect(ctx, &client.Config{
 			Host:        "localhost",
@@ -99,8 +98,7 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	conn, err := client.Connect(ctx, &client.Config{
 		Host:        "localhost",
@@ -214,8 +212,7 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	conn, err := client.Connect(ctx, &client.Config{
 		Host:        "localhost",
@@ -336,8 +333,7 @@ func TestPgProtocolClientDataTypes(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	conn, err := client.Connect(ctx, &client.Config{
 		Host:        "localhost",
@@ -458,8 +454,7 @@ func TestPgProtocolClientErrors(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	conn, err := client.Connect(ctx, &client.Config{
 		Host:        "localhost",
@@ -523,8 +518,7 @@ func TestPgProtocolClientTransactions(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	conn, err := client.Connect(ctx, &client.Config{
 		Host:        "localhost",
@@ -596,8 +590,7 @@ func TestPgProtocolClientStreaming(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	conn, err := client.Connect(ctx, &client.Config{
 		Host:        "localhost",

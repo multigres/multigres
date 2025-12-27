@@ -239,8 +239,7 @@ func TestFixReplication(t *testing.T) {
 func verifyReplicationStreaming(t *testing.T, client *shardsetup.MultipoolerClient) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 5*time.Second)
 
 	resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	require.NoError(t, err, "StandbyReplicationStatus should succeed")
@@ -262,8 +261,7 @@ func verifyReplicationStreaming(t *testing.T, client *shardsetup.MultipoolerClie
 func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	// Clear primary_conninfo by setting it to nil
 	// Use StopReplicationBefore=true to stop WAL receiver first
@@ -286,8 +284,7 @@ func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient) {
 func isReplicationBroken(t *testing.T, client *shardsetup.MultipoolerClient) bool {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 5*time.Second)
 
 	resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	if err != nil {
@@ -313,8 +310,7 @@ func isReplicationBroken(t *testing.T, client *shardsetup.MultipoolerClient) boo
 func isReplicaInStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerClient, replicaName string) bool {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 5*time.Second)
 
 	resp, err := primaryClient.Manager.PrimaryStatus(ctx, &multipoolermanagerdatapb.PrimaryStatusRequest{})
 	if err != nil {
@@ -346,8 +342,7 @@ func isReplicaInStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerC
 func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerClient, replicaName string) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	// Use UpdateSynchronousStandbyList to remove the replica
 	// In shardsetup, the ID uses Cell="test-cell" and Name=replicaName
@@ -375,8 +370,7 @@ func waitForReplicationFixed(t *testing.T, client *shardsetup.MultipoolerClient,
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 5*time.Second)
 
 		resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 		if err != nil {
