@@ -327,8 +327,6 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 }
 
 // insertLeadershipHistory inserts a leadership history record into the leadership_history table.
-//
-//nolint:unused // Will be used in Task 6 when Promote method is updated
 func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termNumber int64, leaderID, coordinatorID, walPosition, reason string, cohortMembers, acceptedMembers []string) error {
 	pm.logger.InfoContext(ctx, "Inserting leadership history",
 		"term", termNumber,
