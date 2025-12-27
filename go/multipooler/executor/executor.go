@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
@@ -51,7 +52,7 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager) *
 // ExecuteQuery implements queryservice.QueryService.
 // It executes a query using a pooled connection for the specified user.
 // If ReservedConnectionId is set in options, uses that reserved connection instead.
-func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
+func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
 	if target == nil {
 		target = &query.Target{}
 	}
@@ -77,7 +78,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		}
 
 		if len(results) == 0 {
-			return &query.QueryResult{}, nil
+			return &sqltypes.Result{}, nil
 		}
 		return results[0], nil
 	}
@@ -95,7 +96,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	}
 	defer conn.Recycle()
 
-	// Execute the query - the regular.Conn.Query returns []*query.QueryResult
+	// Execute the query - the regular.Conn.Query returns []*sqltypes.Result
 	// with proper field info, rows, and command tags already populated
 	results, err := conn.Conn.Query(ctx, sql)
 	if err != nil {
@@ -104,7 +105,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	// Return first result (simple query returns single result)
 	if len(results) == 0 {
-		return &query.QueryResult{}, nil
+		return &sqltypes.Result{}, nil
 	}
 	return results[0], nil
 }
@@ -117,7 +118,7 @@ func (e *Executor) StreamExecute(
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if target == nil {
 		target = &query.Target{}
@@ -180,7 +181,7 @@ func (e *Executor) PortalStreamExecute(
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
 	if target == nil {
 		target = &query.Target{}
@@ -236,7 +237,7 @@ func (e *Executor) portalExecuteWithReserved(
 	user string,
 	maxRows int32,
 	paramFormats, resultFormats []int16,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
 	var reservedConn *reserved.Conn
 	var err error
@@ -263,7 +264,8 @@ func (e *Executor) portalExecuteWithReserved(
 	}
 
 	// Bind and execute using the canonical statement name
-	completed, err := reservedConn.BindAndExecute(ctx, canonicalName, portal.Params, paramFormats, resultFormats, maxRows, callback)
+	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
+	completed, err := reservedConn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
 		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
@@ -294,7 +296,7 @@ func (e *Executor) portalExecuteWithRegular(
 	settings map[string]string,
 	user string,
 	paramFormats, resultFormats []int16,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
 	if err != nil {
@@ -309,7 +311,8 @@ func (e *Executor) portalExecuteWithRegular(
 	}
 
 	// Bind and execute with maxRows=0 (fetch all) using the canonical statement name
-	_, err = conn.Conn.BindAndExecute(ctx, canonicalName, portal.Params, paramFormats, resultFormats, 0, callback)
+	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
+	_, err = conn.Conn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, 0, callback)
 	if err != nil {
 		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
 	}
@@ -366,7 +369,8 @@ func (e *Executor) Describe(
 		// Bind and describe using canonical name
 		paramFormats := int32ToInt16Slice(portal.ParamFormats)
 		resultFormats := int32ToInt16Slice(portal.ResultFormats)
-		desc, err := conn.Conn.BindAndDescribe(ctx, canonicalName, portal.Params, paramFormats, resultFormats)
+		params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
+		desc, err := conn.Conn.BindAndDescribe(ctx, canonicalName, params, paramFormats, resultFormats)
 		if err != nil {
 			return nil, fmt.Errorf("failed to describe portal: %w", err)
 		}

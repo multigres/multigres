@@ -21,12 +21,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
-// makeRow creates a query.Row from a slice of values (nil values become NULL).
-func makeRow(values ...any) *query.Row {
-	row := &query.Row{Values: make([][]byte, len(values))}
+// makeRow creates a sqltypes.Row from a slice of values (nil values become NULL).
+func makeRow(values ...any) *sqltypes.Row {
+	row := &sqltypes.Row{Values: make([]sqltypes.Value, len(values))}
 	for i, v := range values {
 		if v == nil {
 			row.Values[i] = nil
@@ -39,9 +39,9 @@ func makeRow(values ...any) *query.Row {
 	return row
 }
 
-// makeResult creates a query.QueryResult with the given rows.
-func makeResult(rows ...*query.Row) *query.QueryResult {
-	return &query.QueryResult{Rows: rows}
+// makeResult creates a sqltypes.Result with the given rows.
+func makeResult(rows ...*sqltypes.Row) *sqltypes.Result {
+	return &sqltypes.Result{Rows: rows}
 }
 
 func TestScanRow(t *testing.T) {
@@ -91,7 +91,7 @@ func TestScanSingleRow(t *testing.T) {
 	})
 
 	t.Run("empty result returns error", func(t *testing.T) {
-		result := &query.QueryResult{Rows: []*query.Row{}}
+		result := &sqltypes.Result{Rows: []*sqltypes.Row{}}
 		var s string
 		err := ScanSingleRow(result, &s)
 		require.Error(t, err)
@@ -372,7 +372,7 @@ func TestScanValue_Time(t *testing.T) {
 
 func TestScanValue_Bytes(t *testing.T) {
 	t.Run("scan bytes", func(t *testing.T) {
-		row := &query.Row{Values: [][]byte{[]byte("binary data")}}
+		row := makeRow([]byte("binary data"))
 		var b []byte
 		err := ScanRow(row, &b)
 		require.NoError(t, err)
@@ -380,7 +380,7 @@ func TestScanValue_Bytes(t *testing.T) {
 	})
 
 	t.Run("scan empty bytes", func(t *testing.T) {
-		row := &query.Row{Values: [][]byte{{}}}
+		row := makeRow([]byte{})
 		var b []byte
 		err := ScanRow(row, &b)
 		require.NoError(t, err)
@@ -390,7 +390,7 @@ func TestScanValue_Bytes(t *testing.T) {
 
 func TestScanValue_NULL(t *testing.T) {
 	t.Run("NULL leaves bool unchanged", func(t *testing.T) {
-		row := &query.Row{Values: [][]byte{nil}}
+		row := makeRow(nil)
 		b := true // set a non-zero value
 		err := ScanRow(row, &b)
 		require.NoError(t, err)
@@ -398,7 +398,7 @@ func TestScanValue_NULL(t *testing.T) {
 	})
 
 	t.Run("NULL leaves string unchanged", func(t *testing.T) {
-		row := &query.Row{Values: [][]byte{nil}}
+		row := makeRow(nil)
 		s := "original"
 		err := ScanRow(row, &s)
 		require.NoError(t, err)
@@ -406,7 +406,7 @@ func TestScanValue_NULL(t *testing.T) {
 	})
 
 	t.Run("NULL leaves int unchanged", func(t *testing.T) {
-		row := &query.Row{Values: [][]byte{nil}}
+		row := makeRow(nil)
 		i := 42
 		err := ScanRow(row, &i)
 		require.NoError(t, err)

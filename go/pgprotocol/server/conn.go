@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
 
@@ -370,7 +370,7 @@ func (c *Conn) handleQuery() error {
 	// The callback will be invoked multiple times for:
 	// 1. Large result sets (streamed in chunks)
 	// 2. Multiple statements in a single query (each potentially with large result sets)
-	err = c.handler.HandleQuery(c.ctx, c, queryStr, func(ctx context.Context, result *query.QueryResult) error {
+	err = c.handler.HandleQuery(c.ctx, c, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
 		// Handle empty query (nil result signals empty query).
 		if result == nil {
 			return c.writeEmptyQueryResponse()
@@ -629,7 +629,7 @@ func (c *Conn) handleExecute() error {
 
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
-	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *query.QueryResult) error {
+	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
 		// On first callback with fields, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {

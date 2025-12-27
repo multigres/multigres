@@ -27,12 +27,12 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/safepath"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"google.golang.org/grpc"
@@ -228,7 +228,7 @@ func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryServi
 
 // query executes a query using the internal query service and returns the result.
 // This is a convenience method for internal manager operations.
-func (pm *MultiPoolerManager) query(ctx context.Context, sql string) (*query.QueryResult, error) {
+func (pm *MultiPoolerManager) query(ctx context.Context, sql string) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
 		return nil, fmt.Errorf("internal query service not available")
@@ -245,7 +245,7 @@ func (pm *MultiPoolerManager) exec(ctx context.Context, sql string) error {
 
 // queryArgs executes a parameterized query using the internal query service and returns the result.
 // This is a convenience method for internal manager operations that helps prevent SQL injection.
-func (pm *MultiPoolerManager) queryArgs(ctx context.Context, sql string, args ...any) (*query.QueryResult, error) {
+func (pm *MultiPoolerManager) queryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
 		return nil, fmt.Errorf("internal query service not available")

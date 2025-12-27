@@ -23,9 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 func newTestPool(t *testing.T, server *fakepgserver.Server) *Pool {
@@ -160,9 +160,9 @@ func TestConn_Transaction(t *testing.T) {
 	defer server.Close()
 
 	// Setup expected queries.
-	server.AddQuery("BEGIN", &query.QueryResult{})
-	server.AddQuery("COMMIT", &query.QueryResult{})
-	server.AddQuery("ROLLBACK", &query.QueryResult{})
+	server.AddQuery("BEGIN", &sqltypes.Result{})
+	server.AddQuery("COMMIT", &sqltypes.Result{})
+	server.AddQuery("ROLLBACK", &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()

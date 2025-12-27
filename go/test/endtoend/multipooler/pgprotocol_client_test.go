@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pgprotocol/client"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -231,9 +231,9 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 		require.NoError(t, err)
 
 		// BindAndExecute - binds parameters and executes atomically
-		var results []*query.QueryResult
+		var results []*sqltypes.Result
 		completed, err := conn.BindAndExecute(ctx, "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
-			func(ctx context.Context, result *query.QueryResult) error {
+			func(ctx context.Context, result *sqltypes.Result) error {
 				results = append(results, result)
 				return nil
 			})
@@ -291,11 +291,11 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 	})
 
 	t.Run("prepare_and_execute_combined", func(t *testing.T) {
-		var results []*query.QueryResult
+		var results []*sqltypes.Result
 		// Use unnamed statement ("") for one-shot execution
 		err := conn.PrepareAndExecute(ctx, "", "SELECT $1::text || ' ' || $2::text AS greeting",
 			[][]byte{[]byte("Hello"), []byte("World")},
-			func(ctx context.Context, result *query.QueryResult) error {
+			func(ctx context.Context, result *sqltypes.Result) error {
 				results = append(results, result)
 				return nil
 			})
@@ -308,11 +308,11 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 	})
 
 	t.Run("null_parameters", func(t *testing.T) {
-		var results []*query.QueryResult
+		var results []*sqltypes.Result
 		// Use unnamed statement ("") for one-shot execution
 		err := conn.PrepareAndExecute(ctx, "", "SELECT $1::text AS val",
 			[][]byte{nil}, // NULL parameter
-			func(ctx context.Context, result *query.QueryResult) error {
+			func(ctx context.Context, result *sqltypes.Result) error {
 				results = append(results, result)
 				return nil
 			})
@@ -609,7 +609,7 @@ func TestPgProtocolClientStreaming(t *testing.T) {
 		var resultSetCount int
 
 		err := conn.QueryStreaming(ctx, "SELECT generate_series(1, 100); SELECT generate_series(1, 50)",
-			func(ctx context.Context, result *query.QueryResult) error {
+			func(ctx context.Context, result *sqltypes.Result) error {
 				callbackCount++
 				totalRows += len(result.Rows)
 				// CommandTag being set signals end of a result set
@@ -639,7 +639,7 @@ func TestPgProtocolClientStreaming(t *testing.T) {
 		var resultSetCount int
 
 		err := conn.QueryStreaming(ctx, "SELECT repeat('x', 1000) AS data FROM generate_series(1, 5000)",
-			func(ctx context.Context, result *query.QueryResult) error {
+			func(ctx context.Context, result *sqltypes.Result) error {
 				callbackCount++
 				if len(result.Rows) > 0 {
 					rowBatchCount++

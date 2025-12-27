@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 
@@ -36,13 +37,13 @@ import (
 type testHandler struct {
 	parseFunc    func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error
 	bindFunc     func(ctx context.Context, conn *Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error
-	executeFunc  func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error
+	executeFunc  func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error
 	describeFunc func(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error)
 	closeFunc    func(ctx context.Context, conn *Conn, typ byte, name string) error
 	syncFunc     func(ctx context.Context, conn *Conn) error
 }
 
-func (h *testHandler) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (h *testHandler) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -60,18 +61,18 @@ func (h *testHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (h *testHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	if h.executeFunc != nil {
 		return h.executeFunc(ctx, conn, portalName, maxRows, callback)
 	}
 	// Return a simple result for testing via callback.
-	return callback(ctx, &query.QueryResult{
+	return callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
 			{Name: "id", DataTypeOid: 23},
 			{Name: "name", DataTypeOid: 25},
 		},
-		Rows: []*query.Row{
-			{Values: [][]byte{[]byte("1"), []byte("test")}},
+		Rows: []*sqltypes.Row{
+			{Values: []sqltypes.Value{[]byte("1"), []byte("test")}},
 		},
 		CommandTag: "SELECT 1",
 	})

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
@@ -124,7 +125,7 @@ func (pg *PoolerGateway) StreamExecute(
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)
@@ -164,7 +165,7 @@ func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *q
 // It routes the query to the appropriate multipooler instance based on the target.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
-func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
+func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)
 	if err != nil {
@@ -243,7 +244,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)

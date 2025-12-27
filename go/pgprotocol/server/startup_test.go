@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
@@ -93,7 +94,7 @@ func testListener(t *testing.T) *Listener {
 // mockHandler is a simple handler for testing.
 type mockHandler struct{}
 
-func (m *mockHandler) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockHandler) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -105,7 +106,7 @@ func (m *mockHandler) HandleBind(ctx context.Context, conn *Conn, portalName, st
 	return nil
 }
 
-func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockHandler) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	return nil
 }
 

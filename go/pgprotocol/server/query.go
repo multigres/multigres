@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
@@ -193,7 +194,7 @@ func (c *Conn) writeRowDescription(fields []*query.Field) error {
 //   - For each column:
 //   - Value length: int32 (-1 for NULL)
 //   - Value bytes: []byte (if not NULL)
-func (c *Conn) writeDataRow(row *query.Row) error {
+func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 	// Calculate message size.
 	size := 4 + 2 // length + column count
 	for _, value := range row.Values {
