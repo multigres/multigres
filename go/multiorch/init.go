@@ -122,14 +122,15 @@ func (mo *MultiOrch) Init() error {
 
 	logger.Info("multiorch starting up",
 		"cell", mo.cfg.GetCell(),
+		"service_id", mo.cfg.GetServiceID(),
 		"http_port", mo.senv.GetHTTPPort(),
 		"grpc_port", mo.grpcServer.Port(),
 		"watch_targets", targets,
 	)
 
 	// Create MultiOrch instance for topo registration
-	// TODO(sougou): Is serviceID needed? It's sent as empty string for now.
-	multiorch := topoclient.NewMultiOrch("", mo.cfg.GetCell(), mo.senv.GetHostname())
+	// If serviceID is empty, NewMultiOrch will generate a random 8-character ID
+	multiorch := topoclient.NewMultiOrch(mo.cfg.GetServiceID(), mo.cfg.GetCell(), mo.senv.GetHostname())
 	multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
 	multiorch.PortMap["http"] = int32(mo.senv.GetHTTPPort())
 

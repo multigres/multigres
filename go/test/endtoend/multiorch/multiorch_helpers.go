@@ -123,3 +123,35 @@ func waitForStandbysInitialized(t *testing.T, setup *shardsetup.ShardSetup, expe
 
 	t.Fatalf("Timeout: standbys did not initialize within %v", timeout)
 }
+
+// waitForSyncReplicationConfigured polls the primary until synchronous_standby_names is configured.
+// This is needed because configureSynchronousReplication runs after standbys are initialized.
+func waitForSyncReplicationConfigured(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	checkInterval := 500 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		primaryClient := setup.NewPrimaryClient(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		syncStandbyNames, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
+		cancel()
+		primaryClient.Close()
+
+		if err != nil {
+			t.Logf("Waiting for sync replication config... (error: %v)", err)
+			time.Sleep(checkInterval)
+			continue
+		}
+
+		if syncStandbyNames != "" {
+			t.Logf("Sync replication configured: synchronous_standby_names=%s", syncStandbyNames)
+			return
+		}
+		t.Logf("Waiting for sync replication config... (synchronous_standby_names is empty)")
+		time.Sleep(checkInterval)
+	}
+
+	t.Fatalf("Timeout: sync replication was not configured within %v", timeout)
+}

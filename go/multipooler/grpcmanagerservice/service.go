@@ -228,7 +228,11 @@ func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdat
 		req.ConsensusTerm,
 		req.ExpectedLsn,
 		req.SyncReplicationConfig,
-		req.Force)
+		req.Force,
+		req.Reason,
+		req.CoordinatorId,
+		req.CohortMembers,
+		req.AcceptedMembers)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
