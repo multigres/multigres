@@ -123,6 +123,21 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 	return lsn, nil
 }
 
+// getTimelineID gets the current timeline ID from pg_control_checkpoint()
+func (pm *MultiPoolerManager) getTimelineID(ctx context.Context) (int64, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT timeline_id FROM pg_control_checkpoint()")
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to get timeline ID")
+	}
+	var timelineID int64
+	if err := executor.ScanSingleRow(result, &timelineID); err != nil {
+		return 0, mterrors.Wrap(err, "failed to scan timeline ID result")
+	}
+	return timelineID, nil
+}
+
 // querySchemaExists checks if the multigres schema exists in the database
 func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -688,6 +703,40 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 	config.SynchronousCommit = syncCommitLevel
 
 	return config, nil
+}
+
+// clearSyncReplicationForDemotion clears synchronous replication settings at the start of demotion.
+//
+// When a stale primary comes back online after failover:
+// 1. It still has synchronous_standby_names configured
+// 2. No standbys are connected (they're all connected to the new primary)
+// 3. Any writes (like heartbeat) block indefinitely waiting for sync acknowledgment
+// 4. This blocks the demote flow and causes timeout
+//
+// ALTER SYSTEM writes to postgresql.auto.conf, not to WAL, so it doesn't need sync
+// replication acknowledgment and won't block even with no standbys connected.
+func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "Clearing synchronous replication for demotion (early)")
+
+	// Use a short timeout - if this hangs, the demote will fail anyway
+	execCtx, execCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer execCancel()
+
+	// ALTER SYSTEM writes to postgresql.auto.conf (not WAL), so it doesn't require
+	// sync replication acknowledgment and won't block.
+	if err := pm.exec(execCtx, "ALTER SYSTEM SET synchronous_standby_names = ''"); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to clear synchronous_standby_names for demotion", "error", err)
+		return mterrors.Wrap(err, "failed to clear synchronous_standby_names for demotion")
+	}
+
+	// Reload configuration to apply changes immediately
+	if err := pm.exec(execCtx, "SELECT pg_reload_conf()"); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to reload configuration for demotion", "error", err)
+		return mterrors.Wrap(err, "failed to reload configuration for demotion")
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully cleared synchronous replication for demotion")
+	return nil
 }
 
 // resetSynchronousReplication clears the synchronous standby list

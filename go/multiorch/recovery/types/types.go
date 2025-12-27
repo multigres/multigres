@@ -39,6 +39,7 @@ const (
 	// Primary problems (catastrophic - block everything else).
 	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
 	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
+	ProblemStalePrimary       ProblemCode = "StalePrimary"
 
 	// Primary configuration problems (can fix while primary alive).
 	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"
@@ -52,6 +53,7 @@ const (
 	ProblemReplicaLagging          ProblemCode = "ReplicaLagging"
 	ProblemReplicaMisconfigured    ProblemCode = "ReplicaMisconfigured"
 	ProblemReplicaIsWritable       ProblemCode = "ReplicaIsWritable"
+	ProblemReplicaTimelineDiverged ProblemCode = "ReplicaTimelineDiverged"
 
 	// Non-actionable: if all hosts are down, there is no way we can failover.
 	ProblemPrimaryAndReplicasDead ProblemCode = "PrimaryAndReplicasDead"

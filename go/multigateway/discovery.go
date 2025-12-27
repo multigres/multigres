@@ -251,7 +251,7 @@ func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.Mu
 
 	// Default to PRIMARY if not specified
 	targetType := target.PoolerType
-	if targetType == clustermetadatapb.PoolerType_UNKNOWN {
+	if targetType == clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED {
 		targetType = clustermetadatapb.PoolerType_PRIMARY
 	}
 

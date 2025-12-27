@@ -136,7 +136,7 @@ func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration)
 
 	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
-		return clustermetadatapb.PoolerType_UNKNOWN, fmt.Errorf("failed to create client: %w", err)
+		return clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED, fmt.Errorf("failed to create client: %w", err)
 	}
 	defer conn.Close()
 
@@ -159,7 +159,7 @@ func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration)
 		}
 
 		poolerType = resp.Status.PoolerType
-		if poolerType == clustermetadatapb.PoolerType_UNKNOWN {
+		if poolerType == clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED {
 			t.Logf("Waiting for pooler type at %s... (currently UNKNOWN)", addr)
 			return false
 		}

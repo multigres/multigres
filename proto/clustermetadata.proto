@@ -177,15 +177,18 @@ message KeyRange {
 
 // PoolerType represents the type of a given MultiPooler.
 enum PoolerType {
-  // UNKNOWN this is not a valid type.
+  // POOLER_TYPE_UNSPECIFIED is not a valid type.
   // It is useful during upgrades to detect when a value is not initialized
-  UNKNOWN = 0;
+  POOLER_TYPE_UNSPECIFIED = 0;
 
   // PRIMARY is the primary server for the shard. Only PRIMARY allows DMLs.
   PRIMARY = 1;
 
   // REPLICA replicates from leader. It is used to read only traffic
   REPLICA = 2;
+
+  // POOLER_TYPE_DRAINED is used for poolers that are temporarily removed from serving traffic
+  POOLER_TYPE_DRAINED = 3;
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.

@@ -256,14 +256,27 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		}
 	}
 
+	// Get timeline information for divergence detection
+	var timelineInfo *consensusdatapb.TimelineInfo
+	if isHealthy {
+		timelineID, err := pm.getTimelineID(ctx)
+		if err == nil {
+			timelineInfo = &consensusdatapb.TimelineInfo{
+				TimelineId: timelineID,
+				// TODO: Populate history for primaries
+			}
+		}
+	}
+
 	return &consensusdatapb.StatusResponse{
-		PoolerId:    pm.serviceID.GetName(),
-		CurrentTerm: localTerm,
-		WalPosition: walPosition,
-		IsHealthy:   isHealthy,
-		IsEligible:  true, // TODO: implement eligibility logic based on policy
-		Cell:        pm.serviceID.GetCell(),
-		Role:        role,
+		PoolerId:     pm.serviceID.GetName(),
+		CurrentTerm:  localTerm,
+		WalPosition:  walPosition,
+		IsHealthy:    isHealthy,
+		IsEligible:   true, // TODO: implement eligibility logic based on policy
+		Cell:         pm.serviceID.GetCell(),
+		Role:         role,
+		TimelineInfo: timelineInfo,
 	}, nil
 }
 

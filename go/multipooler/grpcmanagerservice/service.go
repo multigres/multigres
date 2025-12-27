@@ -320,3 +320,12 @@ func (s *managerService) CreateDurabilityPolicy(ctx context.Context, req *multip
 	}
 	return resp, nil
 }
+
+// RewindToSource performs pg_rewind to synchronize this server with a source
+func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+	success, errMsg := s.manager.RewindToSource(ctx, req.SourceServer, req.DryRun)
+	return &multipoolermanagerdatapb.RewindToSourceResponse{
+		Success:      success,
+		ErrorMessage: errMsg,
+	}, nil
+}

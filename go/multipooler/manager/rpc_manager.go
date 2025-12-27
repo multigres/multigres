@@ -25,6 +25,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -784,16 +785,32 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
-	// Demote is an operational cleanup, not a leadership change.
-	// Accept if term >= currentTerm to ensure the request isn't stale.
-	// Equal or higher terms are safe.
-	// Note: we still update the term, as this may arrive after a leader
-	// appointment that this (now old) primary missed due to a network partition.
-	if err := pm.validateAndUpdateTerm(ctx, consensusTerm, force); err != nil {
+
+	// Validate the term but DON'T update yet. We only update the term AFTER
+	// successful demotion to avoid a race where a failed demote (e.g., postgres
+	// not ready) updates the term, causing subsequent detection to see equal
+	// terms and skip demotion.
+	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
 
-	return pm.demoteLocked(ctx, consensusTerm, drainTimeout)
+	// Perform the actual demotion
+	resp, err := pm.demoteLocked(ctx, consensusTerm, drainTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only update term AFTER successful demotion
+	// This ensures the stale primary keeps its lower term until it's actually demoted,
+	// allowing subsequent detection to continue flagging it as stale.
+	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
+		// Log but don't fail - demotion succeeded, term update is secondary
+		pm.logger.WarnContext(ctx, "Failed to update term after demotion",
+			"error", err,
+			"consensus_term", consensusTerm)
+	}
+
+	return resp, nil
 }
 
 // demoteLocked performs the core demotion logic.
@@ -803,6 +820,20 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
+	}
+
+	// === Clear sync replication FIRST ===
+	// When a stale primary comes back online after failover:
+	// 1. It still has synchronous_standby_names configured
+	// 2. No standbys are connected (they're all connected to the new primary)
+	// 3. Any writes (like heartbeat) block indefinitely waiting for sync acknowledgment
+	// 4. This can cause the demote flow to timeout
+	//
+	// By clearing sync replication first, we unblock any pending writes and ensure
+	// subsequent operations in this demote flow won't block on sync acknowledgment.
+	if err := pm.clearSyncReplicationForDemotion(ctx); err != nil {
+		// Log but continue - the demote might still work if queries aren't blocked
+		pm.logger.WarnContext(ctx, "Failed to clear sync replication early in demote, continuing anyway", "error", err)
 	}
 
 	// === Validation & State Check ===
@@ -1117,4 +1148,84 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 	}
 
 	return &multipoolermanagerdatapb.CreateDurabilityPolicyResponse{}, nil
+}
+
+// RewindToSource performs pg_rewind to synchronize this server with a source.
+// This operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
+// Returns (success bool, error message string).
+func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, sourceServer string, dryRun bool) (bool, string) {
+	if err := pm.checkReady(); err != nil {
+		return false, err.Error()
+	}
+
+	// Acquire the action lock to ensure only one mutation runs at a time
+	ctx, err := pm.actionLock.Acquire(ctx, "RewindToSource")
+	if err != nil {
+		return false, err.Error()
+	}
+	defer pm.actionLock.Release(ctx)
+
+	pm.logger.InfoContext(ctx, "RewindToSource called",
+		"source_server", sourceServer,
+		"dry_run", dryRun)
+
+	// Validate inputs
+	if sourceServer == "" {
+		return false, "source_server is required"
+	}
+
+	// Check if pgctld client is available
+	if pm.pgctldClient == nil {
+		return false, "pgctld client not available"
+	}
+
+	// Step 1: Stop PostgreSQL
+	if !dryRun {
+		pm.logger.InfoContext(ctx, "Stopping PostgreSQL for pg_rewind")
+		stopReq := &pgctldpb.StopRequest{
+			Mode: "fast",
+		}
+		if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to stop PostgreSQL", "error", err)
+			return false, fmt.Sprintf("failed to stop PostgreSQL: %v", err)
+		}
+	}
+
+	// Step 2: Run pg_rewind
+	pm.logger.InfoContext(ctx, "Running pg_rewind", "source_server", sourceServer, "dry_run", dryRun)
+	rewindReq := &pgctldpb.PgRewindRequest{
+		SourceServer: sourceServer,
+		DryRun:       dryRun,
+	}
+	if _, err := pm.pgctldClient.PgRewind(ctx, rewindReq); err != nil {
+		pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err)
+		// If not a dry run, we need to try to start PostgreSQL again
+		if !dryRun {
+			pm.logger.WarnContext(ctx, "Attempting to start PostgreSQL after pg_rewind failure")
+			startReq := &pgctldpb.StartRequest{}
+			if _, startErr := pm.pgctldClient.Start(ctx, startReq); startErr != nil {
+				pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL after pg_rewind failure", "error", startErr)
+			}
+		}
+		return false, fmt.Sprintf("pg_rewind failed: %v", err)
+	}
+
+	// Step 3: Start PostgreSQL (unless dry_run)
+	if !dryRun {
+		pm.logger.InfoContext(ctx, "Starting PostgreSQL after pg_rewind")
+		startReq := &pgctldpb.StartRequest{}
+		if _, err := pm.pgctldClient.Start(ctx, startReq); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to start PostgreSQL after pg_rewind", "error", err)
+			return false, fmt.Sprintf("failed to start PostgreSQL after pg_rewind: %v", err)
+		}
+
+		// Wait for database connection
+		if err := pm.waitForDatabaseConnection(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to reconnect to database after pg_rewind", "error", err)
+			return false, fmt.Sprintf("failed to reconnect to database: %v", err)
+		}
+	}
+
+	pm.logger.InfoContext(ctx, "RewindToSource completed successfully", "dry_run", dryRun)
+	return true, ""
 }

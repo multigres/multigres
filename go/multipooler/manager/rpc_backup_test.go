@@ -982,7 +982,7 @@ func TestTryAutoRestoreFromBackup_SkipsForUnknownType(t *testing.T) {
 	poolerDir := t.TempDir()
 
 	// UNKNOWN type is what a fresh multipooler has before SetPoolerType is called
-	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_UNKNOWN)
+	pm := createTestManagerForAutoRestore(logger, poolerDir, clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED)
 
 	// Should not attempt restore for UNKNOWN type - only REPLICA should auto-restore
 	// Function returns immediately without attempting restore
