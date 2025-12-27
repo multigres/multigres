@@ -238,6 +238,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, wa
 		Cell:         cell,
 		EtcdAddr:     s.EtcdClientAddr,
 		WatchTargets: watchTargets,
+		ServiceID:    name, // Use the instance name as the service ID
 		Binary:       "multiorch",
 		Environment:  os.Environ(),
 	}

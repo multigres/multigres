@@ -245,10 +245,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		expectedLeaderID := fmt.Sprintf("%s_%s", setup.CellName, setup.PrimaryName)
 		assert.Equal(t, expectedLeaderID, leaderID, "leader_id should match primary")
 
-		// Verify coordinator_id is the multiorch's ID (not hardcoded "bootstrap")
-		// The coordinator_id is a randomly generated 8-character string (from multiorch registration)
-		assert.NotEmpty(t, coordinatorID, "coordinator_id should not be empty")
-		assert.Len(t, coordinatorID, 8, "coordinator_id should be 8 characters (random ID)")
+		// Verify coordinator_id matches the multiorch's service-id
+		// The service-id is set to the instance name ("test-multiorch") in CreateMultiOrchInstance
+		assert.Equal(t, "test-multiorch", coordinatorID, "coordinator_id should match multiorch's service-id")
 
 		// Verify WAL position is non-empty
 		assert.NotEmpty(t, walPosition, "wal_position should be non-empty")
