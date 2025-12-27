@@ -1,0 +1,147 @@
+# We're trying to see if Statefullsets can be made to work.
+# If we run into problems with multiple shards or zones, we
+# may have to switch to the operator managing pods directly.
+apiVersion: v1
+kind: Service
+metadata:
+  # This name should also have tablegroup, etc.
+  # But this will work for now.
+  name: multipooler-zone1
+spec:
+  selector:
+    # I don't think these selectors are right either.
+    # I think they should have tablegroup, etc.
+    # But they'll work for now.
+    app: multipooler
+    cell: zone1
+  ports:
+    - port: 16000
+      targetPort: 16000
+      name: http
+    - port: 16100
+      targetPort: 16100
+      name: grpc
+  clusterIP: None # Headless service for StatefulSet
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: multipooler-zone1
+  labels:
+    app: multipooler
+    cell: zone1
+spec:
+  serviceName: multipooler-zone1
+  replicas: 3
+  selector:
+    matchLabels:
+      app: multipooler
+      cell: zone1
+  template:
+    metadata:
+      labels:
+        app: multipooler
+        cell: zone1
+    spec:
+      containers:
+        - name: multipooler
+          image: docker.io/multigres/multigres:latest
+          imagePullPolicy: IfNotPresent
+          # We need to launch through sh because I couldn't find a way to extract
+          # the pod index. The downward API for fetching pod index didn't work, probably
+          # a limitation of kind.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              ORDINAL=${POD_NAME##*-}
+              exec /multigres/bin/multipooler \
+                --http-port=16000 \
+                --grpc-port=16100 \
+                --topo-global-server-addresses=etcd:2379 \
+                --topo-global-root=/multigres/test/global \
+                --cell=zone1 \
+                --database=postgres \
+                --table-group=default \
+                --shard=0-inf \
+                --service-id=${ORDINAL} \
+                --pooler-dir=/data \
+                --pgctld-addr=localhost:16200 \
+                --pg-port=5432 \
+                --connpool-admin-password=postgres \
+                --socket-file=/data/pg_sockets/.s.PGSQL.5432 \
+                --grpc-socket-file=/data/multipooler.sock \
+                --log-level=info \
+                --service-map=grpc-pooler \
+                --pprof-http=true
+          ports:
+            - containerPort: 16000
+              name: http
+            - containerPort: 16100
+              name: grpc
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 16000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            # We use the subPathExpr to ensure that each pod
+            # gets its own subdirectory.
+            - name: host-data
+              mountPath: /data
+              subPathExpr: $(POD_NAME)
+            # backup-data must be common for all pods.
+            - name: backup-data
+              mountPath: /backups
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+        - name: pgctld
+          image: docker.io/multigres/pgctld-postgres:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/pgctld"]
+          args:
+            - server
+            - --pooler-dir=/data
+            - --grpc-port=16200
+            - --pg-port=5432
+            - --pg-listen-addresses=* # The default value is localhost, which won't work here.
+            - --pg-database=postgres
+            - --pg-user=postgres
+            - --timeout=30
+            - --log-level=info
+            - --grpc-socket-file=/data/pgctld.sock
+            - --pprof-http=true
+          ports:
+            - containerPort: 16200
+              name: pgctldgrpc # This can't be grpc because multipooler has a grpc port.
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - name: host-data
+              mountPath: /data
+              subPathExpr: $(POD_NAME)
+            - name: backup-data
+              mountPath: /backups
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+      volumes:
+        # We have to give different mount points.
+        # /data will be mounted using sub path expressions
+        # to allow each pod to have its own subdirectory.
+        # But backups have to be common for all.
+        - name: host-data
+          hostPath:
+            path: /data
+            type: DirectoryOrCreate
+        - name: backup-data
+          hostPath:
+            path: /data/backups
+            type: DirectoryOrCreate

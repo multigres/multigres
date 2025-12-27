@@ -1,0 +1,45 @@
+# For a single-cell cluster, we need only one multiorch.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multiorch
+  labels:
+    app: multiorch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: multiorch
+  template:
+    metadata:
+      labels:
+        app: multiorch
+    spec:
+      containers:
+        - name: multiorch
+          image: docker.io/multigres/multigres:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/multigres/bin/multiorch"]
+          args:
+            - --http-port=17000
+            - --grpc-port=17100
+            - --topo-global-server-addresses=etcd:2379
+            - --topo-global-root=/multigres/test/global
+            - --cell=zone1
+            - --watch-targets=postgres
+            - --log-level=info
+            - --cluster-metadata-refresh-interval=500ms
+            - --pooler-health-check-interval=500ms
+            - --recovery-cycle-interval=500ms
+            - --pprof-http=true
+          ports:
+            - containerPort: 17000
+              name: http
+            - containerPort: 17100
+              name: grpc
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 17000
+            initialDelaySeconds: 10
+            periodSeconds: 10

@@ -107,7 +107,7 @@ build-all: proto parser build ## Build everything (proto + parser + binaries).
 
 # TODO(sougou): images is a temporary convenience target for a demo.
 # To run it, you need to have Docker installed.
-# There is a kind cluster demo under the demo directory that uses these image tags.
+# There is a kind cluster demo under the kind_demo/ directory that uses these image tags.
 images:
 	docker build -t multigres/multigres:latest .
 	docker build -f Dockerfile.pgctld -t multigres/pgctld-postgres:latest .
