@@ -2941,8 +2941,10 @@ type InitializeEmptyPrimaryRequest struct {
 	// Optional: Create durability policy after initialization
 	DurabilityPolicyName string                      `protobuf:"bytes,2,opt,name=durability_policy_name,json=durabilityPolicyName,proto3" json:"durability_policy_name,omitempty"`
 	DurabilityQuorumRule *clustermetadata.QuorumRule `protobuf:"bytes,3,opt,name=durability_quorum_rule,json=durabilityQuorumRule,proto3" json:"durability_quorum_rule,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// ID of the multiorch coordinator performing the bootstrap
+	CoordinatorId string `protobuf:"bytes,4,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InitializeEmptyPrimaryRequest) Reset() {
@@ -2994,6 +2996,13 @@ func (x *InitializeEmptyPrimaryRequest) GetDurabilityQuorumRule() *clustermetada
 		return x.DurabilityQuorumRule
 	}
 	return nil
+}
+
+func (x *InitializeEmptyPrimaryRequest) GetCoordinatorId() string {
+	if x != nil {
+		return x.CoordinatorId
+	}
+	return ""
 }
 
 type InitializeEmptyPrimaryResponse struct {
@@ -4054,11 +4063,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"termNumber\x12]\n" +
 	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
-	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\xcf\x01\n" +
+	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\xf6\x01\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x124\n" +
 	"\x16durability_policy_name\x18\x02 \x01(\tR\x14durabilityPolicyName\x12Q\n" +
-	"\x16durability_quorum_rule\x18\x03 \x01(\v2\x1b.clustermetadata.QuorumRuleR\x14durabilityQuorumRule\"|\n" +
+	"\x16durability_quorum_rule\x18\x03 \x01(\v2\x1b.clustermetadata.QuorumRuleR\x14durabilityQuorumRule\x12%\n" +
+	"\x0ecoordinator_id\x18\x04 \x01(\tR\rcoordinatorId\"|\n" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +

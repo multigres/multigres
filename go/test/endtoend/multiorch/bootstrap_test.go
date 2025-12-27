@@ -245,8 +245,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		expectedLeaderID := fmt.Sprintf("%s_%s", setup.CellName, setup.PrimaryName)
 		assert.Equal(t, expectedLeaderID, leaderID, "leader_id should match primary")
 
-		// Verify coordinator_id is "bootstrap"
-		assert.Equal(t, "bootstrap", coordinatorID, "coordinator_id should be 'bootstrap' for initial bootstrap")
+		// Verify coordinator_id is the multiorch's ID (not hardcoded "bootstrap")
+		assert.NotEmpty(t, coordinatorID, "coordinator_id should be non-empty")
+		assert.NotEqual(t, "bootstrap", coordinatorID, "coordinator_id should be multiorch ID, not 'bootstrap'")
 
 		// Verify WAL position is non-empty
 		assert.NotEmpty(t, walPosition, "wal_position should be non-empty")

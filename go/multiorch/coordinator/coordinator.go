@@ -162,6 +162,11 @@ func (c *Coordinator) updateTopology(ctx context.Context, candidate *multiorchda
 	return nil
 }
 
+// GetCoordinatorID returns the coordinator's ID.
+func (c *Coordinator) GetCoordinatorID() *clustermetadatapb.ID {
+	return c.coordinatorID
+}
+
 // GetShardNodes retrieves all multipooler nodes for a given shard from the topology.
 func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database string, tablegroup string, shardID string) ([]*multiorchdatapb.PoolerHealthState, error) {
 	// Get all multipoolers in the cell for this specific shard

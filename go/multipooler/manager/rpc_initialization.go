@@ -147,7 +147,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// Write leadership history record for bootstrap
 	leaderID := generateApplicationName(pm.serviceID)
-	coordinatorID := "bootstrap" // Bootstrap doesn't have a coordinator
+	coordinatorID := req.CoordinatorId
 	reason := "ShardNeedsBootstrap"
 	cohortMembers := []string{leaderID} // Only the initial primary during bootstrap
 	acceptedMembers := []string{leaderID}

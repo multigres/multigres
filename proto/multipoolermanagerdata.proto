@@ -555,6 +555,9 @@ message InitializeEmptyPrimaryRequest {
   // Optional: Create durability policy after initialization
   string durability_policy_name = 2;
   clustermetadata.QuorumRule durability_quorum_rule = 3;
+
+  // ID of the multiorch coordinator performing the bootstrap
+  string coordinator_id = 4;
 }
 
 message InitializeEmptyPrimaryResponse {
