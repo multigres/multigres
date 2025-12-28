@@ -47,32 +47,26 @@ spec:
         - name: multipooler
           image: docker.io/multigres/multigres:latest
           imagePullPolicy: IfNotPresent
-          # We need to launch through sh because I couldn't find a way to extract
-          # the pod index. The downward API for fetching pod index didn't work, probably
-          # a limitation of kind.
-          command: ["/bin/sh", "-c"]
+          command: ["/multigres/bin/multipooler"]
           args:
-            - |
-              ORDINAL=${POD_NAME##*-}
-              exec /multigres/bin/multipooler \
-                --http-port=16000 \
-                --grpc-port=16100 \
-                --topo-global-server-addresses=etcd:2379 \
-                --topo-global-root=/multigres/test/global \
-                --cell=zone1 \
-                --database=postgres \
-                --table-group=default \
-                --shard=0-inf \
-                --service-id=${ORDINAL} \
-                --pooler-dir=/data \
-                --pgctld-addr=localhost:16200 \
-                --pg-port=5432 \
-                --connpool-admin-password=postgres \
-                --socket-file=/data/pg_sockets/.s.PGSQL.5432 \
-                --grpc-socket-file=/data/multipooler.sock \
-                --log-level=info \
-                --service-map=grpc-pooler \
-                --pprof-http=true
+            - --http-port=16000
+            - --grpc-port=16100
+            - --topo-global-server-addresses=etcd:2379
+            - --topo-global-root=/multigres/test/global
+            - --cell=zone1
+            - --database=postgres
+            - --table-group=default
+            - --shard=0-inf
+            - --service-id=$(POD_INDEX)
+            - --pooler-dir=/data
+            - --pgctld-addr=localhost:16200
+            - --pg-port=5432
+            - --connpool-admin-password=postgres
+            - --socket-file=/data/pg_sockets/.s.PGSQL.5432
+            - --grpc-socket-file=/data/multipooler.sock
+            - --log-level=info
+            - --service-map=grpc-pooler
+            - --pprof-http=true
           ports:
             - containerPort: 16000
               name: http
@@ -98,6 +92,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
 
         - name: pgctld
           image: docker.io/multigres/pgctld-postgres:latest
