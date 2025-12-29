@@ -1361,6 +1361,13 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 
 // Start initializes the MultiPoolerManager
 func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
+	// Open the database connections, connection pool manager, and start background operations
+	// TODO: This should be managed by a proper state manager (like tm_state.go)
+	if err := pm.Open(); err != nil {
+		pm.logger.Error("Failed to open manager during startup", "error", err)
+		// Don't fail startup if Open fails - will retry on demand
+	}
+
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
 	// Start loading consensus term from local disk asynchronously (only if consensus is enabled)
@@ -1369,13 +1376,6 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	}
 	// Start background restore from backup, for replica poolers
 	go pm.tryAutoRestoreFromBackup(pm.ctx)
-
-	// Open the database connections, connection pool manager, and start background operations
-	// TODO: This should be managed by a proper state manager (like tm_state.go)
-	if err := pm.Open(); err != nil {
-		pm.logger.Error("Failed to open manager during startup", "error", err)
-		// Don't fail startup if Open fails - will retry on demand
-	}
 
 	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services

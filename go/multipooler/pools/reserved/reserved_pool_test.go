@@ -426,7 +426,17 @@ func TestPool_TimestampBasedConnectionIDs(t *testing.T) {
 	defer server.Close()
 	server.SetNeverFail(true)
 
-	pool := newTestPool(t, server)
+	// Use a pool with enough capacity to hold all test connections concurrently.
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     10, // Enough for all test connections
+				MaxIdleCount: 10,
+			},
+		},
+	})
 	defer pool.Close()
 
 	ctx := context.Background()
