@@ -1372,28 +1372,53 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 
 	t.Logf("Testing cluster lifecycle in directory: %s", tempDir)
 
-	// Setup test ports
-	t.Log("Setting up test ports...")
-	testPorts := getTestPortConfig(t, 2)
+	// Retry loop for port conflicts - can occur when multiple test packages run in parallel
+	const maxPortRetries = 3
+	var testPorts *testPortConfig
+	var configFile string
+	var upOutput string
 
-	t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d",
-		testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort)
-	for i, zone := range testPorts.Zones {
-		t.Logf("Zone %d ports - multigateway-http:%d, multigateway-grpc:%d, multigateway-pg:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
-			i+1, zone.MultigatewayHTTPPort, zone.MultigatewayGRPCPort, zone.MultigatewayPGPort,
-			zone.MultipoolerHTTPPort, zone.MultipoolerGRPCPort, zone.MultiorchHTTPPort, zone.MultiorchGRPCPort)
+	for attempt := 1; attempt <= maxPortRetries; attempt++ {
+		// Setup test ports (fresh allocation each attempt)
+		t.Logf("Setting up test ports (attempt %d/%d)...", attempt, maxPortRetries)
+		testPorts = getTestPortConfig(t, 2)
+
+		t.Logf("Using test ports - etcd-client:%d, etcd-peer:%d, multiadmin-http:%d, multiadmin-grpc:%d",
+			testPorts.EtcdClientPort, testPorts.EtcdPeerPort, testPorts.MultiadminHTTPPort, testPorts.MultiadminGRPCPort)
+		for i, zone := range testPorts.Zones {
+			t.Logf("Zone %d ports - multigateway-http:%d, multigateway-grpc:%d, multigateway-pg:%d, multipooler-http:%d, multipooler-grpc:%d, multiorch-http:%d, multiorch-grpc:%d",
+				i+1, zone.MultigatewayHTTPPort, zone.MultigatewayGRPCPort, zone.MultigatewayPGPort,
+				zone.MultipoolerHTTPPort, zone.MultipoolerGRPCPort, zone.MultiorchHTTPPort, zone.MultiorchGRPCPort)
+		}
+
+		// Create cluster configuration with test ports
+		t.Log("Creating cluster configuration with test ports...")
+		configFile, err = createTestConfigWithPorts(tempDir, testPorts)
+		require.NoError(t, err, "Failed to create test configuration")
+		t.Logf("Created test configuration: %s", configFile)
+
+		// Start cluster (up)
+		t.Log("Starting cluster...")
+		upOutput, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+
+		if err == nil {
+			break // Success
+		}
+
+		// Check if this is a port conflict error
+		if strings.Contains(err.Error(), "already in use") || strings.Contains(upOutput, "already in use") {
+			t.Logf("Port conflict detected on attempt %d, cleaning up and retrying with new ports...", attempt)
+			if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
+				t.Logf("Warning: cleanup after port conflict failed: %v", cleanupErr)
+			}
+			if attempt < maxPortRetries {
+				continue
+			}
+		}
+
+		// Non-port-conflict error or exhausted retries, fail
+		require.NoError(t, err, "Start command failed after %d attempts: %v", attempt, upOutput)
 	}
-
-	// Create cluster configuration with test ports
-	t.Log("Creating cluster configuration with test ports...")
-	configFile, err := createTestConfigWithPorts(tempDir, testPorts)
-	require.NoError(t, err, "Failed to create test configuration")
-	t.Logf("Created test configuration: %s", configFile)
-
-	// Start cluster (up)
-	t.Log("Starting cluster...")
-	upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-	require.NoError(t, err, "Start command should succeed and start the cluster: %v", upOutput)
 
 	// Verify we got expected output
 	assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
