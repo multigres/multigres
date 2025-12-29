@@ -10,8 +10,8 @@ on: # yamllint disable-line rule:truthy
 permissions: {}
 
 jobs:
-  build:
-    name: Lint
+  megalinter:
+    name: MegaLinter
     runs-on: ubuntu-latest
 
     permissions:
@@ -24,23 +24,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
-          # super-linter needs the full git history to get the
-          # list of files that changed across commits
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Load super-linter configuration
-        # Use grep inverse matching to exclude eventual comments in the .env file
-        # because the GitHub Actions command to set environment variables doesn't
-        # support comments.
-        # Ref: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-environment-variable
-        run: grep -v '^#' .github/super-linter.env >> "$GITHUB_ENV"
-
-      - name: Super-linter
-        uses: super-linter/super-linter@2bdd90ed3262e023ac84bf8fe35dc480721fc1f2 # v8.2.1
+      - name: MegaLinter
+        uses: oxsecurity/megalinter/flavors/go@55a59b24a441e0e1943080d4a512d827710d4a9d # v9.2.0
         env:
-          # To report GitHub Actions status checks
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  zizmor:
+    name: GitHub Actions Security (zizmor)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@e639db99335bc9038abc0e066dfcd72e23d26fb4 # v0.3.0
 
   verify-action-versions:
     name: Verify Action Versions
