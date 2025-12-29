@@ -63,6 +63,15 @@ func LocalClientDialOptions() []grpc.DialOption {
 	return []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDisableServiceConfig(),
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}
+}
+
+// NewClient creates a gRPC client connection with OpenTelemetry instrumentation.
+// Use this instead of grpc.NewClient() directly to ensure consistent telemetry.
+func NewClient(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	// Prepend our telemetry handler so caller's options can override if needed
+	allOpts := append([]grpc.DialOption{
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	}, opts...)
+	return grpc.NewClient(target, allOpts...)
 }
