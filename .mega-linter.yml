@@ -22,8 +22,8 @@ DISABLE_LINTERS:
 # File filters (match super-linter exclusions + vendored CSS + third-party tools)
 FILTER_REGEX_EXCLUDE: '(external/.*)|(dist/.*)|(\.env$)|(go/common/web/templates/css/pico.*)'
 
-# Reporters - minimize output for cleaner runs
-TEXT_REPORTER: false
+# Reporters
+# TEXT_REPORTER: enabled (default) - needed for error details in step summary
 UPDATED_SOURCES_REPORTER: false
 CONFIG_REPORTER: false
 SARIF_REPORTER: false
