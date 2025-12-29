@@ -51,8 +51,7 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	defer db.Close()
 
 	// Set connection timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	// Ping to verify connection
 	err = db.PingContext(ctx)
