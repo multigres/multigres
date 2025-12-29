@@ -41,11 +41,11 @@ const (
 // Lag is calculated by comparing the most recent timestamp in the heartbeat
 // table against the current time at read time.
 type Reader struct {
-	querier  executor.InternalQuerier
-	logger   *slog.Logger
-	shardID  []byte
-	interval time.Duration
-	now      func() time.Time
+	queryService executor.InternalQueryService
+	logger       *slog.Logger
+	shardID      []byte
+	interval     time.Duration
+	now          func() time.Time
 
 	runMu  sync.Mutex
 	isOpen bool
@@ -61,14 +61,14 @@ type Reader struct {
 }
 
 // NewReader returns a new heartbeat reader.
-func NewReader(querier executor.InternalQuerier, logger *slog.Logger, shardID []byte) *Reader {
+func NewReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte) *Reader {
 	return &Reader{
-		querier:  querier,
-		logger:   logger,
-		shardID:  shardID,
-		now:      time.Now,
-		interval: defaultHeartbeatReadInterval,
-		ticks:    timer.NewTimer(defaultHeartbeatReadInterval),
+		queryService: queryService,
+		logger:       logger,
+		shardID:      shardID,
+		now:          time.Now,
+		interval:     defaultHeartbeatReadInterval,
+		ticks:        timer.NewTimer(defaultHeartbeatReadInterval),
 	}
 }
 
@@ -154,10 +154,9 @@ func (r *Reader) readHeartbeat() {
 // fetchMostRecentHeartbeat fetches the most recently recorded heartbeat from the heartbeat table,
 // returning the timestamp of the heartbeat in nanoseconds.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
-	query := fmt.Sprintf("SELECT ts FROM multigres.heartbeat WHERE shard_id = '%s'",
-		escapeBytes(r.shardID))
-
-	result, err := r.querier.Query(ctx, query)
+	result, err := r.queryService.QueryArgs(ctx,
+		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
+		r.shardID)
 	if err != nil {
 		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
 	}
@@ -203,10 +202,9 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), r.interval)
 	defer cancel()
 
-	query := fmt.Sprintf(`SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = '%s'`,
-		escapeBytes(r.shardID))
-
-	result, err := r.querier.Query(ctx, query)
+	result, err := r.queryService.QueryArgs(ctx,
+		"SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = $1",
+		r.shardID)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read leadership view")
 	}
@@ -229,10 +227,4 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	view.ReplicationLag = r.now().Sub(view.LastHeartbeat)
 
 	return view, nil
-}
-
-// escapeBytes converts bytes to a hex string for use in SQL queries.
-// The format is suitable for PostgreSQL bytea literals.
-func escapeBytes(b []byte) string {
-	return fmt.Sprintf("\\x%x", b)
 }

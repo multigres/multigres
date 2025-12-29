@@ -188,7 +188,6 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			PeerPort: portConfig.EtcdPeerPort,
 		},
 		Topology: local.TopologyConfig{
-			Backend:        "etcd2",
 			GlobalRootPath: "/multigres/global",
 			Cells:          cellConfigs,
 		},
@@ -287,7 +286,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 // checkCellExistsInTopology checks if a cell exists in the topology server
 func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) error {
 	// Create topology store connection
-	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -319,7 +318,7 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 // checkMultipoolerTopoRegistration checks if multipooler is registered with correct database, tablegroup, and shard in topology
 func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, expectedTableGroup, expectedShard string) error {
 	// Create topology store connection
-	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -654,7 +653,6 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]any)
 	require.True(t, ok, "topology config should be present")
 
-	assert.Equal(t, "etcd2", topoConfig["backend"])
 	assert.Equal(t, "/multigres/global", topoConfig["global-root-path"])
 
 	// Check cells structure in topology (now a slice)
@@ -1145,7 +1143,6 @@ func TestClusterLifecycle(t *testing.T) {
 		cmd := exec.Command("multipooler",
 			"--topo-global-server-addresses", "fake-address",
 			"--topo-global-root", "fake-root",
-			"--topo-implementation", "etcd2",
 		)
 		output, err := cmd.CombinedOutput()
 

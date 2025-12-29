@@ -25,8 +25,8 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// Querier is a mock implementation of executor.InternalQuerier for testing.
-type Querier struct {
+// QueryService is a mock implementation of executor.InternalQueryService for testing.
+type QueryService struct {
 	mu       sync.Mutex
 	patterns []queryPattern
 }
@@ -37,18 +37,19 @@ type queryPattern struct {
 	err         error
 	callback    func(string)
 	ctxCallback func(context.Context, string) // callback that receives context for blocking tests
+	consumeOnce bool                          // if true, pattern is removed after first match
 }
 
-// NewQuerier creates a new mock querier for testing.
-func NewQuerier() *Querier {
-	return &Querier{}
+// NewQueryService creates a new mock query service for testing.
+func NewQueryService() *QueryService {
+	return &QueryService{}
 }
 
-// Compile-time check that Querier implements InternalQuerier.
-var _ executor.InternalQuerier = (*Querier)(nil)
+// Compile-time check that QueryService implements InternalQueryService.
+var _ executor.InternalQueryService = (*QueryService)(nil)
 
 // AddQueryPattern adds a query pattern with an expected result.
-func (m *Querier) AddQueryPattern(pattern string, result *query.QueryResult) {
+func (m *QueryService) AddQueryPattern(pattern string, result *query.QueryResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -58,7 +59,7 @@ func (m *Querier) AddQueryPattern(pattern string, result *query.QueryResult) {
 }
 
 // AddQueryPatternWithCallback adds a query pattern with a callback.
-func (m *Querier) AddQueryPatternWithCallback(pattern string, result *query.QueryResult, callback func(string)) {
+func (m *QueryService) AddQueryPatternWithCallback(pattern string, result *query.QueryResult, callback func(string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -69,7 +70,7 @@ func (m *Querier) AddQueryPatternWithCallback(pattern string, result *query.Quer
 }
 
 // AddQueryPatternWithError adds a query pattern that returns an error.
-func (m *Querier) AddQueryPatternWithError(pattern string, err error) {
+func (m *QueryService) AddQueryPatternWithError(pattern string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -80,7 +81,7 @@ func (m *Querier) AddQueryPatternWithError(pattern string, err error) {
 
 // AddQueryPatternWithContextCallback adds a query pattern with a context-aware callback.
 // This is useful for testing blocking queries that should respond to context cancellation.
-func (m *Querier) AddQueryPatternWithContextCallback(pattern string, result *query.QueryResult, callback func(context.Context, string)) {
+func (m *QueryService) AddQueryPatternWithContextCallback(pattern string, result *query.QueryResult, callback func(context.Context, string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -90,21 +91,71 @@ func (m *Querier) AddQueryPatternWithContextCallback(pattern string, result *que
 	})
 }
 
-// Query implements executor.InternalQuerier.
-func (m *Querier) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
+// AddQueryPatternOnce adds a query pattern that is consumed after the first match.
+// This is useful when you need different results for subsequent calls to the same query.
+func (m *QueryService) AddQueryPatternOnce(pattern string, result *query.QueryResult) {
 	m.mu.Lock()
-	var matched *queryPattern
+	defer m.mu.Unlock()
+	m.patterns = append(m.patterns, queryPattern{
+		pattern:     regexp.MustCompile(pattern),
+		result:      result,
+		consumeOnce: true,
+	})
+}
+
+// AddQueryPatternOnceWithError adds a query pattern that returns an error and is consumed after the first match.
+func (m *QueryService) AddQueryPatternOnceWithError(pattern string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.patterns = append(m.patterns, queryPattern{
+		pattern:     regexp.MustCompile(pattern),
+		err:         err,
+		consumeOnce: true,
+	})
+}
+
+// ExpectationsWereMet returns an error if any consumeOnce patterns were not matched.
+// This is useful for verifying that all expected queries were executed.
+func (m *QueryService) ExpectationsWereMet() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var unmet []string
+	for _, p := range m.patterns {
+		if p.consumeOnce {
+			unmet = append(unmet, p.pattern.String())
+		}
+	}
+	if len(unmet) > 0 {
+		return fmt.Errorf("expected queries were not executed: %v", unmet)
+	}
+	return nil
+}
+
+// Query implements executor.InternalQueryService.
+func (m *QueryService) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
+	m.mu.Lock()
+	matchedIndex := -1
 	for i := range m.patterns {
 		if m.patterns[i].pattern.MatchString(queryStr) {
-			matched = &m.patterns[i]
+			matchedIndex = i
 			break
 		}
 	}
-	m.mu.Unlock()
 
-	if matched == nil {
+	if matchedIndex == -1 {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("no matching query pattern for: %s", queryStr)
 	}
+
+	// Copy the matched pattern's data before potentially modifying the slice
+	matched := m.patterns[matchedIndex]
+
+	// Remove the pattern if it should only be used once
+	if matched.consumeOnce {
+		m.patterns = append(m.patterns[:matchedIndex], m.patterns[matchedIndex+1:]...)
+	}
+	m.mu.Unlock()
 
 	if matched.callback != nil {
 		matched.callback(queryStr)
@@ -116,6 +167,12 @@ func (m *Querier) Query(ctx context.Context, queryStr string) (*query.QueryResul
 		return nil, matched.err
 	}
 	return matched.result, nil
+}
+
+// QueryArgs implements executor.InternalQueryService.
+// For the mock, arguments are ignored and matching is done solely on the query string.
+func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...any) (*query.QueryResult, error) {
+	return m.Query(ctx, queryStr)
 }
 
 // MakeQueryResult creates a query.QueryResult from columns and rows.

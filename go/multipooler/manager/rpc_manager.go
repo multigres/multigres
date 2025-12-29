@@ -68,7 +68,7 @@ func (pm *MultiPoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 }
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
-func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host string, port int32, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
+func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *clustermetadatapb.MultiPooler, stopReplicationBefore, startReplicationAfter bool, currentTerm int64, force bool) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -84,6 +84,28 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, host strin
 	if err = pm.validateAndUpdateTerm(ctx, currentTerm, force); err != nil {
 		return err
 	}
+
+	// Extract host and port from the MultiPooler (nil means clear the config)
+	var host string
+	var port int32
+	if primary != nil {
+		host = primary.Hostname
+		var ok bool
+		port, ok = primary.PortMap["postgres"]
+		if !ok {
+			return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+				"primary %s has no postgres port configured", primary.Id.Name)
+		}
+	}
+
+	// Store primary pooler ID (nil if clearing)
+	pm.mu.Lock()
+	if primary != nil {
+		pm.primaryPoolerID = primary.Id
+	} else {
+		pm.primaryPoolerID = nil
+	}
+	pm.mu.Unlock()
 
 	// Call the locked version that assumes action lock is already held
 	return pm.setPrimaryConnInfoLocked(ctx, host, port, stopReplicationBefore, startReplicationAfter)
@@ -147,8 +169,8 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	// Note: If replication was already running when calling SetPrimaryConnInfo,
 	// even if we don't set startReplicationAfter to true, replication will be running.
 	if startReplicationAfter {
-		// Reconnect to database after restart
-		if err := pm.connectDB(); err != nil {
+		// Wait for database to be available after restart
+		if err := pm.waitForDatabaseConnection(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to reconnect to database after restart", "error", err)
 			return mterrors.Wrap(err, "failed to reconnect to database")
 		}
@@ -264,16 +286,11 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		}
 	}
 
-	// If database is not connected, return early with just initialization status
-	if pm.db == nil {
-		return poolerStatus, nil
-	}
-
 	// Get WAL position (ignore errors, just return empty string)
 	walPosition, _ := pm.getWALPosition(ctx)
 	poolerStatus.WalPosition = walPosition
 
-	// Database is connected - try to get detailed status based on PostgreSQL role
+	// Try to get detailed status based on PostgreSQL role
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		// Can't determine role - return what we have
@@ -459,6 +476,14 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 			fmt.Sprintf("unsupported operation: %s", operation.String()))
 	}
 
+	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList completed successfully",
+		"operation", operation,
+		"old_value", currentValue,
+		"new_value", updatedStandbys,
+		"reload_config", reloadConfig,
+		"consensus_term", consensusTerm,
+		"force", force)
+
 	// Validate that the final list is not empty
 	if len(updatedStandbys) == 0 {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -478,8 +503,8 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return nil
 	}
 
-	// Apply the setting using shared helper
-	if err = applySynchronousStandbyNames(ctx, pm.db, pm.logger, newValue); err != nil {
+	// Apply the setting
+	if err = pm.applySynchronousStandbyNames(ctx, newValue); err != nil {
 		return err
 	}
 
@@ -1040,11 +1065,6 @@ func (pm *MultiPoolerManager) createDurabilityPolicyLocked(ctx context.Context, 
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "quorum_rule is required")
 	}
 
-	// Check that we have a database connection
-	if pm.db == nil {
-		return mterrors.New(mtrpcpb.Code_UNAVAILABLE, "database connection not available")
-	}
-
 	// Marshal the quorum rule to JSON using protojson
 	marshaler := protojson.MarshalOptions{
 		UseEnumNumbers: true,
@@ -1079,11 +1099,6 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 
 	if req.QuorumRule == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "quorum_rule is required")
-	}
-
-	// Check that we have a database connection
-	if pm.db == nil {
-		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "database connection not available")
 	}
 
 	// Marshal the quorum rule to JSON using protojson

@@ -27,6 +27,12 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// Log output target constants
+const (
+	logOutputStdout = "stdout"
+	logOutputStderr = "stderr"
+)
+
 var (
 	// Logging configuration flags
 	logLevel  string
@@ -134,12 +140,12 @@ func SetupLogging() {
 		var output io.Writer
 		outputStr := logOutput
 		if outputStr == "" {
-			outputStr = "stdout" // Default fallback
+			outputStr = logOutputStdout // Default fallback
 		}
 		switch strings.ToLower(outputStr) {
-		case "stdout":
+		case logOutputStdout:
 			output = os.Stdout
-		case "stderr":
+		case logOutputStderr:
 			output = os.Stderr
 		default:
 			// Treat as file path
@@ -285,12 +291,12 @@ func (lg *Logger) SetupLogging() {
 		var output io.Writer
 		outputStr := lg.logOutput.Get()
 		if outputStr == "" {
-			outputStr = "stdout" // Default fallback
+			outputStr = logOutputStdout // Default fallback
 		}
 		switch strings.ToLower(outputStr) {
-		case "stdout":
+		case logOutputStdout:
 			output = os.Stdout
-		case "stderr":
+		case logOutputStderr:
 			output = os.Stderr
 		default:
 			// Treat as file path

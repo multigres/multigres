@@ -242,7 +242,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	globalRoot := path.Join(testRoot, "global")
 	cellRoot := path.Join(testRoot, config.CellName)
 
-	ts, err := topoclient.OpenServer("etcd2", globalRoot, []string{etcdClientAddr}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRoot, []string{etcdClientAddr}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		t.Fatalf("failed to open topology server: %v", err)
 	}
