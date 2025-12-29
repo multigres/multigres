@@ -304,7 +304,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	// Use the pre-configured PostgreSQL config for status operation
-	result, err := GetStatusWithResult(s.logger, s.config)
+	result, err := GetStatusWithResult(ctx, s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
 	}
@@ -343,7 +343,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 
 func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
 	s.logger.DebugContext(ctx, "gRPC Version request")
-	result, err := GetVersionWithResult(s.config)
+	result, err := GetVersionWithResult(ctx, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version: %w", err)
 	}
