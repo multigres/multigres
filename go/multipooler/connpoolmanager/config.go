@@ -301,8 +301,10 @@ func (c *Config) SettingsCacheSize() int {
 
 // NewManager creates a new connection pool manager from this config.
 // Call this after flags have been parsed and when you're ready to create the manager.
+// The manager starts in a closed state; call Open() before using it.
 func (c *Config) NewManager() *Manager {
 	return &Manager{
 		config: c,
+		closed: true, // Manager is closed until Open() is called
 	}
 }
