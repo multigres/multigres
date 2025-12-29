@@ -72,6 +72,7 @@ refactor(parser): simplify AST node handling
 Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `build`, `ci`, `perf`
 
 Do NOT add these lines to commit messages:
+
 - `Generated with [Claude Code](https://claude.com/claude-code)`
 - `Co-Authored-By: Claude <noreply@anthropic.com>`
 
