@@ -154,9 +154,26 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
 // Used during bootstrap initialization of a new shard or when adding a new standby
 func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
+	// Validate primary is provided
+	if req.Primary == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary is required")
+	}
+
+	// Extract primary connection info
+	primaryHost := req.Primary.Hostname
+	primaryPort, ok := req.Primary.PortMap["postgres"]
+	if !ok {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary MultiPooler has no postgres port configured")
+	}
+
+	// Store primary pooler ID so we can track which primary we're replicating from
+	pm.mu.Lock()
+	pm.primaryPoolerID = req.Primary.Id
+	pm.mu.Unlock()
+
 	pm.logger.InfoContext(ctx, "InitializeAsStandby called",
 		"shard", pm.getShardID(),
-		"primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort),
+		"primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort),
 		"term", req.ConsensusTerm,
 		"force", req.Force)
 
@@ -182,9 +199,9 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 	// 2. Restore from the specified backup (or latest if not specified)
 	if req.BackupId != "" {
-		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
 	} else {
-		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
 	}
 
 	// Restore from backup (empty string means latest)
@@ -225,8 +242,8 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 	// 4. Configure primary_conninfo now that PostgreSQL is running
 	// Use the locked version since we're already holding the action lock
-	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", req.PrimaryHost, "primary_port", req.PrimaryPort)
-	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, true); err != nil {
+	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", primaryHost, "primary_port", primaryPort)
+	if err := pm.setPrimaryConnInfoLocked(ctx, primaryHost, primaryPort, false, true); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
 

@@ -3028,17 +3028,15 @@ func (x *InitializeEmptyPrimaryResponse) GetBackupId() string {
 // Used during bootstrap initialization of a new shard or when adding a new standby
 type InitializeAsStandbyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Primary server hostname to backup from
-	PrimaryHost string `protobuf:"bytes,1,opt,name=primary_host,json=primaryHost,proto3" json:"primary_host,omitempty"`
-	// Primary server port
-	PrimaryPort int32 `protobuf:"varint,2,opt,name=primary_port,json=primaryPort,proto3" json:"primary_port,omitempty"`
+	// Primary pooler to replicate from
+	Primary *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=primary,proto3" json:"primary,omitempty"`
 	// Consensus term to set for this standby
-	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
+	ConsensusTerm int64 `protobuf:"varint,2,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Whether to force reinitialization (removes existing data directory)
-	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	Force bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
 	// Optional: Specific backup ID to restore from
 	// If empty, restore from the latest backup
-	BackupId      string `protobuf:"bytes,5,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	BackupId      string `protobuf:"bytes,4,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3073,18 +3071,11 @@ func (*InitializeAsStandbyRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{48}
 }
 
-func (x *InitializeAsStandbyRequest) GetPrimaryHost() string {
+func (x *InitializeAsStandbyRequest) GetPrimary() *clustermetadata.MultiPooler {
 	if x != nil {
-		return x.PrimaryHost
+		return x.Primary
 	}
-	return ""
-}
-
-func (x *InitializeAsStandbyRequest) GetPrimaryPort() int32 {
-	if x != nil {
-		return x.PrimaryPort
-	}
-	return 0
+	return nil
 }
 
 func (x *InitializeAsStandbyRequest) GetConsensusTerm() int64 {
@@ -4022,13 +4013,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
-	"\tbackup_id\x18\x03 \x01(\tR\bbackupId\"\xbc\x01\n" +
-	"\x1aInitializeAsStandbyRequest\x12!\n" +
-	"\fprimary_host\x18\x01 \x01(\tR\vprimaryHost\x12!\n" +
-	"\fprimary_port\x18\x02 \x01(\x05R\vprimaryPort\x12%\n" +
-	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\x12\x14\n" +
-	"\x05force\x18\x04 \x01(\bR\x05force\x12\x1b\n" +
-	"\tbackup_id\x18\x05 \x01(\tR\bbackupId\"y\n" +
+	"\tbackup_id\x18\x03 \x01(\tR\bbackupId\"\xae\x01\n" +
+	"\x1aInitializeAsStandbyRequest\x126\n" +
+	"\aprimary\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\x12%\n" +
+	"\x0econsensus_term\x18\x02 \x01(\x03R\rconsensusTerm\x12\x14\n" +
+	"\x05force\x18\x03 \x01(\bR\x05force\x12\x1b\n" +
+	"\tbackup_id\x18\x04 \x01(\tR\bbackupId\"y\n" +
 	"\x1bInitializeAsStandbyResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
@@ -4230,17 +4220,18 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	72, // 37: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
 	70, // 38: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
 	73, // 39: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
-	63, // 40: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	63, // 41: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
-	4,  // 42: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	71, // 43: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
-	74, // 44: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	73, // 45: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	46, // [46:46] is the sub-list for method output_type
-	46, // [46:46] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	69, // 40: multipoolermanagerdata.InitializeAsStandbyRequest.primary:type_name -> clustermetadata.MultiPooler
+	63, // 41: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	63, // 42: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
+	4,  // 43: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	71, // 44: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
+	74, // 45: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	73, // 46: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
+	47, // [47:47] is the sub-list for method output_type
+	47, // [47:47] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
