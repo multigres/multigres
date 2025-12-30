@@ -169,6 +169,8 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 	// Store primary pooler ID so we can track which primary we're replicating from
 	pm.mu.Lock()
 	pm.primaryPoolerID = req.Primary.Id
+	pm.primaryHost = primaryHost
+	pm.primaryPort = primaryPort
 	pm.mu.Unlock()
 
 	pm.logger.InfoContext(ctx, "InitializeAsStandby called",

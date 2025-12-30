@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -74,25 +75,67 @@ func (pm *MultiPoolerManager) initPgbackrest() (string, error) {
 	}
 
 	templateData := struct {
-		LogPath       string
-		SpoolPath     string
-		LockPath      string
-		Repo1Path     string
-		Pg1Path       string
+		LogPath   string
+		SpoolPath string
+		LockPath  string
+
+		Repo1Path string
+
 		Pg1SocketPath string
 		Pg1Port       int
-		Pg1User       string
-		Pg1Database   string
+		Pg1Path       string
+
+		ServerCertFile string
+		ServerKeyFile  string
+		ServerCAFile   string
+		ServerPort     int
+		ServerAuths    []string
+
+		Pg2Host string
+		Pg2Port int
+		Pg2Path string
+
+		Pg2HostPort     int
+		Pg2HostCAFile   string
+		Pg2HostCertFile string
+		Pg2HostKeyFile  string
 	}{
-		LogPath:       logsPath,
-		SpoolPath:     spoolPath,
-		LockPath:      lockPath,
-		Repo1Path:     pm.backupLocation,
-		Pg1Path:       filepath.Join(pm.config.PoolerDir, "pg_data"),
+		LogPath:   logsPath,
+		SpoolPath: spoolPath,
+		LockPath:  lockPath,
+
+		Repo1Path: pm.backupLocation,
+
 		Pg1SocketPath: filepath.Join(pm.config.PoolerDir, "pg_sockets"),
 		Pg1Port:       pm.config.PgPort,
-		Pg1User:       "postgres",
-		Pg1Database:   "postgres",
+		Pg1Path:       filepath.Join(pm.config.PoolerDir, "pg_data"),
+
+		// Hardcoded values for testing
+		ServerCertFile: "/certs/pgbackrest.crt",
+		ServerKeyFile:  "/certs/pgbackrest.key",
+		ServerCAFile:   "/certs/ca.crt",
+		ServerPort:     8432,
+		ServerAuths:    []string{"pgbackrest=*"},
+	}
+
+	// If this is a standby pooler, configure pg2 to point to the primary
+	if primaryPoolerID := pm.getPrimaryPoolerID(); primaryPoolerID != nil {
+		pm.mu.Lock()
+		templateData.Pg2Host = pm.primaryHost
+		templateData.Pg2Port = int(pm.primaryPort)
+		pm.mu.Unlock()
+
+		// TODO(sougou). This is a hack.
+		localID := topoclient.MultiPoolerIDString(pm.serviceID)
+		primaryID := topoclient.MultiPoolerIDString(primaryPoolerID)
+		primaryPoolerDir := strings.ReplaceAll(pm.config.PoolerDir, localID, primaryID)
+		templateData.Pg2Path = filepath.Join(primaryPoolerDir, "pg_data")
+
+		// More hardcoded values for testing
+		templateData.Pg2HostPort = 8432
+		templateData.Pg2HostCAFile = "/certs/ca.crt"
+		templateData.Pg2HostCertFile = "/certs/pgbackrest.crt"
+		templateData.Pg2HostKeyFile = "/certs/pgbackrest.key"
 	}
 
 	var configContent strings.Builder

@@ -122,6 +122,8 @@ spec:
             - name: host-data
               mountPath: /data
               subPathExpr: $(POD_NAME)
+            - name: certs
+              mountPath: /certs
             - name: backup-data
               mountPath: /backups
           env:
@@ -138,6 +140,10 @@ spec:
         - name: host-data
           hostPath:
             path: /data
+            type: DirectoryOrCreate
+        - name: certs
+          hostPath:
+            path: /data/certs
             type: DirectoryOrCreate
         - name: backup-data
           hostPath:

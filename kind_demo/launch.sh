@@ -37,7 +37,9 @@ kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
 # We're launching this as a job. The operator will just invoke this CLI.
 # For this, it must add the multigres binary to its image.
 kubectl apply -f k8s-createclustermetadata-job.yaml
+kubectl apply -f k8s-generate-certs-job.yaml
 kubectl wait --for=condition=complete job/createclustermetadata --timeout=120s
+kubectl wait --for=condition=complete job/generate-pgbackrest-certs --timeout=120s
 
 # Once the cluster metadata is ready, launch all componentes at once.
 # Once the multipoolers come up, multiorch will bootstrap the cluster
