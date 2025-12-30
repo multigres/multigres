@@ -17,6 +17,7 @@ syntax = "proto3";
 package multiadmin;
 
 import "clustermetadata.proto";
+import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 import "multipoolermanagerdata.proto";
 
@@ -25,37 +26,65 @@ option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 // MultiAdminService provides administrative gRPC APIs for querying cluster metadata
 service MultiAdminService {
   // GetCell retrieves information about a specific cell
-  rpc GetCell(GetCellRequest) returns (GetCellResponse);
+  rpc GetCell(GetCellRequest) returns (GetCellResponse) {
+    option (google.api.http) = {get: "/api/v1/cells/{name}"};
+  }
 
   // GetDatabase retrieves information about a specific database
-  rpc GetDatabase(GetDatabaseRequest) returns (GetDatabaseResponse);
+  rpc GetDatabase(GetDatabaseRequest) returns (GetDatabaseResponse) {
+    option (google.api.http) = {get: "/api/v1/databases/{name}"};
+  }
 
   // GetCellNames retrieves all cell names in the cluster
-  rpc GetCellNames(GetCellNamesRequest) returns (GetCellNamesResponse);
+  rpc GetCellNames(GetCellNamesRequest) returns (GetCellNamesResponse) {
+    option (google.api.http) = {get: "/api/v1/cells"};
+  }
 
   // GetDatabaseNames retrieves all database names in the cluster
-  rpc GetDatabaseNames(GetDatabaseNamesRequest) returns (GetDatabaseNamesResponse);
+  rpc GetDatabaseNames(GetDatabaseNamesRequest) returns (GetDatabaseNamesResponse) {
+    option (google.api.http) = {get: "/api/v1/databases"};
+  }
 
   // GetGateways retrieves gateways filtered by cells
-  rpc GetGateways(GetGatewaysRequest) returns (GetGatewaysResponse);
+  rpc GetGateways(GetGatewaysRequest) returns (GetGatewaysResponse) {
+    option (google.api.http) = {get: "/api/v1/gateways"};
+  }
 
   // GetPoolers retrieves poolers filtered by cells and/or database
-  rpc GetPoolers(GetPoolersRequest) returns (GetPoolersResponse);
+  rpc GetPoolers(GetPoolersRequest) returns (GetPoolersResponse) {
+    option (google.api.http) = {get: "/api/v1/poolers"};
+  }
 
   // GetOrchs retrieves orchestrators filtered by cells
-  rpc GetOrchs(GetOrchsRequest) returns (GetOrchsResponse);
+  rpc GetOrchs(GetOrchsRequest) returns (GetOrchsResponse) {
+    option (google.api.http) = {get: "/api/v1/orchs"};
+  }
 
   // Backup starts an async backup of a specific shard
-  rpc Backup(BackupRequest) returns (BackupResponse);
+  rpc Backup(BackupRequest) returns (BackupResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/backups"
+      body: "*"
+    };
+  }
 
   // RestoreFromBackup starts an async restore of a specific shard from a backup
-  rpc RestoreFromBackup(RestoreFromBackupRequest) returns (RestoreFromBackupResponse);
+  rpc RestoreFromBackup(RestoreFromBackupRequest) returns (RestoreFromBackupResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/restores"
+      body: "*"
+    };
+  }
 
   // GetBackupJobStatus checks the status of a backup or restore job
-  rpc GetBackupJobStatus(GetBackupJobStatusRequest) returns (GetBackupJobStatusResponse);
+  rpc GetBackupJobStatus(GetBackupJobStatusRequest) returns (GetBackupJobStatusResponse) {
+    option (google.api.http) = {get: "/api/v1/jobs/{job_id}"};
+  }
 
   // GetBackups lists backup artifacts with optional filtering
-  rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse);
+  rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse) {
+    option (google.api.http) = {get: "/api/v1/backups"};
+  }
 
   //
   // Pooler Status (proxy methods)
@@ -91,8 +120,7 @@ message GetDatabaseResponse {
 }
 
 // GetCellNamesRequest requests all cell names
-message GetCellNamesRequest {
-}
+message GetCellNamesRequest {}
 
 // GetCellNamesResponse contains all cell names
 message GetCellNamesResponse {
@@ -100,8 +128,7 @@ message GetCellNamesResponse {
 }
 
 // GetDatabaseNamesRequest requests all database names
-message GetDatabaseNamesRequest {
-}
+message GetDatabaseNamesRequest {}
 
 // GetDatabaseNamesResponse contains all database names
 message GetDatabaseNamesResponse {
@@ -224,7 +251,7 @@ message GetBackupJobStatusResponse {
   string shard = 7;
 
   // For backup jobs
-  string backup_type = 8;         // "full", "differential", "incremental"
+  string backup_type = 8; // "full", "differential", "incremental"
 
   // For restore jobs
   string requested_backup_id = 10; // What was requested (may be empty for "latest")
