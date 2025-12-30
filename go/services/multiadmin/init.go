@@ -98,11 +98,12 @@ func (ma *MultiAdmin) Init() error {
 	)
 
 	ma.senv.OnRun(func() {
-		// Register multiadmin gRPC service with servenv's GRPCServer
+		// Register multiadmin gRPC and HTTP API services if enabled in service map
 		if ma.grpcServer.CheckServiceMap(constants.ServiceMultiadmin, ma.senv) {
 			ma.adminServer = NewMultiAdminServer(ma.ts, logger)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
-			logger.Info("MultiAdmin gRPC service registered with servenv")
+			ma.registerAPIHandlers()
+			logger.Info("MultiAdmin gRPC and HTTP API services registered")
 		}
 	})
 

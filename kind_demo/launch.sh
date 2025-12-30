@@ -51,7 +51,11 @@ kubectl apply -f k8s-multiadmin.yaml
 kubectl wait --for=condition=ready pod -l app=multipooler --timeout=180s
 kubectl wait --for=condition=ready pod -l app=multiorch --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multigateway --timeout=120s
+kubectl wait --for=condition=ready pod -l app=multiadmin --timeout=120s
 
 echo "Components launched"
-echo "Setup a portforward by launching: kubectl port-forward service/multigateway 15432:15432"
+echo "Setup portforwards by launching:"
+echo "  kubectl port-forward service/multigateway 15432:15432"
+echo "  kubectl port-forward service/multiadmin 18000:18000 18070:18070"
 echo "To connect to multigres, run: psql --host=localhost --port=15432 -U postgres -d postgres"
+echo "To use multigres CLI: ./bin/multigres getcellnames --admin-server localhost:18070"
