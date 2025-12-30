@@ -1015,8 +1015,8 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster again and verify state is preserved after restart
 		t.Log("Starting cluster again to verify state is preserved after restart...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Second start should succeed")
+		startOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Second start should succeed, output: %s", startOutput)
 
 		// Wait for both zones to be ready after restart (same as initial bootstrap)
 		t.Log("Waiting for zone1 to be ready after restart...")
