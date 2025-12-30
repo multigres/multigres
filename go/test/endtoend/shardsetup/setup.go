@@ -33,7 +33,6 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
-	"github.com/multigres/multigres/go/provisioner/local/pgbackrest"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -137,13 +136,6 @@ func WithResetGuc(gucNames ...string) SetupTestOption {
 	return func(c *SetupTestConfig) {
 		c.GucsToReset = append(c.GucsToReset, gucNames...)
 	}
-}
-
-// stanzaName derives the pgBackRest stanza name from database, tablegroup, and shard.
-func stanzaName(database, tableGroup, shard string) string {
-	// Replace special characters with underscores for valid stanza name
-	shard = strings.ReplaceAll(shard, "-", "_")
-	return fmt.Sprintf("%s_%s_%s", database, tableGroup, shard)
 }
 
 // multipoolerName returns the name for a multipooler instance by index.
@@ -289,14 +281,14 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		pgPort := utils.GetFreePort(t)
 		multipoolerPort := utils.GetFreePort(t)
 
-		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort, stanzaName(config.Database, config.TableGroup, config.Shard))
+		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
 			name, grpcPort, pgPort, multipoolerPort)
 	}
 
-	// Start all processes (pgctld, pgbackrest config, multipooler) for all nodes
+	// Start all processes (pgctld, multipooler) for all nodes
 	startProcessesWithoutInit(t, tempDir, multipoolerInstances, config)
 
 	// Create multiorch instances (if any requested by the test)
@@ -531,31 +523,7 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*MultipoolerInstance, config *SetupConfig) {
 	t.Helper()
 
-	// Set up shared pgbackrest directories (repo and spool are shared; log/lock are per-instance)
-	repoPath := filepath.Join(baseDir, "backup-repo", config.Database, config.TableGroup, config.Shard)
-	if err := os.MkdirAll(repoPath, 0o755); err != nil {
-		t.Fatalf("failed to create backup repo: %v", err)
-	}
-	spoolPath := filepath.Join(baseDir, "pgbackrest-spool")
-	if err := os.MkdirAll(spoolPath, 0o755); err != nil {
-		t.Fatalf("failed to create pgbackrest spool dir: %v", err)
-	}
-
-	// Build list of all hosts for symmetric pgbackrest configuration
-	var allHosts []pgbackrest.PgHost
 	for _, inst := range instances {
-		allHosts = append(allHosts, pgbackrest.PgHost{
-			DataPath:  filepath.Join(inst.Pgctld.DataDir, "pg_data"),
-			SocketDir: filepath.Join(inst.Pgctld.DataDir, "pg_sockets"),
-			Port:      inst.Pgctld.PgPort,
-			User:      "postgres",
-			Database:  "postgres",
-		})
-	}
-
-	stanza := stanzaName(config.Database, config.TableGroup, config.Shard)
-
-	for i, inst := range instances {
 		pgctld := inst.Pgctld
 		multipooler := inst.Multipooler
 
@@ -564,42 +532,6 @@ func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*Multip
 			t.Fatalf("failed to start pgctld for %s: %v", inst.Name, err)
 		}
 		t.Logf("Started pgctld for %s (gRPC=%d, PG=%d)", inst.Name, pgctld.GrpcPort, pgctld.PgPort)
-
-		// Create pgbackrest configuration with all other hosts
-		// Log and lock paths are per-instance to avoid blocking
-		configPath := filepath.Join(pgctld.DataDir, "pgbackrest.conf")
-		logPath := filepath.Join(pgctld.DataDir, "pgbackrest-log")
-		lockPath := filepath.Join(pgctld.DataDir, "pgbackrest-lock")
-		if err := os.MkdirAll(logPath, 0o755); err != nil {
-			t.Fatalf("failed to create pgbackrest log dir for %s: %v", inst.Name, err)
-		}
-		if err := os.MkdirAll(lockPath, 0o755); err != nil {
-			t.Fatalf("failed to create pgbackrest lock dir for %s: %v", inst.Name, err)
-		}
-
-		var additionalHosts []pgbackrest.PgHost
-		for j, host := range allHosts {
-			if j != i {
-				additionalHosts = append(additionalHosts, host)
-			}
-		}
-		backupCfg := pgbackrest.Config{
-			StanzaName:      stanza,
-			PgDataPath:      filepath.Join(pgctld.DataDir, "pg_data"),
-			PgPort:          pgctld.PgPort,
-			PgSocketDir:     filepath.Join(pgctld.DataDir, "pg_sockets"),
-			PgUser:          "postgres",
-			PgDatabase:      "postgres",
-			AdditionalHosts: additionalHosts,
-			LogPath:         logPath,
-			SpoolPath:       spoolPath,
-			LockPath:        lockPath,
-			RetentionFull:   2,
-		}
-		if err := pgbackrest.WriteConfigFile(configPath, backupCfg); err != nil {
-			t.Fatalf("failed to write pgbackrest config for %s: %v", inst.Name, err)
-		}
-		t.Logf("Created pgbackrest config for %s (stanza: %s)", inst.Name, stanza)
 
 		// Start multipooler
 		if err := multipooler.Start(t); err != nil {

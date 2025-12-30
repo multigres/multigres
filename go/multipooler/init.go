@@ -50,7 +50,7 @@ type MultiPooler struct {
 	poolerDir           viperutil.Value[string]
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
-	pgBackRestStanza    viperutil.Value[string]
+	pgBackRestStanza    viperutil.Value[string] // TODO(sougou): this is deprecated. It's now hardcoded to multigres.
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -254,7 +254,6 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
-		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 		ConnPoolConfig:      mp.connPoolConfig,
 	})

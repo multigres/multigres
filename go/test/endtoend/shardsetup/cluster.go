@@ -136,7 +136,7 @@ func (s *ShardSetup) PrimaryPgctld(t *testing.T) *ProcessInstance {
 // CreateMultipoolerInstance creates a new multipooler instance (pgctld + multipooler pair) with the given name.
 // The instance is added to the setup's Multipoolers map.
 // Follows the patterns from multipooler/setup_test.go.
-func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPort, pgPort, multipoolerPort int, stanzaName string) *MultipoolerInstance {
+func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPort, pgPort, multipoolerPort int) *MultipoolerInstance {
 	t.Helper()
 
 	if s.Multipoolers == nil {
@@ -149,7 +149,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// Create multipooler instance
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
 	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
-		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, stanzaName, s.CellName)
+		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, s.CellName)
 
 	inst := &MultipoolerInstance{
 		Name:        name,
@@ -186,7 +186,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 
 // CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
-func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, stanzaName string, cell string) *ProcessInstance {
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -203,7 +203,6 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		PgctldAddr:  pgctldAddr,
 		DataDir:     pgctldDataDir,
 		EtcdAddr:    etcdAddr,
-		StanzaName:  stanzaName,
 		Binary:      "multipooler",
 		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
 	}
