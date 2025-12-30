@@ -49,8 +49,8 @@ tools: ## Install protobuf and build tools.
 	./tools/setup_build_tools.sh
 	go install golang.org/x/tools/cmd/goyacc@latest
 
-# Proto source files (exclude google/api which are only needed for annotations)
-PROTO_SRCS = $(shell find proto -name '*.proto' -not -path 'proto/google/*')
+# Proto source files
+PROTO_SRCS = $(shell find proto -name '*.proto')
 PROTO_GO_OUTS = pb
 
 # Generate protobuf files
