@@ -19,19 +19,136 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/retry"
 )
+
+// initPgbackrest creates the pgbackrest config file and sets up the necessary directories.
+// Returns the path to the backup config file.
+// If the config file already exists, it returns the path without recreating it.
+func (pm *MultiPoolerManager) initPgbackrest() (string, error) {
+	// Do not regenerate the config file if it already exists.
+	// We don't want to overwrite the file once it's created because postgres
+	// will be using it to archive WALs.
+	pgbackrestPath := pm.pgbackrestPath()
+	configPath := filepath.Join(pgbackrestPath, "pgbackrest.conf")
+	if _, err := os.Stat(configPath); err == nil {
+		// Config file exists, nothing to do
+		return configPath, nil
+	}
+
+	if err := os.MkdirAll(pgbackrestPath, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create config directory %s: %w", pgbackrestPath, err)
+	}
+	logsPath := filepath.Join(pgbackrestPath, "logs")
+	if err := os.MkdirAll(logsPath, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create logs directory %s: %w", logsPath, err)
+	}
+	spoolPath := filepath.Join(pgbackrestPath, "spool")
+	if err := os.MkdirAll(spoolPath, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create spool directory %s: %w", spoolPath, err)
+	}
+	lockPath := filepath.Join(pgbackrestPath, "lock")
+	if err := os.MkdirAll(lockPath, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create lock directory %s: %w", lockPath, err)
+	}
+
+	// Generate pgbackrest config file from template
+	tmpl, err := template.New("pgbackrest").Parse(config.PgbackrestConfigTmpl)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse pgbackrest config template: %w", err)
+	}
+
+	templateData := struct {
+		LogPath   string
+		SpoolPath string
+		LockPath  string
+
+		Repo1Path string
+
+		Pg1SocketPath string
+		Pg1Port       int
+		Pg1Path       string
+
+		ServerCertFile string
+		ServerKeyFile  string
+		ServerCAFile   string
+		ServerPort     int
+		ServerAuths    []string
+
+		Pg2Host string
+		Pg2Port int
+		Pg2Path string
+
+		Pg2HostPort     int
+		Pg2HostCAFile   string
+		Pg2HostCertFile string
+		Pg2HostKeyFile  string
+	}{
+		LogPath:   logsPath,
+		SpoolPath: spoolPath,
+		LockPath:  lockPath,
+
+		Repo1Path: pm.backupLocation,
+
+		Pg1SocketPath: filepath.Join(pm.config.PoolerDir, "pg_sockets"),
+		Pg1Port:       pm.config.PgPort,
+		Pg1Path:       filepath.Join(pm.config.PoolerDir, "pg_data"),
+
+		// Hardcoded values for testing
+		ServerCertFile: "/certs/pgbackrest.crt",
+		ServerKeyFile:  "/certs/pgbackrest.key",
+		ServerCAFile:   "/certs/ca.crt",
+		ServerPort:     8432,
+		ServerAuths:    []string{"pgbackrest=*"},
+	}
+
+	// If this is a standby pooler, configure pg2 to point to the primary
+	if primaryPoolerID := pm.getPrimaryPoolerID(); primaryPoolerID != nil {
+		pm.mu.Lock()
+		templateData.Pg2Host = pm.primaryHost
+		templateData.Pg2Port = int(pm.primaryPort)
+		pm.mu.Unlock()
+
+		// TODO(sougou). This is a hack.
+		localID := topoclient.MultiPoolerIDString(pm.serviceID)
+		primaryID := topoclient.MultiPoolerIDString(primaryPoolerID)
+		primaryPoolerDir := strings.ReplaceAll(pm.config.PoolerDir, localID, primaryID)
+		templateData.Pg2Path = filepath.Join(primaryPoolerDir, "pg_data")
+
+		// More hardcoded values for testing
+		templateData.Pg2HostPort = 8432
+		templateData.Pg2HostCAFile = "/certs/ca.crt"
+		templateData.Pg2HostCertFile = "/certs/pgbackrest.crt"
+		templateData.Pg2HostKeyFile = "/certs/pgbackrest.key"
+	}
+
+	var configContent strings.Builder
+	if err := tmpl.Execute(&configContent, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute pgbackrest config template: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, []byte(configContent.String()), 0o644); err != nil {
+		return "", fmt.Errorf("failed to write pgbackrest config file: %w", err)
+	}
+
+	return configPath, nil
+}
 
 // Backup performs a backup
 func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string, jobID string) (string, error) {
@@ -62,8 +179,11 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
+	configPath, err := pm.initPgbackrest()
+	if err != nil {
+		return "", err
+	}
+
 	tableGroup := pm.getTableGroup()
 	shard := pm.getShard()
 	multipoolerID, err := pm.getMultipoolerIDString()
@@ -82,7 +202,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	}
 
 	// Validate parameters and get pgbackrest type
-	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
+	pgBackRestType, err := pm.validateBackupParams(backupType, configPath)
 	if err != nil {
 		return "", err
 	}
@@ -92,11 +212,9 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	defer cancel()
 
 	args := []string{
-		"--stanza=" + stanzaName,
+		"--stanza=" + pm.stanzaName(),
 		"--config=" + configPath,
-		"--repo1-path=" + pm.backupLocation,
 		"--type=" + pgBackRestType,
-		"--log-level-console=info",
 	}
 
 	// Add annotations if table_group and shard are provided
@@ -136,11 +254,9 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	defer verifyCancel()
 
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
-		"--stanza="+stanzaName,
+		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
-		"--repo1-path="+pm.backupLocation,
 		"--set="+foundBackupID,
-		"--log-level-console=info",
 		"verify")
 
 	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
@@ -218,24 +334,17 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 }
 
 func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, backupID string) error {
-	stanzaName := pm.getBackupStanza()
-	configPath := pm.getBackupConfigPath()
-
-	if configPath == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+	configPath, err := pm.initPgbackrest()
+	if err != nil {
+		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
 	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
 	args := []string{
-		"--stanza=" + stanzaName,
+		"--stanza=" + pm.stanzaName(),
 		"--config=" + configPath,
-		"--repo1-path=" + pm.backupLocation,
-		"--log-level-console=info",
 	}
 
 	if backupID != "" {
@@ -334,16 +443,11 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 // (which are immutable after construction) and backupLocation (which is
 // set once during startup and never modified).
 func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolermanagerdata.BackupMetadata, error) {
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
+	configPath, err := pm.initPgbackrest()
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest")
+	}
 
-	// Validate required configuration
-	if configPath == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
-	}
 	if pm.backupLocation == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup_location is required")
 	}
@@ -353,9 +457,8 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	defer cancel()
 
 	cmd := exec.CommandContext(queryCtx, "pgbackrest",
-		"--stanza="+stanzaName,
+		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
-		"--repo1-path="+pm.backupLocation,
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
@@ -510,7 +613,7 @@ func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePri
 }
 
 // validateBackupParams validates the backup type and returns the pgbackrest type mapping
-func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath, stanzaName string) (pgBackRestType string, err error) {
+func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath string) (pgBackRestType string, err error) {
 	// Validate backup type is provided
 	if backupType == "" {
 		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
@@ -532,9 +635,6 @@ func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath, stanz
 	// Validate required backup configuration
 	if configPath == "" {
 		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
 	return pgBackRestType, nil
@@ -601,17 +701,18 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	ctx context.Context,
 	jobID string,
 ) (string, error) {
-	stanzaName := pm.getBackupStanza()
-	configPath := pm.getBackupConfigPath()
+	configPath, err := pm.initPgbackrest()
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to initialize pgbackrest")
+	}
 
 	// Execute pgbackrest info command with JSON output
 	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(infoCtx, "pgbackrest",
-		"--stanza="+stanzaName,
+		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
-		"--repo1-path="+pm.backupLocation,
 		"--output=json",
 		"--log-level-console=off",
 		"info")
@@ -822,4 +923,9 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 
 	pm.logger.DebugContext(ctx, "Backup not found by job_id", "job_id", jobID)
 	return nil, nil
+}
+
+// pgbackrestPath returns the path to the pgbackrest config and data directory
+func (pm *MultiPoolerManager) pgbackrestPath() string {
+	return filepath.Join(pm.config.PoolerDir, "pgbackrest")
 }

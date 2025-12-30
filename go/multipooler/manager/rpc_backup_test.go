@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -92,11 +93,10 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 
 	pm := &MultiPoolerManager{
 		config: &Config{
-			PoolerDir:        poolerDir,
-			PgBackRestStanza: stanzaName,
-			ServiceID:        &clustermetadatapb.ID{Name: "test-service"},
-			TableGroup:       tableGroup,
-			Shard:            shard,
+			PoolerDir:  poolerDir,
+			ServiceID:  &clustermetadatapb.ID{Name: "test-service"},
+			TableGroup: tableGroup,
+			Shard:      shard,
 		},
 		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
 		topoClient:     topoClient,
@@ -217,8 +217,8 @@ func TestFindBackupByJobID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create temp directory for mock pgbackrest
-			tmpDir := t.TempDir()
+			// Create temp directory for mock pgbackrest binary
+			binDir := t.TempDir()
 
 			// Create mock pgbackrest binary that returns the test JSON
 			mockScript := `#!/bin/bash
@@ -230,16 +230,18 @@ JSONEOF
 fi
 exit 1
 `
-			pgbackrestPath := tmpDir + "/pgbackrest"
+			pgbackrestPath := binDir + "/pgbackrest"
 			err := exec.Command("sh", "-c", "cat > "+pgbackrestPath+" << 'EOF'\n"+mockScript+"\nEOF").Run()
 			require.NoError(t, err)
 			err = exec.Command("chmod", "+x", pgbackrestPath).Run()
 			require.NoError(t, err)
 
-			// Prepend temp dir to PATH so our mock pgbackrest is found first
-			t.Setenv("PATH", tmpDir+":/usr/bin:/bin")
+			// Prepend bin dir to PATH so our mock pgbackrest is found first
+			t.Setenv("PATH", binDir+":/usr/bin:/bin")
 
-			pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+			// Use separate directory for pooler data
+			poolerDir := t.TempDir()
+			pm := createTestManagerWithBackupLocation(poolerDir, "test-stanza", "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, poolerDir)
 
 			ctx := context.Background()
 			backupID, err := pm.findBackupByJobID(ctx, tt.jobID)
@@ -1079,4 +1081,322 @@ func TestGetBackupByJobId_Found(t *testing.T) {
 	require.NotNil(t, resp.Backup)
 	assert.Equal(t, "20251203-143045F", resp.Backup.BackupId)
 	assert.Equal(t, "20251203-143045.123456_mp-cell-1", resp.Backup.JobId)
+}
+
+func TestInitPgbackrest(t *testing.T) {
+	tests := []struct {
+		name           string
+		poolerDir      string
+		backupLocation string
+		pgPort         int
+		expectError    bool
+		errorContains  string
+	}{
+		{
+			name:           "Success with valid paths",
+			poolerDir:      t.TempDir(),
+			backupLocation: "/tmp/test-backups",
+			pgPort:         5432,
+			expectError:    false,
+		},
+		{
+			name:           "Success with different port",
+			poolerDir:      t.TempDir(),
+			backupLocation: "/var/lib/backups",
+			pgPort:         15432,
+			expectError:    false,
+		},
+		{
+			name:           "Success with nested backup location",
+			poolerDir:      t.TempDir(),
+			backupLocation: "/deep/nested/backup/path",
+			pgPort:         5432,
+			expectError:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm := createTestManagerWithBackupLocation(
+				tt.poolerDir,
+				"test-stanza",
+				"test-tg",
+				"0",
+				clustermetadatapb.PoolerType_REPLICA,
+				tt.backupLocation,
+			)
+			pm.config.PgPort = tt.pgPort
+
+			configPath, err := pm.initPgbackrest()
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Empty(t, configPath, "config path should be empty on error")
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.NotEmpty(t, configPath, "config path should not be empty on success")
+
+				// Verify directories were created
+				pgbackrestPath := pm.pgbackrestPath()
+				assert.DirExists(t, pgbackrestPath, "pgbackrest directory should exist")
+				assert.DirExists(t, filepath.Join(pgbackrestPath, "logs"), "logs directory should exist")
+				assert.DirExists(t, filepath.Join(pgbackrestPath, "spool"), "spool directory should exist")
+				assert.DirExists(t, filepath.Join(pgbackrestPath, "lock"), "lock directory should exist")
+
+				// Verify config file was created
+				assert.FileExists(t, configPath, "config file should exist")
+
+				// Read and verify config content
+				configContent, err := os.ReadFile(configPath)
+				require.NoError(t, err, "should be able to read config file")
+
+				configStr := string(configContent)
+
+				// Verify [global] section paths
+				assert.Contains(t, configStr, "log-path="+filepath.Join(pgbackrestPath, "logs"))
+				assert.Contains(t, configStr, "spool-path="+filepath.Join(pgbackrestPath, "spool"))
+				assert.Contains(t, configStr, "lock-path="+filepath.Join(pgbackrestPath, "lock"))
+
+				// Verify global settings
+				assert.Contains(t, configStr, "compress-type=zst")
+				assert.Contains(t, configStr, "link-all=y")
+				assert.Contains(t, configStr, "log-level-console=info")
+				assert.Contains(t, configStr, "log-level-file=detail")
+				assert.Contains(t, configStr, "log-subprocess=y")
+				assert.Contains(t, configStr, "resume=n")
+				assert.Contains(t, configStr, "start-fast=y")
+
+				// Verify [multigres] stanza section
+				assert.Contains(t, configStr, "[multigres]")
+				assert.Contains(t, configStr, "repo1-path="+tt.backupLocation)
+				assert.Contains(t, configStr, "pg1-path="+filepath.Join(tt.poolerDir, "pg_data"))
+				assert.Contains(t, configStr, "pg1-socket-path="+filepath.Join(tt.poolerDir, "pg_sockets"))
+				assert.Contains(t, configStr, "pg1-port="+fmt.Sprint(tt.pgPort))
+				assert.Contains(t, configStr, "pg1-user=postgres")
+				assert.Contains(t, configStr, "pg1-database=postgres")
+
+				// Verify file permissions
+				info, err := os.Stat(configPath)
+				require.NoError(t, err)
+				assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "config file should have 0644 permissions")
+
+				// Verify directory permissions
+				dirInfo, err := os.Stat(pgbackrestPath)
+				require.NoError(t, err)
+				assert.Equal(t, os.FileMode(0o755), dirInfo.Mode().Perm(), "directories should have 0755 permissions")
+			}
+		})
+	}
+}
+
+func TestInitPgbackrest_Idempotent(t *testing.T) {
+	// Test that calling initPgbackrest multiple times is safe (idempotent)
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA,
+		"/tmp/backups",
+	)
+
+	// First call
+	configPath, err := pm.initPgbackrest()
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	// Read the config content from first call
+	firstContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+
+	// Second call - should return early without doing any work
+	configPath2, err := pm.initPgbackrest()
+	require.NoError(t, err)
+	assert.Equal(t, configPath, configPath2, "should return same path on second call")
+
+	// Content should be the same
+	secondContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(firstContent), string(secondContent), "config should be identical on second call")
+}
+
+func TestInitPgbackrest_EarlyReturnWhenConfigExists(t *testing.T) {
+	// Test that initPgbackrest returns early when config file already exists
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA,
+		"/tmp/backups",
+	)
+
+	// First call - should create everything
+	configPath, err := pm.initPgbackrest()
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	pgbackrestPath := pm.pgbackrestPath()
+
+	// Modify the config file content
+	customContent := "# Custom modified content\n[global]\nlog-path=/custom/path\n"
+	err = os.WriteFile(configPath, []byte(customContent), 0o644)
+	require.NoError(t, err)
+
+	// Get modification time after our modification
+	modifiedInfo, err := os.Stat(configPath)
+	require.NoError(t, err)
+	modifiedModTime := modifiedInfo.ModTime()
+
+	// Remove one of the subdirectories to verify they're not recreated
+	spoolPath := filepath.Join(pgbackrestPath, "spool")
+	err = os.RemoveAll(spoolPath)
+	require.NoError(t, err)
+
+	// Second call - should return early without touching anything
+	configPath2, err := pm.initPgbackrest()
+	require.NoError(t, err)
+	assert.Equal(t, configPath, configPath2, "should return same path on early return")
+
+	// Verify config file was NOT overwritten (still has custom content)
+	currentContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, customContent, string(currentContent), "config file should not be modified on second call")
+
+	// Verify modification time didn't change (file wasn't rewritten)
+	currentInfo, err := os.Stat(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, modifiedModTime, currentInfo.ModTime(), "config file modification time should not change")
+
+	// Verify spool directory was NOT recreated (early return before directory creation)
+	_, err = os.Stat(spoolPath)
+	assert.True(t, os.IsNotExist(err), "spool directory should not be recreated on early return")
+}
+
+func TestInitPgbackrest_DirectoryCreation(t *testing.T) {
+	// Test that all required directories are created with correct permissions
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA,
+		"/tmp/backups",
+	)
+
+	configPath, err := pm.initPgbackrest()
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	pgbackrestPath := pm.pgbackrestPath()
+
+	// Check all directories exist with correct permissions
+	directories := []string{
+		pgbackrestPath,
+		filepath.Join(pgbackrestPath, "logs"),
+		filepath.Join(pgbackrestPath, "spool"),
+		filepath.Join(pgbackrestPath, "lock"),
+	}
+
+	for _, dir := range directories {
+		t.Run("Directory: "+filepath.Base(dir), func(t *testing.T) {
+			info, err := os.Stat(dir)
+			require.NoError(t, err, "directory %s should exist", dir)
+			assert.True(t, info.IsDir(), "%s should be a directory", dir)
+			assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "directory %s should have 0755 permissions", dir)
+		})
+	}
+}
+
+func TestInitPgbackrest_TemplateExecution(t *testing.T) {
+	// Test that the template is executed correctly with all variables substituted
+	poolerDir := t.TempDir()
+	backupLocation := "/custom/backup/location"
+	pgPort := 15432
+
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA,
+		backupLocation,
+	)
+	pm.config.PgPort = pgPort
+
+	configPath, err := pm.initPgbackrest()
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	// Read the generated config
+	configContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(configContent)
+
+	// Verify no template variables remain (they should all be substituted)
+	assert.NotContains(t, configStr, "{{", "config should not contain template variables")
+	assert.NotContains(t, configStr, "}}", "config should not contain template variables")
+
+	// Verify all expected values are present
+	pgbackrestPath := pm.pgbackrestPath()
+	expectedValues := map[string]string{
+		"LogPath":       filepath.Join(pgbackrestPath, "logs"),
+		"SpoolPath":     filepath.Join(pgbackrestPath, "spool"),
+		"LockPath":      filepath.Join(pgbackrestPath, "lock"),
+		"Repo1Path":     backupLocation,
+		"Pg1Path":       filepath.Join(poolerDir, "pg_data"),
+		"Pg1SocketPath": filepath.Join(poolerDir, "pg_sockets"),
+		"Pg1Port":       "15432",
+		"Pg1User":       "postgres",
+		"Pg1Database":   "postgres",
+	}
+
+	for name, value := range expectedValues {
+		assert.Contains(t, configStr, value, "config should contain %s value: %s", name, value)
+	}
+}
+
+func TestInitPgbackrest_ConfigFileFormat(t *testing.T) {
+	// Test that the generated config file is properly formatted
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA,
+		"/tmp/backups",
+	)
+
+	configPath, err := pm.initPgbackrest()
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	configContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(configContent)
+
+	// Verify INI-style sections exist
+	assert.Contains(t, configStr, "[global]", "config should have [global] section")
+	assert.Contains(t, configStr, "[multigres]", "config should have [multigres] section")
+
+	// Verify section order (global should come before multigres)
+	globalIdx := strings.Index(configStr, "[global]")
+	multigresIdx := strings.Index(configStr, "[multigres]")
+	assert.Greater(t, multigresIdx, globalIdx, "[multigres] should come after [global]")
+
+	// Verify key-value format (key=value)
+	for line := range strings.Lines(configStr) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "[") {
+			continue
+		}
+		assert.Contains(t, line, "=", "non-section lines should be key=value format: %s", line)
+	}
 }
