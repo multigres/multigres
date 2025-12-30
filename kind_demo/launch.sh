@@ -47,6 +47,7 @@ kubectl wait --for=condition=complete job/generate-pgbackrest-certs --timeout=12
 kubectl apply -f k8s-multipooler-statefulset.yaml
 kubectl apply -f k8s-multiorch.yaml
 kubectl apply -f k8s-multigateway.yaml
+kubectl apply -f k8s-multiadmin.yaml
 kubectl wait --for=condition=ready pod -l app=multipooler --timeout=180s
 kubectl wait --for=condition=ready pod -l app=multiorch --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multigateway --timeout=120s

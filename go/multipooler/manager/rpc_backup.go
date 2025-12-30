@@ -215,7 +215,6 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		"--stanza=" + pm.stanzaName(),
 		"--config=" + configPath,
 		"--type=" + pgBackRestType,
-		"--log-level-console=info",
 	}
 
 	// Add annotations if table_group and shard are provided
@@ -258,7 +257,6 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--set="+foundBackupID,
-		"--log-level-console=info",
 		"verify")
 
 	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
@@ -347,7 +345,6 @@ func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, back
 	args := []string{
 		"--stanza=" + pm.stanzaName(),
 		"--config=" + configPath,
-		"--log-level-console=info",
 	}
 
 	if backupID != "" {

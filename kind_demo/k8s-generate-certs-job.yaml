@@ -23,11 +23,36 @@ spec:
                 -out ca.crt \
                 -subj "/CN=Multigres Root CA"
 
-              echo "Generating pgBackRest certificate signing request..."
+              echo "Creating OpenSSL config for Subject Alternative Names..."
+              cat > /tmp/pgbackrest-san.cnf <<EOF
+              [req]
+              distinguished_name = req_distinguished_name
+              req_extensions = v3_req
+              prompt = no
+
+              [req_distinguished_name]
+              CN = pgbackrest
+
+              [v3_req]
+              keyUsage = critical, digitalSignature, keyEncipherment, dataEncipherment
+              extendedKeyUsage = serverAuth, clientAuth
+              subjectAltName = @alt_names
+
+              [alt_names]
+              DNS.1 = pgbackrest
+              DNS.2 = *.multipooler-zone1.default.svc.cluster.local
+              DNS.3 = multipooler-zone1-0.multipooler-zone1.default.svc.cluster.local
+              DNS.4 = multipooler-zone1-1.multipooler-zone1.default.svc.cluster.local
+              DNS.5 = multipooler-zone1-2.multipooler-zone1.default.svc.cluster.local
+              DNS.6 = localhost
+              IP.1 = 127.0.0.1
+              EOF
+
+              echo "Generating pgBackRest certificate signing request with SANs..."
               openssl req -newkey rsa:2048 -nodes \
                 -keyout pgbackrest.key \
                 -out /tmp/pgbackrest.csr \
-                -subj "/CN=pgbackrest"
+                -config /tmp/pgbackrest-san.cnf
 
               echo "Signing pgBackRest certificate with Root CA..."
               openssl x509 -req -days 3650 \
@@ -35,10 +60,12 @@ spec:
                 -CA ca.crt \
                 -CAkey ca.key \
                 -CAcreateserial \
-                -out pgbackrest.crt
+                -out pgbackrest.crt \
+                -extensions v3_req \
+                -extfile /tmp/pgbackrest-san.cnf
 
               echo "Cleaning up temporary files..."
-              rm -f /tmp/pgbackrest.csr ca.srl
+              rm -f /tmp/pgbackrest.csr /tmp/pgbackrest-san.cnf ca.srl
 
               # Remove CA private key - we don't need it after signing the certificate
               # Keep only ca.crt for verification, pgbackrest.crt and pgbackrest.key for TLS
