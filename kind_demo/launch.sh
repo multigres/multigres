@@ -34,6 +34,12 @@ kind load docker-image multigres/multigres multigres/pgctld-postgres --name=mult
 kubectl apply -f k8s-etcd.yaml
 kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
 
+# Deploy observability stack (Prometheus, Jaeger, Grafana)
+# The otel-config ConfigMap must exist before services that reference it.
+kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=observability/grafana-dashboard.json --save-config
+kubectl apply -f k8s-observability.yaml
+kubectl wait --for=condition=ready pod -l app=observability --timeout=120s
+
 # We're launching this as a job. The operator will just invoke this CLI.
 # For this, it must add the multigres binary to its image.
 kubectl apply -f k8s-createclustermetadata-job.yaml
@@ -52,6 +58,19 @@ kubectl wait --for=condition=ready pod -l app=multipooler --timeout=180s
 kubectl wait --for=condition=ready pod -l app=multiorch --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multigateway --timeout=120s
 
-echo "Components launched"
-echo "Setup a portforward by launching: kubectl port-forward service/multigateway 15432:15432"
-echo "To connect to multigres, run: psql --host=localhost --port=15432 -U postgres -d postgres"
+set +x
+echo ""
+echo "========================================="
+echo "Components launched successfully!"
+echo "========================================="
+echo ""
+echo "PostgreSQL access:"
+echo "  kubectl port-forward service/multigateway 15432:15432"
+echo "  psql --host=localhost --port=15432 -U postgres -d postgres"
+echo ""
+echo "Observability access:"
+echo "  kubectl port-forward service/observability 3000:3000 9090:9090 16686:16686"
+echo "  Grafana:    http://localhost:3000/dashboards"
+echo "  Prometheus: http://localhost:9090"
+echo "  Jaeger:     http://localhost:16686"
+echo ""

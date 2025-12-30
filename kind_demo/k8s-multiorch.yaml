@@ -32,6 +32,12 @@ spec:
             - --pooler-health-check-interval=500ms
             - --recovery-cycle-interval=500ms
             - --pprof-http=true
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "multiorch"
+          envFrom:
+            - configMapRef:
+                name: otel-config
           ports:
             - containerPort: 17000
               name: http

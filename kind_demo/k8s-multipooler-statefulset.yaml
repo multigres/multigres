@@ -98,6 +98,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+            - name: OTEL_SERVICE_NAME
+              value: "multipooler"
+          envFrom:
+            - configMapRef:
+                name: otel-config
 
         - name: pgctld
           image: docker.io/multigres/pgctld-postgres:latest

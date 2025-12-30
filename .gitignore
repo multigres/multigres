@@ -67,3 +67,6 @@ go/common/web/templates/css/pico.*
 
 # y.output file
 y.output
+
+# Kind demo runtime data
+kind_demo/data/
