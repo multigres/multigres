@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
@@ -29,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // runRecoveryLoop is the main recovery loop that detects and fixes problems.
@@ -37,19 +39,19 @@ func (re *Engine) runRecoveryLoop() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	re.logger.InfoContext(re.ctx, "recovery loop started", "interval", interval)
+	re.logger.InfoContext(re.shutdownCtx, "recovery loop started", "interval", interval)
 
 	for {
 		select {
-		case <-re.ctx.Done():
-			re.logger.InfoContext(re.ctx, "recovery loop stopped")
+		case <-re.shutdownCtx.Done():
+			re.logger.InfoContext(re.shutdownCtx, "recovery loop stopped")
 			return
 
 		case <-ticker.C:
 			// Check if interval changed (dynamic config)
 			newInterval := re.config.GetRecoveryCycleInterval()
 			if newInterval != interval {
-				re.logger.InfoContext(re.ctx, "recovery cycle interval changed", "old", interval, "new", newInterval)
+				re.logger.InfoContext(re.shutdownCtx, "recovery cycle interval changed", "old", interval, "new", newInterval)
 				interval = newInterval
 				ticker.Reset(interval)
 			}
@@ -60,6 +62,9 @@ func (re *Engine) runRecoveryLoop() {
 
 // performRecoveryCycle runs one cycle of problem detection and recovery.
 func (re *Engine) performRecoveryCycle() {
+	ctx, span := telemetry.Tracer().Start(re.shutdownCtx, "recovery/cycle")
+	defer span.End()
+
 	// Create generator - this builds the poolersByTG map once
 	generator := analysis.NewAnalysisGenerator(re.poolerStore)
 	analyses := generator.GenerateAnalyses()
@@ -72,12 +77,12 @@ func (re *Engine) performRecoveryCycle() {
 		for _, analyzer := range analyzers {
 			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
 			if err != nil {
-				re.logger.ErrorContext(re.ctx, "analyzer error",
+				re.logger.ErrorContext(ctx, "analyzer error",
 					"analyzer", analyzer.Name(),
 					"pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID),
 					"error", err,
 				)
-				re.metrics.errorsTotal.Add(re.ctx, "analyzer",
+				re.metrics.errorsTotal.Add(ctx, "analyzer",
 					attribute.String("analyzer", string(analyzer.Name())),
 				)
 				continue
@@ -90,7 +95,8 @@ func (re *Engine) performRecoveryCycle() {
 		return // no problems detected
 	}
 
-	re.logger.InfoContext(re.ctx, "problems detected", "count", len(problems))
+	span.SetAttributes(attribute.Int("problems.count", len(problems)))
+	re.logger.InfoContext(ctx, "problems detected", "count", len(problems))
 
 	// Group problems by shard
 	problemsByShard := re.groupProblemsByShard(problems)
@@ -101,7 +107,7 @@ func (re *Engine) performRecoveryCycle() {
 		wg.Add(1)
 		go func(key commontypes.ShardKey, problems []types.Problem) {
 			defer wg.Done()
-			re.processShardProblems(key, problems)
+			re.processShardProblems(ctx, key, problems)
 		}(shardKey, shardProblems)
 	}
 	wg.Wait()
@@ -119,8 +125,8 @@ func (re *Engine) groupProblemsByShard(problems []types.Problem) map[commontypes
 }
 
 // processShardProblems handles all problems for a single shard.
-func (re *Engine) processShardProblems(shardKey commontypes.ShardKey, problems []types.Problem) {
-	re.logger.DebugContext(re.ctx, "processing shard problems",
+func (re *Engine) processShardProblems(ctx context.Context, shardKey commontypes.ShardKey, problems []types.Problem) {
+	re.logger.DebugContext(ctx, "processing shard problems",
 		"database", shardKey.Database,
 		"tablegroup", shardKey.TableGroup,
 		"shard", shardKey.Shard,
@@ -137,14 +143,14 @@ func (re *Engine) processShardProblems(shardKey commontypes.ShardKey, problems [
 	for _, problem := range filteredProblems {
 		// Skip replica recoveries if primary is unhealthy and action requires healthy primary
 		if problem.RecoveryAction.RequiresHealthyPrimary() && hasPrimaryProblem {
-			re.logger.InfoContext(re.ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
+			re.logger.InfoContext(ctx, "skipping recovery - requires healthy primary but primary is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.MultiPoolerIDString(problem.PoolerID),
 			)
 			continue
 		}
 
-		re.attemptRecovery(problem)
+		re.attemptRecovery(ctx, problem)
 	}
 }
 
@@ -184,7 +190,7 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 	// If we have shard-wide problems, return only the highest priority one
 	// (since problems are now sorted by priority, the first one is highest)
 	if len(shardWideProblems) > 0 {
-		re.logger.DebugContext(re.ctx, "shard-wide problem detected, focusing on single recovery",
+		re.logger.DebugContext(re.shutdownCtx, "shard-wide problem detected, focusing on single recovery",
 			"problem_code", shardWideProblems[0].Code,
 			"priority", shardWideProblems[0].Priority,
 			"total_shard_wide", len(shardWideProblems),
@@ -200,10 +206,23 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 // attemptRecovery attempts to recover from a single problem.
 // IMPORTANT: Before attempting recovery, force re-poll the affected pooler
 // to ensure the problem still exists.
-func (re *Engine) attemptRecovery(problem types.Problem) {
+func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+	actionName := problem.RecoveryAction.Metadata().Name
 
-	re.logger.DebugContext(re.ctx, "attempting recovery",
+	ctx, span := telemetry.Tracer().Start(ctx, "recovery/attempt",
+		trace.WithAttributes(
+			attribute.String("shard.database", problem.ShardKey.Database),
+			attribute.String("shard.tablegroup", problem.ShardKey.TableGroup),
+			attribute.String("shard.id", problem.ShardKey.Shard),
+			attribute.String("problem.code", string(problem.Code)),
+			attribute.String("pooler.id", poolerIDStr),
+			attribute.String("action.name", actionName),
+			attribute.Int("problem.priority", int(problem.Priority)),
+		))
+	defer span.End()
+
+	re.logger.DebugContext(ctx, "attempting recovery",
 		"problem_code", problem.Code,
 		"pooler_id", poolerIDStr,
 		"priority", problem.Priority,
@@ -211,9 +230,10 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 	)
 
 	// Force re-poll to validate the problem still exists
-	stillExists, err := re.recheckProblem(problem)
+	stillExists, err := re.recheckProblem(ctx, problem)
 	if err != nil {
-		re.logger.WarnContext(re.ctx, "failed to validate problem, skipping recovery",
+		span.SetAttributes(attribute.String("result", "recheck_failed"))
+		re.logger.WarnContext(ctx, "failed to validate problem, skipping recovery",
 			"problem_code", problem.Code,
 			"pooler_id", poolerIDStr,
 			"error", err,
@@ -221,7 +241,8 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 		return
 	}
 	if !stillExists {
-		re.logger.DebugContext(re.ctx, "problem no longer exists after re-poll, skipping recovery",
+		span.SetAttributes(attribute.String("result", "problem_resolved"))
+		re.logger.DebugContext(ctx, "problem no longer exists after re-poll, skipping recovery",
 			"problem_code", problem.Code,
 			"pooler_id", poolerIDStr,
 		)
@@ -229,40 +250,42 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 	}
 
 	// Execute recovery action
-	ctx, cancel := context.WithTimeout(re.ctx, problem.RecoveryAction.Metadata().Timeout)
+	ctx, cancel := context.WithTimeout(ctx, problem.RecoveryAction.Metadata().Timeout)
 	defer cancel()
 
-	actionName := problem.RecoveryAction.Metadata().Name
 	startTime := time.Now()
 
 	err = problem.RecoveryAction.Execute(ctx, problem)
 	durationMs := float64(time.Since(startTime).Milliseconds())
 
 	if err != nil {
-		re.logger.ErrorContext(re.ctx, "recovery action failed",
+		span.SetAttributes(attribute.String("result", "action_failed"))
+		span.RecordError(err)
+		re.logger.ErrorContext(ctx, "recovery action failed",
 			"problem_code", problem.Code,
 			"pooler_id", poolerIDStr,
 			"error", err,
 		)
-		re.metrics.recoveryActionDuration.Record(re.ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure)
+		re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure)
 		return
 	}
 
-	re.logger.InfoContext(re.ctx, "recovery action successful",
+	span.SetAttributes(attribute.String("result", "success"))
+	re.logger.InfoContext(ctx, "recovery action successful",
 		"problem_code", problem.Code,
 		"pooler_id", poolerIDStr,
 	)
-	re.metrics.recoveryActionDuration.Record(re.ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess)
+	re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess)
 
 	// Post-recovery refresh
 	// If we ran a shard-wide recovery, force health check all poolers in the shard
 	// to ensure they have up-to-date state. Health check returns PoolerType from
 	// pg_is_in_recovery which is authoritative (topology type is only a fallback).
 	if problem.Scope == types.ScopeShard {
-		re.logger.InfoContext(re.ctx, "forcing refresh of all poolers post recovery",
+		re.logger.InfoContext(ctx, "forcing refresh of all poolers post recovery",
 			"shard_key", problem.ShardKey.String(),
 		)
-		re.forceHealthCheckShardPoolers(context.TODO(), problem.ShardKey, nil /* poolersToIgnore */)
+		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, nil /* poolersToIgnore */)
 	}
 }
 
@@ -274,17 +297,17 @@ func (re *Engine) attemptRecovery(problem types.Problem) {
 // - SinglePooler: Only refresh the affected pooler + primary pooler
 //
 // Returns (stillExists bool, error).
-func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
+func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bool, error) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 	isShardWide := problem.Scope == types.ScopeShard
 
-	re.logger.DebugContext(re.ctx, "validating problem still exists",
+	re.logger.DebugContext(ctx, "validating problem still exists",
 		"pooler_id", poolerIDStr,
 		"problem_code", problem.Code,
 		"scope", problem.Scope,
 	)
 
-	ctx, cancel := context.WithTimeout(re.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	// Refresh metadata for the shard
@@ -302,7 +325,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 		re.forceHealthCheckShardPoolers(ctx, problem.ShardKey, poolersToIgnore)
 	} else {
 		// Single-pooler: only refresh this pooler + primary
-		re.logger.DebugContext(re.ctx, "refreshing single pooler and primary")
+		re.logger.DebugContext(ctx, "refreshing single pooler and primary")
 
 		// Refresh the affected pooler
 		if ph, ok := re.poolerStore.Get(poolerIDStr); ok {
@@ -332,7 +355,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 		if analyzer.Name() == problem.CheckName {
 			redetectedProblems, err := analyzer.Analyze(poolerAnalysis)
 			if err != nil {
-				re.metrics.errorsTotal.Add(re.ctx, "analyzer",
+				re.metrics.errorsTotal.Add(ctx, "analyzer",
 					attribute.String("analyzer", string(analyzer.Name())),
 				)
 				return false, fmt.Errorf("analyzer %s failed during recheck: %w", analyzer.Name(), err)
@@ -341,7 +364,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 			// Check if the same problem code is still detected
 			for _, p := range redetectedProblems {
 				if p.Code == problem.Code {
-					re.logger.DebugContext(re.ctx, "problem still exists after re-poll",
+					re.logger.DebugContext(ctx, "problem still exists after re-poll",
 						"pooler_id", poolerIDStr,
 						"problem_code", problem.Code,
 					)
@@ -352,7 +375,7 @@ func (re *Engine) recheckProblem(problem types.Problem) (bool, error) {
 	}
 
 	// Problem was not re-detected
-	re.logger.DebugContext(re.ctx, "problem no longer exists after re-poll",
+	re.logger.DebugContext(ctx, "problem no longer exists after re-poll",
 		"pooler_id", poolerIDStr,
 		"problem_code", problem.Code,
 	)

@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -38,6 +39,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // customAnalyzer is a test analyzer that can use a custom analyze function.
@@ -324,7 +326,7 @@ func TestRecheckProblem_PoolerNotFound(t *testing.T) {
 		Priority:  types.PriorityEmergency,
 	}
 
-	stillExists, err := engine.recheckProblem(problem)
+	stillExists, err := engine.recheckProblem(t.Context(), problem)
 
 	require.Error(t, err, "should return error when pooler not found")
 	assert.False(t, stillExists)
@@ -721,7 +723,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems - this exercises the full recovery flow
-		engine.processShardProblems(shardKey, problems)
+		engine.processShardProblems(t.Context(), shardKey, problems)
 
 		// ASSERTION: Replica recovery should be SKIPPED due to dependency check
 		assert.False(t, replicaRecovery.executed,
@@ -794,7 +796,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 		// Call processShardProblems
-		engine.processShardProblems(shardKey, problems)
+		engine.processShardProblems(t.Context(), shardKey, problems)
 
 		// ASSERTION: Replica recovery should be executed (NOT skipped)
 		// It will still fail validation since the mock analyzer won't re-detect it,
@@ -913,7 +915,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	})
 
 	// Attempt recovery - validation should detect problem no longer exists
-	engine.attemptRecovery(problems[0])
+	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should NOT be executed because validation failed
 	assert.False(t, replicaRecovery.executed,
@@ -1092,7 +1094,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	})
 
 	// Attempt recovery - should succeed and trigger post-recovery refresh
-	engine.attemptRecovery(problems[0])
+	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should be executed
 	assert.True(t, primaryRecovery.executed, "recovery should be executed")
@@ -1431,7 +1433,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 	// Process problems - they should be attempted in priority order
-	engine.processShardProblems(shardKey, problems)
+	engine.processShardProblems(t.Context(), shardKey, problems)
 
 	// ASSERTION: Problems should be attempted in priority order (Emergency > High > Normal)
 	// Note: validation will fail for all since we don't change the state, but we can verify
@@ -1443,5 +1445,174 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	if len(executionOrder) > 0 {
 		assert.Equal(t, "Emergency", executionOrder[0],
 			"Emergency priority problem should be attempted first")
+	}
+}
+
+// TestRecoveryLoop_TracingSpans verifies that OpenTelemetry spans are created
+// during recovery operations for observability.
+func TestRecoveryLoop_TracingSpans(t *testing.T) {
+	// Set up test telemetry to capture spans
+	setup := telemetry.SetupTestTelemetry(t)
+	err := setup.Telemetry.InitTelemetry(t.Context(), "test-recovery-spans")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = setup.Telemetry.ShutdownTelemetry(context.Background())
+	})
+
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithBookkeepingInterval(1*time.Minute),
+		config.WithClusterMetadataRefreshInterval(15*time.Second),
+		config.WithClusterMetadataRefreshTimeout(30*time.Second),
+	)
+
+	// Create engine
+	engine := NewEngine(
+		ts,
+		logger,
+		cfg,
+		[]config.WatchTarget{{Database: "db1"}},
+		&rpcclient.FakeClient{},
+		nil,
+	)
+
+	// Create a mock analyzer that always detects a problem
+	successAction := &mockRecoveryAction{
+		name:     "SuccessfulRecovery",
+		priority: types.PriorityHigh,
+		timeout:  10 * time.Second,
+	}
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "replica-pooler",
+	}
+
+	analyzeFunc := func(a *store.ReplicationAnalysis) []types.Problem {
+		// Detect replica with paused WAL replay
+		if !a.IsPrimary && a.IsWalReplayPaused {
+			return []types.Problem{
+				{
+					Code:           types.ProblemReplicaNotReplicating,
+					CheckName:      "TracingTestAnalyzer",
+					PoolerID:       a.PoolerID,
+					ShardKey:       a.ShardKey,
+					Scope:          types.ScopePooler,
+					Priority:       types.PriorityHigh,
+					RecoveryAction: successAction,
+					DetectedAt:     time.Now(),
+					Description:    "Test problem for span verification",
+				},
+			}
+		}
+		return nil
+	}
+
+	analyzer := &customAnalyzer{
+		analyzeFn: analyzeFunc,
+		name:      "TracingTestAnalyzer",
+	}
+
+	// Setup test analyzers
+	analysis.SetTestAnalyzers([]analysis.Analyzer{analyzer})
+	t.Cleanup(analysis.ResetAnalyzers)
+
+	// Set up store state: replica with problem
+	replicaPooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       replicaID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			IsWalReplayPaused: true,
+		},
+		LastSeen: timestamppb.Now(),
+	}
+	engine.poolerStore.Set("multipooler-zone1-replica-pooler", replicaPooler)
+
+	// Run a recovery cycle - this should create spans
+	engine.performRecoveryCycle()
+
+	// Flush spans to the exporter
+	err = setup.ForceFlush(ctx)
+	require.NoError(t, err)
+
+	// Get captured spans
+	spans := setup.SpanExporter.GetSpans()
+
+	// Verify we have spans for recovery operations
+	spanNames := make(map[string]bool)
+	for _, span := range spans {
+		spanNames[span.Name] = true
+	}
+
+	// Should have a cycle span
+	assert.True(t, spanNames["recovery/cycle"], "should have recovery/cycle span, got spans: %v", spanNames)
+
+	// Should have attempt span (for the detected problem)
+	assert.True(t, spanNames["recovery/attempt"], "should have recovery/attempt span, got spans: %v", spanNames)
+
+	// Verify span hierarchy: cycle → attempt
+	var cycleSpan, attemptSpan *tracetest.SpanStub
+	for i := range spans {
+		switch spans[i].Name {
+		case "recovery/cycle":
+			cycleSpan = &spans[i]
+		case "recovery/attempt":
+			attemptSpan = &spans[i]
+		}
+	}
+
+	// Verify spans share the same trace ID and parent-child relationship
+	if cycleSpan != nil && attemptSpan != nil {
+		assert.Equal(t, cycleSpan.SpanContext.TraceID(), attemptSpan.SpanContext.TraceID(),
+			"attempt span should share trace ID with cycle span")
+		assert.Equal(t, cycleSpan.SpanContext.SpanID(), attemptSpan.Parent.SpanID(),
+			"attempt span's parent should be cycle span")
+	}
+
+	// Verify cycle span has problem count attribute
+	if cycleSpan != nil {
+		var foundProblemCount bool
+		for _, attr := range cycleSpan.Attributes {
+			if attr.Key == "problems.count" {
+				foundProblemCount = true
+				assert.Equal(t, int64(1), attr.Value.AsInt64(), "problems.count should be 1")
+			}
+		}
+		assert.True(t, foundProblemCount, "cycle span should have problems.count attribute")
+	}
+
+	// Verify attempt span has shard, action, and problem attributes
+	if attemptSpan != nil {
+		var foundDatabase, foundAction, foundProblem bool
+		for _, attr := range attemptSpan.Attributes {
+			if attr.Key == "shard.database" {
+				foundDatabase = true
+				assert.Equal(t, "db1", attr.Value.AsString())
+			}
+			if attr.Key == "action.name" {
+				foundAction = true
+				assert.Equal(t, "SuccessfulRecovery", attr.Value.AsString())
+			}
+			if attr.Key == "problem.code" {
+				foundProblem = true
+				assert.Equal(t, string(types.ProblemReplicaNotReplicating), attr.Value.AsString())
+			}
+		}
+		assert.True(t, foundDatabase, "attempt span should have shard.database attribute")
+		assert.True(t, foundAction, "attempt span should have action.name attribute")
+		assert.True(t, foundProblem, "attempt span should have problem.code attribute")
 	}
 }

@@ -239,7 +239,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 
 	// Verify context is cancelled
 	select {
-	case <-re.ctx.Done():
+	case <-re.shutdownCtx.Done():
 		// Success - context is cancelled
 	case <-time.After(1 * time.Second):
 		t.Error("context was not cancelled after Stop()")
