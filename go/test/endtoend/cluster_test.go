@@ -992,7 +992,15 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")
 
-		// Test CLI commands work correctly
+		// Wait for heartbeats to be written (indicates full bootstrap completion)
+		t.Log("Waiting for heartbeats...")
+		require.Eventually(t, func() bool {
+			written, err := checkHeartbeatsWritten(multipoolerAddr)
+			return err == nil && written
+		}, 10*time.Second, 500*time.Millisecond, "heartbeats should be written after bootstrap")
+		t.Log("Heartbeats detected")
+
+		// Test CLI commands work correctly (after bootstrap is complete)
 		t.Log("Testing CLI commands...")
 		adminServer := fmt.Sprintf("localhost:%d", testPorts.MultiadminGRPCPort)
 
@@ -1037,14 +1045,6 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Logf("getcellnames from config output: %s", cellNamesFromConfig)
 
 		t.Log("CLI commands test completed successfully")
-
-		// Wait for heartbeats to be written
-		t.Log("Waiting for heartbeats...")
-		require.Eventually(t, func() bool {
-			written, err := checkHeartbeatsWritten(multipoolerAddr)
-			return err == nil && written
-		}, 10*time.Second, 500*time.Millisecond, "heartbeats should be written after bootstrap")
-		t.Log("Heartbeats detected")
 
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")
