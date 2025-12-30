@@ -1574,45 +1574,42 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		}
 	}
 
+	require.NotNil(t, cycleSpan, "cycle span should exist")
+	require.NotNil(t, attemptSpan, "attempt span should exist")
+
 	// Verify spans share the same trace ID and parent-child relationship
-	if cycleSpan != nil && attemptSpan != nil {
-		assert.Equal(t, cycleSpan.SpanContext.TraceID(), attemptSpan.SpanContext.TraceID(),
-			"attempt span should share trace ID with cycle span")
-		assert.Equal(t, cycleSpan.SpanContext.SpanID(), attemptSpan.Parent.SpanID(),
-			"attempt span's parent should be cycle span")
-	}
+	assert.Equal(t, cycleSpan.SpanContext.TraceID(), attemptSpan.SpanContext.TraceID(),
+		"attempt span should share trace ID with cycle span")
+	assert.Equal(t, cycleSpan.SpanContext.SpanID(), attemptSpan.Parent.SpanID(),
+		"attempt span's parent should be cycle span")
 
 	// Verify cycle span has problem count attribute
-	if cycleSpan != nil {
-		var foundProblemCount bool
-		for _, attr := range cycleSpan.Attributes {
-			if attr.Key == "problems.count" {
-				foundProblemCount = true
-				assert.Equal(t, int64(1), attr.Value.AsInt64(), "problems.count should be 1")
-			}
+	var foundProblemCount bool
+	for _, attr := range cycleSpan.Attributes {
+		if attr.Key == "problems.count" {
+			foundProblemCount = true
+			assert.Equal(t, int64(1), attr.Value.AsInt64(), "problems.count should be 1")
 		}
-		assert.True(t, foundProblemCount, "cycle span should have problems.count attribute")
 	}
+	assert.True(t, foundProblemCount, "cycle span should have problems.count attribute")
 
 	// Verify attempt span has shard, action, and problem attributes
-	if attemptSpan != nil {
-		var foundDatabase, foundAction, foundProblem bool
-		for _, attr := range attemptSpan.Attributes {
-			if attr.Key == "shard.database" {
-				foundDatabase = true
-				assert.Equal(t, "db1", attr.Value.AsString())
-			}
-			if attr.Key == "action.name" {
-				foundAction = true
-				assert.Equal(t, "SuccessfulRecovery", attr.Value.AsString())
-			}
-			if attr.Key == "problem.code" {
-				foundProblem = true
-				assert.Equal(t, string(types.ProblemReplicaNotReplicating), attr.Value.AsString())
-			}
+	var foundDatabase, foundAction, foundProblem bool
+	for _, attr := range attemptSpan.Attributes {
+		if attr.Key == "shard.database" {
+			foundDatabase = true
+			assert.Equal(t, "db1", attr.Value.AsString())
 		}
-		assert.True(t, foundDatabase, "attempt span should have shard.database attribute")
-		assert.True(t, foundAction, "attempt span should have action.name attribute")
-		assert.True(t, foundProblem, "attempt span should have problem.code attribute")
+		if attr.Key == "action.name" {
+			foundAction = true
+			assert.Equal(t, "SuccessfulRecovery", attr.Value.AsString())
+		}
+		if attr.Key == "problem.code" {
+			foundProblem = true
+			assert.Equal(t, string(types.ProblemReplicaNotReplicating), attr.Value.AsString())
+		}
 	}
+	assert.True(t, foundDatabase, "attempt span should have shard.database attribute")
+	assert.True(t, foundAction, "attempt span should have action.name attribute")
+	assert.True(t, foundProblem, "attempt span should have problem.code attribute")
 }
