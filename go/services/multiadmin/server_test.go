@@ -582,7 +582,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 
 	t.Run("existing pooler returns status", func(t *testing.T) {
 		// Create a pooler in topology
-		poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pool1"}
+		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
 		pooler := &clustermetadatapb.MultiPooler{
 			Id:         poolerID,
 			Database:   "db1",
@@ -628,7 +628,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 
 	t.Run("rpc error returns Unavailable", func(t *testing.T) {
 		// Create another pooler
-		poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pool2"}
+		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
 		pooler := &clustermetadatapb.MultiPooler{
 			Id:         poolerID,
 			Database:   "db1",
