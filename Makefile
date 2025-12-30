@@ -116,6 +116,7 @@ build-all: proto parser build ## Build everything (proto + parser + binaries).
 images:
 	docker build -t multigres/multigres:latest .
 	docker build -f Dockerfile.pgctld -t multigres/pgctld-postgres:latest .
+	docker build -t multigres/multiadmin-web:latest web/multiadmin
 
 # Install binaries to GOPATH/bin
 install: ## Install binaries to GOPATH/bin.
