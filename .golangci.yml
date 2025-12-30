@@ -25,6 +25,11 @@ linters:
     - errcheck
     - errorlint
     - forbidigo
+    # TODO: Enable goconst - disabled because it reports different results in CI vs local.
+    # CI (Linux) detects issues that cannot be reproduced locally (macOS) or in Docker (Linux),
+    # even with the same golangci-lint version and config. Until this is resolved, developers
+    # can't validate goconst locally before pushing.
+    # - goconst
     - gocritic
     - gosec
     - govet
@@ -39,6 +44,14 @@ linters:
     - unconvert
     - unused
   settings:
+    # goconst:
+    #   # Minimum length of string to trigger (shorter strings are often not worth extracting)
+    #   min-len: 5
+    #   # Minimum number of occurrences to trigger
+    #   min-occurrences: 3
+    #   # Don't suppress warnings just because a constant with the same value exists.
+    #   # Note: goconst doesn't catch struct literal values, only variable assignments.
+    #   match-constant: false
     forbidigo:
       # Forbid os.Exit to ensure cleanup hooks can fire before process termination.
       # Use //nolint:forbidigo in main() or TestMain() where it's allowed.
@@ -75,6 +88,7 @@ linters:
               desc: "provisioners should not depend on multigres logic aside from the topo"
           allow:
             - $gostd
+            - github.com/multigres/multigres/go/common/constants
             - github.com/multigres/multigres/go/common/topoclient
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
@@ -85,6 +99,7 @@ linters:
             - "!**/go/services/multiadmin/**/*.go"
             - "!**/go/cmd/multiadmin/*.go"
             - "!**/go/cmd/multiadmin/**/*.go"
+            - "!**/go/test/endtoend/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
@@ -101,6 +116,42 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/services/pgctld"
               desc: "pgctld can only be imported by its own package and cmd"
+        # TODO: Move go/multigateway to go/services/multigateway and update paths below
+        multigateway-isolation:
+          files:
+            - "!**/go/multigateway/*.go"
+            - "!**/go/multigateway/**/*.go"
+            - "!**/go/cmd/multigateway/*.go"
+            - "!**/go/cmd/multigateway/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/multigateway"
+              desc: "multigateway can only be imported by its own package and cmd"
+        # TODO: Move go/multiorch to go/services/multiorch and update paths below
+        multiorch-isolation:
+          files:
+            - "!**/go/multiorch/*.go"
+            - "!**/go/multiorch/**/*.go"
+            - "!**/go/cmd/multiorch/*.go"
+            - "!**/go/cmd/multiorch/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/multiorch"
+              desc: "multiorch can only be imported by its own package and cmd"
+        # TODO: Move go/multipooler to go/services/multipooler and update paths below
+        multipooler-isolation:
+          files:
+            - "!**/go/multipooler/*.go"
+            - "!**/go/multipooler/**/*.go"
+            - "!**/go/cmd/multipooler/*.go"
+            - "!**/go/cmd/multipooler/**/*.go"
+            - "**/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/multipooler"
+              desc: "multipooler can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
           deny:

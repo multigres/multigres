@@ -88,23 +88,21 @@ message StartReplicationResponse {
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
-  // Primary server hostname
-  string host = 1;
-
-  // Primary server port
-  int32 port = 2;
+  // Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
+  // The postgres port is extracted from port_map["postgres"].
+  clustermetadata.MultiPooler primary = 1;
 
   // Whether to stop replication before making changes
-  bool stop_replication_before = 3;
+  bool stop_replication_before = 2;
 
   // Whether to start replication after making changes
-  bool start_replication_after = 4;
+  bool start_replication_after = 3;
 
   // Current term for consensus (used by MultiOrch during initialization)
-  int64 current_term = 5;
+  int64 current_term = 4;
 
   // Force the operation even if the term doesn't match
-  bool force = 6;
+  bool force = 5;
 }
 
 message SetPrimaryConnInfoResponse {
@@ -562,21 +560,18 @@ message InitializeEmptyPrimaryResponse {
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
 // Used during bootstrap initialization of a new shard or when adding a new standby
 message InitializeAsStandbyRequest {
-  // Primary server hostname to backup from
-  string primary_host = 1;
-
-  // Primary server port
-  int32 primary_port = 2;
+  // Primary pooler to replicate from
+  clustermetadata.MultiPooler primary = 1;
 
   // Consensus term to set for this standby
-  int64 consensus_term = 3;
+  int64 consensus_term = 2;
 
   // Whether to force reinitialization (removes existing data directory)
-  bool force = 4;
+  bool force = 3;
 
   // Optional: Specific backup ID to restore from
   // If empty, restore from the latest backup
-  string backup_id = 5;
+  string backup_id = 4;
 }
 
 message InitializeAsStandbyResponse {
@@ -603,6 +598,12 @@ message BackupRequest {
   // type indicates the type of backup that should be done. "full", "differential",
   // and "incremental" are examples that are appropriate for pgBackRest.
   string type = 2;
+
+  // job_id is an optional tracking ID from MultiAdmin for backup identification.
+  // If provided, stored as annotation on the backup for status queries.
+  // If empty, multipooler generates one using the same format.
+  // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
+  string job_id = 3;
 }
 
 // BackupResponse contains the result of a backup operation
@@ -617,10 +618,6 @@ message RestoreFromBackupRequest {
   // Backup to restore from. If this is empty, we restore from the latest
   // backup.
   string backup_id = 1;
-
-  // Whether to restore as standby. When false, auto-detect from current state.
-  // Set to true when initializing a new standby from scratch.
-  bool as_standby = 2;
 }
 
 // RestoreFromBackupResponse contains the result of a restore operation
@@ -637,6 +634,19 @@ message GetBackupsResponse {
   repeated BackupMetadata backups = 1;
 }
 
+// GetBackupByJobIdRequest queries a backup by the job_id annotation.
+message GetBackupByJobIdRequest {
+  // The job_id to search for in backup annotations.
+  string job_id = 1;
+}
+
+// GetBackupByJobIdResponse returns the backup matching the job_id.
+// If no backup is found, backup will be nil.
+message GetBackupByJobIdResponse {
+  // The backup metadata if found, nil if not found.
+  BackupMetadata backup = 1;
+}
+
 // BackupMetadata contains metadata about a backup
 message BackupMetadata {
   string table_group = 1;
@@ -644,6 +654,21 @@ message BackupMetadata {
   Status status = 3;
   string backup_id = 4;
   string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
+
+  // Job ID annotation if present (for cross-process tracking)
+  string job_id = 6;
+
+  // Size of the backup in bytes (original database size before compression)
+  uint64 backup_size_bytes = 7;
+
+  // Type of backup: "full", "diff", or "incr" (as reported by pgbackrest)
+  string type = 8;
+
+  // Multipooler ID that created this backup (from pgbackrest annotation)
+  string multipooler_id = 9;
+
+  // Pooler type that created this backup (from pgbackrest annotation)
+  clustermetadata.PoolerType pooler_type = 10;
 
   // Status represents the state of a backup
   enum Status {

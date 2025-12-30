@@ -20,20 +20,20 @@ import (
 	"time"
 )
 
-// utils.WithShortDeadline creates a context with a 2-second deadline and registers
+// WithShortDeadline creates a context with a 2-second deadline and registers
 // the cancel function with t.Cleanup() for automatic cleanup.
+// The context is derived from t.Context() so it will be cancelled if the test ends.
 func WithShortDeadline(t *testing.T) context.Context {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	t.Cleanup(cancel)
-	return ctx
+	return WithTimeout(t, 2*time.Second)
 }
 
 // WithTimeout creates a context with the provided timeout and registers
 // the cancel function with t.Cleanup() for automatic cleanup.
+// The context is derived from t.Context() so it will be cancelled if the test ends.
 func WithTimeout(t *testing.T, timeout time.Duration) context.Context {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	t.Cleanup(cancel)
 	return ctx
 }

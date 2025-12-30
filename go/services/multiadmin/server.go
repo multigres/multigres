@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -41,13 +42,21 @@ type MultiAdminServer struct {
 
 	// logger for structured logging
 	logger *slog.Logger
+
+	// backupJobTracker manages async backup/restore jobs
+	backupJobTracker *BackupJobTracker
+
+	// rpcClient is the client for communicating with multipooler nodes
+	rpcClient rpcclient.MultiPoolerClient
 }
 
 // NewMultiAdminServer creates a new MultiAdminServer instance
 func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger) *MultiAdminServer {
 	return &MultiAdminServer{
-		ts:     ts,
-		logger: logger,
+		ts:               ts,
+		logger:           logger,
+		backupJobTracker: NewBackupJobTracker(),
+		rpcClient:        rpcclient.NewMultiPoolerClient(100),
 	}
 }
 
@@ -55,6 +64,17 @@ func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger) *MultiAdminSe
 func (s *MultiAdminServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	multiadminpb.RegisterMultiAdminServiceServer(grpcServer, s)
 	s.logger.Info("MultiAdmin service registered with gRPC server")
+}
+
+// Stop stops background goroutines and releases resources
+func (s *MultiAdminServer) Stop() {
+	s.backupJobTracker.Stop()
+}
+
+// SetRPCClient sets the RPC client for communicating with multipoolers.
+// This is primarily used for testing to inject a fake client.
+func (s *MultiAdminServer) SetRPCClient(client rpcclient.MultiPoolerClient) {
+	s.rpcClient = client
 }
 
 // GetCell retrieves information about a specific cell

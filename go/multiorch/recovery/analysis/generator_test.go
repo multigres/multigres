@@ -615,6 +615,394 @@ func TestIsInStandbyList(t *testing.T) {
 	}
 }
 
+func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
+	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresRunning correctly", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		// Primary with pooler reachable and postgres running
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  true,
+			IsPostgresRunning: true,
+		})
+
+		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.True(t, analysis.PrimaryPoolerReachable)
+		assert.True(t, analysis.PrimaryPostgresRunning)
+		assert.True(t, analysis.PrimaryReachable)
+	})
+
+	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		// Primary with pooler unreachable
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false, // Pooler unreachable
+			IsPostgresRunning: false,
+		})
+
+		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.PrimaryPoolerReachable)
+		assert.False(t, analysis.PrimaryPostgresRunning)
+		assert.False(t, analysis.PrimaryReachable)
+	})
+}
+
+func TestAllReplicasConnectedToPrimary(t *testing.T) {
+	t.Run("returns true when all replicas connected", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replica1ID := "multipooler-cell1-replica1"
+		replica2ID := "multipooler-cell1-replica2"
+
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false, // Primary pooler is down
+			IsPostgresRunning: false,
+		})
+
+		// Replica 1 - connected to primary
+		poolerStore.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica1",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn: "0/1234567",
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		// Replica 2 - also connected to primary
+		poolerStore.Set(replica2ID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica2",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn: "0/1234567",
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
+		require.NoError(t, err)
+
+		assert.True(t, analysis.ReplicasConnectedToPrimary, "should be true when all replicas are connected")
+	})
+
+	t.Run("returns false when one replica disconnected", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replica1ID := "multipooler-cell1-replica1"
+		replica2ID := "multipooler-cell1-replica2"
+
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false,
+			IsPostgresRunning: false,
+		})
+
+		// Replica 1 - connected
+		poolerStore.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica1",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn: "0/1234567",
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		// Replica 2 - disconnected (no PrimaryConnInfo)
+		poolerStore.Set(replica2ID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica2",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:        clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid:  true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				// No PrimaryConnInfo - replica is disconnected
+			},
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when any replica is disconnected")
+	})
+
+	t.Run("returns false when replica unreachable", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replica1ID := "multipooler-cell1-replica1"
+
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false,
+			IsPostgresRunning: false,
+		})
+
+		// Replica is unreachable
+		poolerStore.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica1",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: false, // Replica unreachable
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when replica is unreachable")
+	})
+
+	t.Run("returns false when no replicas exist", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+
+		// Only primary, no replicas
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  true,
+			IsPostgresRunning: true,
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(primaryID)
+		require.NoError(t, err)
+
+		// For primary analysis, ReplicasConnectedToPrimary is not populated
+		// This test ensures no panic occurs
+		assert.False(t, analysis.ReplicasConnectedToPrimary)
+	})
+
+	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false,
+			IsPostgresRunning: false,
+		})
+
+		// Replica pointing to different host
+		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn: "0/1234567",
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "different-host", // Wrong host!
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when replica points to wrong primary")
+	})
+}
+
 func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 

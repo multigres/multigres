@@ -386,8 +386,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 				"primary", candidate.MultiPooler.Id.Name)
 
 			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-				Host:                  candidate.MultiPooler.Hostname,
-				Port:                  candidate.MultiPooler.PortMap["postgres"],
+				Primary:               candidate.MultiPooler,
 				CurrentTerm:           term,
 				StopReplicationBefore: false,
 				StartReplicationAfter: false,

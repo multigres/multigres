@@ -117,18 +117,18 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
 	}
 
+	// Set pooler type to PRIMARY before creating backup so the backup annotation is correct
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set pooler type")
+	}
+
 	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full")
+	backupID, err := pm.backupLocked(ctx, true, "full", "")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
-
-	// Set pooler type to PRIMARY
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set pooler type")
-	}
 
 	// Create durability policy if requested
 	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
@@ -154,9 +154,26 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
 // Used during bootstrap initialization of a new shard or when adding a new standby
 func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
+	// Validate primary is provided
+	if req.Primary == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary is required")
+	}
+
+	// Extract primary connection info
+	primaryHost := req.Primary.Hostname
+	primaryPort, ok := req.Primary.PortMap["postgres"]
+	if !ok {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary MultiPooler has no postgres port configured")
+	}
+
+	// Store primary pooler ID so we can track which primary we're replicating from
+	pm.mu.Lock()
+	pm.primaryPoolerID = req.Primary.Id
+	pm.mu.Unlock()
+
 	pm.logger.InfoContext(ctx, "InitializeAsStandby called",
 		"shard", pm.getShardID(),
-		"primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort),
+		"primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort),
 		"term", req.ConsensusTerm,
 		"force", req.Force)
 
@@ -182,9 +199,9 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 	// 2. Restore from the specified backup (or latest if not specified)
 	if req.BackupId != "" {
-		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
 	} else {
-		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", req.PrimaryHost, req.PrimaryPort))
+		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
 	}
 
 	// Restore from backup (empty string means latest)
@@ -225,8 +242,8 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 
 	// 4. Configure primary_conninfo now that PostgreSQL is running
 	// Use the locked version since we're already holding the action lock
-	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", req.PrimaryHost, "primary_port", req.PrimaryPort)
-	if err := pm.setPrimaryConnInfoLocked(ctx, req.PrimaryHost, req.PrimaryPort, false, true); err != nil {
+	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", primaryHost, "primary_port", primaryPort)
+	if err := pm.setPrimaryConnInfoLocked(ctx, primaryHost, primaryPort, false, true); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
 	}
 
@@ -274,10 +291,10 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 
 	var initialized bool
 
-	// If database is connected, check if multigres schema exists
-	if pm.db != nil {
-		exists, err := pm.querySchemaExists(ctx)
-		initialized = err == nil && exists
+	// Try to check if multigres schema exists via a query
+	exists, err := pm.querySchemaExists(ctx)
+	if err == nil {
+		initialized = exists
 	} else {
 		// If database is not connected (e.g., postgres is down), check for the initialization marker.
 		// This marker is created after full initialization completes (schema created, backup done).
@@ -340,7 +357,9 @@ func (pm *MultiPoolerManager) hasDataDirectory() bool {
 // isPostgresRunning checks if PostgreSQL is currently running
 func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
 	if pm.pgctldClient == nil {
-		return pm.db != nil
+		// No pgctld client, try a simple query to check if PostgreSQL is responding
+		_, err := pm.query(ctx, "SELECT 1")
+		return err == nil
 	}
 
 	statusReq := &pgctldpb.StatusRequest{}
@@ -354,10 +373,6 @@ func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
 
 // getRole returns the current role of this pooler ("primary", "standby", or "unknown")
 func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
-	if pm.db == nil {
-		return "unknown"
-	}
-
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return "unknown"
@@ -371,10 +386,6 @@ func (pm *MultiPoolerManager) getRole(ctx context.Context) string {
 
 // getWALPosition returns the current WAL position and any error encountered
 func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error) {
-	if pm.db == nil {
-		return "", fmt.Errorf("database connection not available")
-	}
-
 	isPrimary, err := pm.isPrimary(ctx)
 	if err != nil {
 		return "", err
@@ -386,16 +397,20 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 	return pm.getStandbyReplayLSN(ctx)
 }
 
-// getShardID returns the shard ID from the multipooler metadata
+// getShardID returns the shard ID for this pooler.
+// Prefers the topology value (pm.multipooler.Shard) but falls back to config
+// if topology hasn't loaded yet. These should always be identical since
+// the topology value is set from config at registration (init.go).
 func (pm *MultiPoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.multipooler == nil {
-		return ""
+	if pm.multipooler != nil && pm.multipooler.Shard != "" {
+		return pm.multipooler.Shard
 	}
 
-	return pm.multipooler.Shard
+	// Fall back to config - always available and authoritative
+	return pm.config.Shard
 }
 
 // removeDataDirectory removes the PostgreSQL data directory
@@ -422,22 +437,17 @@ func (pm *MultiPoolerManager) removeDataDirectory() error {
 
 // waitForDatabaseConnection waits for the database connection to become available
 func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) error {
-	// If we already have a connection, test it
-	if pm.db != nil {
-		if err := pm.db.PingContext(ctx); err == nil {
-			// Start heartbeat tracker if not already running
-			if pm.replTracker == nil {
-				shardID := []byte("0") // default shard ID
-				poolerID := pm.serviceID.Name
-				if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
-					pm.logger.WarnContext(ctx, "Failed to start heartbeat for existing DB connection", "error", err)
-				}
+	// Test if database is already reachable
+	if _, err := pm.query(ctx, "SELECT 1"); err == nil {
+		// Start heartbeat tracker if not already running
+		if pm.replTracker == nil {
+			shardID := []byte("0") // default shard ID
+			poolerID := pm.serviceID.Name
+			if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
+				pm.logger.WarnContext(ctx, "Failed to start heartbeat for existing DB connection", "error", err)
 			}
-			return nil
 		}
-		// Close stale connection
-		pm.db.Close()
-		pm.db = nil
+		return nil
 	}
 
 	// Wait for connection to become available with retry logic
@@ -457,8 +467,8 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 			return mterrors.Wrap(err, fmt.Sprintf("context error while waiting for database connection after %d attempts", attempt))
 		}
 
-		// Try to open the connection
-		if err := pm.connectDB(); err == nil {
+		// Try to query the database
+		if _, queryErr := pm.query(ctx, "SELECT 1"); queryErr == nil {
 			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
 
 			// Start heartbeat tracker if not already running
@@ -473,9 +483,9 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 
 			return nil
 		} else {
-			lastErr = err
+			lastErr = queryErr
 			if firstAttempt {
-				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", err)
+				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", queryErr)
 				firstAttempt = false
 			}
 		}

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -65,7 +66,7 @@ func (h *testHandlerWithState) getConnectionState(conn *Conn) *testConnectionSta
 	return state.(*testConnectionState)
 }
 
-func (h *testHandlerWithState) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (h *testHandlerWithState) HandleQuery(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -112,7 +113,7 @@ func (h *testHandlerWithState) HandleBind(ctx context.Context, conn *Conn, porta
 	return nil
 }
 
-func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	state := h.getConnectionState(conn)
 
 	state.mu.Lock()
@@ -124,12 +125,12 @@ func (h *testHandlerWithState) HandleExecute(ctx context.Context, conn *Conn, po
 	}
 
 	// Return a simple test result via callback
-	return callback(ctx, &query.QueryResult{
+	return callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
 			{Name: "column1", Type: "int4"},
 		},
-		Rows: []*query.Row{
-			{Values: [][]byte{[]byte("1")}},
+		Rows: []*sqltypes.Row{
+			{Values: []sqltypes.Value{[]byte("1")}},
 		},
 		CommandTag:   "SELECT 1",
 		RowsAffected: 1,

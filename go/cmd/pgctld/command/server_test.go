@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,49 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
+
+func TestIntToInt32(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     int
+		expected  int32
+		expectErr bool
+	}{
+		{"zero", 0, 0, false},
+		{"positive", 12345, 12345, false},
+		{"negative", -12345, -12345, false},
+		{"max int32", math.MaxInt32, math.MaxInt32, false},
+		{"min int32", math.MinInt32, math.MinInt32, false},
+		{"typical PID", 98765, 98765, false},
+		{"typical port", 5432, 5432, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := intToInt32(tt.input)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+
+	// Test overflow cases (only meaningful on 64-bit systems where int > int32)
+	if math.MaxInt > math.MaxInt32 {
+		t.Run("overflow positive", func(t *testing.T) {
+			_, err := intToInt32(math.MaxInt32 + 1)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "exceeds int32 range")
+		})
+		t.Run("overflow negative", func(t *testing.T) {
+			_, err := intToInt32(math.MinInt32 - 1)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "exceeds int32 range")
+		})
+	}
+}
 
 func TestPgCtldServiceStart(t *testing.T) {
 	tests := []struct {

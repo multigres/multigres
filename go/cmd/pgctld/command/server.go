@@ -18,8 +18,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -29,6 +31,15 @@ import (
 
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
+
+// intToInt32 safely converts int to int32 for protobuf fields.
+// Returns an error if value exceeds int32 range (should never happen for PIDs/ports).
+func intToInt32(v int) (int32, error) {
+	if v < math.MinInt32 || v > math.MaxInt32 {
+		return 0, fmt.Errorf("value %d exceeds int32 range", v)
+	}
+	return int32(v), nil
+}
 
 // PgCtldServerCmd holds the server command configuration
 type PgCtldServerCmd struct {
@@ -44,7 +55,7 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 		grpcServer: servenv.NewGrpcServer(pc.reg),
 		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
 	}
-	serverCmd.senv.InitServiceMap("grpc", "pgctld")
+	serverCmd.senv.InitServiceMap("grpc", constants.ServicePgctld)
 	root.AddCommand(serverCmd.createCommand())
 }
 
@@ -79,7 +90,7 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 }
 
 func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
-	if err := s.senv.Init("pgctld"); err != nil {
+	if err := s.senv.Init(constants.ServicePgctld); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 
@@ -99,7 +110,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		)
 
 		// Register gRPC service with the global GRPCServer
-		if s.grpcServer.CheckServiceMap("pgctld", s.senv) {
+		if s.grpcServer.CheckServiceMap(constants.ServicePgctld, s.senv) {
 			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
 		// TODO(sougou): Add http server
@@ -195,8 +206,13 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
+	pid, err := intToInt32(result.PID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PID: %w", err)
+	}
+
 	return &pb.StartResponse{
-		Pid:     int32(result.PID),
+		Pid:     pid,
 		Message: result.Message,
 	}, nil
 }
@@ -236,8 +252,13 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
 
+	pid, err := intToInt32(result.PID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PID: %w", err)
+	}
+
 	return &pb.RestartResponse{
-		Pid:     int32(result.PID),
+		Pid:     pid,
 		Message: result.Message,
 	}, nil
 }
@@ -267,10 +288,14 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 
 	// First check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
+		port, err := intToInt32(s.pgPort)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port: %w", err)
+		}
 		return &pb.StatusResponse{
 			Status:  pb.ServerStatus_NOT_INITIALIZED,
 			DataDir: pgctld.PostgresDataDir(s.poolerDir),
-			Port:    int32(s.pgPort),
+			Port:    port,
 			Message: "Data directory is not initialized",
 		}, nil
 	}
@@ -284,21 +309,30 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	// Convert status string to protobuf enum
 	var status pb.ServerStatus
 	switch result.Status {
-	case "STOPPED":
+	case statusStopped:
 		status = pb.ServerStatus_STOPPED
-	case "RUNNING":
+	case statusRunning:
 		status = pb.ServerStatus_RUNNING
 	default:
 		status = pb.ServerStatus_STOPPED
 	}
 
+	pid, err := intToInt32(result.PID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PID: %w", err)
+	}
+	port, err := intToInt32(result.Port)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port: %w", err)
+	}
+
 	return &pb.StatusResponse{
 		Status:  status,
-		Pid:     int32(result.PID),
+		Pid:     pid,
 		Version: result.Version,
 		Uptime:  durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
 		DataDir: result.DataDir,
-		Port:    int32(result.Port),
+		Port:    port,
 		Ready:   result.Ready,
 		Message: result.Message,
 	}, nil
@@ -321,7 +355,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)
+	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}

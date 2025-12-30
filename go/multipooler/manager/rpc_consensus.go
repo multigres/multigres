@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/multipooler/executor"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -47,12 +48,8 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	defer pm.actionLock.Release(ctx)
 
 	// CRITICAL: Must be able to reach Postgres to participate in cohort
-	if pm.db == nil {
-		return nil, fmt.Errorf("postgres unreachable, cannot accept new term")
-	}
-
-	// Test database connectivity
-	if err = pm.db.PingContext(ctx); err != nil {
+	// Test database connectivity with a simple query
+	if _, err = pm.query(ctx, "SELECT 1"); err != nil {
 		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
 	}
 
@@ -139,14 +136,24 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		// Do this check BEFORE updating term so we can reject early
 		if !wasPrimary {
 			var lastMsgReceiptTime *time.Time
-			err = pm.db.QueryRowContext(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").Scan(&lastMsgReceiptTime)
-			if err != nil {
+			result, queryErr := pm.query(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver")
+			if queryErr != nil {
 				// No WAL receiver (disconnected standby) - this is EXPECTED during failover
 				// when the primary just died. Don't reject - proceed with acceptance.
 				// The standby's data may still be recent even without an active WAL receiver.
 				pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
 					"term", req.Term)
-			} else if lastMsgReceiptTime != nil {
+			} else {
+				queryErr = executor.ScanSingleRow(result, &lastMsgReceiptTime)
+				if queryErr != nil {
+					// No WAL receiver (disconnected standby) - this is EXPECTED during failover
+					// when the primary just died. Don't reject - proceed with acceptance.
+					// The standby's data may still be recent even without an active WAL receiver.
+					pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
+						"term", req.Term)
+				}
+			}
+			if lastMsgReceiptTime != nil {
 				timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
 				if timeSinceLastMessage > 30*time.Second {
 					// We're too far behind in replication, update term but don't accept
@@ -217,8 +224,9 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		return nil, fmt.Errorf("failed to get current term: %w", err)
 	}
 
-	// Check if database is healthy
-	isHealthy := pm.db != nil
+	// Check if database is healthy by attempting a simple query
+	_, healthErr := pm.query(ctx, "SELECT 1")
+	isHealthy := healthErr == nil
 
 	// Get WAL position and determine role (primary/replica)
 	walPosition := &consensusdatapb.WALPosition{
@@ -283,16 +291,17 @@ func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consen
 // by querying the pg_stat_wal_receiver view to check the WAL receiver status
 // and verifying it's connected to the expected primary host/port
 func (pm *MultiPoolerManager) CanReachPrimary(ctx context.Context, req *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error) {
-	if pm.db == nil {
+	// Query pg_stat_wal_receiver to check if we can reach the primary
+	result, err := pm.query(ctx, "SELECT status, conninfo FROM pg_stat_wal_receiver")
+	if err != nil {
+		//nolint:nilerr // Error is communicated via response struct, not error return
 		return &consensusdatapb.CanReachPrimaryResponse{
 			Reachable:    false,
 			ErrorMessage: "database connection not available",
 		}, nil
 	}
-
-	// Query pg_stat_wal_receiver to check if we can reach the primary
 	var status, conninfo string
-	err := pm.db.QueryRowContext(ctx, "SELECT status, conninfo FROM pg_stat_wal_receiver").Scan(&status, &conninfo)
+	err = executor.ScanSingleRow(result, &status, &conninfo)
 	if err != nil {
 		// No rows returned means we're not receiving WAL (likely not a replica or not connected)
 		//nolint:nilerr // Error is communicated via response struct, not error return

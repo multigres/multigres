@@ -188,7 +188,6 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			PeerPort: portConfig.EtcdPeerPort,
 		},
 		Topology: local.TopologyConfig{
-			Backend:        "etcd2",
 			GlobalRootPath: "/multigres/global",
 			Cells:          cellConfigs,
 		},
@@ -247,7 +246,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Timeout:        30,
 				LogLevel:       "info",
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
-				PgPwfile:       filepath.Join(local.GeneratePoolerDir(tempDir, serviceID), "pgctld.pwfile"),
+				// PgPwfile not set - provisioner will create pgpassword.txt with default "postgres" password
 			},
 		}
 	}
@@ -287,7 +286,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 // checkCellExistsInTopology checks if a cell exists in the topology server
 func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) error {
 	// Create topology store connection
-	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -319,7 +318,7 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 // checkMultipoolerTopoRegistration checks if multipooler is registered with correct database, tablegroup, and shard in topology
 func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, expectedTableGroup, expectedShard string) error {
 	// Create topology store connection
-	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -658,7 +657,6 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]any)
 	require.True(t, ok, "topology config should be present")
 
-	assert.Equal(t, "etcd2", topoConfig["backend"])
 	assert.Equal(t, "/multigres/global", topoConfig["global-root-path"])
 
 	// Check cells structure in topology (now a slice)
@@ -745,8 +743,10 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 	cmd := exec.Command("multigres", cmdArgs...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	// LC_ALL is required to avoid "postmaster became multithreaded during startup" on macOS
 	cmd.Env = append(os.Environ(),
 		"MULTIGRES_TESTDATA_DIR="+tempDir,
+		"LC_ALL=en_US.UTF-8",
 	)
 
 	// On macOS, PostgreSQL 17 requires proper locale settings to avoid
@@ -796,6 +796,28 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	require.NoError(t, err, "PostgreSQL connection failed on port %d (Zone %s): %s", port, zone, string(output))
 
 	t.Logf("Zone %s PostgreSQL (port %d) is responding correctly", zone, port)
+
+	// Also test TCP connection with password to validate password was set correctly
+	// The default password is "postgres" (set by the local provisioner at pgpassword.txt)
+	testPostgreSQLTCPConnection(t, port, zone)
+}
+
+// testPostgreSQLTCPConnection tests TCP connection with password authentication.
+// This validates that the password file convention is working correctly.
+func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
+	t.Helper()
+
+	t.Logf("Testing PostgreSQL TCP connection with password on port %d (Zone %s)...", port, zone)
+
+	// Connect via TCP using the default password "postgres" (from pgpassword.txt)
+	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
+	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
+
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "PostgreSQL TCP connection with password failed on port %d (Zone %s): %s", port, zone, string(output))
+	assert.Contains(t, string(output), "TCP auth works!", "Should see successful TCP connection message")
+
+	t.Logf("Zone %s PostgreSQL TCP auth (port %d) is working correctly", zone, port)
 }
 
 func TestClusterLifecycle(t *testing.T) {
@@ -813,8 +835,8 @@ func TestClusterLifecycle(t *testing.T) {
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
 		// Setup test directory
-		clusterSetup := setupTestCluster(t)
-		t.Cleanup(clusterSetup.Cleanup)
+		clusterSetup, cleanup := setupTestCluster(t)
+		t.Cleanup(cleanup)
 		tempDir := clusterSetup.TempDir
 		configFile := clusterSetup.ConfigFile
 		testPorts := clusterSetup.PortConfig
@@ -993,8 +1015,8 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster again and verify state is preserved after restart
 		t.Log("Starting cluster again to verify state is preserved after restart...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Second start should succeed")
+		startOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Second start should succeed, output: %s", startOutput)
 
 		// Wait for both zones to be ready after restart (same as initial bootstrap)
 		t.Log("Waiting for zone1 to be ready after restart...")
@@ -1125,7 +1147,6 @@ func TestClusterLifecycle(t *testing.T) {
 		cmd := exec.Command("multipooler",
 			"--topo-global-server-addresses", "fake-address",
 			"--topo-global-root", "fake-root",
-			"--topo-implementation", "etcd2",
 		)
 		output, err := cmd.CombinedOutput()
 
@@ -1315,18 +1336,19 @@ func stringHash(s string) int {
 
 // testClusterSetup holds the resources for a test cluster
 type testClusterSetup struct {
-	TempDir    string
-	PortConfig *testPortConfig
-	ConfigFile string
-	Database   string
-	Cleanup    func()
+	TempDir     string
+	PortConfig  *testPortConfig
+	ConfigFile  string
+	Database    string
+	ReadyPGPort int // Multigateway PG port that has access to the PRIMARY pooler
 }
 
 // setupTestCluster sets up a complete test cluster with all services running.
 // This includes building binaries, creating configuration, starting the cluster,
 // and verifying all services are up and responding. Returns a testClusterSetup
-// with resources and a cleanup function that must be called when done.
-func setupTestCluster(t *testing.T) *testClusterSetup {
+// with resources and a cleanup function that must be called when done (typically
+// via t.Cleanup).
+func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 	t.Helper()
 
 	// Setup test directory
@@ -1415,11 +1437,23 @@ func setupTestCluster(t *testing.T) *testClusterSetup {
 
 	t.Log("Test cluster setup completed successfully")
 
-	return &testClusterSetup{
-		TempDir:    tempDir,
-		PortConfig: testPorts,
-		ConfigFile: configFile,
-		Database:   database,
-		Cleanup:    cleanup,
+	// Find a multigateway that has access to the PRIMARY pooler.
+	// TODO: In the long term, all multigateways should have access to the PRIMARY.
+	// We want zone-local reads from replicas, but writes always go to the single
+	// PRIMARY regardless of zone.
+	pgPorts := []int{
+		testPorts.Zones[0].MultigatewayPGPort,
+		testPorts.Zones[1].MultigatewayPGPort,
 	}
+	findCtx := utils.WithTimeout(t, 30*time.Second)
+	readyPort, err := findReadyMultigateway(t, findCtx, pgPorts)
+	require.NoError(t, err, "should find a ready multigateway after bootstrap")
+
+	return &testClusterSetup{
+		TempDir:     tempDir,
+		PortConfig:  testPorts,
+		ConfigFile:  configFile,
+		Database:    database,
+		ReadyPGPort: readyPort,
+	}, cleanup
 }
