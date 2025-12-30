@@ -259,6 +259,90 @@
       ],
       "title": "gRPC Client Latency",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Recovery actions executed by the multiorch recovery engine. Click on data points to view traces in Jaeger.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "id": 7,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (action, status) (histogram_count(increase(multiorch_recovery_action_duration_milliseconds[$__rate_interval])))",
+          "legendFormat": "{{action}} [{{status}}]",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Recovery Actions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Recovery action duration percentiles by action type. Click on data points to view traces in Jaeger.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "id": 8,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, sum by (action) (rate(multiorch_recovery_action_duration_milliseconds[$__rate_interval])))",
+          "legendFormat": "p95 - {{action}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.50, sum by (action) (rate(multiorch_recovery_action_duration_milliseconds[$__rate_interval])))",
+          "legendFormat": "p50 - {{action}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Recovery Action Duration",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
