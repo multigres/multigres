@@ -28,6 +28,12 @@ spec:
             - --log-level=info
             - --service-map=grpc-multiadmin
             - --pprof-http=true
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "multiadmin"
+          envFrom:
+            - configMapRef:
+                name: otel-config
           ports:
             - containerPort: 18000
               name: http
