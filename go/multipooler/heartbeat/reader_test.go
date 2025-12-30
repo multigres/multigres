@@ -152,9 +152,8 @@ func newTestReader(_ *testing.T, queryService *mock.QueryService, frozenTime *ti
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 
-	tr := NewReader(queryService, logger, shardID)
 	// Use 250ms interval for tests to oversample
-	tr.interval = 250 * time.Millisecond
+	tr := newReader(queryService, logger, shardID, 250*time.Millisecond)
 
 	if frozenTime != nil {
 		tr.now = func() time.Time {

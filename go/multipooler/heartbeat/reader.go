@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/tools/timer"
 )
 
 const (
@@ -46,12 +47,7 @@ type Reader struct {
 	interval     time.Duration
 	now          func() time.Time
 
-	mu     sync.Mutex
-	closed bool
-	ctx    context.Context
-	cancel context.CancelFunc
-	timer  *time.Timer
-	wg     sync.WaitGroup
+	runner *timer.PeriodicRunner
 
 	lagMu          sync.Mutex
 	lastKnownLag   time.Duration
@@ -62,78 +58,45 @@ type Reader struct {
 	readErrors atomic.Int64
 }
 
-// NewReader returns a new heartbeat reader.
+// NewReader returns a new heartbeat reader with the default interval.
 func NewReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte) *Reader {
+	return newReader(queryService, logger, shardID, defaultHeartbeatReadInterval)
+}
+
+// newReader creates a heartbeat reader with a configurable interval.
+func newReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, interval time.Duration) *Reader {
+	runner := timer.NewPeriodicRunner(context.TODO(), interval)
 	return &Reader{
 		queryService: queryService,
 		logger:       logger,
 		shardID:      shardID,
 		now:          time.Now,
-		interval:     defaultHeartbeatReadInterval,
+		interval:     interval,
+		runner:       runner,
 	}
 }
 
 // Open starts the heartbeat ticker.
 func (r *Reader) Open() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.timer != nil {
-		return // Already open
-	}
-
 	r.logger.Info("Heartbeat Reader: opening")
 
-	r.lagMu.Lock()
-	r.lastKnownTime = r.now()
-	r.lagMu.Unlock()
-
-	//nolint:gocritic // TODO: use ctxutil.Detach() after #393 merges
-	r.ctx, r.cancel = context.WithCancel(context.Background())
-	r.closed = false
-	r.scheduleNextRead()
-}
-
-// scheduleNextRead schedules the next heartbeat read.
-// Must be called while holding r.mu.
-func (r *Reader) scheduleNextRead() {
-	r.timer = time.AfterFunc(r.interval, func() { r.readHeartbeat(r.ctx) })
+	r.runner.Start(r.readHeartbeat, func() {
+		r.lagMu.Lock()
+		r.lastKnownTime = r.now()
+		r.lagMu.Unlock()
+	})
 }
 
 // Close cancels the readHeartbeat periodic ticker. After Close returns,
 // no more heartbeat reads will be made and any in-flight read has completed.
 func (r *Reader) Close() {
-	r.mu.Lock()
-	if r.timer == nil {
-		r.mu.Unlock()
-		return // Already closed or never opened
-	}
-
-	// Mark as closed and cancel context to unblock any in-flight read
-	r.closed = true
-	if r.cancel != nil {
-		r.cancel()
-	}
-
-	// Stop the timer to prevent new reads from being scheduled
-	r.timer.Stop()
-	r.timer = nil
-	r.ctx = nil
-	r.cancel = nil
-
-	r.mu.Unlock()
-
-	// Wait for any in-flight read to complete
-	r.wg.Wait()
-
+	r.runner.Stop()
 	r.logger.Info("Heartbeat Reader: closed")
 }
 
 // IsOpen returns true if the reader is open.
 func (r *Reader) IsOpen() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.timer != nil && !r.closed
+	return r.runner.Running()
 }
 
 // Status returns the most recently recorded lag measurement or error encountered.
@@ -155,41 +118,11 @@ func (r *Reader) Status() (time.Duration, error) {
 
 // readHeartbeat reads from the heartbeat table exactly once, updating
 // the last known lag and/or error, and incrementing counters.
-// The ctx parameter provides the parent context for the read operation.
 func (r *Reader) readHeartbeat(ctx context.Context) {
-	r.mu.Lock()
-
-	if r.closed {
-		r.mu.Unlock()
-		return
-	}
-
-	// Track this read so Close() can wait for it to complete
-	if r.ctx != nil {
-		r.wg.Add(1)
-		defer r.wg.Done()
-	}
-
-	// Create read context with timeout
 	readCtx, cancel := context.WithTimeout(ctx, r.interval)
-
-	// Check if we should schedule the next read (only if timer-driven)
-	shouldScheduleNext := r.timer != nil
-
-	// Release lock during the actual read to avoid blocking Close()
-	r.mu.Unlock()
+	defer cancel()
 
 	ts, err := r.fetchMostRecentHeartbeat(readCtx)
-	cancel()
-
-	// Re-acquire lock to potentially schedule next read
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return
-	}
-
 	if err != nil {
 		r.recordError(mterrors.Wrap(err, "failed to read most recent heartbeat"))
 	} else {
@@ -205,11 +138,6 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 		r.logger.DebugContext(ctx, "Heartbeat read",
 			"shard_id", r.shardID,
 			"lag", lag)
-	}
-
-	// Schedule next read only after this one completes (and only if timer-driven)
-	if shouldScheduleNext && !r.closed {
-		r.scheduleNextRead()
 	}
 }
 
