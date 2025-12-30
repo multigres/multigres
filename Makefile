@@ -59,11 +59,16 @@ proto: tools $(PROTO_GO_OUTS) ## Generate protobuf files.
 pb: $(PROTO_SRCS)
 	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
 	--plugin=$(MTROOT)/bin/protoc-gen-go --go_out=. \
+	--go_opt=Mgoogle/api/annotations.proto=google.golang.org/genproto/googleapis/api/annotations \
+	--go_opt=Mgoogle/api/http.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--plugin=$(MTROOT)/bin/protoc-gen-go-grpc --go-grpc_out=. \
+	--plugin=$(MTROOT)/bin/protoc-gen-grpc-gateway --grpc-gateway_out=. \
+	--grpc-gateway_opt=logtostderr=true \
+	--grpc-gateway_opt=generate_unbound_methods=true \
 		--proto_path=proto $(PROTO_SRCS) && \
 	mkdir -p go/pb && \
 	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \
-	rm -rf github.com/
+	rm -rf github.com/ google.golang.org/
 
 # Generate parser from grammar files
 parser: ## Generate PostgreSQL parser from grammar.
