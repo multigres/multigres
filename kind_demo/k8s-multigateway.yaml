@@ -29,6 +29,12 @@ spec:
             - --cell=zone1
             - --log-level=info
             - --pprof-http=true
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "multigateway"
+          envFrom:
+            - configMapRef:
+                name: otel-config
           ports:
             - containerPort: 15000
               name: http
