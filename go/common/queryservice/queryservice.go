@@ -24,6 +24,7 @@ package queryservice
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -59,10 +60,10 @@ type QueryService interface {
 		target *query.Target,
 		sql string,
 		options *query.ExecuteOptions,
-	) (*query.QueryResult, error)
+	) (*sqltypes.Result, error)
 
 	// StreamExecute executes a query and streams results back via callback.
-	// The callback will be called for each QueryResult. If the callback returns
+	// The callback will be called for each Result. If the callback returns
 	// an error, streaming stops and that error is returned.
 	//
 	// The context can be used to cancel the stream.
@@ -71,7 +72,7 @@ type QueryService interface {
 		target *query.Target,
 		sql string,
 		options *query.ExecuteOptions,
-		callback func(context.Context, *query.QueryResult) error,
+		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
@@ -92,7 +93,7 @@ type QueryService interface {
 		preparedStatement *query.PreparedStatement,
 		portal *query.Portal,
 		options *query.ExecuteOptions,
-		callback func(context.Context, *query.QueryResult) error,
+		callback func(context.Context, *sqltypes.Result) error,
 	) (ReservedState, error)
 
 	// Describe returns metadata about a prepared statement or portal.

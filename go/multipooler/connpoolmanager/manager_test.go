@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -187,8 +187,8 @@ func TestManager_GetRegularConnWithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &query.QueryResult{})
-	server.AddQueryPattern(`RESET .+`, &query.QueryResult{})
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
@@ -239,7 +239,7 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &query.QueryResult{})
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
@@ -454,7 +454,7 @@ func TestManager_SettingsCacheIntegration(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &query.QueryResult{})
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()

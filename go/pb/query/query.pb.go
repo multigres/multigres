@@ -226,11 +226,14 @@ func (x *Field) GetFormat() int32 {
 }
 
 // Row represents a single row of data in the result set.
-// Each value is represented as bytes (can be NULL).
 type Row struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// values contains the column values (nil entry for NULL)
-	Values        [][]byte `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	// lengths contains the length of each column value.
+	// -1 means NULL, 0 means empty string, >0 means actual length.
+	Lengths []int64 `protobuf:"zigzag64,1,rep,packed,name=lengths,proto3" json:"lengths,omitempty"`
+	// values contains all non-null values concatenated together.
+	// Use lengths to split this into individual column values.
+	Values        []byte `protobuf:"bytes,2,opt,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -265,7 +268,14 @@ func (*Row) Descriptor() ([]byte, []int) {
 	return file_query_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *Row) GetValues() [][]byte {
+func (x *Row) GetLengths() []int64 {
+	if x != nil {
+		return x.Lengths
+	}
+	return nil
+}
+
+func (x *Row) GetValues() []byte {
 	if x != nil {
 		return x.Values
 	}
@@ -522,19 +532,22 @@ type Portal struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// prepared_statement_name is the name of the prepared statement this portal is bound to.
 	PreparedStatementName string `protobuf:"bytes,2,opt,name=prepared_statement_name,json=preparedStatementName,proto3" json:"prepared_statement_name,omitempty"`
-	// params contains the parameter values sent by the client in the Bind message.
-	// Each parameter is a byte slice, with empty bytes indicating NULL.
-	Params [][]byte `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty"`
+	// param_lengths contains the length of each parameter value.
+	// -1 means NULL, 0 means empty string, >0 means actual length.
+	ParamLengths []int64 `protobuf:"zigzag64,3,rep,packed,name=param_lengths,json=paramLengths,proto3" json:"param_lengths,omitempty"`
+	// param_values contains all non-null parameter values concatenated together.
+	// Use param_lengths to split this into individual parameter values.
+	ParamValues []byte `protobuf:"bytes,4,opt,name=param_values,json=paramValues,proto3" json:"param_values,omitempty"`
 	// param_formats specifies the format code for each parameter.
 	// 0 = text, 1 = binary.
 	// If empty, all parameters are text format.
 	// If a single element, that format applies to all parameters.
-	ParamFormats []int32 `protobuf:"varint,4,rep,packed,name=param_formats,json=paramFormats,proto3" json:"param_formats,omitempty"`
+	ParamFormats []int32 `protobuf:"varint,5,rep,packed,name=param_formats,json=paramFormats,proto3" json:"param_formats,omitempty"`
 	// result_formats specifies the format code for each result column.
 	// 0 = text, 1 = binary.
 	// If empty, all results are text format.
 	// If a single element, that format applies to all result columns.
-	ResultFormats []int32 `protobuf:"varint,5,rep,packed,name=result_formats,json=resultFormats,proto3" json:"result_formats,omitempty"`
+	ResultFormats []int32 `protobuf:"varint,6,rep,packed,name=result_formats,json=resultFormats,proto3" json:"result_formats,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -583,9 +596,16 @@ func (x *Portal) GetPreparedStatementName() string {
 	return ""
 }
 
-func (x *Portal) GetParams() [][]byte {
+func (x *Portal) GetParamLengths() []int64 {
 	if x != nil {
-		return x.Params
+		return x.ParamLengths
+	}
+	return nil
+}
+
+func (x *Portal) GetParamValues() []byte {
+	if x != nil {
+		return x.ParamValues
 	}
 	return nil
 }
@@ -706,9 +726,10 @@ const file_query_proto_rawDesc = "" +
 	"\rdata_type_oid\x18\x05 \x01(\rR\vdataTypeOid\x12$\n" +
 	"\x0edata_type_size\x18\x06 \x01(\x05R\fdataTypeSize\x12#\n" +
 	"\rtype_modifier\x18\a \x01(\x05R\ftypeModifier\x12\x16\n" +
-	"\x06format\x18\b \x01(\x05R\x06format\"\x1d\n" +
-	"\x03Row\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\fR\x06values\"y\n" +
+	"\x06format\x18\b \x01(\x05R\x06format\"7\n" +
+	"\x03Row\x12\x18\n" +
+	"\alengths\x18\x01 \x03(\x12R\alengths\x12\x16\n" +
+	"\x06values\x18\x02 \x01(\fR\x06values\"y\n" +
 	"\x14StatementDescription\x12;\n" +
 	"\n" +
 	"parameters\x18\x01 \x03(\v2\x1b.query.ParameterDescriptionR\n" +
@@ -726,13 +747,14 @@ const file_query_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
 	"\vparam_types\x18\x03 \x03(\rR\n" +
-	"paramTypes\"\xb8\x01\n" +
+	"paramTypes\"\xe8\x01\n" +
 	"\x06Portal\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
-	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12\x16\n" +
-	"\x06params\x18\x03 \x03(\fR\x06params\x12#\n" +
-	"\rparam_formats\x18\x04 \x03(\x05R\fparamFormats\x12%\n" +
-	"\x0eresult_formats\x18\x05 \x03(\x05R\rresultFormats\"\x90\x02\n" +
+	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12#\n" +
+	"\rparam_lengths\x18\x03 \x03(\x12R\fparamLengths\x12!\n" +
+	"\fparam_values\x18\x04 \x01(\fR\vparamValues\x12#\n" +
+	"\rparam_formats\x18\x05 \x03(\x05R\fparamFormats\x12%\n" +
+	"\x0eresult_formats\x18\x06 \x03(\x05R\rresultFormats\"\x90\x02\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
