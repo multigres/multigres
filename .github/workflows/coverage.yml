@@ -44,7 +44,7 @@ jobs:
         run: make build
 
       - name: Run tests with direct coverage
-        run: go test -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./...
+        run: go test -json -v -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./... | tee coverage-direct-test-results.jsonl | go tool tparse -follow
 
       - name: Upload direct coverage artifact
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
@@ -53,6 +53,14 @@ jobs:
           name: coverage-direct
           path: coverage-direct.txt
           retention-days: 7
+
+      - name: Test Report
+        uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
+        if: ${{ !cancelled() }}
+        with:
+          name: Direct Coverage Tests
+          path: coverage-direct-test-results.jsonl
+          reporter: golang-json
 
   coverage-subprocess:
     name: Subprocess coverage
@@ -78,7 +86,7 @@ jobs:
         run: |
           mkdir -p coverage-subprocess-raw
           export GOCOVERDIR="$PWD/coverage-subprocess-raw"
-          go test ./...
+          go test -json -v ./... | tee coverage-subprocess-test-results.jsonl | go tool tparse -follow
 
       - name: Convert subprocess coverage to text format
         run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt
@@ -90,6 +98,14 @@ jobs:
           name: coverage-subprocess
           path: coverage-subprocess.txt
           retention-days: 7
+
+      - name: Test Report
+        uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
+        if: ${{ !cancelled() }}
+        with:
+          name: Subprocess Coverage Tests
+          path: coverage-subprocess-test-results.jsonl
+          reporter: golang-json
 
   merge-and-upload:
     name: Merge coverage and upload
