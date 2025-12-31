@@ -113,6 +113,7 @@ Configuration:
 	// Add all subcommands
 	AddClusterCommand(root, mc)
 	AddTopoCommands(root, mc)
+	AddPoolerCommands(root, mc)
 
 	return root
 }

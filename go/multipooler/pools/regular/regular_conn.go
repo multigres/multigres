@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/pb/query"
@@ -148,15 +149,15 @@ func (c *Conn) State() *connstate.ConnectionState {
 
 // Query executes a simple query and returns all results.
 // If the context is cancelled, the backend query is cancelled via adminPool.
-func (c *Conn) Query(ctx context.Context, sql string) ([]*query.QueryResult, error) {
-	return execWithContextCancel(c, ctx, func() ([]*query.QueryResult, error) {
+func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+	return execWithContextCancel(c, ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.Query(ctx, sql)
 	})
 }
 
 // QueryStreaming executes a query with streaming results via callback.
 // If the context is cancelled, the backend query is cancelled via adminPool.
-func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *query.QueryResult) error) error {
+func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
 	// Use a struct{} as the value type since we only care about the error.
 	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
 		return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
@@ -178,7 +179,7 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 // BindAndExecute binds parameters and executes atomically.
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
 // If the context is cancelled, the backend query is cancelled via adminPool.
-func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
+func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	return execWithContextCancel(c, ctx, func() (bool, error) {
 		return c.conn.BindAndExecute(ctx, stmtName, params, paramFormats, resultFormats, maxRows, callback)
 	})
@@ -230,7 +231,7 @@ func (c *Conn) Sync(ctx context.Context) error {
 // PrepareAndExecute is a convenience method that prepares and executes in one round trip.
 // name is the statement/portal name (use "" for unnamed, which is cleared after Sync).
 // If the context is cancelled, the backend query is cancelled via adminPool.
-func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
 		return struct{}{}, c.conn.PrepareAndExecute(ctx, name, queryStr, params, callback)
 	})
@@ -241,8 +242,8 @@ func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, par
 // This is a convenience method that accepts Go values as arguments and converts
 // them to the appropriate text format for PostgreSQL.
 // If the context is cancelled, the backend query is cancelled via adminPool.
-func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*query.QueryResult, error) {
-	return execWithContextCancel(c, ctx, func() ([]*query.QueryResult, error) {
+func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*sqltypes.Result, error) {
+	return execWithContextCancel(c, ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.QueryArgs(ctx, queryStr, args...)
 	})
 }
@@ -252,7 +253,7 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 // and returned PortalSuspended.
 // Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
 // If the context is cancelled, the backend query is cancelled via adminPool.
-func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
+func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	return execWithContextCancel(c, ctx, func() (bool, error) {
 		return c.conn.Execute(ctx, portalName, maxRows, callback)
 	})

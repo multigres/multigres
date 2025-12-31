@@ -341,8 +341,7 @@ func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey 
 // initializeSingleStandby initializes a single node as a standby of the given primary.
 func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node *multiorchdatapb.PoolerHealthState, primary *multiorchdatapb.PoolerHealthState, backupID string) error {
 	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
-		PrimaryHost:   primary.MultiPooler.Hostname,
-		PrimaryPort:   primary.MultiPooler.PortMap["postgres"],
+		Primary:       primary.MultiPooler,
 		ConsensusTerm: 1,
 		Force:         false,
 		BackupId:      backupID,
