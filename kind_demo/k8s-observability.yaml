@@ -95,6 +95,7 @@ spec:
       containers:
         - name: jaeger
           image: jaegertracing/jaeger:2.3.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 16686
               name: ui
@@ -107,6 +108,7 @@ spec:
               value: "true"
         - name: prometheus
           image: prom/prometheus:v3.1.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9090
               name: http
@@ -123,6 +125,7 @@ spec:
               mountPath: /etc/prometheus
         - name: grafana
           image: grafana/grafana:11.4.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
               name: http
