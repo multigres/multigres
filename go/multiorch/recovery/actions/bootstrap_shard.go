@@ -355,14 +355,8 @@ func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node
 		return fmt.Errorf("initialization failed: %s", resp.ErrorMessage)
 	}
 
-	// Set pooler type to REPLICA after InitializeAsStandby
-	changeTypeReq := &multipoolermanagerdatapb.ChangeTypeRequest{
-		PoolerType: clustermetadatapb.PoolerType_REPLICA,
-	}
-	_, err = a.rpcClient.ChangeType(ctx, node.MultiPooler, changeTypeReq)
-	if err != nil {
-		return fmt.Errorf("failed to set pooler type: %w", err)
-	}
+	// Note: InitializeAsStandby now sets the pooler type to REPLICA internally,
+	// matching the behavior of InitializeEmptyPrimary which sets type to PRIMARY.
 
 	return nil
 }

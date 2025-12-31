@@ -275,6 +275,11 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		}
 	}
 
+	// 6. Set pooler type to REPLICA
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set pooler type")
+	}
+
 	// Mark as initialized after successful standby initialization.
 	// This sets the cached boolean and writes the marker file.
 	if err := pm.setInitialized(); err != nil {
