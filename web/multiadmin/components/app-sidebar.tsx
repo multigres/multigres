@@ -34,26 +34,26 @@ const user = {
 };
 
 const managementNav = [
-  { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
+  // { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
   { title: "Topology", url: "/dashboard/topology", icon: IconListDetails },
   { title: "Databases", url: "/dashboard/databases", icon: IconDatabase },
-  { title: "Replication", url: "/dashboard/replication", icon: IconReport },
-  {
-    title: "Durability",
-    url: "/dashboard/durability",
-    icon: IconInnerShadowTop,
-  },
-  {
-    title: "Backup & Restore",
-    url: "/dashboard/backup-restore",
-    icon: IconFolder,
-  },
+  // { title: "Replication", url: "/dashboard/replication", icon: IconReport },
+  // {
+  //   title: "Durability",
+  //   url: "/dashboard/durability",
+  //   icon: IconInnerShadowTop,
+  // },
+  // {
+  //   title: "Backup & Restore",
+  //   url: "/dashboard/backup-restore",
+  //   icon: IconFolder,
+  // },
 ];
 
 const clusterNav = [
-  { title: "MultiGateways", url: "/dashboard/multigateways", icon: IconFolder },
-  { title: "MultiPoolers", url: "/dashboard/multipoolers", icon: IconFolder },
-  { title: "Settings", url: "/dashboard/settings", icon: IconSettings },
+  // { title: "MultiGateways", url: "/dashboard/multigateways", icon: IconFolder },
+  // { title: "MultiPoolers", url: "/dashboard/multipoolers", icon: IconFolder },
+  // { title: "Settings", url: "/dashboard/settings", icon: IconSettings },
 ];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
@@ -91,7 +91,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             ))}
           </SidebarMenu>
         </SidebarGroup>
-        <SidebarGroup>
+        {/* <SidebarGroup>
           <SidebarGroupLabel>Cluster</SidebarGroupLabel>
           <SidebarMenu>
             {clusterNav.map((item) => (
@@ -108,7 +108,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
-        </SidebarGroup>
+        </SidebarGroup> */}
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />

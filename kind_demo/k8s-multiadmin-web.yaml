@@ -19,6 +19,16 @@ spec:
         - name: multiadmin-web
           image: docker.io/multigres/multiadmin-web:latest
           imagePullPolicy: IfNotPresent
+          env:
+            # PostgreSQL connection via multigateway (server-side)
+            - name: POSTGRES_HOST
+              value: "multigateway"
+            - name: POSTGRES_PORT
+              value: "15432"
+            - name: POSTGRES_DATABASE
+              value: "postgres"
+            - name: POSTGRES_USER
+              value: "postgres"
           ports:
             - containerPort: 18100
               name: http
