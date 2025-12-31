@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 var multiorchs []*clustermetadatapb.MultiOrch
@@ -824,8 +825,7 @@ func TestMultiOrchInfo(t *testing.T) {
 
 // TestGetMultiOrchsByCell covers comprehensive scenarios for the GetMultiOrchsByCell method
 func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	t.Run("cell with multiple multiorchs", func(t *testing.T) {
 		// Create fresh topo for this test with multiple cells

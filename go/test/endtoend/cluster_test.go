@@ -188,7 +188,6 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			PeerPort: portConfig.EtcdPeerPort,
 		},
 		Topology: local.TopologyConfig{
-			Backend:        "etcd2",
 			GlobalRootPath: "/multigres/global",
 			Cells:          cellConfigs,
 		},
@@ -247,7 +246,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Timeout:        30,
 				LogLevel:       "info",
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
-				PgPwfile:       filepath.Join(local.GeneratePoolerDir(tempDir, serviceID), "pgctld.pwfile"),
+				// PgPwfile not set - provisioner will create pgpassword.txt with default "postgres" password
 			},
 		}
 	}
@@ -287,7 +286,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 // checkCellExistsInTopology checks if a cell exists in the topology server
 func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) error {
 	// Create topology store connection
-	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -319,7 +318,7 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 // checkMultipoolerTopoRegistration checks if multipooler is registered with correct database, tablegroup, and shard in topology
 func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, expectedDatabase, expectedTableGroup, expectedShard string) error {
 	// Create topology store connection
-	ts, err := topoclient.OpenServer("etcd2", globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+	ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
 	if err != nil {
 		return fmt.Errorf("failed to connect to topology server: %w", err)
 	}
@@ -658,7 +657,6 @@ func TestInitCommandConfigFileCreation(t *testing.T) {
 	topoConfig, ok := config.ProvisionerConfig["topology"].(map[string]any)
 	require.True(t, ok, "topology config should be present")
 
-	assert.Equal(t, "etcd2", topoConfig["backend"])
 	assert.Equal(t, "/multigres/global", topoConfig["global-root-path"])
 
 	// Check cells structure in topology (now a slice)
@@ -774,6 +772,15 @@ func executeStopCommand(t *testing.T, args []string) (string, error) {
 	return string(output), err
 }
 
+// executeMultigresCommand runs the multigres binary with the given command and args
+func executeMultigresCommand(t *testing.T, command string, args []string) (string, error) {
+	cmdArgs := append([]string{command}, args...)
+	cmd := exec.Command("multigres", cmdArgs...)
+
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
 // testPostgreSQLConnection tests PostgreSQL connectivity using Unix socket
 func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone string) {
 	t.Helper()
@@ -798,6 +805,28 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	require.NoError(t, err, "PostgreSQL connection failed on port %d (Zone %s): %s", port, zone, string(output))
 
 	t.Logf("Zone %s PostgreSQL (port %d) is responding correctly", zone, port)
+
+	// Also test TCP connection with password to validate password was set correctly
+	// The default password is "postgres" (set by the local provisioner at pgpassword.txt)
+	testPostgreSQLTCPConnection(t, port, zone)
+}
+
+// testPostgreSQLTCPConnection tests TCP connection with password authentication.
+// This validates that the password file convention is working correctly.
+func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
+	t.Helper()
+
+	t.Logf("Testing PostgreSQL TCP connection with password on port %d (Zone %s)...", port, zone)
+
+	// Connect via TCP using the default password "postgres" (from pgpassword.txt)
+	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
+	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
+
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "PostgreSQL TCP connection with password failed on port %d (Zone %s): %s", port, zone, string(output))
+	assert.Contains(t, string(output), "TCP auth works!", "Should see successful TCP connection message")
+
+	t.Logf("Zone %s PostgreSQL TCP auth (port %d) is working correctly", zone, port)
 }
 
 func TestClusterLifecycle(t *testing.T) {
@@ -963,13 +992,59 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")
 
-		// Wait for heartbeats to be written
+		// Wait for heartbeats to be written (indicates full bootstrap completion)
 		t.Log("Waiting for heartbeats...")
 		require.Eventually(t, func() bool {
 			written, err := checkHeartbeatsWritten(multipoolerAddr)
 			return err == nil && written
 		}, 10*time.Second, 500*time.Millisecond, "heartbeats should be written after bootstrap")
 		t.Log("Heartbeats detected")
+
+		// Test CLI commands work correctly (after bootstrap is complete)
+		t.Log("Testing CLI commands...")
+		adminServer := fmt.Sprintf("localhost:%d", testPorts.MultiadminGRPCPort)
+
+		// Test getcellnames command
+		t.Log("Testing getcellnames command...")
+		cellNamesOutput, err := executeMultigresCommand(t, "getcellnames", []string{"--admin-server", adminServer})
+		require.NoError(t, err, "getcellnames command failed: %s", cellNamesOutput)
+		assert.Contains(t, cellNamesOutput, "zone1", "getcellnames should return zone1")
+		assert.Contains(t, cellNamesOutput, "zone2", "getcellnames should return zone2")
+		t.Logf("getcellnames output: %s", cellNamesOutput)
+
+		// Test getpoolerstatus command - get pooler service ID from topology first
+		t.Log("Testing getpoolerstatus command...")
+		ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+		require.NoError(t, err, "failed to connect to topology for getpoolerstatus test")
+		multipoolerInfos, err := ts.GetMultiPoolersByCell(t.Context(), "zone1", nil)
+		ts.Close()
+		require.NoError(t, err, "failed to get multipoolers from topology")
+		require.NotEmpty(t, multipoolerInfos, "should have at least one multipooler in zone1")
+
+		// Use the first pooler's service ID
+		poolerServiceID := multipoolerInfos[0].Id.Name
+		t.Logf("Testing getpoolerstatus for pooler: %s", poolerServiceID)
+
+		poolerStatusOutput, err := executeMultigresCommand(t, "getpoolerstatus", []string{
+			"--admin-server", adminServer,
+			"--cell", "zone1",
+			"--service-id", poolerServiceID,
+		})
+		require.NoError(t, err, "getpoolerstatus command failed: %s", poolerStatusOutput)
+		// Verify the output contains expected status fields
+		assert.Contains(t, poolerStatusOutput, "pooler_type", "getpoolerstatus should return pooler_type")
+		assert.Contains(t, poolerStatusOutput, "postgres_running", "getpoolerstatus should return postgres_running")
+		assert.Contains(t, poolerStatusOutput, "is_initialized", "getpoolerstatus should return is_initialized")
+		t.Logf("getpoolerstatus output: %s", poolerStatusOutput)
+
+		// Test CLI commands work with config-path instead of admin-server
+		t.Log("Testing CLI commands with --config-path (no --admin-server)...")
+		cellNamesFromConfig, err := executeMultigresCommand(t, "getcellnames", []string{"--config-path", tempDir})
+		require.NoError(t, err, "getcellnames with config-path failed: %s", cellNamesFromConfig)
+		assert.Contains(t, cellNamesFromConfig, "zone1", "getcellnames from config should return zone1")
+		t.Logf("getcellnames from config output: %s", cellNamesFromConfig)
+
+		t.Log("CLI commands test completed successfully")
 
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")
@@ -995,8 +1070,8 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster again and verify state is preserved after restart
 		t.Log("Starting cluster again to verify state is preserved after restart...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Second start should succeed")
+		startOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Second start should succeed, output: %s", startOutput)
 
 		// Wait for both zones to be ready after restart (same as initial bootstrap)
 		t.Log("Waiting for zone1 to be ready after restart...")
@@ -1127,7 +1202,6 @@ func TestClusterLifecycle(t *testing.T) {
 		cmd := exec.Command("multipooler",
 			"--topo-global-server-addresses", "fake-address",
 			"--topo-global-root", "fake-root",
-			"--topo-implementation", "etcd2",
 		)
 		output, err := cmd.CombinedOutput()
 
@@ -1426,8 +1500,7 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 		testPorts.Zones[0].MultigatewayPGPort,
 		testPorts.Zones[1].MultigatewayPGPort,
 	}
-	findCtx, findCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer findCancel()
+	findCtx := utils.WithTimeout(t, 30*time.Second)
 	readyPort, err := findReadyMultigateway(t, findCtx, pgPorts)
 	require.NoError(t, err, "should find a ready multigateway after bootstrap")
 

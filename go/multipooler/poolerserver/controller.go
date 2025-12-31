@@ -65,10 +65,10 @@ type PoolerController interface {
 	// Returns an error if the controller is not initialized or not opened.
 	Executor() (queryservice.QueryService, error)
 
-	// InternalQuerier returns an InternalQuerier for simple internal queries.
+	// InternalQueryService returns an InternalQueryService for simple internal queries.
 	// This is used by internal components like heartbeat that need to execute
 	// queries using the connection pool.
-	InternalQuerier() executor.InternalQuerier
+	InternalQueryService() executor.InternalQueryService
 
 	// RegisterGRPCServices registers gRPC services with the server.
 	// This is called by MultiPoolerManager during startup.

@@ -18,13 +18,14 @@ package grpcpoolerservice
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/parser/ast"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
@@ -57,10 +58,10 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	}
 
 	// Execute the query and stream results
-	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *querypb.QueryResult) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *sqltypes.Result) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
-			Result: result,
+			Result: result.ToProto(),
 		}
 		return stream.Send(response)
 	})
@@ -85,7 +86,7 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 		return nil, err
 	}
 	return &multipoolerpb.ExecuteQueryResponse{
-		Result: res,
+		Result: res.ToProto(),
 	}, nil
 }
 
@@ -113,8 +114,8 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 
 	// Query pg_authid for the user's password hash.
 	// Note: This requires superuser access to read pg_authid.
-	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = '%s' LIMIT 1",
-		escapeString(req.Username))
+	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
+		ast.QuoteStringLiteral(req.Username))
 
 	options := &querypb.ExecuteOptions{MaxRows: 1}
 	result, err := executor.ExecuteQuery(ctx, nil, query, options)
@@ -136,12 +137,6 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	return &multipoolerpb.GetAuthCredentialsResponse{
 		ScramHash: scramHash,
 	}, nil
-}
-
-// escapeString escapes a string for safe use in SQL queries.
-// This doubles single quotes for PostgreSQL.
-func escapeString(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 // Describe returns metadata about a prepared statement or portal.
@@ -180,10 +175,10 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.PreparedStatement,
 		req.Portal,
 		req.Options,
-		func(ctx context.Context, result *querypb.QueryResult) error {
+		func(ctx context.Context, result *sqltypes.Result) error {
 			// Send the result back to the client
 			response := &multipoolerpb.PortalStreamExecuteResponse{
-				Result: result,
+				Result: result.ToProto(),
 			}
 			return stream.Send(response)
 		},

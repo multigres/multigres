@@ -18,7 +18,6 @@ package heartbeat
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -37,15 +36,17 @@ var (
 // Writer runs on primary databases and writes heartbeats to the heartbeat
 // table at regular intervals.
 type Writer struct {
-	querier  executor.InternalQuerier
-	logger   *slog.Logger
-	shardID  []byte
-	poolerID string
-	interval time.Duration
-	now      func() time.Time
+	queryService executor.InternalQueryService
+	logger       *slog.Logger
+	shardID      []byte
+	poolerID     string
+	interval     time.Duration
+	now          func() time.Time
 
-	mu          sync.Mutex
-	isOpen      bool
+	mu sync.Mutex
+	// isOpen must be modified while holding mu, but can be read without
+	// the mutex to avoid deadlock between Close() and the timer callback.
+	isOpen      atomic.Bool
 	ticks       *timer.Timer
 	writes      atomic.Int64
 	writeErrors atomic.Int64
@@ -58,19 +59,19 @@ type Writer struct {
 // NewWriter creates a new heartbeat writer.
 //
 // We do not support on-demand or disabled heartbeats at this time.
-func NewWriter(querier executor.InternalQuerier, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
+func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *Writer {
 	interval := time.Duration(intervalMs) * time.Millisecond
 	if intervalMs <= 0 {
 		interval = defaultHeartbeatInterval
 	}
 	return &Writer{
-		querier:  querier,
-		logger:   logger,
-		shardID:  shardID,
-		poolerID: poolerID,
-		interval: interval,
-		now:      time.Now,
-		ticks:    timer.NewTimer(interval),
+		queryService: queryService,
+		logger:       logger,
+		shardID:      shardID,
+		poolerID:     poolerID,
+		interval:     interval,
+		now:          time.Now,
+		ticks:        timer.NewTimer(interval),
 	}
 }
 
@@ -78,12 +79,10 @@ func NewWriter(querier executor.InternalQuerier, logger *slog.Logger, shardID []
 func (w *Writer) Open() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.isOpen {
+	if w.isOpen.Load() {
 		return
 	}
-	defer func() {
-		w.isOpen = true
-	}()
+	w.isOpen.Store(true)
 
 	w.logger.Info("Heartbeat Writer: opening")
 
@@ -94,12 +93,12 @@ func (w *Writer) Open() {
 func (w *Writer) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if !w.isOpen {
+	if !w.isOpen.Load() {
 		return
 	}
-	defer func() {
-		w.isOpen = false
-	}()
+	// Set isOpen to false BEFORE disableWrites to allow the timer callback
+	// to check this without acquiring the mutex (avoiding deadlock).
+	w.isOpen.Store(false)
 
 	w.logger.Info("Heartbeat Writer: closing")
 
@@ -110,24 +109,13 @@ func (w *Writer) Close() {
 
 // IsOpen returns true if the writer is open.
 func (w *Writer) IsOpen() bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.isOpen
+	return w.isOpen.Load()
 }
 
 // enableWrites activates heartbeat writes
+// Internal method to be called only from Open.
 func (w *Writer) enableWrites() {
-	// We must combat a potential race condition: the writer is Open, and a request comes
-	// to enableWrites(), but simultaneously the writes gets Close()d.
-	// We must not send any more ticks while the writer is closed.
-	go func() {
-		w.mu.Lock()
-		defer w.mu.Unlock()
-		if !w.isOpen {
-			return
-		}
-		w.ticks.Start(w.writeHeartbeat)
-	}()
+	w.ticks.Start(w.writeHeartbeat)
 }
 
 // disableWrites deactivates heartbeat writes.
@@ -177,15 +165,13 @@ func (w *Writer) write() error {
 	// Get current timestamp in nanoseconds
 	tsNano := w.now().UnixNano()
 
-	query := fmt.Sprintf(`
+	_, err := w.queryService.QueryArgs(ctx, `
 		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts)
-		VALUES ('%s', '%s', %d)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (shard_id) DO UPDATE
 		SET leader_id = EXCLUDED.leader_id,
 		    ts = EXCLUDED.ts
-	`, escapeBytes(w.shardID), w.poolerID, tsNano)
-
-	_, err := w.querier.Query(ctx, query)
+	`, w.shardID, w.poolerID, tsNano)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}

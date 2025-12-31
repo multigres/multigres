@@ -132,8 +132,7 @@ func TestInitializeAsStandby(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupFunc     func(t *testing.T, pm *MultiPoolerManager, poolerDir string)
-		primaryHost   string
-		primaryPort   int32
+		primary       *clustermetadatapb.MultiPooler
 		term          int64
 		force         bool
 		expectError   bool
@@ -144,8 +143,15 @@ func TestInitializeAsStandby(t *testing.T) {
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
 				// Fresh pooler - no setup needed
 			},
-			primaryHost: "primary-host",
-			primaryPort: 5432,
+			primary: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "test-cell",
+					Name:      "primary-pooler",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
+			},
 			term:        1,
 			force:       false,
 			expectError: false,
@@ -163,11 +169,48 @@ func TestInitializeAsStandby(t *testing.T) {
 				testFile := filepath.Join(dataDir, "test.txt")
 				require.NoError(t, os.WriteFile(testFile, []byte("test"), 0o644))
 			},
-			primaryHost: "primary-host",
-			primaryPort: 5432,
+			primary: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "test-cell",
+					Name:      "primary-pooler",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{"postgres": 5432},
+			},
 			term:        1,
 			force:       true,
 			expectError: false,
+		},
+		{
+			name: "error when primary is nil",
+			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
+				// Fresh pooler - no setup needed
+			},
+			primary:       nil,
+			term:          1,
+			force:         false,
+			expectError:   true,
+			errorContains: "primary is required",
+		},
+		{
+			name: "error when primary has no postgres port",
+			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
+				// Fresh pooler - no setup needed
+			},
+			primary: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "test-cell",
+					Name:      "primary-pooler",
+				},
+				Hostname: "primary-host",
+				PortMap:  map[string]int32{}, // No postgres port
+			},
+			term:          1,
+			force:         false,
+			expectError:   true,
+			errorContains: "no postgres port configured",
 		},
 	}
 
@@ -219,8 +262,7 @@ func TestInitializeAsStandby(t *testing.T) {
 
 			// Call InitializeAsStandby
 			req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
-				PrimaryHost:   tt.primaryHost,
-				PrimaryPort:   tt.primaryPort,
+				Primary:       tt.primary,
 				ConsensusTerm: tt.term,
 				Force:         tt.force,
 			}
@@ -254,6 +296,75 @@ func TestInitializeAsStandby(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInitializeAsStandbySetsPrimaryPoolerID(t *testing.T) {
+	ctx := context.Background()
+	poolerDir := t.TempDir()
+
+	// Create test config
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "test-cell",
+		Name:      "test-pooler",
+	}
+
+	config := &Config{
+		PoolerDir:  poolerDir,
+		PgPort:     5432,
+		Database:   "postgres",
+		TopoClient: store,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	logger := slog.Default()
+	pm, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize consensus state
+	pm.consensusState = NewConsensusState(poolerDir, serviceID)
+	_, err = pm.consensusState.Load()
+	require.NoError(t, err)
+
+	// Verify primaryPoolerID is initially nil
+	pm.mu.Lock()
+	assert.Nil(t, pm.primaryPoolerID, "primaryPoolerID should be nil initially")
+	pm.mu.Unlock()
+
+	// Create primary MultiPooler
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "test-cell",
+		Name:      "primary-pooler",
+	}
+	primary := &clustermetadatapb.MultiPooler{
+		Id:       primaryID,
+		Hostname: "primary-host",
+		PortMap:  map[string]int32{"postgres": 5432},
+	}
+
+	// Call InitializeAsStandby with Primary field
+	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
+		Primary:       primary,
+		ConsensusTerm: 1,
+		Force:         false,
+	}
+
+	// This will fail early due to missing pgctld/backup, but primaryPoolerID should be set first
+	_, _ = pm.InitializeAsStandby(ctx, req)
+
+	// Verify primaryPoolerID was set (even though the operation failed later)
+	pm.mu.Lock()
+	assert.NotNil(t, pm.primaryPoolerID, "primaryPoolerID should be set from Primary field")
+	if pm.primaryPoolerID != nil {
+		assert.Equal(t, "primary-pooler", pm.primaryPoolerID.Name)
+		assert.Equal(t, "test-cell", pm.primaryPoolerID.Cell)
+	}
+	pm.mu.Unlock()
 }
 
 func TestHelperMethods(t *testing.T) {

@@ -15,7 +15,6 @@
 package multipooler
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -55,8 +54,7 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 		defer conn.Close()
 
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 1*time.Second)
 
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
 		resp, err := client.PrimaryPosition(ctx, req)
@@ -87,8 +85,7 @@ func TestMultipoolerPrimaryPosition(t *testing.T) {
 		defer conn.Close()
 
 		client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 1*time.Second)
 
 		req := &multipoolermanagerdata.PrimaryPositionRequest{}
 		_, err = client.PrimaryPosition(ctx, req)
@@ -237,9 +234,17 @@ func TestPrimaryStatus(t *testing.T) {
 		t.Log("Testing PrimaryStatus with connected follower...")
 
 		// Ensure standby is connected and replicating
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "test-cell",
+				Name:      setup.PrimaryMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+		}
 		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.PrimaryPgctld.PgPort),
+			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           1,
@@ -296,8 +301,7 @@ func TestPrimaryStatus(t *testing.T) {
 
 		t.Log("Testing PrimaryStatus on REPLICA pooler (should fail)...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 1*time.Second)
 
 		_, err := standbyManagerClient.PrimaryStatus(ctx, &multipoolermanagerdata.PrimaryStatusRequest{})
 		require.Error(t, err, "PrimaryStatus should fail on standby")
@@ -597,8 +601,7 @@ func TestGetFollowers(t *testing.T) {
 
 		t.Log("Testing GetFollowers on REPLICA pooler (should fail)...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
+		ctx := utils.WithTimeout(t, 1*time.Second)
 
 		_, err := standbyManagerClient.GetFollowers(ctx, &multipoolermanagerdata.GetFollowersRequest{})
 		require.Error(t, err, "GetFollowers should fail on standby")

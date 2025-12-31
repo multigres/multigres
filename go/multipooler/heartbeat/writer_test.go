@@ -26,12 +26,12 @@ import (
 )
 
 func TestWriteHeartbeat(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 	now := time.Now()
-	tw := newTestWriter(t, querier, &now)
+	tw := newTestWriter(t, queryService, &now)
 
 	// Add expected heartbeat query (must match with whitespace)
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	tw.Open()
 	defer tw.Close()
@@ -45,11 +45,11 @@ func TestWriteHeartbeat(t *testing.T) {
 
 // TestWriteHeartbeatOpen tests that the heartbeat writer writes heartbeats when the writer is open.
 func TestWriteHeartbeatOpen(t *testing.T) {
-	querier := mock.NewQuerier()
-	tw := newTestWriter(t, querier, nil)
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
 
 	// Add expected heartbeat query pattern
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	// Writes should not happen when closed
 	tw.writeHeartbeat()
@@ -81,8 +81,8 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 
 // TestWriteHeartbeatError tests that write errors are logged but don't crash the writer.
 func TestWriteHeartbeatError(t *testing.T) {
-	querier := mock.NewQuerier()
-	tw := newTestWriter(t, querier, nil)
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
 
 	tw.Open()
 	defer tw.Close()
@@ -95,10 +95,10 @@ func TestWriteHeartbeatError(t *testing.T) {
 
 // TestOpenClose tests the basic open/close lifecycle.
 func TestOpenClose(t *testing.T) {
-	querier := mock.NewQuerier()
-	tw := newTestWriter(t, querier, nil)
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
 
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
 	assert.False(t, tw.IsOpen())
 
@@ -119,12 +119,12 @@ func TestOpenClose(t *testing.T) {
 
 // TestMultipleWriters tests that multiple writers can run concurrently.
 func TestMultipleWriters(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 
-	querier.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
-	tw1 := newTestWriter(t, querier, nil)
-	tw2 := newTestWriter(t, querier, nil)
+	tw1 := newTestWriter(t, queryService, nil)
+	tw2 := newTestWriter(t, queryService, nil)
 
 	tw1.Open()
 	tw2.Open()
@@ -145,14 +145,14 @@ func TestMultipleWriters(t *testing.T) {
 // TestCloseWhileStuckWriting tests that Close() properly cancels an in-progress write
 // and waits for it to complete.
 func TestCloseWhileStuckWriting(t *testing.T) {
-	querier := mock.NewQuerier()
-	tw := newTestWriter(t, querier, nil)
+	queryService := mock.NewQueryService()
+	tw := newTestWriter(t, queryService, nil)
 
 	writeStarted := make(chan struct{})
 	writeUnblocked := make(chan struct{})
 
 	// Add a query pattern that blocks until context is canceled
-	querier.AddQueryPatternWithContextCallback(
+	queryService.AddQueryPatternWithContextCallback(
 		"\\s*INSERT INTO multigres\\.heartbeat.*",
 		mock.MakeQueryResult([]string{}, [][]any{}),
 		func(ctx context.Context, _ string) {
@@ -195,13 +195,13 @@ func TestCloseWhileStuckWriting(t *testing.T) {
 }
 
 // newTestWriter creates a new heartbeat writer for testing.
-func newTestWriter(_ *testing.T, querier *mock.Querier, frozenTime *time.Time) *Writer {
+func newTestWriter(_ *testing.T, queryService *mock.QueryService, frozenTime *time.Time) *Writer {
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
 	// Use 250ms interval for tests to oversample our 1s test ticker
-	tw := NewWriter(querier, logger, shardID, poolerID, 250)
+	tw := NewWriter(queryService, logger, shardID, poolerID, 250)
 
 	if frozenTime != nil {
 		tw.now = func() time.Time {

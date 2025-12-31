@@ -22,6 +22,7 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 
@@ -65,7 +66,7 @@ func (g *grpcQueryService) StreamExecute(
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	g.logger.DebugContext(ctx, "streaming query execution",
 		"pooler_id", g.poolerID,
@@ -106,8 +107,11 @@ func (g *grpcQueryService) StreamExecute(
 			continue
 		}
 
+		// Convert proto result to sqltypes (preserves NULL vs empty string)
+		result := sqltypes.ResultFromProto(response.Result)
+
 		// Call the callback with the result
-		if err := callback(ctx, response.Result); err != nil {
+		if err := callback(ctx, result); err != nil {
 			// Callback returned error, stop streaming
 			g.logger.DebugContext(ctx, "callback returned error, stopping stream",
 				"pooler_id", g.poolerID,
@@ -120,7 +124,7 @@ func (g *grpcQueryService) StreamExecute(
 // ExecuteQuery implements queryservice.QueryService.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
-func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
+func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
 	g.logger.DebugContext(ctx, "Executing query",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
@@ -138,7 +142,11 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Targe
 
 	// Call the gRPC ExecuteQuery
 	res, err := g.client.ExecuteQuery(ctx, req)
-	return res.GetResult(), err
+	if err != nil {
+		return nil, err
+	}
+	// Convert proto result to sqltypes (preserves NULL vs empty string)
+	return sqltypes.ResultFromProto(res.GetResult()), nil
 }
 
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
@@ -149,7 +157,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
 	g.logger.DebugContext(ctx, "portal stream execute",
 		"pooler_id", g.poolerID,
@@ -202,8 +210,11 @@ func (g *grpcQueryService) PortalStreamExecute(
 			continue
 		}
 
+		// Convert proto result to sqltypes (preserves NULL vs empty string)
+		result := sqltypes.ResultFromProto(response.Result)
+
 		// Call the callback with the result
-		if err := callback(ctx, response.Result); err != nil {
+		if err := callback(ctx, result); err != nil {
 			// Callback returned error, stop streaming
 			g.logger.DebugContext(ctx, "callback returned error, stopping stream",
 				"pooler_id", g.poolerID,
