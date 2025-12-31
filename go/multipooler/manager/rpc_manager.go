@@ -1003,15 +1003,19 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// Write leadership history record
+	// Write leadership history record - always record for audit trail
 	leaderID := generateApplicationName(pm.serviceID)
-	if reason != "" && coordinatorID != "" {
-		if err := pm.insertLeadershipHistory(ctx, consensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
-			// Log but don't fail the promotion - history is for audit, not correctness
-			pm.logger.WarnContext(ctx, "Failed to insert leadership history",
-				"term", consensusTerm,
-				"error", err)
-		}
+	if reason == "" {
+		reason = "unknown"
+	}
+	if coordinatorID == "" {
+		coordinatorID = "unknown"
+	}
+	if err := pm.insertLeadershipHistory(ctx, consensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
+		// Log but don't fail the promotion - history is for audit, not correctness
+		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
+			"term", consensusTerm,
+			"error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Promote completed successfully",
