@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -376,10 +377,7 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 	}
 
 	// Get coordinator ID as a string
-	coordinatorIDStr := ""
-	if c.coordinatorID != nil {
-		coordinatorIDStr = c.coordinatorID.Name
-	}
+	coordinatorIDStr := topoclient.ClusterIDString(c.GetCoordinatorID())
 
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
 		ConsensusTerm:         term,
