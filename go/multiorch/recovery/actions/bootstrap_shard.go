@@ -55,7 +55,7 @@ type BootstrapShardAction struct {
 	topoStore        topoclient.Store
 	logger           *slog.Logger
 	statusRPCTimeout time.Duration
-	coordinatorID    string
+	coordinator      *coordinator.Coordinator
 }
 
 // NewBootstrapShardAction creates a new bootstrap action with default settings.
@@ -63,7 +63,7 @@ func NewBootstrapShardAction(
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
-	coordinatorID string,
+	coordinator *coordinator.Coordinator,
 	logger *slog.Logger,
 ) *BootstrapShardAction {
 	return &BootstrapShardAction{
@@ -72,7 +72,7 @@ func NewBootstrapShardAction(
 		topoStore:        topoStore,
 		logger:           logger,
 		statusRPCTimeout: DefaultStatusRPCTimeout,
-		coordinatorID:    coordinatorID,
+		coordinator:      coordinator,
 	}
 }
 
@@ -184,7 +184,7 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		ConsensusTerm:        1,
 		DurabilityPolicyName: policyName,
 		DurabilityQuorumRule: quorumRule,
-		CoordinatorId:        a.coordinatorID,
+		CoordinatorId:        topoclient.ClusterIDString(a.coordinator.GetCoordinatorID()),
 	}
 	resp, err := a.rpcClient.InitializeEmptyPrimary(ctx, candidate.MultiPooler, req)
 	if err != nil {

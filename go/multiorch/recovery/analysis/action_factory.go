@@ -56,8 +56,7 @@ func NewRecoveryActionFactory(
 
 // NewBootstrapShardAction creates a bootstrap shard action.
 func (f *RecoveryActionFactory) NewBootstrapShardAction() types.RecoveryAction {
-	coordinatorID := topoclient.ClusterIDString(f.coordinator.GetCoordinatorID())
-	return actions.NewBootstrapShardAction(f.rpcClient, f.poolerStore, f.topoStore, coordinatorID, f.logger)
+	return actions.NewBootstrapShardAction(f.rpcClient, f.poolerStore, f.topoStore, f.coordinator, f.logger)
 }
 
 // NewAppointLeaderAction creates an appoint leader action.
