@@ -87,17 +87,14 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
 	t.Log("Waiting for multiorch to detect and bootstrap the shard...")
-	primaryName := waitForShardPrimary(t, setup, 60*time.Second)
+	primaryName := waitForShardPrimary(t, setup, 30*time.Second)
 	require.NotEmpty(t, primaryName, "Expected multiorch to bootstrap shard automatically")
 	setup.PrimaryName = primaryName
 
-	// Wait for both standbys to initialize (needed for sync replication with ANY_2)
+	// Wait for both standbys to initialize and sync replication to be configured
+	// (waitForStandbysInitialized includes sync replication check)
 	t.Log("Waiting for standbys to complete initialization...")
-	waitForStandbysInitialized(t, setup, 2, 60*time.Second)
-
-	// Wait for sync replication to be configured (happens after standbys initialize)
-	t.Log("Waiting for sync replication to be configured...")
-	waitForSyncReplicationConfigured(t, setup, 30*time.Second)
+	waitForStandbysInitialized(t, setup, 2, 30*time.Second)
 
 	// Get primary instance for verification tests
 	primary := setup.GetMultipoolerInstance(setup.PrimaryName)

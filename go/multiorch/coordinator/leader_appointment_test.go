@@ -437,7 +437,7 @@ func TestPropagate(t *testing.T) {
 
 		// Verify election metadata fields
 		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
-		require.Equal(t, "test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match")
+		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match cell_name format")
 		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers, "CohortMembers should match")
 		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.AcceptedMembers, "AcceptedMembers should match")
 		require.Equal(t, int64(6), promoteReq.ConsensusTerm, "ConsensusTerm should match")
@@ -490,7 +490,7 @@ func TestPropagate(t *testing.T) {
 
 		// Verify election metadata fields
 		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
-		require.Equal(t, "test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match")
+		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match cell_name format")
 		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
 		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
 	})
