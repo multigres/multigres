@@ -22,6 +22,7 @@ package multiorch
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -172,9 +173,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Assertions
 		assert.Greater(t, termNumber, int64(1), "term_number should be greater than 1 (this is a re-election)")
 		assert.Contains(t, leaderID, newPrimaryName, "leader_id should contain new primary name")
-		// Verify coordinator_id matches the multiorch's service-id
-		// The service-id is set to the instance name ("multiorch") in CreateMultiOrchInstance
-		assert.Equal(t, "multiorch", coordinatorID, "coordinator_id should match multiorch's service-id")
+		// Verify coordinator_id matches the multiorch's cell_name format
+		// The coordinator ID uses ClusterIDString which returns cell_name format
+		expectedCoordinatorID := fmt.Sprintf("%s_multiorch", setup.CellName)
+		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
 		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
 

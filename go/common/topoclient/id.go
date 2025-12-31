@@ -33,7 +33,7 @@ func ComponentTypeToString(component clustermetadatapb.ID_ComponentType) string 
 	return "unknown"
 }
 
-// ClusterIDString returns a string representation of the cluster ID.
+// ClusterIDString returns a string representation of the cluster ID in cell_name format.
 // Returns empty string if id is nil.
 func ClusterIDString(id *clustermetadatapb.ID) string {
 	if id == nil {

@@ -56,7 +56,7 @@ func (f *RecoveryActionFactory) NewBootstrapShardAction() types.RecoveryAction {
 	coordinatorID := ""
 	if f.coordinator != nil {
 		if id := f.coordinator.GetCoordinatorID(); id != nil {
-			coordinatorID = id.Name
+			coordinatorID = topoclient.ClusterIDString(id)
 		}
 	}
 	return actions.NewBootstrapShardAction(f.rpcClient, f.poolerStore, f.topoStore, coordinatorID, f.logger)
