@@ -95,8 +95,13 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	// Stage 6: Propagate (setup replication within shard)
 	c.logger.InfoContext(ctx, "Stage 6: Propagating replication", "shard", shardID)
 
-	// Reconstruct the recruited list (nodes that accepted the term)
-	// This is candidate + standbys
+	// Reconstruct the recruited list (nodes that accepted the term).
+	// This is candidate + standbys.
+	//
+	// The recruited list may differ from the original cohort in these scenarios:
+	// - Some nodes in the cohort were unreachable during BeginTerm
+	// - Some nodes rejected the term (e.g., had a higher term already)
+	// - Some nodes failed validation (e.g., insufficient LSN)
 	recruited := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys)+1)
 	recruited = append(recruited, candidate)
 	recruited = append(recruited, standbys...)
