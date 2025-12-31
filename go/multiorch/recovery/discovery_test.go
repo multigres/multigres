@@ -59,7 +59,7 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Initial state: 2 poolers in different tablegroups
@@ -133,7 +133,7 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Initial state: poolers in tg1 and tg2
@@ -198,7 +198,7 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Initial state: poolers in different shards and tablegroups
@@ -282,7 +282,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add initial pooler
@@ -357,7 +357,7 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 			{Database: "db3", TableGroup: "tg1", Shard: "0"}, // Watch specific shard
 		},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add poolers for different watch targets
@@ -421,7 +421,7 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Refresh with empty topology
@@ -469,7 +469,7 @@ func TestRefreshPoolersForTarget_BasicRefresh(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Refresh poolers for the target
@@ -522,7 +522,7 @@ func TestRefreshPoolersForTarget_PreservesHealthCheckData(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Pre-populate store with existing health check data
@@ -606,7 +606,7 @@ func TestRefreshPoolersForTarget_IgnoresPoolers(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Refresh poolers, ignoring pooler1
@@ -671,7 +671,7 @@ func TestRefreshPoolersForTarget_FiltersToShard(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Refresh only shard 0
@@ -718,7 +718,7 @@ func TestRefreshShardMetadata_Success(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Refresh shard metadata
@@ -746,7 +746,7 @@ func TestForceHealthCheckShardPoolers_ForcesPolls(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add poolers to the store (simulating already discovered poolers)
@@ -838,7 +838,7 @@ func TestForceHealthCheckShardPoolers_RespectsIgnoreList(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add poolers to the store

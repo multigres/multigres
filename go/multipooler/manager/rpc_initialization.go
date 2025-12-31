@@ -138,6 +138,27 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		pm.logger.InfoContext(ctx, "Created durability policy", "policy_name", req.DurabilityPolicyName)
 	}
 
+	// Get final LSN position for leadership history
+	finalLSN, err := pm.getPrimaryLSN(ctx)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
+		return nil, err
+	}
+
+	// Write leadership history record for bootstrap
+	leaderID := generateApplicationName(pm.serviceID)
+	coordinatorID := req.CoordinatorId
+	reason := "ShardNeedsBootstrap"
+	cohortMembers := []string{leaderID} // Only the initial primary during bootstrap
+	acceptedMembers := []string{leaderID}
+
+	if err := pm.insertLeadershipHistory(ctx, req.ConsensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
+		// Log but don't fail - history is for audit, not correctness
+		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
+			"term", req.ConsensusTerm,
+			"error", err)
+	}
+
 	// Mark as initialized after successful primary initialization.
 	// This sets the cached boolean and writes the marker file.
 	if err := pm.setInitialized(); err != nil {
@@ -252,6 +273,11 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set consensus term")
 		}
+	}
+
+	// 6. Set pooler type to REPLICA
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set pooler type")
 	}
 
 	// Mark as initialized after successful standby initialization.

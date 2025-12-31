@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -316,7 +317,7 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 // - Promote the candidate to primary
 // - Configure standbys to replicate from the new primary
 // - Configure synchronous replication based on quorum policy
-func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, term int64, quorumRule *clustermetadatapb.QuorumRule) error {
+func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, term int64, quorumRule *clustermetadatapb.QuorumRule, reason string, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
 	// Build synchronous replication configuration based on quorum policy
 	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, standbys, candidate)
 	if err != nil {
@@ -360,11 +361,33 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 		}
 	}
 
+	// Build lists of cohort member names and accepted member names
+	cohortMembers := make([]string, 0, len(cohort))
+	for _, pooler := range cohort {
+		if pooler.MultiPooler != nil && pooler.MultiPooler.Id != nil {
+			cohortMembers = append(cohortMembers, pooler.MultiPooler.Id.Name)
+		}
+	}
+
+	acceptedMembers := make([]string, 0, len(recruited))
+	for _, pooler := range recruited {
+		if pooler.MultiPooler != nil && pooler.MultiPooler.Id != nil {
+			acceptedMembers = append(acceptedMembers, pooler.MultiPooler.Id.Name)
+		}
+	}
+
+	// Get coordinator ID as a string
+	coordinatorIDStr := topoclient.ClusterIDString(c.GetCoordinatorID())
+
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
 		ConsensusTerm:         term,
 		ExpectedLsn:           expectedLSN,
 		SyncReplicationConfig: syncConfig,
 		Force:                 false,
+		Reason:                reason,
+		CoordinatorId:         coordinatorIDStr,
+		CohortMembers:         cohortMembers,
+		AcceptedMembers:       acceptedMembers,
 	}
 	_, err = c.rpcClient.Promote(ctx, candidate.MultiPooler, promoteReq)
 	if err != nil {

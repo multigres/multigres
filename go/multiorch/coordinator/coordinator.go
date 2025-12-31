@@ -56,7 +56,7 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
-func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string) error {
+func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string, reason string) error {
 	c.logger.InfoContext(ctx, "Starting leader appointment",
 		"shard", shardID,
 		"database", database,
@@ -94,7 +94,19 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 
 	// Stage 6: Propagate (setup replication within shard)
 	c.logger.InfoContext(ctx, "Stage 6: Propagating replication", "shard", shardID)
-	if err := c.Propagate(ctx, candidate, standbys, term, quorumRule); err != nil {
+
+	// Reconstruct the recruited list (nodes that accepted the term).
+	// This is candidate + standbys.
+	//
+	// The recruited list may differ from the original cohort in these scenarios:
+	// - Some nodes in the cohort were unreachable during BeginTerm
+	// - Some nodes rejected the term (e.g., had a higher term already)
+	// - Some nodes failed validation (e.g., insufficient LSN)
+	recruited := make([]*multiorchdatapb.PoolerHealthState, 0, len(standbys)+1)
+	recruited = append(recruited, candidate)
+	recruited = append(recruited, standbys...)
+
+	if err := c.Propagate(ctx, candidate, standbys, term, quorumRule, reason, cohort, recruited); err != nil {
 		return mterrors.Wrap(err, "Propagate failed")
 	}
 
@@ -153,6 +165,11 @@ func (c *Coordinator) updateTopology(ctx context.Context, candidate *multiorchda
 	}
 
 	return nil
+}
+
+// GetCoordinatorID returns the coordinator's ID.
+func (c *Coordinator) GetCoordinatorID() *clustermetadatapb.ID {
+	return c.coordinatorID
 }
 
 // GetShardNodes retrieves all multipooler nodes for a given shard from the topology.

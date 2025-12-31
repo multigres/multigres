@@ -55,7 +55,7 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add poolers to topology
@@ -150,7 +150,7 @@ func TestRecoveryEngine_HealthCheckQueueDeduplication(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add pooler to topology
@@ -208,7 +208,7 @@ func TestRecoveryEngine_HealthCheckWorkerPool(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add multiple poolers
