@@ -33,17 +33,30 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/tools/netutil"
+
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 // Init is the first phase of the server startup.
-func (sv *ServEnv) Init(serviceName string) error {
+// The id parameter provides service identification for telemetry resource attributes.
+func (sv *ServEnv) Init(id ServiceIdentity) error {
 	sv.mu.Lock()
 	sv.initStartTime = time.Now()
 	sv.mu.Unlock()
 	sv.lg.SetupLogging()
 
-	// Initialize OpenTelemetry
-	if err := sv.telemetry.InitTelemetry(context.TODO(), serviceName); err != nil {
+	// Build OTel resource attributes from service identity
+	var attrs []attribute.KeyValue
+	if id.ServiceInstanceID != "" {
+		attrs = append(attrs, semconv.ServiceInstanceID(id.ServiceInstanceID))
+	}
+	if id.Cell != "" {
+		attrs = append(attrs, semconv.CloudAvailabilityZone(id.Cell))
+	}
+
+	// Initialize OpenTelemetry with service identity attributes
+	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {
 		slog.Error("Failed to initialize OpenTelemetry", "error", err)
 		// Continue without telemetry rather than crashing
 	}

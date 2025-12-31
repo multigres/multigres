@@ -192,7 +192,18 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
 	defer span.End()
 
-	if err := mp.senv.Init(constants.ServiceMultipooler); err != nil {
+	// Resolve service ID early for telemetry resource attributes
+	serviceID := mp.serviceID.Get()
+	if serviceID == "" {
+		serviceID = servenv.GenerateRandomServiceID()
+	}
+	cell := mp.cell.Get()
+
+	if err := mp.senv.Init(servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultipooler,
+		ServiceInstanceID: serviceID,
+		Cell:              cell,
+	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	// Get the configured logger
@@ -233,8 +244,8 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return fmt.Errorf("shard is required")
 	}
 
-	// Create MultiPooler instance for topo registration
-	multipooler := topoclient.NewMultiPooler(mp.serviceID.Get(), mp.cell.Get(), mp.senv.GetHostname(), mp.tableGroup.Get())
+	// Create multipooler record with all fields now that servenv.Init() has set them up
+	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
