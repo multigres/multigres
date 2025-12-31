@@ -334,10 +334,10 @@ func (pg *PoolerGateway) Close(ctx context.Context) error {
 // Ensure PoolerGateway implements Gateway
 var _ Gateway = (*PoolerGateway)(nil)
 
-// getPoolerServiceClient returns a MultiPoolerServiceClient for the given database.
-// This can be used for authentication or other admin operations.
+// getSystemServiceClient returns a MultiPoolerServiceClient for the given database.
+// This can be used for authentication or other system-level operations.
 // It finds any available pooler and returns a client connected to it.
-func (pg *PoolerGateway) getPoolerServiceClient(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
+func (pg *PoolerGateway) getSystemServiceClient(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
 	// Find any pooler - for authentication we just need access to pg_authid
 	// which is available from any pooler connected to this database.
 	// Try PRIMARY first, fall back to REPLICA if not found in this cell.
@@ -372,10 +372,10 @@ func (pg *PoolerGateway) getPoolerServiceClient(ctx context.Context, database st
 	return pg.connections[poolerID].serviceClient, nil
 }
 
-// PoolerClientFunc returns a function that can be used with auth.PoolerHashProvider.
-// The returned function discovers an available pooler and returns a client for it.
-func (pg *PoolerGateway) PoolerClientFunc() func(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
-	return pg.getPoolerServiceClient
+// SystemClientFunc returns a function that can be used with auth.PoolerHashProvider.
+// The returned function discovers an available pooler and returns a system client for it.
+func (pg *PoolerGateway) SystemClientFunc() func(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
+	return pg.getSystemServiceClient
 }
 
 // Stats returns statistics about the gateway.

@@ -186,7 +186,7 @@ func (mg *MultiGateway) Init() error {
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
 
 	// Create hash provider for SCRAM authentication using the pooler gateway
-	hashProvider := auth.NewPoolerHashProvider(&poolerDiscovererAdapter{pg: mg.poolerGateway})
+	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
 
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger)
@@ -282,25 +282,25 @@ func (mg *MultiGateway) Shutdown() {
 	mg.ts.Close()
 }
 
-// poolerDiscovererAdapter adapts PoolerGateway to implement auth.PoolerDiscoverer.
-type poolerDiscovererAdapter struct {
+// poolerSystemDiscovererAdapter adapts PoolerGateway to implement auth.PoolerSystemDiscoverer.
+type poolerSystemDiscovererAdapter struct {
 	pg *poolergateway.PoolerGateway
 }
 
-func (a *poolerDiscovererAdapter) GetPoolerClient(ctx context.Context, database string) (auth.PoolerClient, error) {
-	client, err := a.pg.PoolerClientFunc()(ctx, database)
+func (a *poolerSystemDiscovererAdapter) GetSystemClient(ctx context.Context, database string) (auth.PoolerSystemClient, error) {
+	client, err := a.pg.SystemClientFunc()(ctx, database)
 	if err != nil {
 		return nil, err
 	}
-	return &poolerClientWrapper{client: client}, nil
+	return &poolerSystemClientWrapper{client: client}, nil
 }
 
-// poolerClientWrapper wraps the generated gRPC client to match auth.PoolerClient interface.
-// The gRPC client has ...grpc.CallOption, but auth.PoolerClient doesn't.
-type poolerClientWrapper struct {
+// poolerSystemClientWrapper wraps the generated gRPC client to match auth.PoolerSystemClient interface.
+// The gRPC client has ...grpc.CallOption, but auth.PoolerSystemClient doesn't.
+type poolerSystemClientWrapper struct {
 	client multipoolerpb.MultiPoolerServiceClient
 }
 
-func (w *poolerClientWrapper) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
+func (w *poolerSystemClientWrapper) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	return w.client.GetAuthCredentials(ctx, req)
 }
