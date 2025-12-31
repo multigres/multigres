@@ -71,10 +71,14 @@ message Field {
 }
 
 // Row represents a single row of data in the result set.
-// Each value is represented as bytes (can be NULL).
 message Row {
-  // values contains the column values (nil entry for NULL)
-  repeated bytes values = 1;
+  // lengths contains the length of each column value.
+  // -1 means NULL, 0 means empty string, >0 means actual length.
+  repeated sint64 lengths = 1;
+
+  // values contains all non-null values concatenated together.
+  // Use lengths to split this into individual column values.
+  bytes values = 2;
 }
 
 // StatementDescription describes a prepared statement or portal.
@@ -138,21 +142,25 @@ message Portal {
   // prepared_statement_name is the name of the prepared statement this portal is bound to.
   string prepared_statement_name = 2;
 
-  // params contains the parameter values sent by the client in the Bind message.
-  // Each parameter is a byte slice, with empty bytes indicating NULL.
-  repeated bytes params = 3;
+  // param_lengths contains the length of each parameter value.
+  // -1 means NULL, 0 means empty string, >0 means actual length.
+  repeated sint64 param_lengths = 3;
+
+  // param_values contains all non-null parameter values concatenated together.
+  // Use param_lengths to split this into individual parameter values.
+  bytes param_values = 4;
 
   // param_formats specifies the format code for each parameter.
   // 0 = text, 1 = binary.
   // If empty, all parameters are text format.
   // If a single element, that format applies to all parameters.
-  repeated int32 param_formats = 4;
+  repeated int32 param_formats = 5;
 
   // result_formats specifies the format code for each result column.
   // 0 = text, 1 = binary.
   // If empty, all results are text format.
   // If a single element, that format applies to all result columns.
-  repeated int32 result_formats = 5;
+  repeated int32 result_formats = 6;
 }
 
 // ExecuteOptions contains execution options for query execution.

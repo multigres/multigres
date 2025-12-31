@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
@@ -58,7 +59,7 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 // resultFormats are format codes for result columns (0=text, 1=binary).
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
-func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
+func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
@@ -202,7 +203,7 @@ func (c *Conn) Flush(ctx context.Context) error {
 // This performs Parse, Bind, Execute, and Sync in a single round trip.
 // name is the statement/portal name (use "" for unnamed, which is cleared after Sync).
 // A named statement persists until explicitly closed or the session ends.
-func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
@@ -238,18 +239,18 @@ func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, par
 // them to the appropriate text format for PostgreSQL.
 // Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
 // float32, float64, bool, and time.Time.
-func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*query.QueryResult, error) {
+func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*sqltypes.Result, error) {
 	// Convert args to [][]byte
 	params, err := argsToParams(args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert args: %w", err)
 	}
 
-	var results []*query.QueryResult
-	var currentResult *query.QueryResult
+	var results []*sqltypes.Result
+	var currentResult *sqltypes.Result
 
 	// Use unnamed statement (empty name) for one-shot queries.
-	err = c.PrepareAndExecute(ctx, "", queryStr, params, func(ctx context.Context, result *query.QueryResult) error {
+	err = c.PrepareAndExecute(ctx, "", queryStr, params, func(ctx context.Context, result *sqltypes.Result) error {
 		// Accumulate rows into the current result.
 		if currentResult == nil {
 			currentResult = result
@@ -260,7 +261,7 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 		// CommandTag being set signals the end of a result set.
 		if result.CommandTag != "" {
 			if currentResult == nil {
-				currentResult = &query.QueryResult{}
+				currentResult = &sqltypes.Result{}
 			}
 			currentResult.CommandTag = result.CommandTag
 			currentResult.RowsAffected = result.RowsAffected
@@ -285,7 +286,7 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 // portalName is the name of the portal to execute (empty for unnamed portal).
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
-func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
+func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
@@ -361,9 +362,9 @@ func argToParam(arg any) ([]byte, error) {
 //
 // IMPORTANT: This function always reads until ReadyForQuery to keep the connection
 // in a clean state. Errors are captured but do not stop message processing.
-func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
+func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	var currentFields []*query.Field
-	var batchedRows []*query.Row
+	var batchedRows []*sqltypes.Row
 	var batchedSize int
 	var firstErr error
 
@@ -372,7 +373,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 		if len(batchedRows) == 0 || callback == nil {
 			return
 		}
-		result := &query.QueryResult{
+		result := &sqltypes.Result{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
@@ -392,13 +393,13 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 		switch msgType {
 		case protocol.MsgRowDescription:
 			// Start of a new result set - parse and store fields.
-			result := &query.QueryResult{}
-			if err := c.parseRowDescription(body, result); err != nil {
+			fields, err := c.parseRowDescription(body)
+			if err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
 			} else {
-				currentFields = result.Fields
+				currentFields = fields
 			}
 
 		case protocol.MsgDataRow:
@@ -424,7 +425,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 				}
 			} else if callback != nil && firstErr == nil {
 				// Send final batch with CommandTag.
-				result := &query.QueryResult{
+				result := &sqltypes.Result{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
@@ -440,7 +441,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
-				firstErr = callback(ctx, &query.QueryResult{})
+				firstErr = callback(ctx, &sqltypes.Result{})
 			}
 			completed = true
 
@@ -708,13 +709,13 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 			}
 
 		case protocol.MsgRowDescription:
-			result := &query.QueryResult{}
-			if err := c.parseRowDescription(body, result); err != nil {
+			fields, err := c.parseRowDescription(body)
+			if err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
 			} else {
-				desc.Fields = result.Fields
+				desc.Fields = fields
 			}
 
 		case protocol.MsgNoData:
@@ -756,10 +757,10 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) (completed bool, err error) {
+func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	gotBindComplete := false
 	var currentFields []*query.Field
-	var batchedRows []*query.Row
+	var batchedRows []*sqltypes.Row
 	var batchedSize int
 	var firstErr error
 
@@ -769,7 +770,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 		if len(batchedRows) == 0 || callback == nil {
 			return
 		}
-		result := &query.QueryResult{
+		result := &sqltypes.Result{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
@@ -793,13 +794,13 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 		case protocol.MsgRowDescription:
 			// Start of a new result set - parse and store fields.
 			// Fields will be included in the first batch callback.
-			result := &query.QueryResult{}
-			if err := c.parseRowDescription(body, result); err != nil {
+			fields, err := c.parseRowDescription(body)
+			if err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
 			} else {
-				currentFields = result.Fields
+				currentFields = fields
 			}
 
 		case protocol.MsgDataRow:
@@ -828,7 +829,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			} else if callback != nil && firstErr == nil {
 				// Send final batch with CommandTag (signals end of result set).
 				// This combines any remaining rows with the command completion.
-				result := &query.QueryResult{
+				result := &sqltypes.Result{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
@@ -845,7 +846,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
-				firstErr = callback(ctx, &query.QueryResult{})
+				firstErr = callback(ctx, &sqltypes.Result{})
 			}
 			completed = true
 
@@ -907,13 +908,13 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 			gotBindComplete = true
 
 		case protocol.MsgRowDescription:
-			result := &query.QueryResult{}
-			if err := c.parseRowDescription(body, result); err != nil {
+			fields, err := c.parseRowDescription(body)
+			if err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
 			} else {
-				desc.Fields = result.Fields
+				desc.Fields = fields
 			}
 
 		case protocol.MsgNoData:
@@ -979,11 +980,11 @@ func (c *Conn) parseParameterDescription(body []byte) ([]*query.ParameterDescrip
 // - On CommandComplete: remaining rows + CommandTag sent together (signals end of result set)
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	gotParseComplete := false
 	gotBindComplete := false
 	var currentFields []*query.Field
-	var batchedRows []*query.Row
+	var batchedRows []*sqltypes.Row
 	var batchedSize int
 	var firstErr error
 
@@ -993,7 +994,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 		if len(batchedRows) == 0 || callback == nil {
 			return
 		}
-		result := &query.QueryResult{
+		result := &sqltypes.Result{
 			Fields: currentFields,
 			Rows:   batchedRows,
 		}
@@ -1020,13 +1021,13 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 		case protocol.MsgRowDescription:
 			// Start of a new result set - parse and store fields.
 			// Fields will be included in the first batch callback.
-			result := &query.QueryResult{}
-			if err := c.parseRowDescription(body, result); err != nil {
+			fields, err := c.parseRowDescription(body)
+			if err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
 			} else {
-				currentFields = result.Fields
+				currentFields = fields
 			}
 
 		case protocol.MsgDataRow:
@@ -1055,7 +1056,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			} else if callback != nil && firstErr == nil {
 				// Send final batch with CommandTag (signals end of result set).
 				// This combines any remaining rows with the command completion.
-				result := &query.QueryResult{
+				result := &sqltypes.Result{
 					Fields:       currentFields,
 					Rows:         batchedRows,
 					CommandTag:   tag,
@@ -1071,7 +1072,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
-				firstErr = callback(ctx, &query.QueryResult{})
+				firstErr = callback(ctx, &sqltypes.Result{})
 			}
 
 		case protocol.MsgReadyForQuery:

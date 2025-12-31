@@ -62,7 +62,8 @@ type Pool struct {
 	// active tracks reserved connections by their unique ID.
 	active map[int64]*Conn
 
-	// lastID generates unique connection IDs.
+	// lastID generates unique connection IDs. Initialized with current Unix nanoseconds
+	// to prevent ID collisions after multipooler restarts.
 	lastID atomic.Int64
 
 	// closed indicates whether the pool has been closed.
@@ -113,6 +114,11 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 		cancel: cancel,
 	}
 
+	// Initialize lastID with current Unix nanoseconds to prevent ID collisions
+	// after multipooler restarts. Sequential IDs from this starting point
+	// won't collide with IDs from previous pool instances.
+	p.lastID.Store(time.Now().UnixNano())
+
 	// Start background killer goroutine.
 	// Ticker interval is 1/10th the idle timeout (like Vitess).
 	interval := p.config.InactivityTimeout / 10
@@ -153,7 +159,8 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
 
-	// Generate unique ID.
+	// Generate unique ID. Since lastID is initialized with Unix nanoseconds,
+	// IDs won't collide with previous pool instances after restarts.
 	connID := p.lastID.Add(1)
 
 	// Create reserved connection.

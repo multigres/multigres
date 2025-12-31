@@ -23,9 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 func newTestPool(t *testing.T, server *fakepgserver.Server) *Pool {
@@ -160,9 +160,9 @@ func TestConn_Transaction(t *testing.T) {
 	defer server.Close()
 
 	// Setup expected queries.
-	server.AddQuery("BEGIN", &query.QueryResult{})
-	server.AddQuery("COMMIT", &query.QueryResult{})
-	server.AddQuery("ROLLBACK", &query.QueryResult{})
+	server.AddQuery("BEGIN", &sqltypes.Result{})
+	server.AddQuery("COMMIT", &sqltypes.Result{})
+	server.AddQuery("ROLLBACK", &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -419,4 +419,100 @@ func TestPool_KillConnection_NotFound(t *testing.T) {
 	err := pool.KillConnection(ctx, 999999)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestPool_TimestampBasedConnectionIDs(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	// Use a pool with enough capacity to hold all test connections concurrently.
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     10, // Enough for all test connections
+				MaxIdleCount: 10,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Create multiple connections and verify IDs are unique and timestamp-based.
+	const numConns = 10
+	conns := make([]*Conn, numConns)
+	ids := make(map[int64]bool)
+	var prevID int64
+
+	for i := range numConns {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+		conns[i] = conn
+
+		// Verify ID is positive and large (timestamp-based).
+		assert.Greater(t, conn.ConnID, int64(0), "connection ID should be positive")
+		// Timestamps in nanoseconds since 1970 should be > 1e18 (2001+).
+		assert.Greater(t, conn.ConnID, int64(1e18), "connection ID should be timestamp-based")
+
+		// Verify uniqueness.
+		assert.False(t, ids[conn.ConnID], "connection ID should be unique")
+		ids[conn.ConnID] = true
+
+		// Verify IDs are sequential (each ID is larger than the previous).
+		if i > 0 {
+			assert.Greater(t, conn.ConnID, prevID, "connection IDs should be sequential")
+		}
+		prevID = conn.ConnID
+	}
+
+	// Clean up.
+	for _, conn := range conns {
+		conn.Release(ReleaseCommit)
+	}
+}
+
+func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
+	// This test simulates the scenario where multipooler restarts:
+	// - Old pool had connections with certain IDs
+	// - New pool should have completely different IDs (no collision)
+	// because the new pool's lastID is initialized with a later timestamp.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	// Create first pool and get connection IDs.
+	pool1 := newTestPool(t, server)
+	ctx := context.Background()
+
+	const numConns = 5
+	var maxPool1ID int64
+	for range numConns {
+		conn, err := pool1.NewConn(ctx, nil)
+		require.NoError(t, err)
+		if conn.ConnID > maxPool1ID {
+			maxPool1ID = conn.ConnID
+		}
+		conn.Release(ReleaseCommit)
+	}
+	pool1.Close()
+
+	// Small delay to ensure timestamp advances (though not strictly necessary
+	// since the new pool's initial timestamp will be later anyway).
+	time.Sleep(time.Millisecond)
+
+	// Create second pool (simulates restart) and verify IDs are greater.
+	pool2 := newTestPool(t, server)
+	defer pool2.Close()
+
+	for range numConns {
+		conn, err := pool2.NewConn(ctx, nil)
+		require.NoError(t, err)
+		// New pool's IDs should all be greater than the max from the old pool
+		// because they're based on a later timestamp.
+		assert.Greater(t, conn.ConnID, maxPool1ID, "new pool IDs should be greater than old pool IDs")
+		conn.Release(ReleaseCommit)
+	}
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
@@ -67,8 +68,9 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 	}, nil
 }
 
-// ExecuteQuery executes a SQL query via the multipooler gRPC service
-func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*querypb.QueryResult, error) {
+// ExecuteQuery executes a SQL query via the multipooler gRPC service.
+// Returns sqltypes.Result with properly decoded column values.
+func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*sqltypes.Result, error) {
 	req := &multipoolerpb.ExecuteQueryRequest{
 		Query: query,
 		Options: &querypb.ExecuteOptions{
@@ -87,7 +89,8 @@ func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, 
 		return nil, fmt.Errorf("ExecuteQuery failed: %w", err)
 	}
 
-	return resp.Result, nil
+	// Convert proto QueryResult to sqltypes.Result for proper value decoding
+	return sqltypes.ResultFromProto(resp.Result), nil
 }
 
 // Close closes the gRPC connection
@@ -188,7 +191,7 @@ func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
 	assert.Equal(t, "test_column", result.Fields[0].Name, "Field name should match")
 	assert.Len(t, result.Rows, 1, "Should have one row")
 	assert.Len(t, result.Rows[0].Values, 1, "Row should have one value")
-	assert.Equal(t, []byte("1"), result.Rows[0].Values[0], "Value should be '1'")
+	assert.Equal(t, "1", string(result.Rows[0].Values[0]), "Value should be '1'")
 }
 
 // TestCreateTable tests creating a table

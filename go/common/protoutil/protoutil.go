@@ -16,6 +16,7 @@
 package protoutil
 
 import (
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -31,6 +32,7 @@ func NewPreparedStatement(name, queryStr string, paramTypes []uint32) *query.Pre
 // NewPortal creates a new Portal proto message.
 // paramFormats and resultFormats use int16 for compatibility with PostgreSQL wire protocol,
 // but are converted to int32 for proto serialization.
+// params uses Vitess-style encoding: nil = NULL, []byte{} = empty string.
 func NewPortal(name, preparedStatementName string, params [][]byte, paramFormats, resultFormats []int16) *query.Portal {
 	// Convert int16 slices to int32 for proto type.
 	paramFormats32 := make([]int32, len(paramFormats))
@@ -42,10 +44,14 @@ func NewPortal(name, preparedStatementName string, params [][]byte, paramFormats
 		resultFormats32[i] = int32(f)
 	}
 
+	// Encode params using Vitess-style encoding (lengths + concatenated values).
+	paramLengths, paramValues := sqltypes.ParamsToProto(params)
+
 	return &query.Portal{
 		Name:                  name,
 		PreparedStatementName: preparedStatementName,
-		Params:                params,
+		ParamLengths:          paramLengths,
+		ParamValues:           paramValues,
 		ParamFormats:          paramFormats32,
 		ResultFormats:         resultFormats32,
 	}

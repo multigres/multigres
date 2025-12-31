@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -33,7 +34,7 @@ type QueryService struct {
 
 type queryPattern struct {
 	pattern     *regexp.Regexp
-	result      *query.QueryResult
+	result      *sqltypes.Result
 	err         error
 	callback    func(string)
 	ctxCallback func(context.Context, string) // callback that receives context for blocking tests
@@ -49,7 +50,7 @@ func NewQueryService() *QueryService {
 var _ executor.InternalQueryService = (*QueryService)(nil)
 
 // AddQueryPattern adds a query pattern with an expected result.
-func (m *QueryService) AddQueryPattern(pattern string, result *query.QueryResult) {
+func (m *QueryService) AddQueryPattern(pattern string, result *sqltypes.Result) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -59,7 +60,7 @@ func (m *QueryService) AddQueryPattern(pattern string, result *query.QueryResult
 }
 
 // AddQueryPatternWithCallback adds a query pattern with a callback.
-func (m *QueryService) AddQueryPatternWithCallback(pattern string, result *query.QueryResult, callback func(string)) {
+func (m *QueryService) AddQueryPatternWithCallback(pattern string, result *sqltypes.Result, callback func(string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -81,7 +82,7 @@ func (m *QueryService) AddQueryPatternWithError(pattern string, err error) {
 
 // AddQueryPatternWithContextCallback adds a query pattern with a context-aware callback.
 // This is useful for testing blocking queries that should respond to context cancellation.
-func (m *QueryService) AddQueryPatternWithContextCallback(pattern string, result *query.QueryResult, callback func(context.Context, string)) {
+func (m *QueryService) AddQueryPatternWithContextCallback(pattern string, result *sqltypes.Result, callback func(context.Context, string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -93,7 +94,7 @@ func (m *QueryService) AddQueryPatternWithContextCallback(pattern string, result
 
 // AddQueryPatternOnce adds a query pattern that is consumed after the first match.
 // This is useful when you need different results for subsequent calls to the same query.
-func (m *QueryService) AddQueryPatternOnce(pattern string, result *query.QueryResult) {
+func (m *QueryService) AddQueryPatternOnce(pattern string, result *sqltypes.Result) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.patterns = append(m.patterns, queryPattern{
@@ -133,7 +134,7 @@ func (m *QueryService) ExpectationsWereMet() error {
 }
 
 // Query implements executor.InternalQueryService.
-func (m *QueryService) Query(ctx context.Context, queryStr string) (*query.QueryResult, error) {
+func (m *QueryService) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
 	m.mu.Lock()
 	matchedIndex := -1
 	for i := range m.patterns {
@@ -171,15 +172,15 @@ func (m *QueryService) Query(ctx context.Context, queryStr string) (*query.Query
 
 // QueryArgs implements executor.InternalQueryService.
 // For the mock, arguments are ignored and matching is done solely on the query string.
-func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...any) (*query.QueryResult, error) {
+func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...any) (*sqltypes.Result, error) {
 	return m.Query(ctx, queryStr)
 }
 
-// MakeQueryResult creates a query.QueryResult from columns and rows.
-func MakeQueryResult(columns []string, rows [][]any) *query.QueryResult {
-	result := &query.QueryResult{
+// MakeQueryResult creates a sqltypes.Result from columns and rows.
+func MakeQueryResult(columns []string, rows [][]any) *sqltypes.Result {
+	result := &sqltypes.Result{
 		Fields: make([]*query.Field, len(columns)),
-		Rows:   make([]*query.Row, len(rows)),
+		Rows:   make([]*sqltypes.Row, len(rows)),
 	}
 
 	for i, col := range columns {
@@ -187,7 +188,7 @@ func MakeQueryResult(columns []string, rows [][]any) *query.QueryResult {
 	}
 
 	for i, row := range rows {
-		values := make([][]byte, len(row))
+		values := make([]sqltypes.Value, len(row))
 		for j, val := range row {
 			if val == nil {
 				values[j] = nil
@@ -195,7 +196,7 @@ func MakeQueryResult(columns []string, rows [][]any) *query.QueryResult {
 				values[j] = fmt.Appendf(nil, "%v", val)
 			}
 		}
-		result.Rows[i] = &query.Row{Values: values}
+		result.Rows[i] = &sqltypes.Row{Values: values}
 	}
 
 	return result

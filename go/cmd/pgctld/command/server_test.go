@@ -428,7 +428,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 
 		request := &pb.InitDataDirRequest{
 			AuthLocal: "trust",
-			AuthHost:  "md5",
+			AuthHost:  "scram-sha-256",
 		}
 
 		resp, err := service.InitDataDir(context.Background(), request)

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 
@@ -255,20 +256,20 @@ func TestWriteRowDescription(t *testing.T) {
 func TestWriteDataRow(t *testing.T) {
 	tests := []struct {
 		name string
-		row  *query.Row
+		row  *sqltypes.Row
 	}{
 		{
 			name: "single value",
-			row: &query.Row{
-				Values: [][]byte{
+			row: &sqltypes.Row{
+				Values: []sqltypes.Value{
 					[]byte("1"),
 				},
 			},
 		},
 		{
 			name: "multiple values",
-			row: &query.Row{
-				Values: [][]byte{
+			row: &sqltypes.Row{
+				Values: []sqltypes.Value{
 					[]byte("42"),
 					[]byte("John Doe"),
 					[]byte("2024-01-01 00:00:00"),
@@ -277,8 +278,8 @@ func TestWriteDataRow(t *testing.T) {
 		},
 		{
 			name: "with NULL values",
-			row: &query.Row{
-				Values: [][]byte{
+			row: &sqltypes.Row{
+				Values: []sqltypes.Value{
 					[]byte("1"),
 					nil, // NULL
 					[]byte("test"),
@@ -287,8 +288,8 @@ func TestWriteDataRow(t *testing.T) {
 		},
 		{
 			name: "empty values",
-			row: &query.Row{
-				Values: [][]byte{},
+			row: &sqltypes.Row{
+				Values: []sqltypes.Value{},
 			},
 		},
 	}
@@ -330,7 +331,7 @@ func TestWriteDataRow(t *testing.T) {
 					value := make([]byte, valueLen)
 					_, err = io.ReadFull(&buf, value)
 					require.NoError(t, err)
-					assert.Equal(t, expectedValue, value, "column %d value", i)
+					assert.Equal(t, []byte(expectedValue), value, "column %d value", i)
 				}
 			}
 		})

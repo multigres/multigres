@@ -18,6 +18,7 @@ package multiadmin;
 
 import "clustermetadata.proto";
 import "google/protobuf/timestamp.proto";
+import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 
@@ -55,6 +56,14 @@ service MultiAdminService {
 
   // GetBackups lists backup artifacts with optional filtering
   rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse);
+
+  //
+  // Pooler Status (proxy methods)
+  //
+
+  // GetPoolerStatus retrieves the unified status of a specific pooler.
+  // This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+  rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse);
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -292,4 +301,18 @@ enum BackupStatus {
   BACKUP_STATUS_INCOMPLETE = 1;
   BACKUP_STATUS_COMPLETE = 2;
   BACKUP_STATUS_FAILED = 3;
+}
+
+// GetPoolerStatus operation messages
+
+// GetPoolerStatusRequest requests the status of a specific pooler
+message GetPoolerStatusRequest {
+  // pooler_id identifies which pooler to query (required)
+  clustermetadata.ID pooler_id = 1;
+}
+
+// GetPoolerStatusResponse contains the pooler's unified status
+message GetPoolerStatusResponse {
+  // status contains the pooler's unified status from MultiPoolerManager.Status
+  multipoolermanagerdata.Status status = 1;
 }

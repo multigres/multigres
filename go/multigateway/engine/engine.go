@@ -21,6 +21,7 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/server"
@@ -53,7 +54,7 @@ type IExecute interface {
 		shard string,
 		sql string,
 		state *handler.MultiGatewayConnectionState,
-		callback func(context.Context, *query.QueryResult) error,
+		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results.
@@ -75,7 +76,7 @@ type IExecute interface {
 		state *handler.MultiGatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
-		callback func(context.Context, *query.QueryResult) error,
+		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
 	// Describe returns metadata about a prepared statement or portal.
@@ -113,7 +114,7 @@ type Primitive interface {
 		exec IExecute,
 		conn *server.Conn,
 		state *handler.MultiGatewayConnectionState,
-		callback func(context.Context, *query.QueryResult) error,
+		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
 	// GetTableGroup returns the target tablegroup for this primitive.

@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
 
@@ -78,25 +77,24 @@ func TestParseRowDescription(t *testing.T) {
 	w.WriteInt16(0)       // format code (text)
 
 	conn := &Conn{}
-	result := &query.QueryResult{}
-	err := conn.parseRowDescription(w.Bytes(), result)
+	fields, err := conn.parseRowDescription(w.Bytes())
 	require.NoError(t, err)
 
-	require.Len(t, result.Fields, 2)
+	require.Len(t, fields, 2)
 
-	assert.Equal(t, "id", result.Fields[0].Name)
-	assert.Equal(t, uint32(12345), result.Fields[0].TableOid)
-	assert.Equal(t, int32(1), result.Fields[0].TableAttributeNumber)
-	assert.Equal(t, uint32(23), result.Fields[0].DataTypeOid)
-	assert.Equal(t, int32(4), result.Fields[0].DataTypeSize)
-	assert.Equal(t, int32(-1), result.Fields[0].TypeModifier)
-	assert.Equal(t, int32(0), result.Fields[0].Format)
+	assert.Equal(t, "id", fields[0].Name)
+	assert.Equal(t, uint32(12345), fields[0].TableOid)
+	assert.Equal(t, int32(1), fields[0].TableAttributeNumber)
+	assert.Equal(t, uint32(23), fields[0].DataTypeOid)
+	assert.Equal(t, int32(4), fields[0].DataTypeSize)
+	assert.Equal(t, int32(-1), fields[0].TypeModifier)
+	assert.Equal(t, int32(0), fields[0].Format)
 
-	assert.Equal(t, "name", result.Fields[1].Name)
-	assert.Equal(t, uint32(12345), result.Fields[1].TableOid)
-	assert.Equal(t, int32(2), result.Fields[1].TableAttributeNumber)
-	assert.Equal(t, uint32(25), result.Fields[1].DataTypeOid)
-	assert.Equal(t, int32(-1), result.Fields[1].DataTypeSize)
+	assert.Equal(t, "name", fields[1].Name)
+	assert.Equal(t, uint32(12345), fields[1].TableOid)
+	assert.Equal(t, int32(2), fields[1].TableAttributeNumber)
+	assert.Equal(t, uint32(25), fields[1].DataTypeOid)
+	assert.Equal(t, int32(-1), fields[1].DataTypeSize)
 }
 
 func TestParseDataRow(t *testing.T) {
@@ -118,9 +116,9 @@ func TestParseDataRow(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, row.Values, 3)
-	assert.Equal(t, []byte("hello"), row.Values[0])
+	assert.Equal(t, []byte("hello"), []byte(row.Values[0]))
 	assert.Nil(t, row.Values[1])
-	assert.Equal(t, []byte("world"), row.Values[2])
+	assert.Equal(t, []byte("world"), []byte(row.Values[2]))
 }
 
 func TestParseCommandComplete(t *testing.T) {

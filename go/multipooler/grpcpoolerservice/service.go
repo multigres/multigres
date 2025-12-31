@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/parser/ast"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -57,10 +58,10 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	}
 
 	// Execute the query and stream results
-	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *querypb.QueryResult) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *sqltypes.Result) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
-			Result: result,
+			Result: result.ToProto(),
 		}
 		return stream.Send(response)
 	})
@@ -85,7 +86,7 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 		return nil, err
 	}
 	return &multipoolerpb.ExecuteQueryResponse{
-		Result: res,
+		Result: res.ToProto(),
 	}, nil
 }
 
@@ -174,10 +175,10 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.PreparedStatement,
 		req.Portal,
 		req.Options,
-		func(ctx context.Context, result *querypb.QueryResult) error {
+		func(ctx context.Context, result *sqltypes.Result) error {
 			// Send the result back to the client
 			response := &multipoolerpb.PortalStreamExecuteResponse{
-				Result: result,
+				Result: result.ToProto(),
 			}
 			return stream.Send(response)
 		},

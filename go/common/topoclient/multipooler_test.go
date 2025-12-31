@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 var (
@@ -1335,8 +1336,7 @@ func TestMultiPoolerInfo(t *testing.T) {
 
 // TestGetMultiPoolersByCell covers comprehensive scenarios for the GetMultiPoolersByCell method
 func TestGetMultiPoolersByCell_Comprehensive(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	t.Run("cell with multiple multipoolers without filtering", func(t *testing.T) {
 		// Create fresh topo for this test with multiple cells

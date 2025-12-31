@@ -37,11 +37,11 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// testRPCClient wraps FakeClient to capture ConfigureSynchronousReplication calls
+// testRPCClient wraps FakeClient to capture bootstrap-related RPC calls
 type testRPCClient struct {
 	*rpcclient.FakeClient
-	syncReplicationCalled  bool
-	syncReplicationRequest *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
+	initializedPrimaries []*clustermetadatapb.MultiPooler
+	syncReplicationCalls []*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
 }
 
 func (t *testRPCClient) ConfigureSynchronousReplication(
@@ -49,10 +49,19 @@ func (t *testRPCClient) ConfigureSynchronousReplication(
 	pooler *clustermetadatapb.MultiPooler,
 	request *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest,
 ) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse, error) {
-	t.syncReplicationCalled = true
-	t.syncReplicationRequest = request
+	t.syncReplicationCalls = append(t.syncReplicationCalls, request)
 	// Call the underlying FakeClient method
 	return t.FakeClient.ConfigureSynchronousReplication(ctx, pooler, request)
+}
+
+func (t *testRPCClient) InitializeEmptyPrimary(
+	ctx context.Context,
+	pooler *clustermetadatapb.MultiPooler,
+	request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest,
+) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+	t.initializedPrimaries = append(t.initializedPrimaries, pooler)
+	// Call the underlying FakeClient method
+	return t.FakeClient.InitializeEmptyPrimary(ctx, pooler, request)
 }
 
 func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
@@ -338,26 +347,45 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	err = action.Execute(ctx, problem)
 	require.NoError(t, err)
 
-	// Verify ConfigureSynchronousReplication was called
-	assert.True(t, mockClient.syncReplicationCalled, "ConfigureSynchronousReplication should be called during bootstrap")
-	assert.NotNil(t, mockClient.syncReplicationRequest, "ConfigureSynchronousReplication request should be captured")
+	// Verify exactly one pooler was initialized as primary
+	require.Len(t, mockClient.initializedPrimaries, 1,
+		"Exactly one pooler should be initialized as primary")
+	primaryPooler := mockClient.initializedPrimaries[0]
+	primaryName := primaryPooler.Id.Name
+
+	// Verify ConfigureSynchronousReplication was called exactly once (on the primary)
+	require.Len(t, mockClient.syncReplicationCalls, 1,
+		"ConfigureSynchronousReplication should be called exactly once on the primary")
+	syncReq := mockClient.syncReplicationCalls[0]
 
 	// Verify the request has correct num_sync for ANY_2 policy (requires 2 nodes, so 1 sync standby)
-	assert.Equal(t, int32(1), mockClient.syncReplicationRequest.NumSync,
+	assert.Equal(t, int32(1), syncReq.NumSync,
 		"ANY_2 policy with RequiredCount=2 should set NumSync=1")
 
-	// Verify the request has standby IDs
-	assert.Len(t, mockClient.syncReplicationRequest.StandbyIds, 2,
+	// Verify the request has exactly 2 standby IDs
+	require.Len(t, syncReq.StandbyIds, 2,
 		"Should configure both standbys in the sync replication list")
 
-	// Verify the standby IDs are valid pooler names (primary selection is non-deterministic)
-	allPoolers := map[string]bool{"pooler1": true, "pooler2": true, "pooler3": true}
-	standbyNames := make(map[string]bool)
-	for _, standbyID := range mockClient.syncReplicationRequest.StandbyIds {
-		assert.True(t, allPoolers[standbyID.Name], "Standby %s should be a valid pooler", standbyID.Name)
-		standbyNames[standbyID.Name] = true
+	// Collect actual standbys from the sync replication request
+	actualStandbys := make(map[string]bool)
+	for _, standbyID := range syncReq.StandbyIds {
+		actualStandbys[standbyID.Name] = true
 	}
-	assert.Len(t, standbyNames, 2, "Should have 2 unique standbys")
+
+	// Verify standbys are unique (no duplicates)
+	require.Len(t, actualStandbys, 2,
+		"Should have 2 unique standbys (no duplicates)")
+
+	// Verify all standbys are from our pooler set
+	allPoolers := map[string]bool{"pooler1": true, "pooler2": true, "pooler3": true}
+	for standby := range actualStandbys {
+		assert.True(t, allPoolers[standby],
+			"Standby %s should be from the pooler set", standby)
+	}
+
+	// Verify primary is NOT in the standby list
+	assert.False(t, actualStandbys[primaryName],
+		"Primary %s should not be in standby list", primaryName)
 }
 
 // setupTestDatabase creates the database in topology with the given durability policy

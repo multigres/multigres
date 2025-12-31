@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -330,4 +331,46 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 
 	s.logger.DebugContext(ctx, "GetOrchs request completed successfully", "count", len(allOrchs))
 	return response, nil
+}
+
+// GetPoolerStatus retrieves the unified status of a specific pooler by proxying
+// the request to the target pooler's MultiPoolerManager.Status RPC.
+func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminpb.GetPoolerStatusRequest) (*multiadminpb.GetPoolerStatusResponse, error) {
+	// Validate request
+	if req.PoolerId == nil {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
+	}
+	if req.PoolerId.Cell == "" || req.PoolerId.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id must have both cell and name")
+	}
+
+	// Create a fully-qualified pooler ID for topology lookup
+	poolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      req.PoolerId.Cell,
+		Name:      req.PoolerId.Name,
+	}
+
+	// Get pooler from topology
+	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)
+
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			return nil, status.Errorf(codes.NotFound, "pooler '%s/%s' not found", req.PoolerId.Cell, req.PoolerId.Name)
+		}
+
+		return nil, status.Errorf(codes.Internal, "failed to retrieve pooler: %v", err)
+	}
+
+	// Call Status RPC on the pooler
+	statusResp, err := s.rpcClient.Status(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get status from pooler", "pooler_id", req.PoolerId, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to get status from pooler: %v", err)
+	}
+
+	return &multiadminpb.GetPoolerStatusResponse{
+		Status: statusResp.Status,
+	}, nil
 }

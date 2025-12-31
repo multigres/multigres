@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/client"
 	"github.com/multigres/multigres/go/pgprotocol/scram"
@@ -57,7 +58,7 @@ type Server struct {
 	mu sync.Mutex
 
 	// data maps tolower(query) to a result.
-	data map[string]*query.QueryResult
+	data map[string]*sqltypes.Result
 
 	// rejectedData maps tolower(query) to an error.
 	rejectedData map[string]error
@@ -90,7 +91,7 @@ type Server struct {
 type exprResult struct {
 	queryPattern string
 	expr         *regexp.Regexp
-	result       *query.QueryResult
+	result       *sqltypes.Result
 	err          string
 }
 
@@ -129,7 +130,7 @@ func (p *testHashProvider) GetPasswordHash(_ context.Context, _, _ string) (*scr
 // It is used for ordered expected output.
 type ExpectedExecuteFetch struct {
 	Query       string
-	QueryResult *query.QueryResult
+	QueryResult *sqltypes.Result
 	Error       error
 }
 
@@ -139,7 +140,7 @@ func New(t testing.TB) *Server {
 	s := &Server{
 		t:                        t,
 		name:                     "fakepgserver",
-		data:                     make(map[string]*query.QueryResult),
+		data:                     make(map[string]*sqltypes.Result),
 		rejectedData:             make(map[string]error),
 		queryCalled:              make(map[string]int),
 		patternCalled:            make(map[string]int),
@@ -236,7 +237,7 @@ func (s *Server) OrderMatters() {
 //
 
 // AddQuery adds a query and its expected result.
-func (s *Server) AddQuery(q string, result *query.QueryResult) {
+func (s *Server) AddQuery(q string, result *sqltypes.Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := strings.ToLower(q)
@@ -248,7 +249,7 @@ func (s *Server) AddQuery(q string, result *query.QueryResult) {
 // These patterns are checked if no exact matches from AddQuery() are found.
 // This function forces the addition of begin/end anchors (^$) and turns on
 // case-insensitive matching mode.
-func (s *Server) AddQueryPattern(queryPattern string, result *query.QueryResult) {
+func (s *Server) AddQueryPattern(queryPattern string, result *sqltypes.Result) {
 	expr := regexp.MustCompile("(?is)^" + queryPattern + "$")
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -288,7 +289,7 @@ func (s *Server) ClearQueryPattern() {
 }
 
 // AddQueryPatternWithCallback is similar to AddQueryPattern: in addition it calls the provided callback function.
-func (s *Server) AddQueryPatternWithCallback(queryPattern string, result *query.QueryResult, callback func(string)) {
+func (s *Server) AddQueryPatternWithCallback(queryPattern string, result *sqltypes.Result, callback func(string)) {
 	s.AddQueryPattern(queryPattern, result)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -308,7 +309,7 @@ func (s *Server) DeleteQuery(query string) {
 func (s *Server) DeleteAllQueries() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data = make(map[string]*query.QueryResult)
+	s.data = make(map[string]*sqltypes.Result)
 	s.patternData = make(map[string]exprResult)
 	s.queryCalled = make(map[string]int)
 	s.patternCalled = make(map[string]int)
@@ -368,7 +369,7 @@ func (s *Server) AddExpectedExecuteFetch(entry ExpectedExecuteFetch) {
 func (s *Server) AddExpectedQuery(q string, err error) {
 	s.AddExpectedExecuteFetch(ExpectedExecuteFetch{
 		Query:       q,
-		QueryResult: &query.QueryResult{},
+		QueryResult: &sqltypes.Result{},
 		Error:       err,
 	})
 }
@@ -421,7 +422,7 @@ func (s *Server) SetNeverFail(neverFail bool) {
 
 // handleQuery handles a query and returns the result.
 // This is called by the handler.
-func (s *Server) handleQuery(q string) (*query.QueryResult, error) {
+func (s *Server) handleQuery(q string) (*sqltypes.Result, error) {
 	if s.orderMatters.Load() {
 		return s.handleQueryOrdered(q)
 	}
@@ -463,14 +464,14 @@ func (s *Server) handleQuery(q string) (*query.QueryResult, error) {
 	s.mu.Unlock()
 
 	if s.neverFail.Load() {
-		return &query.QueryResult{CommandTag: "SELECT 0"}, nil
+		return &sqltypes.Result{CommandTag: "SELECT 0"}, nil
 	}
 
 	// Nothing matched.
 	return nil, fmt.Errorf("fakepgserver: query '%s' is not supported on %v", q, s.name)
 }
 
-func (s *Server) handleQueryOrdered(q string) (*query.QueryResult, error) {
+func (s *Server) handleQueryOrdered(q string) (*sqltypes.Result, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -478,7 +479,7 @@ func (s *Server) handleQueryOrdered(q string) (*query.QueryResult, error) {
 
 	if index >= len(s.expectedExecuteFetch) {
 		if s.neverFail.Load() {
-			return &query.QueryResult{CommandTag: "SELECT 0"}, nil
+			return &sqltypes.Result{CommandTag: "SELECT 0"}, nil
 		}
 		s.t.Errorf("%v: got unexpected out of bound fetch: %v >= %v (%s)", s.name, index, len(s.expectedExecuteFetch), q)
 		return nil, errors.New("unexpected out of bound fetch")
@@ -490,7 +491,7 @@ func (s *Server) handleQueryOrdered(q string) (*query.QueryResult, error) {
 	if strings.HasSuffix(expected, "*") {
 		if !strings.HasPrefix(q, expected[0:len(expected)-1]) {
 			if s.neverFail.Load() {
-				return &query.QueryResult{CommandTag: "SELECT 0"}, nil
+				return &sqltypes.Result{CommandTag: "SELECT 0"}, nil
 			}
 			s.t.Errorf("%v: got unexpected query start (index=%v): %v != %v", s.name, index, q, expected)
 			return nil, errors.New("unexpected query")
@@ -498,7 +499,7 @@ func (s *Server) handleQueryOrdered(q string) (*query.QueryResult, error) {
 	} else {
 		if q != expected {
 			if s.neverFail.Load() {
-				return &query.QueryResult{CommandTag: "SELECT 0"}, nil
+				return &sqltypes.Result{CommandTag: "SELECT 0"}, nil
 			}
 			s.t.Errorf("%v: got unexpected query (index=%v): %v != %v", s.name, index, q, expected)
 			return nil, errors.New("unexpected query")
@@ -515,9 +516,9 @@ func (s *Server) handleQueryOrdered(q string) (*query.QueryResult, error) {
 	return entry.QueryResult, nil
 }
 
-// MakeResult creates a simple query.QueryResult from column names and row values.
+// MakeResult creates a simple sqltypes.Result from column names and row values.
 // This is a convenience function for tests. All values are converted to text format.
-func MakeResult(columns []string, rows [][]any) *query.QueryResult {
+func MakeResult(columns []string, rows [][]any) *sqltypes.Result {
 	fields := make([]*query.Field, len(columns))
 	for i, col := range columns {
 		fields[i] = &query.Field{
@@ -527,9 +528,9 @@ func MakeResult(columns []string, rows [][]any) *query.QueryResult {
 		}
 	}
 
-	queryRows := make([]*query.Row, len(rows))
+	sqlRows := make([]*sqltypes.Row, len(rows))
 	for i, row := range rows {
-		values := make([][]byte, len(row))
+		values := make([]sqltypes.Value, len(row))
 		for j, val := range row {
 			if val == nil {
 				values[j] = nil // NULL
@@ -537,12 +538,12 @@ func MakeResult(columns []string, rows [][]any) *query.QueryResult {
 				values[j] = fmt.Appendf(nil, "%v", val)
 			}
 		}
-		queryRows[i] = &query.Row{Values: values}
+		sqlRows[i] = &sqltypes.Row{Values: values}
 	}
 
-	return &query.QueryResult{
+	return &sqltypes.Result{
 		Fields:     fields,
-		Rows:       queryRows,
+		Rows:       sqlRows,
 		CommandTag: fmt.Sprintf("SELECT %d", len(rows)),
 	}
 }

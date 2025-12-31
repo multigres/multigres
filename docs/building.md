@@ -100,3 +100,13 @@ make proto
 Generated `.pb.go` files are placed in the `go/pb/` directory. Unless you're
 modifying the protobuf files, you do not need to `make proto`, because these
 files are pre-generated and checked into the repository.
+
+## Super Linter
+
+We run super linter in CI to ensure code quality and consistency. It checks for
+style, formatting, and linting issues across various parts of the codebase. In order
+to run it locally, you can use the following command:
+
+```bash
+ ./tools/run_super_linter.sh
+```
