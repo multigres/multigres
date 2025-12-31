@@ -29,7 +29,7 @@ fi
 
 # Initialize the cluster with etcd
 kind create cluster --config=kind.yaml --name=multidemo
-kind load docker-image multigres/multigres multigres/pgctld-postgres --name=multidemo
+kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/multiadmin-web --name=multidemo
 # This single etcd will be used for both the global topo and cell topo.
 kubectl apply -f k8s-etcd.yaml
 kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
@@ -54,9 +54,12 @@ kubectl apply -f k8s-multipooler-statefulset.yaml
 kubectl apply -f k8s-multiorch.yaml
 kubectl apply -f k8s-multigateway.yaml
 kubectl apply -f k8s-multiadmin.yaml
+kubectl apply -f k8s-multiadmin-web.yaml
 kubectl wait --for=condition=ready pod -l app=multipooler --timeout=180s
 kubectl wait --for=condition=ready pod -l app=multiorch --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multigateway --timeout=120s
+kubectl wait --for=condition=ready pod -l app=multiadmin --timeout=120s
+kubectl wait --for=condition=ready pod -l app=multiadmin-web --timeout=120s
 
 set +x
 echo ""
@@ -67,6 +70,14 @@ echo ""
 echo "PostgreSQL access:"
 echo "  kubectl port-forward service/multigateway 15432:15432"
 echo "  psql --host=localhost --port=15432 -U postgres -d postgres"
+echo ""
+echo "Multiadmin Web UI:"
+echo "  kubectl port-forward service/multiadmin-web 3001:3000"
+echo "  Web UI:     http://localhost:3001"
+echo ""
+echo "Multiadmin API access:"
+echo "  kubectl port-forward service/multiadmin 18000:18000"
+echo "  REST API:   http://localhost:18000"
 echo ""
 echo "Observability access:"
 echo "  kubectl port-forward service/observability 3000:3000 9090:9090 16686:16686"
