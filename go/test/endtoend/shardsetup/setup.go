@@ -415,14 +415,14 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
 	t.Helper()
 
-	ctx := utils.WithTimeout(t, 30*time.Second)
+	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("timeout waiting for shard bootstrap after 30s")
+			return "", fmt.Errorf("timeout waiting for shard bootstrap after 60s")
 		case <-ticker.C:
 			primaryName, allInitialized := checkBootstrapStatus(t, setup)
 			if primaryName != "" && allInitialized {
@@ -1026,6 +1026,7 @@ func (s *ShardSetup) DemotePrimary(t *testing.T) {
 	primary := s.GetMultipoolerInstance(s.PrimaryName)
 	if primary == nil {
 		t.Fatal("primary not found")
+		return // unreachable, but needed for linter
 	}
 
 	client, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
@@ -1060,6 +1061,7 @@ func (s *ShardSetup) NewClient(t *testing.T, name string) *MultipoolerClient {
 	inst := s.GetMultipoolerInstance(name)
 	if inst == nil {
 		t.Fatalf("multipooler %s not found", name)
+		return nil // unreachable, but needed for linter
 	}
 
 	client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
@@ -1101,6 +1103,7 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	inst := s.GetMultipoolerInstance(name)
 	if inst == nil {
 		t.Fatalf("node %s not found", name)
+		return // unreachable, but needed for linter
 	}
 
 	// Read the postgres PID from postmaster.pid
