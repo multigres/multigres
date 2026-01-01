@@ -23,7 +23,7 @@ spec:
                 -out ca.crt \
                 -subj "/CN=Multigres Root CA"
 
-              echo "Creating OpenSSL config for Subject Alternative Names..."
+              echo "Creating OpenSSL config with wildcard SAN..."
               cat > /tmp/pgbackrest-san.cnf <<EOF
               [req]
               distinguished_name = req_distinguished_name
@@ -34,21 +34,18 @@ spec:
               CN = pgbackrest
 
               [v3_req]
-              keyUsage = critical, digitalSignature, keyEncipherment, dataEncipherment
+              keyUsage = critical, digitalSignature, keyEncipherment
               extendedKeyUsage = serverAuth, clientAuth
               subjectAltName = @alt_names
 
               [alt_names]
-              DNS.1 = pgbackrest
-              DNS.2 = *.multipooler-zone1.default.svc.cluster.local
-              DNS.3 = multipooler-zone1-0.multipooler-zone1.default.svc.cluster.local
-              DNS.4 = multipooler-zone1-1.multipooler-zone1.default.svc.cluster.local
-              DNS.5 = multipooler-zone1-2.multipooler-zone1.default.svc.cluster.local
-              DNS.6 = localhost
+              DNS.1 = *.multipooler-zone1.default.svc.cluster.local
+              DNS.2 = pgbackrest
+              DNS.3 = localhost
               IP.1 = 127.0.0.1
               EOF
 
-              echo "Generating pgBackRest certificate signing request with SANs..."
+              echo "Generating pgBackRest certificate signing request..."
               openssl req -newkey rsa:2048 -nodes \
                 -keyout pgbackrest.key \
                 -out /tmp/pgbackrest.csr \
