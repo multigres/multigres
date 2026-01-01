@@ -67,6 +67,9 @@ spec:
             - --log-level=info
             - --service-map=grpc-pooler
             - --pprof-http=true
+            - --pgbackrest-cert-file=/certs/pgbackrest.crt
+            - --pgbackrest-key-file=/certs/pgbackrest.key
+            - --pgbackrest-ca-file=/certs/ca.crt
           ports:
             - containerPort: 16000
               name: http

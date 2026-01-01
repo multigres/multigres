@@ -1083,7 +1083,7 @@ func TestGetBackupByJobId_Found(t *testing.T) {
 	assert.Equal(t, "20251203-143045.123456_mp-cell-1", resp.Backup.JobId)
 }
 
-func TestInitPgbackrest(t *testing.T) {
+func TestInitPgBackRest(t *testing.T) {
 	tests := []struct {
 		name           string
 		poolerDir      string
@@ -1127,7 +1127,7 @@ func TestInitPgbackrest(t *testing.T) {
 			)
 			pm.config.PgPort = tt.pgPort
 
-			configPath, err := pm.initPgbackrest(NotForBackup)
+			configPath, err := pm.initPgBackRest(NotForBackup)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1192,8 +1192,8 @@ func TestInitPgbackrest(t *testing.T) {
 	}
 }
 
-func TestInitPgbackrest_Idempotent(t *testing.T) {
-	// Test that calling initPgbackrest multiple times is safe (idempotent)
+func TestInitPgBackRest_Idempotent(t *testing.T) {
+	// Test that calling initPgBackRest multiple times is safe (idempotent)
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
@@ -1205,7 +1205,7 @@ func TestInitPgbackrest_Idempotent(t *testing.T) {
 	)
 
 	// First call
-	configPath, err := pm.initPgbackrest(NotForBackup)
+	configPath, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1214,7 +1214,7 @@ func TestInitPgbackrest_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second call - should return early without doing any work
-	configPath2, err := pm.initPgbackrest(NotForBackup)
+	configPath2, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.Equal(t, configPath, configPath2, "should return same path on second call")
 
@@ -1224,8 +1224,8 @@ func TestInitPgbackrest_Idempotent(t *testing.T) {
 	assert.Equal(t, string(firstContent), string(secondContent), "config should be identical on second call")
 }
 
-func TestInitPgbackrest_EarlyReturnWhenConfigExists(t *testing.T) {
-	// Test that initPgbackrest returns early when config file already exists
+func TestInitPgBackRest_EarlyReturnWhenConfigExists(t *testing.T) {
+	// Test that initPgBackRest returns early when config file already exists
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
@@ -1237,7 +1237,7 @@ func TestInitPgbackrest_EarlyReturnWhenConfigExists(t *testing.T) {
 	)
 
 	// First call - should create everything
-	configPath, err := pm.initPgbackrest(NotForBackup)
+	configPath, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1259,7 +1259,7 @@ func TestInitPgbackrest_EarlyReturnWhenConfigExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second call - should return early without touching anything
-	configPath2, err := pm.initPgbackrest(NotForBackup)
+	configPath2, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.Equal(t, configPath, configPath2, "should return same path on early return")
 
@@ -1278,7 +1278,7 @@ func TestInitPgbackrest_EarlyReturnWhenConfigExists(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "spool directory should not be recreated on early return")
 }
 
-func TestInitPgbackrest_DirectoryCreation(t *testing.T) {
+func TestInitPgBackRest_DirectoryCreation(t *testing.T) {
 	// Test that all required directories are created with correct permissions
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
@@ -1290,7 +1290,7 @@ func TestInitPgbackrest_DirectoryCreation(t *testing.T) {
 		"/tmp/backups",
 	)
 
-	configPath, err := pm.initPgbackrest(NotForBackup)
+	configPath, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1314,7 +1314,7 @@ func TestInitPgbackrest_DirectoryCreation(t *testing.T) {
 	}
 }
 
-func TestInitPgbackrest_TemplateExecution(t *testing.T) {
+func TestInitPgBackRest_TemplateExecution(t *testing.T) {
 	// Test that the template is executed correctly with all variables substituted
 	poolerDir := t.TempDir()
 	backupLocation := "/custom/backup/location"
@@ -1330,7 +1330,7 @@ func TestInitPgbackrest_TemplateExecution(t *testing.T) {
 	)
 	pm.config.PgPort = pgPort
 
-	configPath, err := pm.initPgbackrest(NotForBackup)
+	configPath, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1362,7 +1362,7 @@ func TestInitPgbackrest_TemplateExecution(t *testing.T) {
 	}
 }
 
-func TestInitPgbackrest_ConfigFileFormat(t *testing.T) {
+func TestInitPgBackRest_ConfigFileFormat(t *testing.T) {
 	// Test that the generated config file is properly formatted
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
@@ -1374,7 +1374,7 @@ func TestInitPgbackrest_ConfigFileFormat(t *testing.T) {
 		"/tmp/backups",
 	)
 
-	configPath, err := pm.initPgbackrest(NotForBackup)
+	configPath, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1401,7 +1401,7 @@ func TestInitPgbackrest_ConfigFileFormat(t *testing.T) {
 	}
 }
 
-func TestInitPgbackrest_ForBackupCreatesTemp(t *testing.T) {
+func TestInitPgBackRest_ForBackupCreatesTemp(t *testing.T) {
 	// Test that forBackup=true creates a temp config file in /tmp
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
@@ -1414,7 +1414,7 @@ func TestInitPgbackrest_ForBackupCreatesTemp(t *testing.T) {
 	)
 
 	// Call with ForBackup mode
-	tempConfigPath, err := pm.initPgbackrest(ForBackup)
+	tempConfigPath, err := pm.initPgBackRest(ForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tempConfigPath)
 
@@ -1444,7 +1444,7 @@ func TestInitPgbackrest_ForBackupCreatesTemp(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call again with ForBackup mode - should create a NEW temp file each time
-	tempConfigPath2, err := pm.initPgbackrest(ForBackup)
+	tempConfigPath2, err := pm.initPgBackRest(ForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tempConfigPath2)
 	assert.NotEqual(t, tempConfigPath, tempConfigPath2, "second call should create a different temp file")
@@ -1480,7 +1480,7 @@ func TestInitPgbackrest_ForBackupCreatesTemp(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "lock directory should not be created when using ForBackup mode")
 }
 
-func TestInitPgbackrest_ForBackupFalseSkipsPg2(t *testing.T) {
+func TestInitPgBackRest_ForBackupFalseSkipsPg2(t *testing.T) {
 	// Test that NotForBackup mode skips pg2 configuration even on standby poolers
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
@@ -1500,7 +1500,7 @@ func TestInitPgbackrest_ForBackupFalseSkipsPg2(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call with NotForBackup mode
-	configPath, err := pm.initPgbackrest(NotForBackup)
+	configPath, err := pm.initPgBackRest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1526,7 +1526,7 @@ func TestInitPgbackrest_ForBackupFalseSkipsPg2(t *testing.T) {
 	assert.NotContains(t, configStr, "pg2-host-type=", "pg2 config should NOT be present when using NotForBackup mode")
 }
 
-func TestInitPgbackrest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
+func TestInitPgBackRest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
 	// Test that ForBackup mode DOES include pg2 configuration on standby poolers
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
@@ -1551,7 +1551,7 @@ func TestInitPgbackrest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call with ForBackup mode
-	tempConfigPath, err := pm.initPgbackrest(ForBackup)
+	tempConfigPath, err := pm.initPgBackRest(ForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tempConfigPath)
 
