@@ -20,19 +20,19 @@ spec:
           image: docker.io/multigres/multiadmin-web:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 3000
+            - containerPort: 18100
               name: http
               protocol: TCP
           livenessProbe:
             httpGet:
               path: /
-              port: 3000
+              port: 18100
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /
-              port: 3000
+              port: 18100
             initialDelaySeconds: 5
             periodSeconds: 5
 ---
@@ -44,7 +44,7 @@ spec:
   selector:
     app: multiadmin-web
   ports:
-    - port: 3000
-      targetPort: 3000
+    - port: 18100
+      targetPort: 18100
       name: http
   type: ClusterIP

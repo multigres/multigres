@@ -36,14 +36,14 @@ spec:
             - configMapRef:
                 name: otel-config
           ports:
+            - containerPort: 15432
+              name: postgres
+              protocol: TCP
             - containerPort: 15000
               name: http
               protocol: TCP
             - containerPort: 15100
               name: grpc
-              protocol: TCP
-            - containerPort: 15432
-              name: postgres
               protocol: TCP
           livenessProbe:
             httpGet:
