@@ -526,7 +526,7 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 // configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
 // This must be called after InitDataDir but BEFORE starting PostgreSQL
 func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
@@ -573,7 +573,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 // initializePgBackRestStanza initializes the pgbackrest stanza
 // This must be called after PostgreSQL is initialized and running
 func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
