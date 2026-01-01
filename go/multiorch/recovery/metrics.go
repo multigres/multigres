@@ -49,6 +49,7 @@ type Metrics struct {
 	healthCheckCycleDuration       HealthCheckCycleDuration
 	recoveryActionDuration         RecoveryActionDuration
 	errorsTotal                    ErrorsTotal
+	detectedProblems               DetectedProblems
 }
 
 // PoolerStoreSize wraps an Int64ObservableGauge for observing pooler store size.
@@ -157,18 +158,24 @@ type RecoveryActionDuration struct {
 //   - actionName: The name of the recovery action (e.g., "FixReplication", "BootstrapShard")
 //   - problemCode: The problem code being addressed
 //   - status: The action status (success or failure)
+//   - dbNamespace: The database name (becomes "db.namespace" attribute per OTel spec)
+//   - shard: The shard identifier
 func (m RecoveryActionDuration) Record(
 	ctx context.Context,
 	val float64,
 	actionName string,
 	problemCode string,
 	status RecoveryActionStatus,
+	dbNamespace string,
+	shard string,
 ) {
 	m.Float64Histogram.Record(ctx, val,
 		metric.WithAttributes(
 			attribute.String("action", actionName),
 			attribute.String("problem_code", problemCode),
 			attribute.String("status", string(status)),
+			attribute.String("db.namespace", dbNamespace),
+			attribute.String("shard", shard),
 		))
 }
 
@@ -192,6 +199,17 @@ func (m ErrorsTotal) Add(ctx context.Context, source string, attrs ...attribute.
 				attribute.String("source", source),
 			)...,
 		))
+}
+
+// DetectedProblems wraps an Int64ObservableGauge for observing detected problems by type.
+// Use the Inst() method to get the underlying gauge for callback registration.
+type DetectedProblems struct {
+	metric.Int64ObservableGauge
+}
+
+// Inst returns the underlying metric instrument for callback registration.
+func (m DetectedProblems) Inst() metric.Int64ObservableGauge {
+	return m.Int64ObservableGauge
 }
 
 // NewMetrics initializes OpenTelemetry metrics for the recovery engine.
@@ -287,6 +305,19 @@ func NewMetrics() (*Metrics, error) {
 		m.errorsTotal = ErrorsTotal{errorsTotalCounter}
 	}
 
+	// Gauge for detected problems by type
+	detectedProblemsGauge, err := m.meter.Int64ObservableGauge(
+		"multiorch.recovery.detected_problems",
+		metric.WithDescription("Current number of detected problems by analysis type"),
+		metric.WithUnit("{problem}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("multiorch.recovery.detected_problems gauge: %w", err))
+		m.detectedProblems = DetectedProblems{noop.Int64ObservableGauge{}}
+	} else {
+		m.detectedProblems = DetectedProblems{detectedProblemsGauge}
+	}
+
 	if len(errs) > 0 {
 		return m, errors.Join(errs...)
 	}
@@ -313,4 +344,39 @@ func (m *Metrics) RegisterPoolerStoreSizeCallback(poolerStoreGetter func() int) 
 // RecordHealthCheckCycleDuration records the duration of a complete health check cycle.
 func (m *Metrics) RecordHealthCheckCycleDuration(ctx context.Context, duration time.Duration, attrs ...attribute.KeyValue) {
 	m.healthCheckCycleDuration.Record(ctx, duration.Seconds(), attrs...)
+}
+
+// DetectedProblemData represents a detected problem with its attributes for metric observation.
+// Each problem is tracked at per-pooler granularity.
+type DetectedProblemData struct {
+	AnalysisType string
+	DBNamespace  string
+	Shard        string
+	PoolerID     string
+}
+
+// RegisterDetectedProblemsCallback registers a callback for the detected problems observable gauge.
+// The getter function is called periodically to observe current detected problems.
+// Each problem is reported with value=1 per pooler.
+// Returns an error if callback registration fails.
+func (m *Metrics) RegisterDetectedProblemsCallback(getter func() []DetectedProblemData) error {
+	if getter == nil {
+		return nil
+	}
+	_, err := m.meter.RegisterCallback(
+		func(ctx context.Context, observer metric.Observer) error {
+			for _, data := range getter() {
+				observer.ObserveInt64(m.detectedProblems.Inst(), 1,
+					metric.WithAttributes(
+						attribute.String("analysis_type", data.AnalysisType),
+						attribute.String("db.namespace", data.DBNamespace),
+						attribute.String("shard", data.Shard),
+						attribute.String("pooler_id", data.PoolerID),
+					))
+			}
+			return nil
+		},
+		m.detectedProblems.Inst(),
+	)
+	return err
 }
