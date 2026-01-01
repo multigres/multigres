@@ -58,5 +58,15 @@
     "workload_type": "service",
     "protocol": "tcp",
     "alias": "Jaeger"
+  },
+  {
+    "service": "multiadmin",
+    "namespace": "default",
+    "local_port": 18070,
+    "remote_port": 18070,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "AdminGrpc"
   }
 ]
