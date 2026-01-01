@@ -36,9 +36,9 @@ kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
 
 # Deploy observability stack (Prometheus, Jaeger, Grafana)
 # The otel-config ConfigMap must exist before services that reference it.
+# We don't have to wait for the observability stack to be ready.
 kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=observability/grafana-dashboard.json --save-config
 kubectl apply -f k8s-observability.yaml
-kubectl wait --for=condition=ready pod -l app=observability --timeout=120s
 
 # We're launching this as a job. The operator will just invoke this CLI.
 # For this, it must add the multigres binary to its image.
@@ -72,8 +72,8 @@ echo "  kubectl port-forward service/multigateway 15432:15432"
 echo "  psql --host=localhost --port=15432 -U postgres -d postgres"
 echo ""
 echo "Multiadmin Web UI:"
-echo "  kubectl port-forward service/multiadmin-web 3001:3000"
-echo "  Web UI:     http://localhost:3001"
+echo "  kubectl port-forward service/multiadmin-web 18100:18100"
+echo "  Web UI:     http://localhost:18100"
 echo ""
 echo "Multiadmin API access:"
 echo "  kubectl port-forward service/multiadmin 18000:18000"

@@ -111,7 +111,7 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9090
-              name: http
+              name: prom-http
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
