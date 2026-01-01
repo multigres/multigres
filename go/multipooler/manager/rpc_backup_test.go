@@ -1127,7 +1127,7 @@ func TestInitPgbackrest(t *testing.T) {
 			)
 			pm.config.PgPort = tt.pgPort
 
-			configPath, err := pm.initPgbackrest()
+			configPath, err := pm.initPgbackrest(NotForBackup)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1205,7 +1205,7 @@ func TestInitPgbackrest_Idempotent(t *testing.T) {
 	)
 
 	// First call
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1214,7 +1214,7 @@ func TestInitPgbackrest_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second call - should return early without doing any work
-	configPath2, err := pm.initPgbackrest()
+	configPath2, err := pm.initPgbackrest(NotForBackup)
 	require.NoError(t, err)
 	assert.Equal(t, configPath, configPath2, "should return same path on second call")
 
@@ -1237,7 +1237,7 @@ func TestInitPgbackrest_EarlyReturnWhenConfigExists(t *testing.T) {
 	)
 
 	// First call - should create everything
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1259,7 +1259,7 @@ func TestInitPgbackrest_EarlyReturnWhenConfigExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second call - should return early without touching anything
-	configPath2, err := pm.initPgbackrest()
+	configPath2, err := pm.initPgbackrest(NotForBackup)
 	require.NoError(t, err)
 	assert.Equal(t, configPath, configPath2, "should return same path on early return")
 
@@ -1290,7 +1290,7 @@ func TestInitPgbackrest_DirectoryCreation(t *testing.T) {
 		"/tmp/backups",
 	)
 
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1330,7 +1330,7 @@ func TestInitPgbackrest_TemplateExecution(t *testing.T) {
 	)
 	pm.config.PgPort = pgPort
 
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1374,7 +1374,7 @@ func TestInitPgbackrest_ConfigFileFormat(t *testing.T) {
 		"/tmp/backups",
 	)
 
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1399,4 +1399,181 @@ func TestInitPgbackrest_ConfigFileFormat(t *testing.T) {
 		}
 		assert.Contains(t, line, "=", "non-section lines should be key=value format: %s", line)
 	}
+}
+
+func TestInitPgbackrest_ForBackupCreatesTemp(t *testing.T) {
+	// Test that forBackup=true creates a temp config file in /tmp
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA,
+		"/tmp/backups",
+	)
+
+	// Call with ForBackup mode
+	tempConfigPath, err := pm.initPgbackrest(ForBackup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tempConfigPath)
+
+	// Verify the config file was created in /tmp (not in poolerDir)
+	assert.Contains(t, tempConfigPath, os.TempDir(), "temp config should be in /tmp")
+	assert.NotContains(t, tempConfigPath, poolerDir, "temp config should not be in pooler directory")
+	assert.Contains(t, tempConfigPath, "pgbackrest-", "temp config should have pgbackrest- prefix")
+	assert.True(t, strings.HasSuffix(tempConfigPath, ".conf"), "temp config should have .conf extension")
+
+	// Verify the temp file exists and is readable
+	fileInfo, err := os.Stat(tempConfigPath)
+	require.NoError(t, err, "temp config file should exist")
+	assert.False(t, fileInfo.IsDir(), "temp config should be a file, not a directory")
+
+	// Verify the config content is valid
+	configContent, err := os.ReadFile(tempConfigPath)
+	require.NoError(t, err)
+	configStr := string(configContent)
+
+	// Should have proper sections and content
+	assert.Contains(t, configStr, "[global]", "temp config should have [global] section")
+	assert.Contains(t, configStr, "[multigres]", "temp config should have [multigres] section")
+	assert.NotContains(t, configStr, "{{", "temp config should not contain template variables")
+
+	// Clean up the temp file
+	err = os.Remove(tempConfigPath)
+	require.NoError(t, err)
+
+	// Call again with ForBackup mode - should create a NEW temp file each time
+	tempConfigPath2, err := pm.initPgbackrest(ForBackup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tempConfigPath2)
+	assert.NotEqual(t, tempConfigPath, tempConfigPath2, "second call should create a different temp file")
+
+	// Verify the second temp file exists
+	_, err = os.Stat(tempConfigPath2)
+	require.NoError(t, err, "second temp config file should exist")
+
+	// Clean up the second temp file
+	err = os.Remove(tempConfigPath2)
+	require.NoError(t, err)
+
+	// Verify that the persistent config was NOT created in poolerDir
+	pgbackrestPath := pm.pgbackrestPath()
+	persistentConfigPath := filepath.Join(pgbackrestPath, "pgbackrest.conf")
+	_, err = os.Stat(persistentConfigPath)
+	assert.True(t, os.IsNotExist(err), "persistent config should not be created when using ForBackup mode")
+
+	// Verify that directories were NOT created in poolerDir when using ForBackup mode
+	_, err = os.Stat(pgbackrestPath)
+	assert.True(t, os.IsNotExist(err), "pgbackrest directory should not be created when using ForBackup mode")
+
+	logsPath := filepath.Join(pgbackrestPath, "logs")
+	_, err = os.Stat(logsPath)
+	assert.True(t, os.IsNotExist(err), "logs directory should not be created when using ForBackup mode")
+
+	spoolPath := filepath.Join(pgbackrestPath, "spool")
+	_, err = os.Stat(spoolPath)
+	assert.True(t, os.IsNotExist(err), "spool directory should not be created when using ForBackup mode")
+
+	lockPath := filepath.Join(pgbackrestPath, "lock")
+	_, err = os.Stat(lockPath)
+	assert.True(t, os.IsNotExist(err), "lock directory should not be created when using ForBackup mode")
+}
+
+func TestInitPgbackrest_ForBackupFalseSkipsPg2(t *testing.T) {
+	// Test that NotForBackup mode skips pg2 configuration even on standby poolers
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA, // This is a standby
+		"/tmp/backups",
+	)
+
+	// Set up primary pooler info to simulate a standby configuration
+	// Normally this would trigger pg2 configuration in the old code
+	pm.mu.Lock()
+	pm.primaryHost = "primary-host.example.com"
+	pm.primaryPort = 5432
+	pm.mu.Unlock()
+
+	// Call with NotForBackup mode
+	configPath, err := pm.initPgbackrest(NotForBackup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	// Verify the config file was created in poolerDir (persistent config)
+	pgbackrestPath := pm.pgbackrestPath()
+	expectedPath := filepath.Join(pgbackrestPath, "pgbackrest.conf")
+	assert.Equal(t, expectedPath, configPath, "should create persistent config when using NotForBackup mode")
+
+	// Read the generated config
+	configContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(configContent)
+
+	// Verify pg1 configuration is present
+	assert.Contains(t, configStr, "pg1-socket-path=", "pg1 config should be present")
+	assert.Contains(t, configStr, "pg1-port=", "pg1 config should be present")
+	assert.Contains(t, configStr, "pg1-path=", "pg1 config should be present")
+
+	// Verify pg2 configuration is NOT present (skipped because using NotForBackup mode)
+	assert.NotContains(t, configStr, "pg2-host=", "pg2 config should NOT be present when using NotForBackup mode")
+	assert.NotContains(t, configStr, "pg2-port=", "pg2 config should NOT be present when using NotForBackup mode")
+	assert.NotContains(t, configStr, "pg2-path=", "pg2 config should NOT be present when using NotForBackup mode")
+	assert.NotContains(t, configStr, "pg2-host-type=", "pg2 config should NOT be present when using NotForBackup mode")
+}
+
+func TestInitPgbackrest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
+	// Test that ForBackup mode DOES include pg2 configuration on standby poolers
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(
+		poolerDir,
+		"test-stanza",
+		"test-tg",
+		"0",
+		clustermetadatapb.PoolerType_REPLICA, // This is a standby
+		"/tmp/backups",
+	)
+
+	// Set up primary pooler info to simulate a standby configuration
+	pm.mu.Lock()
+	pm.primaryHost = "primary-host.example.com"
+	pm.primaryPort = 5432
+	// Mock the getPrimaryPoolerID to return a valid primary ID
+	pm.primaryPoolerID = &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "test-cell",
+		Name:      "primary-pooler",
+	}
+	pm.mu.Unlock()
+
+	// Call with ForBackup mode
+	tempConfigPath, err := pm.initPgbackrest(ForBackup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tempConfigPath)
+
+	// Verify it's a temp file
+	assert.Contains(t, tempConfigPath, os.TempDir(), "should create temp config when using ForBackup mode")
+
+	// Read the generated config
+	configContent, err := os.ReadFile(tempConfigPath)
+	require.NoError(t, err)
+	configStr := string(configContent)
+
+	// Verify pg1 configuration is present
+	assert.Contains(t, configStr, "pg1-socket-path=", "pg1 config should be present")
+	assert.Contains(t, configStr, "pg1-port=", "pg1 config should be present")
+	assert.Contains(t, configStr, "pg1-path=", "pg1 config should be present")
+
+	// Verify pg2 configuration IS present (included because using ForBackup mode and this is a standby)
+	assert.Contains(t, configStr, "pg2-host=primary-host.example.com", "pg2 config should be present when using ForBackup mode on standby")
+	assert.Contains(t, configStr, "pg2-port=5432", "pg2 config should be present when using ForBackup mode on standby")
+	assert.Contains(t, configStr, "pg2-host-type=tls", "pg2 config should be present when using ForBackup mode on standby")
+
+	// Clean up the temp file
+	err = os.Remove(tempConfigPath)
+	require.NoError(t, err)
 }

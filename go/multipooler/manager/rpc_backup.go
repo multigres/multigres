@@ -38,34 +38,64 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
+// PgbackrestConfigMode specifies how initPgbackrest should create the config file
+type PgbackrestConfigMode bool
+
+const (
+	// ForBackup creates a temporary config file in /tmp with pg2 configuration for standby poolers
+	ForBackup PgbackrestConfigMode = true
+	// NotForBackup creates a persistent config file in the pooler directory without pg2 configuration
+	NotForBackup PgbackrestConfigMode = false
+)
+
 // initPgbackrest creates the pgbackrest config file and sets up the necessary directories.
 // Returns the path to the backup config file.
-// If the config file already exists, it returns the path without recreating it.
-func (pm *MultiPoolerManager) initPgbackrest() (string, error) {
-	// Do not regenerate the config file if it already exists.
-	// We don't want to overwrite the file once it's created because postgres
-	// will be using it to archive WALs.
+// If mode is NotForBackup and the config file already exists, it returns the path without recreating it.
+// If mode is ForBackup, it creates a temporary config file and returns that path.
+// The config file that is created NotForBackup will be used by postgres and other tooling. It should
+// therefore not be overwritten once created. Otherwise, it can cause problems if postgres tries to
+// archive a WAL just when we're overwriting it.
+func (pm *MultiPoolerManager) initPgbackrest(mode PgbackrestConfigMode) (string, error) {
 	pgbackrestPath := pm.pgbackrestPath()
 	configPath := filepath.Join(pgbackrestPath, "pgbackrest.conf")
-	if _, err := os.Stat(configPath); err == nil {
-		// Config file exists, nothing to do
-		return configPath, nil
-	}
 
-	if err := os.MkdirAll(pgbackrestPath, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create config directory %s: %w", pgbackrestPath, err)
-	}
+	// Initialize path names used in the config file
 	logsPath := filepath.Join(pgbackrestPath, "logs")
-	if err := os.MkdirAll(logsPath, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create logs directory %s: %w", logsPath, err)
-	}
 	spoolPath := filepath.Join(pgbackrestPath, "spool")
-	if err := os.MkdirAll(spoolPath, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create spool directory %s: %w", spoolPath, err)
-	}
 	lockPath := filepath.Join(pgbackrestPath, "lock")
-	if err := os.MkdirAll(lockPath, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create lock directory %s: %w", lockPath, err)
+
+	// If this is for backup, we'll create a temp config file instead
+	if mode == ForBackup {
+		// Create temp file in /tmp to avoid cluttering the data directory
+		tempFile, err := os.CreateTemp("", "pgbackrest-*.conf")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp config file: %w", err)
+		}
+		configPath = tempFile.Name()
+		tempFile.Close()
+	} else {
+		// Do not regenerate the config file if it already exists.
+		// We don't want to overwrite the file once it's created because postgres
+		// will be using it to archive WALs.
+		if _, err := os.Stat(configPath); err == nil {
+			// Config file exists, nothing to do
+			slog.Info("Config file already exists")
+			return configPath, nil
+		}
+
+		// Also create directories along with the persistent config.
+		if err := os.MkdirAll(pgbackrestPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create config directory %s: %w", pgbackrestPath, err)
+		}
+		if err := os.MkdirAll(logsPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create logs directory %s: %w", logsPath, err)
+		}
+		if err := os.MkdirAll(spoolPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create spool directory %s: %w", spoolPath, err)
+		}
+		if err := os.MkdirAll(lockPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create lock directory %s: %w", lockPath, err)
+		}
 	}
 
 	// Generate pgbackrest config file from template
@@ -118,24 +148,27 @@ func (pm *MultiPoolerManager) initPgbackrest() (string, error) {
 		ServerAuths:    []string{"pgbackrest=*"},
 	}
 
-	// If this is a standby pooler, configure pg2 to point to the primary
-	if primaryPoolerID := pm.getPrimaryPoolerID(); primaryPoolerID != nil {
-		pm.mu.Lock()
-		templateData.Pg2Host = pm.primaryHost
-		templateData.Pg2Port = int(pm.primaryPort)
-		pm.mu.Unlock()
+	// We need a pg2 section only for backups. Other operations only need pg1.
+	if mode == ForBackup {
+		// It's possible that there's no primary (during initialization). If so, we skip pg2.
+		if primaryPoolerID := pm.getPrimaryPoolerID(); primaryPoolerID != nil {
+			pm.mu.Lock()
+			templateData.Pg2Host = pm.primaryHost
+			templateData.Pg2Port = int(pm.primaryPort)
+			pm.mu.Unlock()
 
-		// TODO(sougou). This is a hack.
-		localID := topoclient.MultiPoolerIDString(pm.serviceID)
-		primaryID := topoclient.MultiPoolerIDString(primaryPoolerID)
-		primaryPoolerDir := strings.ReplaceAll(pm.config.PoolerDir, localID, primaryID)
-		templateData.Pg2Path = filepath.Join(primaryPoolerDir, "pg_data")
+			// TODO(sougou). This is a hack.
+			localID := topoclient.MultiPoolerIDString(pm.serviceID)
+			primaryID := topoclient.MultiPoolerIDString(primaryPoolerID)
+			primaryPoolerDir := strings.ReplaceAll(pm.config.PoolerDir, localID, primaryID)
+			templateData.Pg2Path = filepath.Join(primaryPoolerDir, "pg_data")
 
-		// More hardcoded values for testing
-		templateData.Pg2HostPort = 8432
-		templateData.Pg2HostCAFile = "/certs/ca.crt"
-		templateData.Pg2HostCertFile = "/certs/pgbackrest.crt"
-		templateData.Pg2HostKeyFile = "/certs/pgbackrest.key"
+			// More hardcoded values for testing
+			templateData.Pg2HostPort = 8432
+			templateData.Pg2HostCAFile = "/certs/ca.crt"
+			templateData.Pg2HostCertFile = "/certs/pgbackrest.crt"
+			templateData.Pg2HostKeyFile = "/certs/pgbackrest.key"
+		}
 	}
 
 	var configContent strings.Builder
@@ -179,7 +212,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(ForBackup)
 	if err != nil {
 		return "", err
 	}
@@ -334,7 +367,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 }
 
 func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, backupID string) error {
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
@@ -443,7 +476,7 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 // (which are immutable after construction) and backupLocation (which is
 // set once during startup and never modified).
 func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolermanagerdata.BackupMetadata, error) {
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
@@ -701,7 +734,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	ctx context.Context,
 	jobID string,
 ) (string, error) {
-	configPath, err := pm.initPgbackrest()
+	configPath, err := pm.initPgbackrest(NotForBackup)
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
