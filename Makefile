@@ -43,9 +43,9 @@ help: ## Display this help.
 # Install protobuf tools
 tools: ## Install protobuf and build tools.
 	echo $$(date): Installing build tools
-	mkdir -p .git/hooks
-	ln -sf "$(MTROOT)/misc/git/pre-commit" .git/hooks/pre-commit
-	ln -sf "$(MTROOT)/misc/git/commit-msg" .git/hooks/commit-msg
+	mkdir -p "$$(git rev-parse --git-dir)/hooks"
+	ln -sf "$(MTROOT)/misc/git/pre-commit" "$$(git rev-parse --git-dir)/hooks/pre-commit"
+	ln -sf "$(MTROOT)/misc/git/commit-msg" "$$(git rev-parse --git-dir)/hooks/commit-msg"
 	./tools/setup_build_tools.sh
 	go install golang.org/x/tools/cmd/goyacc@latest
 
@@ -145,6 +145,7 @@ clean-all: clean ## Remove build dependencies and distribution files.
 	echo "Build dependencies removed. Run 'make tools' to reinstall."
 
 validate-generated-files: clean build-all ## Validate that generated files match source.
+	go mod tidy
 	echo ""
 	echo "Checking files modified during build..."
 	MODIFIED_FILES=$$(git status --porcelain | grep "^ M" | awk '{print $$2}') ; \
@@ -153,7 +154,7 @@ validate-generated-files: clean build-all ## Validate that generated files match
 		echo; \
 		echo "$$MODIFIED_FILES"; \
 		echo; \
-		echo "Please run 'make build-all' and commit the changes"; \
+		echo "Please run 'make build-all && go mod tidy' and commit the changes"; \
 		exit 1; \
 	else \
 		echo "Generated files are up-to-date."; \
