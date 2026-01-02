@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supafirehose-init-sql
+data:
+  init.sql: |
+    -- SupaFirehose Demo Database Schema
+    CREATE TABLE IF NOT EXISTS users (
+        id         BIGSERIAL PRIMARY KEY,
+        username   VARCHAR(255) NOT NULL,
+        email      VARCHAR(255) NOT NULL,
+        created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    INSERT INTO users (username, email)
+    SELECT 'user_' || i, 'user_' || i || '@example.com'
+    FROM generate_series(1, 100000) AS i
+    ON CONFLICT DO NOTHING;
+
+    ANALYZE users;
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: supafirehose-db-init
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: init
+        image: postgres:15-alpine
+        command:
+        - sh
+        - -c
+        - |
+          psql -h multigateway -p 15432 -U postgres -c "CREATE DATABASE pooler_demo;" || true
+          psql -h multigateway -p 15432 -U postgres -d pooler_demo -f /sql/init.sql
+        volumeMounts:
+        - name: init-sql
+          mountPath: /sql
+      volumes:
+      - name: init-sql
+        configMap:
+          name: supafirehose-init-sql
