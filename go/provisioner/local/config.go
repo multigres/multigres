@@ -44,6 +44,7 @@ type CellServicesConfig struct {
 	Multipooler  MultipoolerConfig  `yaml:"multipooler"`
 	Multiorch    MultiorchConfig    `yaml:"multiorch"`
 	Pgctld       PgctldConfig       `yaml:"pgctld"`
+	PgBackRest   PgBackrestConfig   `yaml:"pgbackrest"`
 }
 
 // LocalProvisionerConfig represents the typed configuration for the local provisioner
@@ -120,6 +121,11 @@ type PgctldConfig struct {
 	PgPwfile       string `yaml:"pg-pwfile"`        // Source password file path; copied to pooler-dir/pgpassword.txt during init
 	Timeout        int    `yaml:"timeout"`          // Operation timeout in seconds
 	LogLevel       string `yaml:"log-level"`        // Log level
+}
+
+// PgBackrestConfig holds pgbackrest config info
+type PgBackrestConfig struct {
+	Port int `yaml:"port"`
 }
 
 // LoadConfig loads the provisioner-specific configuration from the given config paths
@@ -261,6 +267,9 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Timeout:        30,
 					LogLevel:       "info",
 				},
+				PgBackRest: PgBackrestConfig{
+					Port: ports.DefaultPgbackRestPort,
+				},
 			},
 			"zone2": {
 				Multigateway: MultigatewayConfig{
@@ -304,6 +313,9 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					Timeout:        30,
 					LogLevel:       "info",
 				},
+				PgBackRest: PgBackrestConfig{
+					Port: ports.DefaultPgbackRestPort + 1,
+				},
 			},
 			"zone3": {
 				Multigateway: MultigatewayConfig{
@@ -346,6 +358,9 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgpassword.txt"),
 					Timeout:        30,
 					LogLevel:       "info",
+				},
+				PgBackRest: PgBackrestConfig{
+					Port: ports.DefaultPgbackRestPort + 2,
 				},
 			},
 		},
@@ -443,6 +458,10 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"pg_user":          cellServices.Pgctld.PgUser,
 			"timeout":          cellServices.Pgctld.Timeout,
 			"log_level":        cellServices.Pgctld.LogLevel,
+		}, nil
+	case constants.ServicePgbackrest:
+		return map[string]any{
+			"port": cellServices.PgBackRest.Port,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown service %s", service)

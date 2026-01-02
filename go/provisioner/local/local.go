@@ -815,6 +815,25 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
 
+	// Get pgbackrest port from config
+	pgbackrestConfig, err := p.getCellServiceConfig(cell, constants.ServicePgbackrest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pgbackrest config for cell %s: %w", cell, err)
+	}
+	pgbackrestPort := ports.DefaultPgbackRestPort
+	if port, ok := pgbackrestConfig["port"].(int); ok && port > 0 {
+		pgbackrestPort = port
+	}
+
+	// Add pgbackrest TLS certificate paths and port
+	certDir := p.certDir()
+	args = append(args,
+		"--pgbackrest-cert-file", filepath.Join(certDir, "pgbackrest.crt"),
+		"--pgbackrest-key-file", filepath.Join(certDir, "pgbackrest.key"),
+		"--pgbackrest-ca-file", filepath.Join(certDir, "ca.crt"),
+		"--pgbackrest-port", fmt.Sprintf("%d", pgbackrestPort),
+	)
+
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
 
@@ -1096,6 +1115,8 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case constants.ServiceMultiadmin:
 		return p.deprovisionService(ctx, req)
+	case constants.ServicePgbackrest:
+		return p.deprovisionPgbackRestServer(ctx, req)
 	case constants.ServicePgctld:
 		// pgctld requires special handling to stop PostgreSQL first
 		service, err := p.loadServiceState(req)
@@ -1609,6 +1630,11 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 	fmt.Println("")
 
+	// Generate pgBackRest certificates before starting services
+	if err := p.generatePgBackRestCertsOnce(ctx); err != nil {
+		return nil, err
+	}
+
 	// Provision all services in parallel across all cells.
 	// Multiorch's bootstrap action has a quorum check that will wait for enough
 	// poolers to be available before attempting bootstrap, so strict ordering
@@ -1621,7 +1647,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 
 	// Calculate total number of services to provision
-	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell
+	numServices := len(cellNames) * 4 // multigateway + multipooler + multiorch + pgbackrest per cell
 	resultsChan := make(chan provisionResult, numServices)
 
 	// Start all services in parallel
@@ -1684,6 +1710,18 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			}
 			resultsChan <- provisionResult{result: result}
 		}()
+
+		// Start pgbackrest
+		go func() {
+			// Provision pgbackrest server for this cell
+			_, err := p.provisionPgbackRestServer(ctx, databaseName, cell)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision pgbackrest server for cell %s: %w", cell, err)}
+				return
+			}
+			// pgbackrest doesn't return a ProvisionResult in the same format, so we send a nil result
+			resultsChan <- provisionResult{result: nil}
+		}()
 	}
 
 	// Collect all results
@@ -1693,7 +1731,8 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		res := <-resultsChan
 		if res.err != nil {
 			provisionErrors = append(provisionErrors, res.err)
-		} else {
+		} else if res.result != nil {
+			// Only append non-nil results (pgbackrest returns nil)
 			results = append(results, res.result)
 		}
 	}
@@ -1708,6 +1747,16 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))
 	return results, nil
+}
+
+// generatePgBackRestCertsOnce generates pgBackRest certificates once for all cells
+func (p *localProvisioner) generatePgBackRestCertsOnce(ctx context.Context) error {
+	fmt.Println("=== Generating pgBackRest certs ===")
+	if err := p.generatePgBackRestCerts(); err != nil {
+		return fmt.Errorf("failed to generate pgBackRest certs: %w", err)
+	}
+	fmt.Println("")
+	return nil
 }
 
 // setupDefaultCell initializes the topology cell configuration for a database
