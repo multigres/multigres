@@ -55,6 +55,7 @@ type MultiPooler struct {
 	pgBackRestCertFile viperutil.Value[string]
 	pgBackRestKeyFile  viperutil.Value[string]
 	pgBackRestCAFile   viperutil.Value[string]
+	pgBackRestPort     viperutil.Value[int]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -150,6 +151,11 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-ca-file",
 			Dynamic:  false,
 		}),
+		pgBackRestPort: viperutil.Configure(reg, "pgbackrest-port", viperutil.Options[int]{
+			Default:  8432,
+			FlagName: "pgbackrest-port",
+			Dynamic:  false,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -186,6 +192,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "pgBackRest TLS certificate file path (used for both server and client)")
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "pgBackRest TLS key file path (used for both server and client)")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "pgBackRest TLS CA file path (used for both server and client)")
+	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -202,6 +209,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
+		mp.pgBackRestPort,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -284,6 +292,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgBackRestCertFile:  mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:   mp.pgBackRestKeyFile.Get(),
 		PgBackRestCAFile:    mp.pgBackRestCAFile.Get(),
+		PgBackRestPort:      mp.pgBackRestPort.Get(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)

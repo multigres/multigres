@@ -40,4 +40,5 @@ type Config struct {
 	PgBackRestCertFile string
 	PgBackRestKeyFile  string
 	PgBackRestCAFile   string
+	PgBackRestPort     int // pgBackRest TLS server port
 }
