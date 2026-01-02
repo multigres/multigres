@@ -64,7 +64,6 @@ type ReplicationAnalysis struct {
 	PrimaryLSNStr          string
 	ReplicationLagBytes    int64
 	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
-	TimelineDiverged       bool // Whether this replica has a diverged timeline that needs pg_rewind
 
 	// Stale primary detection: populated for PRIMARY nodes only
 	OtherPrimaryInShard *clustermetadatapb.ID // ID of another PRIMARY in same shard (if detected)

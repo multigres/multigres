@@ -22,7 +22,6 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
@@ -380,11 +379,6 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	// When the primary pooler is down but Postgres is still running, replicas remain connected
 	// and we should NOT trigger failover. Instead, the operator should restart the pooler process.
 	analysis.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(primary, poolers)
-
-	// Check for timeline divergence between replica and primary
-	if divergedProblem := g.checkTimelineDivergence(primary, replica); divergedProblem != nil {
-		analysis.TimelineDiverged = true
-	}
 }
 
 // isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.
@@ -495,45 +489,6 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	}
 
 	return true
-}
-
-// checkTimelineDivergence checks if a replica has a diverged timeline.
-// A timeline is diverged if the replica is on an older timeline and has
-// WAL past the point where the primary's timeline forked.
-func (g *AnalysisGenerator) checkTimelineDivergence(
-	primary *multiorchdatapb.PoolerHealthState,
-	replica *multiorchdatapb.PoolerHealthState,
-) *multiorchdatapb.ShardProblem {
-	// Get timeline info from both nodes
-	var primaryTL *consensusdatapb.TimelineInfo
-	var replicaTL *consensusdatapb.TimelineInfo
-
-	if primary.ConsensusStatus != nil {
-		primaryTL = primary.ConsensusStatus.TimelineInfo
-	}
-	if replica.ConsensusStatus != nil {
-		replicaTL = replica.ConsensusStatus.TimelineInfo
-	}
-
-	if primaryTL == nil || replicaTL == nil {
-		return nil // Can't determine divergence without timeline info
-	}
-
-	// If replica is on same or newer timeline, not diverged
-	if replicaTL.TimelineId >= primaryTL.TimelineId {
-		return nil
-	}
-
-	// Replica is on older timeline - check if it has WAL past the fork point
-	// For now, just detect the timeline mismatch. Full LSN comparison
-	// requires timeline history which we'll add later.
-
-	return &multiorchdatapb.ShardProblem{
-		Type: multiorchdatapb.ProblemType_PROBLEM_REPLICA_TIMELINE_DIVERGED,
-		Description: fmt.Sprintf("replica %s is on timeline %d but primary is on timeline %d",
-			replica.MultiPooler.Id.Name, replicaTL.TimelineId, primaryTL.TimelineId),
-		AffectedPoolers: []*clustermetadatapb.ID{replica.MultiPooler.Id},
-	}
 }
 
 // detectOtherPrimary checks if there's another PRIMARY in the same shard.

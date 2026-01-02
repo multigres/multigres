@@ -43,7 +43,6 @@ func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 			&PrimaryIsDeadAnalyzer{factory: factory},
 			&ReplicaNotReplicatingAnalyzer{factory: factory},
 			&ReplicaNotInStandbyListAnalyzer{factory: factory},
-			&ReplicaTimelineDivergedAnalyzer{factory: factory},
 		}
 	}
 	return defaultAnalyzers
