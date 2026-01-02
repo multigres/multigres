@@ -72,6 +72,7 @@ func (pm *MultiPoolerManager) initPgBackRest(mode PgBackRestConfigMode) (string,
 			return "", fmt.Errorf("failed to create temp config file: %w", err)
 		}
 		configPath = tempFile.Name()
+		slog.Info("Temp Config File Created", "Name", configPath)
 		tempFile.Close()
 	} else {
 		// Do not regenerate the config file if it already exists.
@@ -79,7 +80,6 @@ func (pm *MultiPoolerManager) initPgBackRest(mode PgBackRestConfigMode) (string,
 		// will be using it to archive WALs.
 		if _, err := os.Stat(configPath); err == nil {
 			// Config file exists, nothing to do
-			slog.Info("Config file already exists")
 			return configPath, nil
 		}
 
@@ -144,7 +144,7 @@ func (pm *MultiPoolerManager) initPgBackRest(mode PgBackRestConfigMode) (string,
 		ServerCertFile: pm.config.PgBackRestCertFile,
 		ServerKeyFile:  pm.config.PgBackRestKeyFile,
 		ServerCAFile:   pm.config.PgBackRestCAFile,
-		ServerPort:     8432,
+		ServerPort:     pm.config.PgBackRestPort,
 		ServerAuths:    []string{"pgbackrest=*"},
 	}
 
@@ -164,7 +164,7 @@ func (pm *MultiPoolerManager) initPgBackRest(mode PgBackRestConfigMode) (string,
 			templateData.Pg2Path = filepath.Join(primaryPoolerDir, "pg_data")
 
 			// Use configured certificate paths for pg2 host client
-			templateData.Pg2HostPort = 8432
+			templateData.Pg2HostPort = pm.config.PgBackRestPort
 			templateData.Pg2HostCAFile = pm.config.PgBackRestCAFile
 			templateData.Pg2HostCertFile = pm.config.PgBackRestCertFile
 			templateData.Pg2HostKeyFile = pm.config.PgBackRestKeyFile
