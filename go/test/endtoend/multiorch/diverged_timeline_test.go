@@ -47,8 +47,8 @@ import (
 // This test verifies the complete stale primary detection and timeline divergence repair flow:
 // 1. StalePrimaryAnalyzer detects when old primary comes back with a lower consensus term
 // 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
-// 3. ReplicaTimelineDivergedAnalyzer detects the diverged timeline
-// 4. FixReplicationAction runs pg_rewind to repair the replica
+// 3. NotReplicatingAnalyzer detects the replica is not replicating
+// 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
 func TestDivergedTimelineRepair(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TestDivergedTimelineRepair test in short mode")

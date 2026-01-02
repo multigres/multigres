@@ -143,20 +143,4 @@ message CanReachPrimaryResponse {
 message TimelineInfo {
   // Current timeline ID (from pg_control_checkpoint())
   int64 timeline_id = 1;
-
-  // Timeline history showing where each timeline forked
-  // Only populated for primaries (they have the full history)
-  repeated TimelineForkPoint histories = 2;
-}
-
-// A point where a timeline forked from its parent
-message TimelineForkPoint {
-  // The timeline that was created
-  int64 timeline_id = 1;
-
-  // The timeline it forked from
-  int64 parent_timeline_id = 2;
-
-  // LSN where the fork occurred
-  string fork_lsn = 3;
 }
