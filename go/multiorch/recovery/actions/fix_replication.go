@@ -127,9 +127,6 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	case types.ProblemReplicaNotReplicating, types.ProblemReplicaNotInStandbyList:
 		return a.fixNotReplicating(ctx, replica, primary)
 
-	case types.ProblemReplicaTimelineDiverged:
-		return a.fixDivergedTimeline(ctx, primary, replica)
-
 	// TODO: Future problem codes to handle
 	// case types.ProblemReplicaWrongPrimary:
 	//     return a.fixWrongPrimary(ctx, replica, primary, currentStatus)
@@ -146,6 +143,8 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 
 // fixNotReplicating handles the case where replication is not set up at all.
 // This is the most basic case: the replica has no primary_conninfo configured.
+// If normal replication setup fails (e.g., due to timeline divergence), it
+// attempts pg_rewind as a fallback.
 func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *multiorchdatapb.PoolerHealthState,
@@ -160,12 +159,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus status from primary")
 	}
-
 	consensusTerm := consensusResp.CurrentTerm
-
-	a.logger.InfoContext(ctx, "got consensus term from primary",
-		"primary", primary.MultiPooler.Id.Name,
-		"consensus_term", consensusTerm)
 
 	// Configure primary_conninfo on the replica
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
@@ -173,28 +167,40 @@ func (a *FixReplicationAction) fixNotReplicating(
 		StopReplicationBefore: true,
 		StartReplicationAfter: true,
 		CurrentTerm:           consensusTerm,
-		Force:                 false, // Don't force, respect consensus term
+		Force:                 false,
 	}
-
-	a.logger.InfoContext(ctx, "setting primary connection info",
-		"replica", replica.MultiPooler.Id.Name,
-		"primary", primary.MultiPooler.Id.Name,
-		"consensus_term", consensusTerm)
 
 	_, err = a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to set primary connection info")
 	}
 
-	a.logger.InfoContext(ctx, "successfully configured primary connection info",
-		"replica", replica.MultiPooler.Id.Name)
+	// Try to verify replication started
+	if err := a.verifyReplicationStarted(ctx, replica); err != nil {
+		// Replication didn't start - might be timeline divergence
+		a.logger.WarnContext(ctx, "replication did not start, trying pg_rewind",
+			"replica", replica.MultiPooler.Id.Name,
+			"error", err)
+
+		// Try pg_rewind as fallback
+		if rewindErr := a.tryPgRewind(ctx, primary, replica); rewindErr != nil {
+			return mterrors.Wrap(rewindErr, "pg_rewind fallback failed")
+		}
+
+		// After pg_rewind, reconfigure replication
+		_, err = a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to set primary connection info after pg_rewind")
+		}
+
+		// Verify again
+		if err := a.verifyReplicationStarted(ctx, replica); err != nil {
+			return mterrors.Wrap(err, "replication still not working after pg_rewind")
+		}
+	}
 
 	// Add replica to the primary's synchronous standby list if it's a REPLICA type
 	if replica.MultiPooler.Type == clustermetadatapb.PoolerType_REPLICA {
-		a.logger.InfoContext(ctx, "adding replica to primary's synchronous standby list",
-			"replica", replica.MultiPooler.Id.Name,
-			"primary", primary.MultiPooler.Id.Name)
-
 		updateReq := &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
 			Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
 			StandbyIds:    []*clustermetadatapb.ID{replica.MultiPooler.Id},
@@ -207,19 +213,71 @@ func (a *FixReplicationAction) fixNotReplicating(
 		if err != nil {
 			return mterrors.Wrap(err, "failed to add replica to synchronous standby list")
 		}
-
-		a.logger.InfoContext(ctx, "successfully added replica to synchronous standby list",
-			"replica", replica.MultiPooler.Id.Name)
-	}
-
-	// Verify replication is now working
-	if err := a.verifyReplicationStarted(ctx, replica); err != nil {
-		return mterrors.Wrap(err, "replication configured but failed to verify streaming")
 	}
 
 	a.logger.InfoContext(ctx, "fix replication action completed successfully",
 		"replica", replica.MultiPooler.Id.Name,
 		"primary", primary.MultiPooler.Id.Name)
+
+	return nil
+}
+
+// tryPgRewind attempts to repair a replica using pg_rewind.
+// It first runs a dry-run to check feasibility, then runs the actual rewind.
+// If pg_rewind is not feasible (missing WAL), it marks the pooler as DRAINED.
+func (a *FixReplicationAction) tryPgRewind(
+	ctx context.Context,
+	primary *multiorchdatapb.PoolerHealthState,
+	replica *multiorchdatapb.PoolerHealthState,
+) error {
+	a.logger.InfoContext(ctx, "attempting pg_rewind",
+		"replica", replica.MultiPooler.Id.Name,
+		"primary", primary.MultiPooler.Id.Name)
+
+	// Build source connection string for pg_rewind
+	primaryPort, ok := primary.MultiPooler.PortMap["postgres"]
+	if !ok {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"primary %s has no postgres port configured", primary.MultiPooler.Id.Name)
+	}
+	sourceConnStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
+		primary.MultiPooler.Hostname, primaryPort)
+
+	// Run pg_rewind --dry-run to check feasibility
+	dryRunReq := &multipoolermanagerdatapb.RewindToSourceRequest{
+		SourceServer: sourceConnStr,
+		DryRun:       true,
+	}
+	dryRunResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, dryRunReq)
+	if err != nil {
+		a.logger.WarnContext(ctx, "pg_rewind dry-run RPC failed, marking as DRAINED",
+			"replica", replica.MultiPooler.Id.Name,
+			"error", err)
+		return a.markPoolerDrained(ctx, replica)
+	}
+	if !dryRunResp.Success {
+		a.logger.WarnContext(ctx, "pg_rewind not feasible, marking as DRAINED",
+			"replica", replica.MultiPooler.Id.Name,
+			"error", dryRunResp.ErrorMessage)
+		return a.markPoolerDrained(ctx, replica)
+	}
+
+	// Run actual pg_rewind
+	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
+		SourceServer: sourceConnStr,
+		DryRun:       false,
+	}
+	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, rewindReq)
+	if err != nil {
+		return mterrors.Wrap(err, "pg_rewind RPC failed")
+	}
+	if !rewindResp.Success {
+		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+			"pg_rewind failed: %s", rewindResp.ErrorMessage)
+	}
+
+	a.logger.InfoContext(ctx, "pg_rewind completed successfully",
+		"replica", replica.MultiPooler.Id.Name)
 
 	return nil
 }
@@ -238,12 +296,6 @@ func (a *FixReplicationAction) verifyProblemExists(
 
 	case types.ProblemReplicaNotInStandbyList:
 		return a.verifyReplicaNotInStandbyList(ctx, replica, primary)
-
-	case types.ProblemReplicaTimelineDiverged:
-		// For timeline divergence, we always proceed with the fix.
-		// Re-verifying timeline divergence would require querying timelines
-		// which is expensive, so we trust the detection and proceed with pg_rewind.
-		return true, nil, nil
 
 	default:
 		return false, nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -445,85 +497,6 @@ func (a *FixReplicationAction) Priority() types.Priority {
 	return types.PriorityHigh
 }
 
-// fixDivergedTimeline repairs a replica that has a diverged timeline using pg_rewind.
-//
-// The flow is:
-// 1. Run pg_rewind --dry-run via multipooler to check if repair is feasible
-// 2. If not feasible (missing WAL), mark the pooler as DRAINED
-// 3. If feasible, run actual pg_rewind (which stops PG, rewinds, starts PG)
-// 4. Configure replication to the primary
-func (a *FixReplicationAction) fixDivergedTimeline(
-	ctx context.Context,
-	primary *multiorchdatapb.PoolerHealthState,
-	replica *multiorchdatapb.PoolerHealthState,
-) error {
-	a.logger.InfoContext(ctx, "fixing diverged timeline",
-		"replica", replica.MultiPooler.Id.Name,
-		"primary", primary.MultiPooler.Id.Name)
-
-	// Build source connection string for pg_rewind
-	primaryPort, ok := primary.MultiPooler.PortMap["postgres"]
-	if !ok {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"primary %s has no postgres port configured", primary.MultiPooler.Id.Name)
-	}
-	sourceConnStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
-		primary.MultiPooler.Hostname, primaryPort)
-
-	// 1. Run pg_rewind --dry-run to check feasibility
-	a.logger.InfoContext(ctx, "checking if pg_rewind is feasible",
-		"replica", replica.MultiPooler.Id.Name,
-		"source", sourceConnStr)
-
-	dryRunReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		SourceServer: sourceConnStr,
-		DryRun:       true,
-	}
-	dryRunResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, dryRunReq)
-	if err != nil {
-		// RPC error - mark as DRAINED since we can't determine feasibility
-		a.logger.WarnContext(ctx, "pg_rewind dry-run RPC failed, marking as DRAINED",
-			"replica", replica.MultiPooler.Id.Name,
-			"error", err)
-		return a.markPoolerDrained(ctx, replica)
-	}
-	if !dryRunResp.Success {
-		// pg_rewind not feasible - mark as DRAINED
-		a.logger.WarnContext(ctx, "pg_rewind not feasible, marking as DRAINED",
-			"replica", replica.MultiPooler.Id.Name,
-			"error", dryRunResp.ErrorMessage)
-		return a.markPoolerDrained(ctx, replica)
-	}
-
-	// 2. Run actual pg_rewind (this stops PG, rewinds, and starts PG)
-	a.logger.InfoContext(ctx, "running pg_rewind",
-		"replica", replica.MultiPooler.Id.Name,
-		"source", sourceConnStr)
-
-	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		SourceServer: sourceConnStr,
-		DryRun:       false,
-	}
-	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, rewindReq)
-	if err != nil {
-		return mterrors.Wrap(err, "pg_rewind RPC failed")
-	}
-	if !rewindResp.Success {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"pg_rewind failed: %s", rewindResp.ErrorMessage)
-	}
-
-	a.logger.InfoContext(ctx, "pg_rewind completed successfully",
-		"replica", replica.MultiPooler.Id.Name)
-
-	// 3. Configure replication to primary
-	a.logger.InfoContext(ctx, "configuring replication after rewind",
-		"replica", replica.MultiPooler.Id.Name,
-		"primary", primary.MultiPooler.Id.Name)
-
-	return a.fixNotReplicating(ctx, replica, primary)
-}
-
 // markPoolerDrained marks a pooler as DRAINED in the topology.
 func (a *FixReplicationAction) markPoolerDrained(ctx context.Context, pooler *multiorchdatapb.PoolerHealthState) error {
 	a.logger.InfoContext(ctx, "marking pooler as DRAINED", "pooler", pooler.MultiPooler.Id.Name)
@@ -558,10 +531,6 @@ func (a *FixReplicationAction) markPoolerDrained(ctx context.Context, pooler *mu
 //      e) Synchronous replication bottleneck
 //    - Fix: Depends on root cause; short-term we might not fix them, automatically
 //           should understand why replication is broken.
-// ProblemReplicaTimelineDiverged
-//    - Replica is on wrong timeline.
-//    - Fix: pg_rewind or full re-clone from primary
-//    - Critical: Verify data integrity
 //
 // ProblemWalReceiverCrashing
 //    - WAL receiver process repeatedly crashing
