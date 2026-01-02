@@ -229,7 +229,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 			}
 		}
 
-		// Lookup primary info and check for timeline divergence
+		// Lookup primary info
 		g.populatePrimaryInfo(analysis, shardKey, pooler)
 	}
 
@@ -327,7 +327,6 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 }
 
 // populatePrimaryInfo looks up the primary this replica is replicating from.
-// Also checks for timeline divergence between the replica and primary.
 func (g *AnalysisGenerator) populatePrimaryInfo(
 	analysis *store.ReplicationAnalysis,
 	shardKey commontypes.ShardKey,
