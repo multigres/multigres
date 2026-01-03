@@ -28,10 +28,11 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// ResetTerm resets the consensus term to 1 with all fields cleared.
-// This is used during initialization and cleanup to ensure a clean state.
-// Follows the pattern from multipooler/setup_test.go:resetTerm.
-func ResetTerm(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
+// InitializeNodeForTest sets up a node with initial term 1 for testing.
+// Uses direct file manipulation instead of gRPC.
+func InitializeNodeForTest(t *testing.T, poolerDataDir string) {
+	t.Helper()
+
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		TermNumber:                    1,
 		AcceptedTermFromCoordinatorId: nil,
@@ -39,11 +40,7 @@ func ResetTerm(ctx context.Context, client multipoolermanagerpb.MultiPoolerManag
 		LeaderId:                      nil,
 	}
 
-	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
-	if err != nil {
-		return fmt.Errorf("failed to set term: %w", err)
-	}
-	return nil
+	SetTermDirectly(t, poolerDataDir, initialTerm)
 }
 
 // SetPoolerType sets the pooler type using the provided manager client.
@@ -95,17 +92,14 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 // RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
 // Uses Force=true and resets term to 1 for simplicity in test cleanup.
 // Follows the pattern from multipooler/setup_test.go:restorePrimaryAfterDemotion.
-func RestorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
-	// Set term back to 1
-	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{
-		Term: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set term on primary: %w", err)
-	}
+func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, poolerDataDir string) error {
+	t.Helper()
+
+	// Reset term to 1 via direct file write (bypasses gRPC which we're removing)
+	SetTermDirectly(t, poolerDataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
 
 	// Stop replication on primary
-	_, err = client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
+	_, err := client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to stop replication on primary: %w", err)
 	}

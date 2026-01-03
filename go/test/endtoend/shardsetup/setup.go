@@ -744,7 +744,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
 			} else if inRecovery == "t" {
 				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, client.Manager); err != nil {
+				if err := RestorePrimaryAfterDemotion(ctx, t, client.Manager, inst.Pgctld.DataDir); err != nil {
 					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
 				}
 			}
@@ -769,10 +769,8 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 			t.Logf("Reset: Failed to set pooler type on %s: %v", name, err)
 		}
 
-		// Reset term
-		if err := ResetTerm(ctx, client.Manager); err != nil {
-			t.Logf("Reset: Failed to reset term on %s: %v", name, err)
-		}
+		// Reset term via direct file write
+		InitializeNodeForTest(t, inst.Pgctld.DataDir)
 
 		client.Close()
 	}
@@ -867,7 +865,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
 				} else if inRecovery == "t" {
 					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, client.Manager); err != nil {
+					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client.Manager, inst.Pgctld.DataDir); err != nil {
 						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
 					}
 				}
@@ -893,10 +891,8 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 				t.Logf("Cleanup: failed to set pooler type on %s: %v", name, err)
 			}
 
-			// Reset term
-			if err := ResetTerm(cleanupCtx, client.Manager); err != nil {
-				t.Logf("Cleanup: failed to reset term on %s: %v", name, err)
-			}
+			// Reset term via direct file write
+			InitializeNodeForTest(t, inst.Pgctld.DataDir)
 
 			client.Close()
 		}
