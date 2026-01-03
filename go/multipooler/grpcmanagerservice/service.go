@@ -17,7 +17,6 @@ package grpcmanagerservice
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -328,31 +327,7 @@ func (s *managerService) CreateDurabilityPolicy(ctx context.Context, req *multip
 
 // RewindToSource performs pg_rewind to synchronize this server with a source
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
-	if req.Source == nil {
-		return &multipoolermanagerdatapb.RewindToSourceResponse{
-			Success:      false,
-			ErrorMessage: "source is required",
-		}, nil
-	}
-
-	// Build connection string from MultiPooler
-	port, ok := req.Source.PortMap["postgres"]
-	if !ok {
-		return &multipoolermanagerdatapb.RewindToSourceResponse{
-			Success:      false,
-			ErrorMessage: "source has no postgres port configured",
-		}, nil
-	}
-	if req.Source.Hostname == "" {
-		return &multipoolermanagerdatapb.RewindToSourceResponse{
-			Success:      false,
-			ErrorMessage: "source hostname is required",
-		}, nil
-	}
-	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
-		req.Source.Hostname, port)
-
-	success, errMsg := s.manager.RewindToSource(ctx, sourceServer, req.DryRun)
+	success, errMsg := s.manager.RewindToSource(ctx, req.Source, req.DryRun)
 	return &multipoolermanagerdatapb.RewindToSourceResponse{
 		Success:      success,
 		ErrorMessage: errMsg,

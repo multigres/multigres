@@ -1166,10 +1166,26 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 // RewindToSource performs pg_rewind to synchronize this server with a source.
 // This operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
 // Returns (success bool, error message string).
-func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, sourceServer string, dryRun bool) (bool, string) {
+func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *clustermetadatapb.MultiPooler, dryRun bool) (bool, string) {
 	if err := pm.checkReady(); err != nil {
 		return false, err.Error()
 	}
+
+	// Validate source multipooler
+	if source == nil {
+		return false, "source is required"
+	}
+	if source.Hostname == "" {
+		return false, "source hostname is required"
+	}
+	port, ok := source.PortMap["postgres"]
+	if !ok {
+		return false, "source has no postgres port configured"
+	}
+
+	// Build connection string from MultiPooler
+	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
+		source.Hostname, port)
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	ctx, err := pm.actionLock.Acquire(ctx, "RewindToSource")
@@ -1179,13 +1195,9 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, sourceServer s
 	defer pm.actionLock.Release(ctx)
 
 	pm.logger.InfoContext(ctx, "RewindToSource called",
-		"source_server", sourceServer,
+		"source_hostname", source.Hostname,
+		"source_port", port,
 		"dry_run", dryRun)
-
-	// Validate inputs
-	if sourceServer == "" {
-		return false, "source_server is required"
-	}
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
