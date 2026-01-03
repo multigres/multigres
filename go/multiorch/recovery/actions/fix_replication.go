@@ -234,19 +234,10 @@ func (a *FixReplicationAction) tryPgRewind(
 		"replica", replica.MultiPooler.Id.Name,
 		"primary", primary.MultiPooler.Id.Name)
 
-	// Build source connection string for pg_rewind
-	primaryPort, ok := primary.MultiPooler.PortMap["postgres"]
-	if !ok {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"primary %s has no postgres port configured", primary.MultiPooler.Id.Name)
-	}
-	sourceConnStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
-		primary.MultiPooler.Hostname, primaryPort)
-
 	// Run pg_rewind --dry-run to check feasibility
 	dryRunReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		SourceServer: sourceConnStr,
-		DryRun:       true,
+		Source: primary.MultiPooler,
+		DryRun: true,
 	}
 	dryRunResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, dryRunReq)
 	if err != nil {
@@ -264,8 +255,8 @@ func (a *FixReplicationAction) tryPgRewind(
 
 	// Run actual pg_rewind
 	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		SourceServer: sourceConnStr,
-		DryRun:       false,
+		Source: primary.MultiPooler,
+		DryRun: false,
 	}
 	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, rewindReq)
 	if err != nil {

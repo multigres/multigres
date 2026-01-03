@@ -3892,9 +3892,8 @@ func (*CreateDurabilityPolicyResponse) Descriptor() ([]byte, []int) {
 // This stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
 type RewindToSourceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Source server connection string for pg_rewind (--source-server)
-	// Format: "host=<hostname> port=<port> user=<user> dbname=<dbname>"
-	SourceServer string `protobuf:"bytes,1,opt,name=source_server,json=sourceServer,proto3" json:"source_server,omitempty"`
+	// Source multipooler (the primary) to rewind to
+	Source *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	// If true, only check if rewind is possible without making changes
 	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3931,11 +3930,11 @@ func (*RewindToSourceRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{63}
 }
 
-func (x *RewindToSourceRequest) GetSourceServer() string {
+func (x *RewindToSourceRequest) GetSource() *clustermetadata.MultiPooler {
 	if x != nil {
-		return x.SourceServer
+		return x.Source
 	}
-	return ""
+	return nil
 }
 
 func (x *RewindToSourceRequest) GetDryRun() bool {
@@ -4228,9 +4227,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"policyName\x12<\n" +
 	"\vquorum_rule\x18\x02 \x01(\v2\x1b.clustermetadata.QuorumRuleR\n" +
 	"quorumRule\" \n" +
-	"\x1eCreateDurabilityPolicyResponse\"U\n" +
-	"\x15RewindToSourceRequest\x12#\n" +
-	"\rsource_server\x18\x01 \x01(\tR\fsourceServer\x12\x17\n" +
+	"\x1eCreateDurabilityPolicyResponse\"f\n" +
+	"\x15RewindToSourceRequest\x124\n" +
+	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06source\x12\x17\n" +
 	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"W\n" +
 	"\x16RewindToSourceResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
@@ -4396,11 +4395,12 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	73, // 44: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
 	76, // 45: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
 	75, // 46: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	47, // [47:47] is the sub-list for method output_type
-	47, // [47:47] is the sub-list for method input_type
-	47, // [47:47] is the sub-list for extension type_name
-	47, // [47:47] is the sub-list for extension extendee
-	0,  // [0:47] is the sub-list for field type_name
+	71, // 47: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
+	48, // [48:48] is the sub-list for method output_type
+	48, // [48:48] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

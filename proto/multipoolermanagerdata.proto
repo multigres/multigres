@@ -730,9 +730,8 @@ message CreateDurabilityPolicyResponse {
 // RewindToSourceRequest requests pg_rewind to synchronize with a source server.
 // This stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
 message RewindToSourceRequest {
-  // Source server connection string for pg_rewind (--source-server)
-  // Format: "host=<hostname> port=<port> user=<user> dbname=<dbname>"
-  string source_server = 1;
+  // Source multipooler (the primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
 
   // If true, only check if rewind is possible without making changes
   bool dry_run = 2;
