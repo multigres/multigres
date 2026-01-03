@@ -161,7 +161,7 @@ func (mg *MultiGateway) Init() error {
 
 	// Create and start PostgreSQL protocol listener
 	pgHandler := handler.NewMultiGatewayHandler(mg.executor, logger)
-	pgAddr := fmt.Sprintf("localhost:%d", mg.pgPort.Get())
+	pgAddr := fmt.Sprintf("0.0.0.0:%d", mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address: pgAddr,
 		Handler: pgHandler,

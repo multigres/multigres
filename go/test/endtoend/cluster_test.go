@@ -19,7 +19,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -995,6 +997,11 @@ func TestClusterLifecycle(t *testing.T) {
 		testPgctldGRPC(t, "unix://"+filepath.Join(tempDir, "sockets", "pgctld-zone2.sock"))
 		t.Log("Both pgctld gRPC instances are working correctly via Unix socket!")
 
+		// Test multiadmin HTTP REST API (grpc-gateway)
+		t.Log("Testing multiadmin HTTP REST API...")
+		testMultiadminHTTPAPI(t, testPorts.MultiadminHTTPPort)
+		t.Log("Multiadmin HTTP REST API is working correctly!")
+
 		// Start cluster is idempotent
 		t.Log("Attempting to start running cluster...")
 		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
@@ -1185,10 +1192,13 @@ func TestClusterLifecycle(t *testing.T) {
 		err = os.WriteFile(configFile, originalConfig, 0o644)
 		require.NoError(t, err)
 
+		// Add a small delay to ensure previous stop completed
+		time.Sleep(2 * time.Second)
+
 		// Start cluster again for clean stop test
 		t.Log("Starting cluster again for clean stop test...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Start should succeed with original config")
+		restartOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Start should succeed with original config. Output: %s", restartOutput)
 
 		// Stop with --clean flag
 		downCleanOutput, err := executeStopCommand(t, []string{"--config-path", tempDir, "--clean"})
@@ -1417,6 +1427,38 @@ func testPgctldGRPC(t *testing.T, addr string) {
 	assert.NotZero(t, statusResp.GetPid(), "PID should be non-zero")
 
 	t.Logf("Pgctld gRPC test completed successfully for %s", addr)
+}
+
+// testMultiadminHTTPAPI tests the multiadmin HTTP REST API (grpc-gateway)
+func testMultiadminHTTPAPI(t *testing.T, httpPort int) {
+	t.Helper()
+
+	// Test GET /api/v1/cells endpoint
+	url := fmt.Sprintf("http://localhost:%d/api/v1/cells", httpPort)
+	resp, err := http.Get(url) //nolint:gosec // test code with trusted localhost URL
+	require.NoError(t, err, "Failed to GET %s", url)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, "Expected 200 OK from %s", url)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "Failed to read response body")
+
+	// Parse the JSON response
+	var result map[string]any
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err, "Failed to parse JSON response: %s", string(body))
+
+	// Verify response has names field (GetCellNamesResponse)
+	names, ok := result["names"]
+	require.True(t, ok, "Response should have 'names' field, got: %s", string(body))
+
+	// Verify we have at least one cell
+	namesList, ok := names.([]any)
+	require.True(t, ok, "names should be an array")
+	require.NotEmpty(t, namesList, "Should have at least one cell")
+
+	t.Logf("Multiadmin HTTP API test passed: found %d cells", len(namesList))
 }
 
 // stringHash generates a simple hash from a string for creating unique identifiers

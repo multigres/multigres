@@ -16,14 +16,18 @@
 package multiadmin
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -98,11 +102,25 @@ func (ma *MultiAdmin) Init() error {
 	)
 
 	ma.senv.OnRun(func() {
-		// Register multiadmin gRPC service with servenv's GRPCServer
+		// Register multiadmin gRPC and HTTP API services if enabled in service map
 		if ma.grpcServer.CheckServiceMap(constants.ServiceMultiadmin, ma.senv) {
 			ma.adminServer = NewMultiAdminServer(ma.ts, logger)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
-			logger.Info("MultiAdmin gRPC service registered with servenv")
+
+			// Set up grpc-gateway for REST API
+			gwmux := runtime.NewServeMux(
+				runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
+					MarshalOptions:   protojson.MarshalOptions{EmitUnpopulated: true, UseProtoNames: true},
+					UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: true},
+				}),
+			)
+			//nolint:gocritic // grpc-gateway handler registration runs at startup before request context is available
+			if err := multiadminpb.RegisterMultiAdminServiceHandlerServer(context.Background(), gwmux, ma.adminServer); err != nil {
+				logger.Error("failed to register grpc-gateway handler", "error", err)
+			} else {
+				ma.senv.HTTPHandle("/api/", gwmux)
+				logger.Info("MultiAdmin gRPC and HTTP API services registered")
+			}
 		}
 	})
 

@@ -28,7 +28,7 @@ export ETCD_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin
 BIN_DIR = bin
 
-.PHONY: all build build-all clean install test test-coverage proto tools parser help
+.PHONY: all build build-all clean images install test test-coverage proto tools parser help
 
 ##@ General
 
@@ -59,11 +59,16 @@ proto: tools $(PROTO_GO_OUTS) ## Generate protobuf files.
 pb: $(PROTO_SRCS)
 	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
 	--plugin=$(MTROOT)/bin/protoc-gen-go --go_out=. \
+	--go_opt=Mgoogle/api/annotations.proto=google.golang.org/genproto/googleapis/api/annotations \
+	--go_opt=Mgoogle/api/http.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--plugin=$(MTROOT)/bin/protoc-gen-go-grpc --go-grpc_out=. \
+	--plugin=$(MTROOT)/bin/protoc-gen-grpc-gateway --grpc-gateway_out=. \
+	--grpc-gateway_opt=logtostderr=true \
+	--grpc-gateway_opt=generate_unbound_methods=true \
 		--proto_path=proto $(PROTO_SRCS) && \
 	mkdir -p go/pb && \
 	cp -Rf github.com/multigres/multigres/go/pb/* go/pb/ && \
-	rm -rf github.com/
+	rm -rf github.com/ google.golang.org/
 
 # Generate parser from grammar files
 parser: ## Generate PostgreSQL parser from grammar.
@@ -104,6 +109,14 @@ build-release: ## Build Go binaries (release, static, stripped).
 
 # Build everything (proto + parser + binaries)
 build-all: proto parser build ## Build everything (proto + parser + binaries).
+
+# TODO(sougou): images is a temporary convenience target for a demo.
+# To run it, you need to have Docker installed.
+# There is a kind cluster demo under the kind_demo/ directory that uses these image tags.
+images:
+	docker build -t multigres/multigres:latest .
+	docker build -f Dockerfile.pgctld -t multigres/pgctld-postgres:latest .
+	docker build -t multigres/multiadmin-web:latest web/multiadmin
 
 # Install binaries to GOPATH/bin
 install: ## Install binaries to GOPATH/bin.

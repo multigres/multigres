@@ -42,6 +42,9 @@ const (
 	// Pgctld
 	DefaultPgctldGRPC = 15470
 
+	// pgBackRest server
+	DefaultPgbackRestPort = 18432
+
 	// Local Provisioner Defaults
 	DefaultLocalPostgresPort = 25432
 )

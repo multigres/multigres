@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -128,8 +127,10 @@ type MultiPoolerManager struct {
 	// See design discussion for full details.
 	queryServingState clustermetadatapb.PoolerServingStatus
 
-	// primaryPoolerID is the ID of the current primary. Set by SetPrimaryConnInfo on standbys. Nil on primaries.
+	// The following three variables are for pgbackrest.
 	primaryPoolerID *clustermetadatapb.ID
+	primaryHost     string
+	primaryPort     int32
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -216,6 +217,12 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
 
 	return pm, nil
+}
+
+func (pm *MultiPoolerManager) getPrimaryPoolerID() *clustermetadatapb.ID {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.primaryPoolerID
 }
 
 // internalQueryService returns the InternalQueryService for executing queries via the connection pool.
@@ -419,18 +426,9 @@ func (pm *MultiPoolerManager) GetMultiPooler() (*topoclient.MultiPoolerInfo, Man
 	return pm.multipooler, pm.state, pm.stateError
 }
 
-// getBackupConfigPath returns the path to the pgbackrest config file
-func (pm *MultiPoolerManager) getBackupConfigPath() string {
-	return filepath.Join(pm.config.PoolerDir, "pgbackrest.conf")
-}
-
-// getBackupStanza returns the pgbackrest stanza name
-func (pm *MultiPoolerManager) getBackupStanza() string {
-	// Use configured stanza name if set, otherwise fallback to service ID
-	if pm.config.PgBackRestStanza != "" {
-		return pm.config.PgBackRestStanza
-	}
-	return pm.serviceID.Name
+// stanzaName returns the pgbackrest stanza name
+func (pm *MultiPoolerManager) stanzaName() string {
+	return "multigres"
 }
 
 // getPgCtldClient returns the pgctld gRPC client

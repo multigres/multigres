@@ -1,0 +1,72 @@
+[
+  {
+    "service": "multigateway",
+    "namespace": "default",
+    "local_port": 15432,
+    "remote_port": 15432,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "Pgport"
+  },
+  {
+    "service": "multiadmin-web",
+    "namespace": "default",
+    "local_port": 18100,
+    "remote_port": 18100,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "AdminUI"
+  },
+  {
+    "service": "multiadmin",
+    "namespace": "default",
+    "local_port": 18000,
+    "remote_port": 18000,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "AdminHttp"
+  },
+  {
+    "service": "observability",
+    "namespace": "default",
+    "local_port": 3000,
+    "remote_port": 3000,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "Grafana"
+  },
+  {
+    "service": "observability",
+    "namespace": "default",
+    "local_port": 9090,
+    "remote_port": 9090,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "Prometheus"
+  },
+  {
+    "service": "observability",
+    "namespace": "default",
+    "local_port": 16686,
+    "remote_port": 16686,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "Jaeger"
+  },
+  {
+    "service": "multiadmin",
+    "namespace": "default",
+    "local_port": 18070,
+    "remote_port": 18070,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "AdminGrpc"
+  }
+]
