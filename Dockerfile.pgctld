@@ -49,6 +49,10 @@ ENV PGDATA=/var/lib/postgresql/data
 # Expose PostgreSQL port
 EXPOSE 5432
 
+# Health check - verify pgctld is available (PostgreSQL may not always be running)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD pgctld --version || exit 1
+
 # Use postgres user (default in postgres image)
 USER postgres
 
