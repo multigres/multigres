@@ -270,6 +270,23 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	}
 	t.Logf("Created database '%s' in topology with backup_location=%s", config.Database, backupLocation)
 
+	// Generate TLS certificates for pgBackRest
+	tlsDir := filepath.Join(backupLocation, "tls")
+	if err := os.MkdirAll(tlsDir, 0o755); err != nil {
+		t.Fatalf("failed to create TLS directory: %v", err)
+	}
+	tlsCACertPath := filepath.Join(tlsDir, "ca.crt")
+	tlsCAKeyPath := filepath.Join(tlsDir, "ca.key")
+	tlsServerCertPath := filepath.Join(tlsDir, "server.crt")
+	tlsServerKeyPath := filepath.Join(tlsDir, "server.key")
+	if err := pgbackrest.GenerateCA(tlsCACertPath, tlsCAKeyPath); err != nil {
+		t.Fatalf("failed to generate pgBackRest CA: %v", err)
+	}
+	if err := pgbackrest.GenerateServerCert(tlsCACertPath, tlsCAKeyPath, tlsServerCertPath, tlsServerKeyPath, "pgbackrest"); err != nil {
+		t.Fatalf("failed to generate pgBackRest server cert: %v", err)
+	}
+	t.Logf("Generated pgBackRest TLS certificates in %s", tlsDir)
+
 	setup := &ShardSetup{
 		TempDir:            tempDir,
 		TempDirCleanup:     tempDirCleanup,
@@ -279,6 +296,11 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		CellName:           config.CellName,
 		Multipoolers:       make(map[string]*MultipoolerInstance),
 		MultiOrchInstances: make(map[string]*ProcessInstance),
+		PgBackRestServers:  make(map[string]*ProcessInstance),
+		TLSCACertPath:      tlsCACertPath,
+		TLSCAKeyPath:       tlsCAKeyPath,
+		TLSServerCertPath:  tlsServerCertPath,
+		TLSServerKeyPath:   tlsServerKeyPath,
 	}
 
 	// Create all multipooler instances (but don't start yet)
@@ -296,8 +318,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			name, grpcPort, pgPort, multipoolerPort)
 	}
 
-	// Start all processes (pgctld, pgbackrest config, multipooler) for all nodes
-	startProcessesWithoutInit(t, tempDir, multipoolerInstances, config)
+	// Start all processes (pgctld, pgbackrest config, pgbackrest TLS server, multipooler) for all nodes
+	startProcessesWithoutInit(t, setup, multipoolerInstances, config)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -523,13 +545,15 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 	return primaryName, allInitialized
 }
 
-// startProcessesWithoutInit starts pgctld and multipooler processes without initializing postgres.
-// Use this for bootstrap tests where multiorch will initialize the shard.
+// startProcessesWithoutInit starts pgctld, pgBackRest TLS server, and multipooler processes
+// without initializing postgres. Use this for bootstrap tests where multiorch will initialize the shard.
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*MultipoolerInstance, config *SetupConfig) {
+func startProcessesWithoutInit(t *testing.T, setup *ShardSetup, instances []*MultipoolerInstance, config *SetupConfig) {
 	t.Helper()
+
+	baseDir := setup.TempDir
 
 	// Set up shared pgbackrest directories (repo and spool are shared; log/lock are per-instance)
 	repoPath := filepath.Join(baseDir, "backup-repo", config.Database, config.TableGroup, config.Shard)
@@ -541,15 +565,28 @@ func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*Multip
 		t.Fatalf("failed to create pgbackrest spool dir: %v", err)
 	}
 
-	// Build list of all hosts for symmetric pgbackrest configuration
+	// Allocate TLS ports for each instance upfront
+	tlsPorts := make(map[string]int)
+	for _, inst := range instances {
+		tlsPorts[inst.Name] = utils.GetFreePort(t)
+	}
+
+	// Build list of all hosts for symmetric pgbackrest configuration (with TLS)
 	var allHosts []pgbackrest.PgHost
 	for _, inst := range instances {
 		allHosts = append(allHosts, pgbackrest.PgHost{
+			Host:      "localhost",
 			DataPath:  filepath.Join(inst.Pgctld.DataDir, "pg_data"),
 			SocketDir: filepath.Join(inst.Pgctld.DataDir, "pg_sockets"),
 			Port:      inst.Pgctld.PgPort,
 			User:      "postgres",
 			Database:  "postgres",
+			PgBackRestTLS: &pgbackrest.PgBackRestTLSConfig{
+				CertFile: setup.TLSServerCertPath,
+				KeyFile:  setup.TLSServerKeyPath,
+				CAFile:   setup.TLSCACertPath,
+				Port:     tlsPorts[inst.Name],
+			},
 		})
 	}
 
@@ -558,6 +595,7 @@ func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*Multip
 	for i, inst := range instances {
 		pgctld := inst.Pgctld
 		multipooler := inst.Multipooler
+		tlsPort := tlsPorts[inst.Name]
 
 		// Start pgctld (postgres will be initialized later, or by multiorch for bootstrap)
 		if err := pgctld.Start(t); err != nil {
@@ -565,7 +603,7 @@ func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*Multip
 		}
 		t.Logf("Started pgctld for %s (gRPC=%d, PG=%d)", inst.Name, pgctld.GrpcPort, pgctld.PgPort)
 
-		// Create pgbackrest configuration with all other hosts
+		// Create pgbackrest configuration with all other hosts (via TLS)
 		// Log and lock paths are per-instance to avoid blocking
 		configPath := filepath.Join(pgctld.DataDir, "pgbackrest.conf")
 		logPath := filepath.Join(pgctld.DataDir, "pgbackrest-log")
@@ -595,11 +633,29 @@ func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*Multip
 			SpoolPath:       spoolPath,
 			LockPath:        lockPath,
 			RetentionFull:   2,
+			// TLS server configuration for this node
+			PgBackRestTLS: &pgbackrest.PgBackRestTLSConfig{
+				CertFile: setup.TLSServerCertPath,
+				KeyFile:  setup.TLSServerKeyPath,
+				CAFile:   setup.TLSCACertPath,
+				Address:  "0.0.0.0",
+				Port:     tlsPort,
+			},
 		}
 		if err := pgbackrest.WriteConfigFile(configPath, backupCfg); err != nil {
 			t.Fatalf("failed to write pgbackrest config for %s: %v", inst.Name, err)
 		}
-		t.Logf("Created pgbackrest config for %s (stanza: %s)", inst.Name, stanza)
+		t.Logf("Created pgbackrest config for %s (stanza: %s, TLS port: %d)", inst.Name, stanza, tlsPort)
+
+		// Create and start pgBackRest TLS server
+		// Use a dedicated pgbackrest-server directory under the node's directory
+		pgbackrestDataDir := filepath.Join(baseDir, inst.Name, "pgbackrest-server")
+		pgbackrestServer := createPgBackRestServerInstance(t, inst.Name+"-pgbackrest", pgbackrestDataDir, configPath, tlsPort)
+		if err := pgbackrestServer.Start(t); err != nil {
+			t.Fatalf("failed to start pgbackrest TLS server for %s: %v", inst.Name, err)
+		}
+		setup.PgBackRestServers[inst.Name] = pgbackrestServer
+		t.Logf("Started pgBackRest TLS server for %s on port %d", inst.Name, tlsPort)
 
 		// Start multipooler
 		if err := multipooler.Start(t); err != nil {
@@ -612,6 +668,20 @@ func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*Multip
 	}
 
 	t.Logf("Started %d processes without initialization (ready for bootstrap)", len(instances))
+}
+
+// createPgBackRestServerInstance creates a new pgBackRest TLS server instance configuration.
+// dataDir is the base directory where lock/ and log/ subdirectories will be created.
+func createPgBackRestServerInstance(t *testing.T, name, dataDir, configFile string, tlsPort int) *ProcessInstance {
+	t.Helper()
+
+	return &ProcessInstance{
+		Name:       name,
+		DataDir:    dataDir,
+		ConfigFile: configFile,
+		GrpcPort:   tlsPort, // Reuse GrpcPort field for TLS port
+		Binary:     "pgbackrest-server",
+	}
 }
 
 // startEtcd starts etcd without registering t.Cleanup() handlers
