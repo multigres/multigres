@@ -271,9 +271,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
+	multipooler.PortMap["pgbackrest"] = int32(mp.pgBackRestPort.Get())
 	multipooler.Database = mp.database.Get()
 	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	multipooler.PoolerDir = mp.poolerDir.Get()
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager, err := manager.NewMultiPoolerManager(logger, &manager.Config{
@@ -346,6 +348,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 						mp.PortMap = multipooler.PortMap
 						mp.Hostname = multipooler.Hostname
 						mp.ServingStatus = multipooler.ServingStatus
+						mp.PoolerDir = multipooler.PoolerDir
 						return nil
 					})
 				return err
