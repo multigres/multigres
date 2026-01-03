@@ -1127,7 +1127,7 @@ func TestInitPgBackRest(t *testing.T) {
 			)
 			pm.config.PgPort = tt.pgPort
 
-			configPath, err := pm.initPgBackRest(NotForBackup)
+			configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1205,7 +1205,7 @@ func TestInitPgBackRest_Idempotent(t *testing.T) {
 	)
 
 	// First call
-	configPath, err := pm.initPgBackRest(NotForBackup)
+	configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1214,7 +1214,7 @@ func TestInitPgBackRest_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second call - should return early without doing any work
-	configPath2, err := pm.initPgBackRest(NotForBackup)
+	configPath2, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.Equal(t, configPath, configPath2, "should return same path on second call")
 
@@ -1237,7 +1237,7 @@ func TestInitPgBackRest_EarlyReturnWhenConfigExists(t *testing.T) {
 	)
 
 	// First call - should create everything
-	configPath, err := pm.initPgBackRest(NotForBackup)
+	configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1259,7 +1259,7 @@ func TestInitPgBackRest_EarlyReturnWhenConfigExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second call - should return early without touching anything
-	configPath2, err := pm.initPgBackRest(NotForBackup)
+	configPath2, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.Equal(t, configPath, configPath2, "should return same path on early return")
 
@@ -1290,7 +1290,7 @@ func TestInitPgBackRest_DirectoryCreation(t *testing.T) {
 		"/tmp/backups",
 	)
 
-	configPath, err := pm.initPgBackRest(NotForBackup)
+	configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1330,7 +1330,7 @@ func TestInitPgBackRest_TemplateExecution(t *testing.T) {
 	)
 	pm.config.PgPort = pgPort
 
-	configPath, err := pm.initPgBackRest(NotForBackup)
+	configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1374,7 +1374,7 @@ func TestInitPgBackRest_ConfigFileFormat(t *testing.T) {
 		"/tmp/backups",
 	)
 
-	configPath, err := pm.initPgBackRest(NotForBackup)
+	configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1414,7 +1414,7 @@ func TestInitPgBackRest_ForBackupCreatesTemp(t *testing.T) {
 	)
 
 	// Call with ForBackup mode
-	tempConfigPath, err := pm.initPgBackRest(ForBackup)
+	tempConfigPath, err := pm.initPgBackRest(context.Background(), ForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tempConfigPath)
 
@@ -1444,7 +1444,7 @@ func TestInitPgBackRest_ForBackupCreatesTemp(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call again with ForBackup mode - should create a NEW temp file each time
-	tempConfigPath2, err := pm.initPgBackRest(ForBackup)
+	tempConfigPath2, err := pm.initPgBackRest(context.Background(), ForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tempConfigPath2)
 	assert.NotEqual(t, tempConfigPath, tempConfigPath2, "second call should create a different temp file")
@@ -1500,7 +1500,7 @@ func TestInitPgBackRest_ForBackupFalseSkipsPg2(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call with NotForBackup mode
-	configPath, err := pm.initPgBackRest(NotForBackup)
+	configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, configPath)
 
@@ -1539,19 +1539,39 @@ func TestInitPgBackRest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
 	)
 
 	// Set up primary pooler info to simulate a standby configuration
+	primaryPoolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1", // Same cell as test manager
+		Name:      "primary-pooler",
+	}
+
+	// Register the primary multipooler in the topology
+	ctx := context.Background()
+	primaryPoolerDir := "/tmp/primary-pooler-dir"
+	primaryMultiPooler := &clustermetadatapb.MultiPooler{
+		Id:         primaryPoolerID,
+		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		TableGroup: "test-tg",
+		Shard:      "0",
+		Database:   "test-database",
+		PoolerDir:  primaryPoolerDir,
+		PortMap: map[string]int32{
+			"grpc":       16100,
+			"http":       16000,
+			"pgbackrest": 8432,
+		},
+	}
+	err := pm.topoClient.CreateMultiPooler(ctx, primaryMultiPooler)
+	require.NoError(t, err)
+
 	pm.mu.Lock()
 	pm.primaryHost = "primary-host.example.com"
 	pm.primaryPort = 5432
-	// Mock the getPrimaryPoolerID to return a valid primary ID
-	pm.primaryPoolerID = &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "test-cell",
-		Name:      "primary-pooler",
-	}
+	pm.primaryPoolerID = primaryPoolerID
 	pm.mu.Unlock()
 
 	// Call with ForBackup mode
-	tempConfigPath, err := pm.initPgBackRest(ForBackup)
+	tempConfigPath, err := pm.initPgBackRest(context.Background(), ForBackup)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tempConfigPath)
 
@@ -1571,6 +1591,8 @@ func TestInitPgBackRest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
 	// Verify pg2 configuration IS present (included because using ForBackup mode and this is a standby)
 	assert.Contains(t, configStr, "pg2-host=primary-host.example.com", "pg2 config should be present when using ForBackup mode on standby")
 	assert.Contains(t, configStr, "pg2-port=5432", "pg2 config should be present when using ForBackup mode on standby")
+	assert.Contains(t, configStr, "pg2-path=/tmp/primary-pooler-dir/pg_data", "pg2-path should use primary pooler dir from topo")
+	assert.Contains(t, configStr, "pg2-host-port=8432", "pg2-host-port should use pgbackrest port from primary pooler's port map")
 	assert.Contains(t, configStr, "pg2-host-type=tls", "pg2 config should be present when using ForBackup mode on standby")
 
 	// Clean up the temp file
