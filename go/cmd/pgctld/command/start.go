@@ -300,6 +300,32 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 	var lastOutput string
 
 	for i := 0; i < config.Timeout; i++ {
+		// Check if PostgreSQL process is still running (after first second)
+		if i > 0 {
+			pid, err := readPostmasterPID(config.PostgresDataDir)
+			if err != nil {
+				// No PID file means PostgreSQL never started or crashed immediately
+				logTail := readLogTail(logPath, 20)
+				logger.Error("PostgreSQL process not running during startup",
+					"attempt", i,
+					"error", err,
+					"postgresql_log_tail", logTail,
+				)
+				return fmt.Errorf("PostgreSQL process not running: %w (check postgresql.log)", err)
+			}
+
+			if !isProcessRunning(pid) {
+				// PID file exists but process is gone - crashed
+				logTail := readLogTail(logPath, 20)
+				logger.Error("PostgreSQL process crashed during startup",
+					"pid", pid,
+					"attempt", i,
+					"postgresql_log_tail", logTail,
+				)
+				return fmt.Errorf("PostgreSQL process (PID %d) crashed during startup (check postgresql.log)", pid)
+			}
+		}
+
 		cmd := exec.Command("pg_isready",
 			"-h", socketDir,
 			"-p", fmt.Sprintf("%d", config.Port),

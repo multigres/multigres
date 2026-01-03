@@ -363,3 +363,43 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		assert.Contains(t, err.Error(), "did not become ready")
 	})
 }
+
+func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
+	t.Run("detects crashed process", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_crash_test")
+		defer cleanup()
+
+		// Create initialized data directory
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+
+		// Create PID file with non-existent PID (simulates crashed process)
+		testutil.CreateDeadPIDFile(t, dataDir, 999999)
+
+		// Create mock pg_isready that always fails
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "pg_isready", "exit 1")
+
+		originalPath := os.Getenv("PATH")
+		os.Setenv("PATH", binDir+":"+originalPath)
+		defer os.Setenv("PATH", originalPath)
+
+		config, err := pgctld.NewPostgresCtlConfig(
+			5432,
+			"postgres",
+			"postgres",
+			5, // 5 second timeout
+			pgctld.PostgresDataDir(baseDir),
+			pgctld.PostgresConfigFile(baseDir),
+			baseDir,
+			"localhost",
+			pgctld.PostgresSocketDir(baseDir),
+		)
+		require.NoError(t, err)
+
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		err = waitForPostgreSQLWithConfig(logger, config)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "crashed")
+	})
+}
