@@ -1479,7 +1479,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Create a mock analyzer that always detects a problem
