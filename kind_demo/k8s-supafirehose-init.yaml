@@ -29,18 +29,18 @@ spec:
     spec:
       restartPolicy: Never
       containers:
-      - name: init
-        image: postgres:15-alpine
-        command:
-        - sh
-        - -c
-        - |
-          psql -h multigateway -p 15432 -U postgres -c "CREATE DATABASE pooler_demo;" || true
-          psql -h multigateway -p 15432 -U postgres -d pooler_demo -f /sql/init.sql
-        volumeMounts:
-        - name: init-sql
-          mountPath: /sql
+        - name: init
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              psql -h multigateway -p 15432 -U postgres -c "CREATE DATABASE pooler_demo;" || true
+              psql -h multigateway -p 15432 -U postgres -d pooler_demo -f /sql/init.sql
+          volumeMounts:
+            - name: init-sql
+              mountPath: /sql
       volumes:
-      - name: init-sql
-        configMap:
-          name: supafirehose-init-sql
+        - name: init-sql
+          configMap:
+            name: supafirehose-init-sql

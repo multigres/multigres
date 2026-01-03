@@ -15,27 +15,27 @@ spec:
         app: supafirehose
     spec:
       containers:
-      - name: supafirehose
-        image: supafirehose:latest
-        imagePullPolicy: Never  # Use local image loaded into kind
-        ports:
-        - containerPort: 8080
-        env:
-        - name: DATABASE_URL
-          value: "postgres://postgres:postgres@multigateway:15432/pooler_demo"
-        - name: HTTP_PORT
-          value: "8080"
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "2Gi"
-            cpu: "2000m"
-        securityContext:
-          capabilities:
-            add:
-            - SYS_RESOURCE
+        - name: supafirehose
+          image: supafirehose:latest
+          imagePullPolicy: Never # Use local image loaded into kind
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              value: "postgres://postgres:postgres@multigateway:15432/pooler_demo"
+            - name: HTTP_PORT
+              value: "8080"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          securityContext:
+            capabilities:
+              add:
+                - SYS_RESOURCE
 ---
 apiVersion: v1
 kind: Service
@@ -45,6 +45,6 @@ spec:
   selector:
     app: supafirehose
   ports:
-  - port: 8080
-    targetPort: 8080
+    - port: 8080
+      targetPort: 8080
   type: ClusterIP
