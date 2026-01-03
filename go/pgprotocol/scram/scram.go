@@ -125,9 +125,9 @@ func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 		// Ignore other attributes (extensions).
 	}
 
-	if username == "" {
-		return nil, fmt.Errorf("missing username in client-first-message")
-	}
+	// Note: username CAN be empty. PostgreSQL allows this and uses the username
+	// from the startup message. We handle this in HandleClientFirst by accepting
+	// a fallback username parameter.
 	if clientNonce == "" {
 		return nil, fmt.Errorf("missing nonce in client-first-message")
 	}
