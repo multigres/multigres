@@ -499,15 +499,6 @@ message StateResponse {
   string error_message = 2;
 }
 
-// SetTerm sets the consensus term information
-message SetTermRequest {
-  // Consensus term information to set
-  ConsensusTerm term = 1;
-}
-
-message SetTermResponse {
-}
-
 // UpdateSynchronousStandbyList updates the synchronous standby list
 message UpdateSynchronousStandbyListRequest {
   // Operation to perform (add, remove, or replace)
