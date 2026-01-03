@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -211,7 +212,7 @@ func (pg *PoolerGateway) getOrCreateConnection(
 		"addr", addr)
 
 	// Create gRPC connection (non-blocking in newer gRPC)
-	conn, err := grpc.NewClient(addr,
+	conn, err := grpccommon.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {

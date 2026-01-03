@@ -21,8 +21,6 @@ import (
 	"os/exec"
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
@@ -37,7 +35,7 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(ctx context.Context, address
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpccommon.NewClient(address, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -95,7 +93,7 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpccommon.NewClient(address, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
