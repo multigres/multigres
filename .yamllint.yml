@@ -1,0 +1,18 @@
+---
+# yamllint configuration
+# https://yamllint.readthedocs.io/en/stable/configuration.html
+
+extends: default
+
+rules:
+  # Don't require --- at start of documents
+  document-start: disable
+  # Allow 'on' in GitHub Actions workflows (it's a keyword, not a boolean)
+  truthy:
+    allowed-values: ["true", "false", "on"]
+  # Allow longer lines for config files with descriptive messages
+  line-length:
+    max: 200
+  # Allow single space before inline comments (common in pinned action versions)
+  comments:
+    min-spaces-from-content: 1

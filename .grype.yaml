@@ -1,0 +1,6 @@
+# Grype configuration
+# https://github.com/anchore/grype#configuration
+
+# Exclude downloaded tools
+exclude:
+  - ./dist/**

@@ -1,0 +1,31 @@
+# MegaLinter configuration
+# https://megalinter.io/latest/configuration/
+
+# Linters to disable
+DISABLE_LINTERS:
+  # Go: Using golangci-lint separately
+  - GO_GOLANGCI_LINT
+  - GO_REVIVE
+  # Copy-paste detection: Too noisy for this codebase
+  - COPYPASTE_JSCPD
+  # Spell check: Too noisy, low value
+  - SPELL_CSPELL
+  - SPELL_LYCHEE
+  # JSON/YAML schema validation: Fails on test fixtures without schemas
+  - JSON_V8R
+  - YAML_V8R
+  # HTML: djlint is stricter than needed; htmlhint is sufficient
+  - HTML_DJLINT
+  # ENV: Not needed
+  - ENV_DOTENV_LINTER
+
+# File filters (match super-linter exclusions + vendored CSS + third-party tools)
+FILTER_REGEX_EXCLUDE: '(external/.*)|(dist/.*)|(\.env$)|(go/common/web/templates/css/pico.*)'
+
+# Reporters
+# TEXT_REPORTER: enabled (default) - needed for error details in step summary
+UPDATED_SOURCES_REPORTER: false
+CONFIG_REPORTER: false
+SARIF_REPORTER: false
+FLAVOR_SUGGESTIONS: false
+CLEAR_REPORT_FOLDER: true

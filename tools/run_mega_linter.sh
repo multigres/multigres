@@ -17,8 +17,6 @@ set -euo pipefail
 
 docker run --platform linux/x86_64 \
   -it \
-  --env-file ".github/super-linter.env" \
-  --env-file ".github/local-super-linter.env" \
   -v "$PWD:/tmp/lint" \
   --rm \
-  ghcr.io/super-linter/super-linter:latest
+  oxsecurity/megalinter-go:v9
