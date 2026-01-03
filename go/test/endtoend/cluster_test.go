@@ -1192,10 +1192,13 @@ func TestClusterLifecycle(t *testing.T) {
 		err = os.WriteFile(configFile, originalConfig, 0o644)
 		require.NoError(t, err)
 
+		// Add a small delay to ensure previous stop completed
+		time.Sleep(2 * time.Second)
+
 		// Start cluster again for clean stop test
 		t.Log("Starting cluster again for clean stop test...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Start should succeed with original config")
+		restartOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Start should succeed with original config. Output: %s", restartOutput)
 
 		// Stop with --clean flag
 		downCleanOutput, err := executeStopCommand(t, []string{"--config-path", tempDir, "--clean"})
