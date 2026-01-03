@@ -63,11 +63,15 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 	spoolPath := filepath.Join(pgbackrestPath, "spool")
 	lockPath := filepath.Join(pgbackrestPath, "lock")
 
-	// If this is for backup, we'll create a temp config file instead
+	// If this is for backup, we'll create a backup config file instead
 	if mode == ForBackup {
 		// Don't use the main config file for backups.
 		// We need to regenerate this every time because the primary may change.
 		configPath = filepath.Join(pgbackrestPath, "pgbackrest-backup.conf")
+		// Create the pgbackrest directory to write the backup config file
+		if err := os.MkdirAll(pgbackrestPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create config directory %s: %w", pgbackrestPath, err)
+		}
 	} else {
 		// Do not regenerate the config file if it already exists.
 		// We don't want to overwrite the file once it's created because postgres
@@ -77,7 +81,7 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 			return configPath, nil
 		}
 
-		// Also create directories along with the persistent config.
+		// Create directories along with the persistent config.
 		if err := os.MkdirAll(pgbackrestPath, 0o755); err != nil {
 			return "", fmt.Errorf("failed to create config directory %s: %w", pgbackrestPath, err)
 		}

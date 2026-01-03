@@ -53,7 +53,8 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config *LocalProvisionerConfig
+	config              *LocalProvisionerConfig
+	pgBackRestCertPaths *PgBackRestCertPaths
 }
 
 // Compile-time check to ensure localProvisioner implements Provisioner
@@ -826,11 +827,10 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	}
 
 	// Add pgbackrest TLS certificate paths and port
-	certDir := p.certDir()
 	args = append(args,
-		"--pgbackrest-cert-file", filepath.Join(certDir, "pgbackrest.crt"),
-		"--pgbackrest-key-file", filepath.Join(certDir, "pgbackrest.key"),
-		"--pgbackrest-ca-file", filepath.Join(certDir, "ca.crt"),
+		"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
+		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
+		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
 		"--pgbackrest-port", fmt.Sprintf("%d", pgbackrestPort),
 	)
 
@@ -1752,9 +1752,13 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 // generatePgBackRestCertsOnce generates pgBackRest certificates once for all cells
 func (p *localProvisioner) generatePgBackRestCertsOnce(ctx context.Context) error {
 	fmt.Println("=== Generating pgBackRest certs ===")
-	if err := p.generatePgBackRestCerts(); err != nil {
+	certDir := p.certDir()
+	certPaths, err := GeneratePgBackRestCerts(certDir)
+	if err != nil {
 		return fmt.Errorf("failed to generate pgBackRest certs: %w", err)
 	}
+	// Store the cert paths for later use
+	p.pgBackRestCertPaths = certPaths
 	fmt.Println("")
 	return nil
 }

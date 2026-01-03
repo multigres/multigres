@@ -36,34 +36,95 @@ type PgbackRestProvisionResult struct {
 
 // certDir returns the directory where pgBackRest certificates are stored
 func (p *localProvisioner) certDir() string {
-	return filepath.Join(p.config.RootWorkingDir, "certs", "pgbackrest")
+	return filepath.Join(p.config.RootWorkingDir, "certs")
 }
 
-// generatePgBackRestCerts creates certs for pgBackRest server
-func (p *localProvisioner) generatePgBackRestCerts() error {
-	certDir := p.certDir()
+// PgBackRestCertPaths holds the paths to the generated pgBackRest certificates.
+type PgBackRestCertPaths struct {
+	CACertFile     string // ca.crt
+	ServerCertFile string // pgbackrest.crt
+	ServerKeyFile  string // pgbackrest.key
+}
+
+// GeneratePgBackRestCerts creates TLS certificates for pgBackRest server in the specified directory.
+// This is a public function that can be reused by tests and other components.
+// It creates:
+//   - ca.crt and ca.key (CA certificate and key)
+//   - pgbackrest.crt and pgbackrest.key (server certificate and key)
+//
+// Returns the paths to the generated certificates that are needed for pgBackRest configuration.
+func GeneratePgBackRestCerts(certDir string) (*PgBackRestCertPaths, error) {
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create pgBackRest certificate directory: %w", err)
+		return nil, fmt.Errorf("failed to create pgBackRest certificate directory: %w", err)
 	}
 
 	caCertFile := filepath.Join(certDir, "ca.crt")
 	caKeyFile := filepath.Join(certDir, "ca.key")
 	if err := generateCA(caCertFile, caKeyFile); err != nil {
-		return fmt.Errorf("failed to generate CA for pgBackRest: %w", err)
+		return nil, fmt.Errorf("failed to generate CA for pgBackRest: %w", err)
 	}
 
 	certFile := filepath.Join(certDir, "pgbackrest.crt")
 	keyFile := filepath.Join(certDir, "pgbackrest.key")
 	if err := generateCert(caCertFile, caKeyFile, certFile, keyFile, "pgbackrest", []string{"localhost", "pgbackrest"}); err != nil {
-		return fmt.Errorf("failed to generate certificate for pgBackRest: %w", err)
+		return nil, fmt.Errorf("failed to generate certificate for pgBackRest: %w", err)
 	}
 
-	fmt.Printf("✓ Created pgBackRest CA certificate: %s\n", caCertFile)
-	fmt.Printf("✓ Created pgBackRest CA key: %s\n", caKeyFile)
-	fmt.Printf("✓ Created pgBackRest certificate: %s\n", certFile)
-	fmt.Printf("✓ Created pgBackRest key: %s\n", keyFile)
+	return &PgBackRestCertPaths{
+		CACertFile:     caCertFile,
+		ServerCertFile: certFile,
+		ServerKeyFile:  keyFile,
+	}, nil
+}
 
-	return nil
+// StartPgBackRestServer starts a pgBackRest server and waits for the config file to be generated.
+// This is a public function that can be reused by tests and other components.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - poolerDir: directory where multipooler will generate pgbackrest.conf
+//   - configTimeout: how long to wait for the config file to be generated
+//
+// Returns the started command or an error.
+// The caller is responsible for managing the process lifecycle (waiting, killing, etc.)
+func StartPgBackRestServer(ctx context.Context, poolerDir string, configTimeout time.Duration) (*exec.Cmd, error) {
+	// Find pgbackrest binary
+	pgbackrestBinary, err := exec.LookPath("pgbackrest")
+	if err != nil {
+		return nil, fmt.Errorf("pgbackrest binary not found in PATH: %w", err)
+	}
+
+	// Wait for multipooler to generate the pgbackrest config file
+	configFile := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
+
+	// Wait for config file with timeout
+	waitCtx, cancel := context.WithTimeout(ctx, configTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			return nil, fmt.Errorf("timeout waiting for pgbackrest config file: %s", configFile)
+		case <-ticker.C:
+			if _, err := os.Stat(configFile); err == nil {
+				goto ConfigReady
+			}
+		}
+	}
+
+ConfigReady:
+	// Start pgbackrest server
+	cmd := exec.CommandContext(ctx, pgbackrestBinary, "server")
+
+	// Set environment variables
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("PGBACKREST_CONFIG=%s", configFile),
+	)
+
+	return cmd, nil
 }
 
 // provisionPgbackRestServer provisions a pgbackrest server for a cell
@@ -110,12 +171,6 @@ func (p *localProvisioner) provisionPgbackRestServer(ctx context.Context, dbName
 		pgbackrestPort = port
 	}
 
-	// Find pgbackrest binary
-	pgbackrestBinary, err := exec.LookPath("pgbackrest")
-	if err != nil {
-		return nil, fmt.Errorf("pgbackrest binary not found in PATH: %w", err)
-	}
-
 	// Create pgbackrest log file
 	pgbackrestLogFile, err := p.createLogFile(constants.ServicePgbackrest, cell, dbName)
 	if err != nil {
@@ -125,55 +180,20 @@ func (p *localProvisioner) provisionPgbackRestServer(ctx context.Context, dbName
 	// Get cert directory
 	certDir := p.certDir()
 
-	// Wait for multipooler to generate the pgbackrest config file
-	configFile := fmt.Sprintf("%s/pgbackrest/pgbackrest.conf", poolerDir)
+	// Wait for multipooler to generate config and start pgBackRest server
+	configFile := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
 	fmt.Printf("▶️  - Waiting for pgbackrest config at: %s\n", configFile)
 
-	// Wait for config file with timeout
-	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-waitCtx.Done():
-			return nil, fmt.Errorf("timeout waiting for pgbackrest config file: %s", configFile)
-		case <-ticker.C:
-			if _, err := os.Stat(configFile); err == nil {
-				fmt.Printf("▶️  - Config file found, starting pgBackRest server (port:%d)...\n", pgbackrestPort)
-				goto ConfigReady
-			}
-		}
-	}
-
-ConfigReady:
-	// Open log file for pgbackrest output
-	logFile, err := os.OpenFile(pgbackrestLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	pgbackrestCmd, err := StartPgBackRestServer(ctx, poolerDir, 30*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open log file: %w", err)
+		return nil, err
 	}
 
-	// Start pgbackrest server
-	pgbackrestCmd := exec.CommandContext(ctx, pgbackrestBinary, "server")
-
-	// Set environment variables
-	pgbackrestCmd.Env = append(os.Environ(),
-		fmt.Sprintf("PGBACKREST_CONFIG=%s", configFile),
-	)
-
-	// Redirect stdout and stderr to log file
-	pgbackrestCmd.Stdout = logFile
-	pgbackrestCmd.Stderr = logFile
+	fmt.Printf("▶️  - Config file found, starting pgBackRest server (port:%d)...\n", pgbackrestPort)
 
 	if err := telemetry.StartCmd(ctx, pgbackrestCmd); err != nil {
-		logFile.Close()
 		return nil, fmt.Errorf("failed to start pgbackrest server: %w", err)
 	}
-
-	// Close the log file handle - the process has its own copy
-	logFile.Close()
 
 	// Validate process is running
 	if err := p.validateProcessRunning(pgbackrestCmd.Process.Pid); err != nil {
@@ -187,12 +207,12 @@ ConfigReady:
 		ID:         pgbackrestServiceID,
 		Service:    constants.ServicePgbackrest,
 		PID:        pgbackrestCmd.Process.Pid,
-		BinaryPath: pgbackrestBinary,
+		BinaryPath: pgbackrestCmd.Path,
 		Ports:      map[string]int{"pgbackrest_port": pgbackrestPort},
 		FQDN:       "localhost",
 		LogFile:    pgbackrestLogFile,
 		StartedAt:  time.Now(),
-		DataDir:    poolerDir,
+		DataDir:    certDir,
 		Metadata: map[string]any{
 			"cell":     cell,
 			"database": dbName,
