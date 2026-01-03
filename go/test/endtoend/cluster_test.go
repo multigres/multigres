@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/multigres/command/cluster"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
@@ -772,6 +773,15 @@ func executeStopCommand(t *testing.T, args []string) (string, error) {
 	return string(output), err
 }
 
+// executeMultigresCommand runs the multigres binary with the given command and args
+func executeMultigresCommand(t *testing.T, command string, args []string) (string, error) {
+	cmdArgs := append([]string{command}, args...)
+	cmd := exec.Command("multigres", cmdArgs...)
+
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
 // testPostgreSQLConnection tests PostgreSQL connectivity using Unix socket
 func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone string) {
 	t.Helper()
@@ -938,12 +948,21 @@ func TestClusterLifecycle(t *testing.T) {
 		testPostgreSQLConnection(t, tempDir, testPorts.Zones[1].PgctldPGPort, "2")
 		t.Log("Both PostgreSQL instances are working correctly!")
 
-		// Detect which zone is primary (multiorch can elect either)
+		// Wait for pooler types to be assigned (PRIMARY or REPLICA, not UNKNOWN)
+		// This ensures bootstrap has fully completed including ChangeType RPCs
 		zone1Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
 		zone2Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
-		zone1IsPrimary, err := IsPrimary(zone1Addr)
-		require.NoError(t, err, "should be able to check zone1 primary status")
-		t.Logf("Zone1 is primary: %v", zone1IsPrimary)
+		t.Log("Waiting for pooler types to be assigned...")
+		zone1Type, err := WaitForPoolerTypeAssigned(t, zone1Addr, 30*time.Second)
+		require.NoError(t, err, "zone1 pooler type should be assigned")
+		zone2Type, err := WaitForPoolerTypeAssigned(t, zone2Addr, 30*time.Second)
+		require.NoError(t, err, "zone2 pooler type should be assigned")
+
+		// Verify exactly one PRIMARY and one REPLICA
+		zone1IsPrimary := zone1Type == clustermetadatapb.PoolerType_PRIMARY
+		zone2IsPrimary := zone2Type == clustermetadatapb.PoolerType_PRIMARY
+		require.True(t, zone1IsPrimary != zone2IsPrimary, "exactly one zone should be PRIMARY, got zone1=%s zone2=%s", zone1Type, zone2Type)
+		t.Logf("Zone1 type: %s, Zone2 type: %s", zone1Type, zone2Type)
 
 		// Test multipooler gRPC functionality via TCP
 		// Run write tests on primary, read-only tests on replica
@@ -983,13 +1002,91 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, upOutput, "Multigres — Distributed Postgres made easy")
 		assert.Contains(t, upOutput, "is already running")
 
-		// Wait for heartbeats to be written
+		// Wait for heartbeats to be written (indicates full bootstrap completion)
 		t.Log("Waiting for heartbeats...")
 		require.Eventually(t, func() bool {
 			written, err := checkHeartbeatsWritten(multipoolerAddr)
 			return err == nil && written
 		}, 10*time.Second, 500*time.Millisecond, "heartbeats should be written after bootstrap")
 		t.Log("Heartbeats detected")
+
+		// Test CLI commands work correctly (after bootstrap is complete)
+		t.Log("Testing CLI commands...")
+		adminServer := fmt.Sprintf("localhost:%d", testPorts.MultiadminGRPCPort)
+
+		// Test getcellnames command
+		t.Log("Testing getcellnames command...")
+		cellNamesOutput, err := executeMultigresCommand(t, "getcellnames", []string{"--admin-server", adminServer})
+		require.NoError(t, err, "getcellnames command failed: %s", cellNamesOutput)
+		assert.Contains(t, cellNamesOutput, "zone1", "getcellnames should return zone1")
+		assert.Contains(t, cellNamesOutput, "zone2", "getcellnames should return zone2")
+		t.Logf("getcellnames output: %s", cellNamesOutput)
+
+		// Test getpoolerstatus command for both zones - verify pooler types are correctly set
+		t.Log("Testing getpoolerstatus command for both zones...")
+		ts, err := topoclient.OpenServer(topoclient.DefaultTopoImplementation, globalRootPath, []string{etcdAddress}, topoclient.NewDefaultTopoConfig())
+		require.NoError(t, err, "failed to connect to topology for getpoolerstatus test")
+
+		// Get zone1 multipooler
+		zone1Infos, err := ts.GetMultiPoolersByCell(t.Context(), "zone1", nil)
+		require.NoError(t, err, "failed to get multipoolers from zone1")
+		require.NotEmpty(t, zone1Infos, "should have at least one multipooler in zone1")
+
+		// Get zone2 multipooler
+		zone2Infos, err := ts.GetMultiPoolersByCell(t.Context(), "zone2", nil)
+		require.NoError(t, err, "failed to get multipoolers from zone2")
+		require.NotEmpty(t, zone2Infos, "should have at least one multipooler in zone2")
+		ts.Close()
+
+		zone1PoolerID := zone1Infos[0].Id.Name
+		zone2PoolerID := zone2Infos[0].Id.Name
+		t.Logf("Testing getpoolerstatus for zone1 pooler: %s", zone1PoolerID)
+		t.Logf("Testing getpoolerstatus for zone2 pooler: %s", zone2PoolerID)
+
+		// Get status for zone1 pooler
+		zone1StatusOutput, err := executeMultigresCommand(t, "getpoolerstatus", []string{
+			"--admin-server", adminServer,
+			"--cell", "zone1",
+			"--service-id", zone1PoolerID,
+		})
+		require.NoError(t, err, "getpoolerstatus for zone1 failed: %s", zone1StatusOutput)
+		t.Logf("zone1 pooler status: %s", zone1StatusOutput)
+
+		// Get status for zone2 pooler
+		zone2StatusOutput, err := executeMultigresCommand(t, "getpoolerstatus", []string{
+			"--admin-server", adminServer,
+			"--cell", "zone2",
+			"--service-id", zone2PoolerID,
+		})
+		require.NoError(t, err, "getpoolerstatus for zone2 failed: %s", zone2StatusOutput)
+		t.Logf("zone2 pooler status: %s", zone2StatusOutput)
+
+		// Verify both outputs contain expected status fields
+		assert.Contains(t, zone1StatusOutput, "postgres_running", "zone1 getpoolerstatus should return postgres_running")
+		assert.Contains(t, zone1StatusOutput, "is_initialized", "zone1 getpoolerstatus should return is_initialized")
+		assert.Contains(t, zone2StatusOutput, "postgres_running", "zone2 getpoolerstatus should return postgres_running")
+		assert.Contains(t, zone2StatusOutput, "is_initialized", "zone2 getpoolerstatus should return is_initialized")
+
+		// Verify pooler types are correctly set in CLI output
+		// JSON output shows numeric enum values: 1=PRIMARY, 2=REPLICA
+		// We already verified the actual types via WaitForPoolerTypeAssigned above
+		if zone1IsPrimary {
+			assert.Contains(t, zone1StatusOutput, `"pooler_type": 1`, "zone1 should be PRIMARY (1)")
+			assert.Contains(t, zone2StatusOutput, `"pooler_type": 2`, "zone2 should be REPLICA (2)")
+		} else {
+			assert.Contains(t, zone1StatusOutput, `"pooler_type": 2`, "zone1 should be REPLICA (2)")
+			assert.Contains(t, zone2StatusOutput, `"pooler_type": 1`, "zone2 should be PRIMARY (1)")
+		}
+		t.Log("Verified pooler types in CLI output")
+
+		// Test CLI commands work with config-path instead of admin-server
+		t.Log("Testing CLI commands with --config-path (no --admin-server)...")
+		cellNamesFromConfig, err := executeMultigresCommand(t, "getcellnames", []string{"--config-path", tempDir})
+		require.NoError(t, err, "getcellnames with config-path failed: %s", cellNamesFromConfig)
+		assert.Contains(t, cellNamesFromConfig, "zone1", "getcellnames from config should return zone1")
+		t.Logf("getcellnames from config output: %s", cellNamesFromConfig)
+
+		t.Log("CLI commands test completed successfully")
 
 		// Stop cluster (down)
 		t.Log("Stopping cluster...")
@@ -1015,8 +1112,8 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Start cluster again and verify state is preserved after restart
 		t.Log("Starting cluster again to verify state is preserved after restart...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Second start should succeed")
+		startOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Second start should succeed, output: %s", startOutput)
 
 		// Wait for both zones to be ready after restart (same as initial bootstrap)
 		t.Log("Waiting for zone1 to be ready after restart...")

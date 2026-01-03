@@ -1212,16 +1212,28 @@ func (p *localProvisioner) stopProcessByPID(ctx context.Context, name string, pi
 	return nil
 }
 
-// waitForProcessExit waits for a process to exit by polling with Signal(0)
+// waitForProcessExit waits for a process to exit by polling with Signal(0).
+// If the process doesn't exit within the timeout, it sends SIGKILL and waits again.
 func (p *localProvisioner) waitForProcessExit(ctx context.Context, process *os.Process, timeout time.Duration) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	r := retry.New(10*time.Millisecond, 1*time.Second)
-	for _, err := range r.Attempts(ctx) {
+	for _, err := range r.Attempts(waitCtx) {
 		if err != nil {
-			// Timeout reached
-			fmt.Printf("Process %d still running after SIGTERM\n", process.Pid)
+			// Timeout reached, escalate to SIGKILL
+			fmt.Printf("Process %d still running after SIGTERM, sending SIGKILL\n", process.Pid)
+			if killErr := process.Kill(); killErr != nil {
+				errMsg := killErr.Error()
+				if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
+					fmt.Printf("Process %d already stopped\n", process.Pid)
+					return
+				}
+				fmt.Printf("Failed to kill process %d: %v\n", process.Pid, killErr)
+				return
+			}
+			// Wait a bit more for SIGKILL to take effect
+			p.waitForProcessExitAfterKill(ctx, process, 5*time.Second)
 			return
 		}
 
@@ -1230,6 +1242,26 @@ func (p *localProvisioner) waitForProcessExit(ctx context.Context, process *os.P
 		if err != nil {
 			fmt.Printf("Process %d stopped successfully\n", process.Pid)
 			// Process has exited or doesn't exist
+			return
+		}
+	}
+}
+
+// waitForProcessExitAfterKill waits for a process to exit after SIGKILL.
+func (p *localProvisioner) waitForProcessExitAfterKill(ctx context.Context, process *os.Process, timeout time.Duration) {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	r := retry.New(50*time.Millisecond, 1*time.Second)
+	for _, err := range r.Attempts(waitCtx) {
+		if err != nil {
+			fmt.Printf("Process %d still running after SIGKILL (timeout)\n", process.Pid)
+			return
+		}
+
+		err := process.Signal(syscall.Signal(0))
+		if err != nil {
+			fmt.Printf("Process %d stopped after SIGKILL\n", process.Pid)
 			return
 		}
 	}

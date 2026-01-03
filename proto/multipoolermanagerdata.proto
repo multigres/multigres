@@ -378,6 +378,18 @@ message PromoteRequest {
   // Force the operation even if term validation fails
   // Should only be used in recovery scenarios
   bool force = 4;
+
+  // Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
+  string reason = 5;
+
+  // Coordinator ID that ran this election
+  string coordinator_id = 6;
+
+  // List of pooler names that were in the cohort
+  repeated string cohort_members = 7;
+
+  // List of pooler names that accepted the term during BeginTerm
+  repeated string accepted_members = 8;
 }
 
 message PromoteResponse {
@@ -543,6 +555,9 @@ message InitializeEmptyPrimaryRequest {
   // Optional: Create durability policy after initialization
   string durability_policy_name = 2;
   clustermetadata.QuorumRule durability_quorum_rule = 3;
+
+  // ID of the multiorch coordinator performing the bootstrap
+  string coordinator_id = 4;
 }
 
 message InitializeEmptyPrimaryResponse {
@@ -560,21 +575,18 @@ message InitializeEmptyPrimaryResponse {
 // InitializeAsStandby initializes this pooler as a standby from a primary backup
 // Used during bootstrap initialization of a new shard or when adding a new standby
 message InitializeAsStandbyRequest {
-  // Primary server hostname to backup from
-  string primary_host = 1;
-
-  // Primary server port
-  int32 primary_port = 2;
+  // Primary pooler to replicate from
+  clustermetadata.MultiPooler primary = 1;
 
   // Consensus term to set for this standby
-  int64 consensus_term = 3;
+  int64 consensus_term = 2;
 
   // Whether to force reinitialization (removes existing data directory)
-  bool force = 4;
+  bool force = 3;
 
   // Optional: Specific backup ID to restore from
   // If empty, restore from the latest backup
-  string backup_id = 5;
+  string backup_id = 4;
 }
 
 message InitializeAsStandbyResponse {

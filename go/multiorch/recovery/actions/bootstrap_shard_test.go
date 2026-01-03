@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 
@@ -37,11 +38,21 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// testRPCClient wraps FakeClient to capture ConfigureSynchronousReplication calls
+// testRPCClient wraps FakeClient to capture bootstrap-related RPC calls
 type testRPCClient struct {
 	*rpcclient.FakeClient
-	syncReplicationCalled  bool
-	syncReplicationRequest *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
+	initializedPrimaries []*clustermetadatapb.MultiPooler
+	syncReplicationCalls []*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest
+}
+
+// newTestCoordinator creates a mock coordinator for tests
+func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *coordinator.Coordinator {
+	coordinatorID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "cell1",
+		Name:      "test-coordinator",
+	}
+	return coordinator.NewCoordinator(coordinatorID, ts, rpcClient, logger)
 }
 
 func (t *testRPCClient) ConfigureSynchronousReplication(
@@ -49,10 +60,19 @@ func (t *testRPCClient) ConfigureSynchronousReplication(
 	pooler *clustermetadatapb.MultiPooler,
 	request *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest,
 ) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse, error) {
-	t.syncReplicationCalled = true
-	t.syncReplicationRequest = request
+	t.syncReplicationCalls = append(t.syncReplicationCalls, request)
 	// Call the underlying FakeClient method
 	return t.FakeClient.ConfigureSynchronousReplication(ctx, pooler, request)
+}
+
+func (t *testRPCClient) InitializeEmptyPrimary(
+	ctx context.Context,
+	pooler *clustermetadatapb.MultiPooler,
+	request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest,
+) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+	t.initializedPrimaries = append(t.initializedPrimaries, pooler)
+	// Call the underlying FakeClient method
+	return t.FakeClient.InitializeEmptyPrimary(ctx, pooler, request)
 }
 
 func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
@@ -62,8 +82,9 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 
 	logger := slog.Default()
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	coord := newTestCoordinator(ts, nil, logger)
 
-	action := NewBootstrapShardAction(nil, poolerStore, ts, logger)
+	action := NewBootstrapShardAction(nil, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -82,7 +103,8 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 
 func TestBootstrapShardAction_ParsePolicyANY_2(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, nil, nil, logger)
+	coord := newTestCoordinator(nil, nil, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
 
 	rule, err := action.parsePolicy("ANY_2")
 	assert.NoError(t, err)
@@ -94,7 +116,8 @@ func TestBootstrapShardAction_ParsePolicyANY_2(t *testing.T) {
 
 func TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, nil, nil, logger)
+	coord := newTestCoordinator(nil, nil, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
 
 	rule, err := action.parsePolicy("MULTI_CELL_ANY_2")
 	assert.NoError(t, err)
@@ -106,7 +129,8 @@ func TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
 
 func TestBootstrapShardAction_ParsePolicyInvalid(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, nil, nil, logger)
+	coord := newTestCoordinator(nil, nil, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
 
 	rule, err := action.parsePolicy("INVALID_POLICY")
 	assert.Error(t, err)
@@ -150,7 +174,8 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 	}()
 
 	// Now try to execute recovery - should fail to acquire lock
-	action := NewBootstrapShardAction(nil, poolerStore, ts, logger)
+	coord := newTestCoordinator(ts, nil, logger)
+	action := NewBootstrapShardAction(nil, poolerStore, ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -174,7 +199,8 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 
 func TestBootstrapShardAction_Metadata(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, nil, nil, logger)
+	coord := newTestCoordinator(nil, nil, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
 
 	metadata := action.Metadata()
 
@@ -185,7 +211,8 @@ func TestBootstrapShardAction_Metadata(t *testing.T) {
 
 func TestBootstrapShardAction_RequiresHealthyPrimary(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, nil, nil, logger)
+	coord := newTestCoordinator(nil, nil, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
 
 	// Bootstrap doesn't require healthy primary - it's creating one
 	assert.False(t, action.RequiresHealthyPrimary())
@@ -193,7 +220,8 @@ func TestBootstrapShardAction_RequiresHealthyPrimary(t *testing.T) {
 
 func TestBootstrapShardAction_Priority(t *testing.T) {
 	logger := slog.Default()
-	action := NewBootstrapShardAction(nil, nil, nil, logger)
+	coord := newTestCoordinator(nil, nil, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
 
 	assert.Equal(t, types.PriorityShardBootstrap, action.Priority())
 }
@@ -325,7 +353,8 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute bootstrap action
-	action := NewBootstrapShardAction(mockClient, poolerStore, ts, logger)
+	coord := newTestCoordinator(ts, mockClient, logger)
+	action := NewBootstrapShardAction(mockClient, poolerStore, ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -338,26 +367,45 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	err = action.Execute(ctx, problem)
 	require.NoError(t, err)
 
-	// Verify ConfigureSynchronousReplication was called
-	assert.True(t, mockClient.syncReplicationCalled, "ConfigureSynchronousReplication should be called during bootstrap")
-	assert.NotNil(t, mockClient.syncReplicationRequest, "ConfigureSynchronousReplication request should be captured")
+	// Verify exactly one pooler was initialized as primary
+	require.Len(t, mockClient.initializedPrimaries, 1,
+		"Exactly one pooler should be initialized as primary")
+	primaryPooler := mockClient.initializedPrimaries[0]
+	primaryName := primaryPooler.Id.Name
+
+	// Verify ConfigureSynchronousReplication was called exactly once (on the primary)
+	require.Len(t, mockClient.syncReplicationCalls, 1,
+		"ConfigureSynchronousReplication should be called exactly once on the primary")
+	syncReq := mockClient.syncReplicationCalls[0]
 
 	// Verify the request has correct num_sync for ANY_2 policy (requires 2 nodes, so 1 sync standby)
-	assert.Equal(t, int32(1), mockClient.syncReplicationRequest.NumSync,
+	assert.Equal(t, int32(1), syncReq.NumSync,
 		"ANY_2 policy with RequiredCount=2 should set NumSync=1")
 
-	// Verify the request has standby IDs
-	assert.Len(t, mockClient.syncReplicationRequest.StandbyIds, 2,
+	// Verify the request has exactly 2 standby IDs
+	require.Len(t, syncReq.StandbyIds, 2,
 		"Should configure both standbys in the sync replication list")
 
-	// Verify the standby IDs are valid pooler names (primary selection is non-deterministic)
-	allPoolers := map[string]bool{"pooler1": true, "pooler2": true, "pooler3": true}
-	standbyNames := make(map[string]bool)
-	for _, standbyID := range mockClient.syncReplicationRequest.StandbyIds {
-		assert.True(t, allPoolers[standbyID.Name], "Standby %s should be a valid pooler", standbyID.Name)
-		standbyNames[standbyID.Name] = true
+	// Collect actual standbys from the sync replication request
+	actualStandbys := make(map[string]bool)
+	for _, standbyID := range syncReq.StandbyIds {
+		actualStandbys[standbyID.Name] = true
 	}
-	assert.Len(t, standbyNames, 2, "Should have 2 unique standbys")
+
+	// Verify standbys are unique (no duplicates)
+	require.Len(t, actualStandbys, 2,
+		"Should have 2 unique standbys (no duplicates)")
+
+	// Verify all standbys are from our pooler set
+	allPoolers := map[string]bool{"pooler1": true, "pooler2": true, "pooler3": true}
+	for standby := range actualStandbys {
+		assert.True(t, allPoolers[standby],
+			"Standby %s should be from the pooler set", standby)
+	}
+
+	// Verify primary is NOT in the standby list
+	assert.False(t, actualStandbys[primaryName],
+		"Primary %s should not be in standby list", primaryName)
 }
 
 // setupTestDatabase creates the database in topology with the given durability policy
@@ -426,7 +474,8 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 		},
 	})
 
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, logger)
+	coord := newTestCoordinator(ts, fakeClient, logger)
+	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -525,7 +574,8 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 		},
 	})
 
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, logger)
+	coord := newTestCoordinator(ts, fakeClient, logger)
+	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -601,7 +651,8 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 		})
 	}
 
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, logger)
+	coord := newTestCoordinator(ts, fakeClient, logger)
+	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -698,7 +749,8 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 		},
 	})
 
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, logger)
+	coord := newTestCoordinator(ts, fakeClient, logger)
+	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -736,7 +788,8 @@ func TestBootstrapShardAction_CountReachablePoolers(t *testing.T) {
 		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
 	})
 
-	action := NewBootstrapShardAction(fakeClient, nil, nil, logger)
+	coord := newTestCoordinator(nil, fakeClient, logger)
+	action := NewBootstrapShardAction(fakeClient, nil, nil, coord, logger)
 
 	cohort := []*multiorchdatapb.PoolerHealthState{
 		{
@@ -789,7 +842,8 @@ func TestBootstrapShardAction_CountReachablePoolersTimeout(t *testing.T) {
 		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
 	}, 100*time.Millisecond)
 
-	action := NewBootstrapShardAction(fakeClient, nil, nil, logger).
+	coord := newTestCoordinator(nil, fakeClient, logger)
+	action := NewBootstrapShardAction(fakeClient, nil, nil, coord, logger).
 		WithStatusRPCTimeout(10 * time.Millisecond)
 
 	cohort := []*multiorchdatapb.PoolerHealthState{

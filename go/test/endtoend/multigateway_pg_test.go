@@ -335,7 +335,6 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	})
 
 	t.Run("NULL handling via extended protocol", func(t *testing.T) {
-		t.Skip("Null Handling fails currently")
 		var nullableInt *int
 		var nullableText *string
 
@@ -352,6 +351,58 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		require.NotNil(t, nullableText)
 		assert.Equal(t, 42, *nullableInt)
 		assert.Equal(t, "not null", *nullableText)
+	})
+
+	t.Run("NULL vs empty string distinction", func(t *testing.T) {
+		tableName := fmt.Sprintf("null_empty_test_%d", time.Now().UnixNano())
+
+		// Create a table with a nullable text column
+		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, value TEXT)", tableName))
+		require.NoError(t, err, "failed to create table")
+		defer func() {
+			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+		}()
+
+		// Insert NULL, empty string, and regular string
+		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 1, nil)
+		require.NoError(t, err, "failed to insert NULL value")
+		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 2, "")
+		require.NoError(t, err, "failed to insert empty string")
+		_, err = conn.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id, value) VALUES ($1, $2)", tableName), 3, "hello")
+		require.NoError(t, err, "failed to insert regular string")
+
+		// Query and verify the distinction is preserved
+		rows, err := conn.Query(ctx, fmt.Sprintf("SELECT id, value FROM %s ORDER BY id", tableName))
+		require.NoError(t, err, "failed to query table")
+		defer rows.Close()
+
+		// Row 1: NULL
+		require.True(t, rows.Next(), "expected row 1")
+		var id int
+		var value *string
+		err = rows.Scan(&id, &value)
+		require.NoError(t, err, "failed to scan row 1")
+		assert.Equal(t, 1, id)
+		assert.Nil(t, value, "row 1 should be NULL, not empty string")
+
+		// Row 2: empty string
+		require.True(t, rows.Next(), "expected row 2")
+		err = rows.Scan(&id, &value)
+		require.NoError(t, err, "failed to scan row 2")
+		assert.Equal(t, 2, id)
+		require.NotNil(t, value, "row 2 should be empty string, not NULL")
+		assert.Equal(t, "", *value, "row 2 should be empty string")
+
+		// Row 3: regular string
+		require.True(t, rows.Next(), "expected row 3")
+		err = rows.Scan(&id, &value)
+		require.NoError(t, err, "failed to scan row 3")
+		assert.Equal(t, 3, id)
+		require.NotNil(t, value, "row 3 should be 'hello'")
+		assert.Equal(t, "hello", *value)
+
+		require.False(t, rows.Next(), "expected no more rows")
+		require.NoError(t, rows.Err())
 	})
 
 	t.Run("cursor via DECLARE and FETCH", func(t *testing.T) {

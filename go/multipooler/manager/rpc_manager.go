@@ -944,7 +944,7 @@ func (pm *MultiPoolerManager) UndoDemote(ctx context.Context) error {
 // transition a standby to primary and reconfigure replication.
 // This operation is fully idempotent - it checks what steps are already complete
 // and only executes the missing steps.
-func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool) (*multipoolermanagerdatapb.PromoteResponse, error) {
+func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool, reason string, coordinatorID string, cohortMembers []string, acceptedMembers []string) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -1027,13 +1027,26 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// TODO: Populate consensus metadata tables.
-
 	// Get final LSN position
 	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
 		return nil, err
+	}
+
+	// Write leadership history record - always record for audit trail
+	leaderID := generateApplicationName(pm.serviceID)
+	if reason == "" {
+		reason = "unknown"
+	}
+	if coordinatorID == "" {
+		coordinatorID = "unknown"
+	}
+	if err := pm.insertLeadershipHistory(ctx, consensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
+		// Log but don't fail the promotion - history is for audit, not correctness
+		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
+			"term", consensusTerm,
+			"error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Promote completed successfully",

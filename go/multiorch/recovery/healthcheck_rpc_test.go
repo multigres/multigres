@@ -71,7 +71,7 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
-		nil,
+		newTestCoordinator(ts, fakeClient, "zone1"),
 	)
 
 	// Add a pooler to the store
@@ -161,7 +161,7 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
-		nil,
+		newTestCoordinator(ts, fakeClient, "zone1"),
 	)
 
 	// Add a replica pooler to the store
@@ -244,7 +244,7 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
-		nil,
+		newTestCoordinator(ts, fakeClient, "zone1"),
 	)
 
 	// Add a pooler to the store
@@ -321,7 +321,7 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		fakeClient,
-		nil,
+		newTestCoordinator(ts, fakeClient, "zone1"),
 	)
 
 	// Add a pooler with REPLICA type in topology

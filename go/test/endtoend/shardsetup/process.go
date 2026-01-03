@@ -56,6 +56,7 @@ type ProcessInstance struct {
 	HttpPort     int      // HTTP port (used by multiorch for /ready endpoint)
 	Cell         string   // Cell name (used by multipooler and multiorch)
 	WatchTargets []string // Database/tablegroup/shard targets to watch (multiorch)
+	ServiceID    string   // Service ID (used by multipooler and multiorch)
 }
 
 // Start starts the process instance (pgctld, multipooler, or multiorch).
@@ -153,10 +154,11 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 	t.Helper()
 
-	t.Logf("Starting %s: binary '%s', gRPC port %d, HTTP port %d", p.Name, p.Binary, p.GrpcPort, p.HttpPort)
+	t.Logf("Starting %s: binary '%s', gRPC port %d, HTTP port %d, service-id %s", p.Name, p.Binary, p.GrpcPort, p.HttpPort, p.ServiceID)
 
 	args := []string{
 		"--cell", p.Cell,
+		"--service-id", p.ServiceID,
 		"--watch-targets", strings.Join(p.WatchTargets, ","),
 		"--topo-global-server-addresses", p.EtcdAddr,
 		"--topo-global-root", "/multigres/global",
