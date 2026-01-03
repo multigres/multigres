@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
@@ -39,6 +40,15 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
+
+// setTermForTest writes the consensus term file directly for testing.
+func setTermForTest(t *testing.T, poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) {
+	t.Helper()
+	data, err := protojson.Marshal(term)
+	require.NoError(t, err, "failed to marshal term")
+	termPath := filepath.Join(poolerDir, "consensus_term.json")
+	require.NoError(t, os.WriteFile(termPath, data, 0o644), "failed to write term file")
+}
 
 // addDatabaseToTopo creates a database in the topology with a backup location
 func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
@@ -318,13 +328,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "SetTerm times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.SetTerm(ctx, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 5})
-			},
-		},
-		{
 			name:       "UpdateSynchronousStandbyList times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
@@ -419,7 +422,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 
 	tmpDir := t.TempDir()
 
-	// Create pg_data directory with PG_VERSION for SetTerm (which checks isDataDirInitialized)
+	// Create pg_data directory with PG_VERSION
 	// We'll call setInitialized() later to mark as initialized
 	pgDataDir := filepath.Join(tmpDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
@@ -451,10 +454,9 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-	// Set consensus term to expected value (10) for testing using SetTerm
+	// Set consensus term to expected value (10) for testing via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
-	err = pm.SetTerm(ctx, term)
-	require.NoError(t, err)
+	setTermForTest(t, tmpDir, term)
 
 	// Acquire action lock to inspect consensus state
 	inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
@@ -747,15 +749,14 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	expectStartupQueries(mockQueryService)
 
-	pm, _ := setupPromoteTestManager(t, mockQueryService)
+	pm, tmpDir := setupPromoteTestManager(t, mockQueryService)
 
-	// Explicitly set the term to 10 to ensure we have the expected value using SetTerm
+	// Explicitly set the term to 10 to ensure we have the expected value via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
-	err := pm.SetTerm(ctx, term)
-	require.NoError(t, err)
+	setTermForTest(t, tmpDir, term)
 
 	// Call Promote with wrong term (current term is 10, passing 5)
-	_, err = pm.Promote(ctx, 5, "0/1234567", nil, false /* force */, "", "", nil, nil)
+	_, err := pm.Promote(ctx, 5, "0/1234567", nil, false /* force */, "", "", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "term")
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -1064,10 +1065,9 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 		return pm.GetState() == ManagerStateReady
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
-	// Set consensus term first (required for SetPrimaryConnInfo)
+	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
-	err = pm.SetTerm(ctx, term)
-	require.NoError(t, err)
+	setTermForTest(t, tmpDir, term)
 
 	// Call SetPrimaryConnInfo with a specific primary MultiPooler
 	testPrimaryID := &clustermetadatapb.ID{

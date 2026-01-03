@@ -735,7 +735,7 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		pm.logger.ErrorContext(ctx, "Consensus term not initialized",
 			"service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized, must be explicitly set via SetTerm (use force=true to bypass)")
+			"consensus term not initialized, must be set via BeginTerm (use force=true to bypass)")
 	}
 
 	// If request term == current term: ACCEPT (same term, execute)
@@ -795,7 +795,7 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 		pm.logger.ErrorContext(ctx, "Consensus term not initialized - node not recruited",
 			"service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized - node must be recruited via SetTerm first")
+			"consensus term not initialized - node must be recruited via BeginTerm first")
 	}
 
 	// Require exact match - do not update term automatically
@@ -806,7 +806,7 @@ func (pm *MultiPoolerManager) validateTermExactMatch(ctx context.Context, reques
 			"service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("term mismatch: node not recruited for term %d (current term is %d). "+
-				"Coordinator must call SetTerm first to recruit this node",
+				"Coordinator must call BeginTerm first to recruit this node",
 				requestTerm, currentTerm))
 	}
 

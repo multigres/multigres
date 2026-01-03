@@ -1034,36 +1034,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	}, nil
 }
 
-// SetTerm sets the consensus term information to local disk
-func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermanagerdatapb.ConsensusTerm) error {
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "SetTerm")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Initialize consensus state if needed
-	pm.mu.Lock()
-	if pm.consensusState == nil {
-		pm.consensusState = NewConsensusState(pm.config.PoolerDir, pm.serviceID)
-	}
-	cs := pm.consensusState
-	pm.mu.Unlock()
-
-	// Save to disk and update memory atomically
-	if err := cs.SetTermDirectly(ctx, term); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to save consensus term", "error", err)
-		return mterrors.Wrap(err, "failed to set consensus term")
-	}
-
-	return nil
-}
-
 // createDurabilityPolicyLocked creates a durability policy without acquiring the action lock.
 // The caller MUST already hold the action lock.
 func (pm *MultiPoolerManager) createDurabilityPolicyLocked(ctx context.Context, policyName string, quorumRule *clustermetadatapb.QuorumRule) error {
