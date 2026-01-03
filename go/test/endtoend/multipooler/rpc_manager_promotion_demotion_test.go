@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -71,14 +72,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		// Demote the original primary
 		t.Log("Demoting original primary...")
 
-		// Set term on primary
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		}
-		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err, "SetTerm should succeed on primary")
+		// Set term on primary via direct file write
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
 
 		// Get LSN before demotion
 		posReq := &multipoolermanagerdatapb.PrimaryPositionRequest{}
@@ -130,14 +125,8 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		t.Log("Promoting original standby to primary...")
 
-		// Set term on standby
-		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 2,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
-		require.NoError(t, err, "SetTerm should succeed on standby")
+		// Set term on standby via direct file write
+		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 2})
 
 		// Stop replication to freeze LSN
 		stopReq := &multipoolermanagerdatapb.StopReplicationRequest{}
@@ -176,14 +165,8 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		t.Log("Restoring original state...")
 
-		// Demote the new primary (original standby)
-		setTermReq3 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 3,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq3)
-		require.NoError(t, err, "SetTerm should succeed")
+		// Demote the new primary (original standby) - set term via direct file write
+		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 3})
 
 		demoteReq2 := &multipoolermanagerdatapb.DemoteRequest{
 			ConsensusTerm: 3,
@@ -195,14 +178,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		assert.False(t, demoteResp2.WasAlreadyDemoted)
 		t.Logf("New primary demoted. LSN: %s", demoteResp2.LsnPosition)
 
-		// Promote the original primary back
-		setTermReq4 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 4,
-			},
-		}
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq4)
-		require.NoError(t, err, "SetTerm should succeed")
+		// Promote the original primary back - set term via direct file write
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 4})
 
 		// Stop replication on original primary
 		stopReq2 := &multipoolermanagerdatapb.StopReplicationRequest{}
@@ -244,14 +221,8 @@ func TestDemoteAndPromote(t *testing.T) {
 		// can be retried and successfully completes
 		// in an idempotent way.
 
-		// Set term
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-			},
-		}
-		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err)
+		// Set term via direct file write
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 5})
 
 		// First demotion
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
@@ -297,13 +268,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Testing Promote idempotency...")
 
 		// First demote the primary so we can test promote idempotency
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 6,
-			},
-		}
-		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 6})
 
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
 			ConsensusTerm: 6,
@@ -369,13 +334,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		t.Log("Testing Demote term validation...")
 
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 7,
-			},
-		}
-		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 7})
 
 		// Try with stale term (should fail)
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
@@ -401,13 +360,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Testing Promote term validation...")
 
 		// First demote the primary so we can test promote term validation
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 8,
-			},
-		}
-		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 8})
 
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
 			ConsensusTerm: 8,
@@ -467,13 +420,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Testing Promote LSN validation...")
 
 		// Demote primary first
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 9,
-			},
-		}
-		_, err := primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 9})
 
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
 			ConsensusTerm: 9,
@@ -505,13 +452,7 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
 		// Now test LSN validation during promote
-		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 10,
-			},
-		}
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10})
 
 		stopReq := &multipoolermanagerdatapb.StopReplicationRequest{}
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), stopReq)
@@ -546,13 +487,7 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		t.Log("Testing Demote on standby (should fail)...")
 
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 11,
-			},
-		}
-		_, err := standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 11})
 
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
 			ConsensusTerm: 11,

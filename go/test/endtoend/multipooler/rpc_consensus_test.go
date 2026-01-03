@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/test/endtoend"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -557,15 +558,9 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
-		// Set term on standby for promotion
+		// Set term on standby for promotion via direct file write
 		promoteTerm := newTerm + 1
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: promoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err, "SetTerm should succeed on standby")
+		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: promoteTerm})
 
 		// Stop replication on standby
 		_, err = standbyManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
@@ -589,13 +584,7 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 
 		// Now demote the new primary (standby) and promote original primary back
 		demoteTerm := promoteTerm + 1
-		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: demoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: demoteTerm})
 
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
 			ConsensusTerm: demoteTerm,
@@ -607,13 +596,7 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 
 		// Promote original primary back
 		restoreTerm := demoteTerm + 1
-		setTermReq3 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: restoreTerm,
-			},
-		}
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq3)
-		require.NoError(t, err)
+		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: restoreTerm})
 
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
 		require.NoError(t, err)

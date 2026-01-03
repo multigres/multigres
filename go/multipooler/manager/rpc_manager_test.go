@@ -46,7 +46,10 @@ func setTermForTest(t *testing.T, poolerDir string, term *multipoolermanagerdata
 	t.Helper()
 	data, err := protojson.Marshal(term)
 	require.NoError(t, err, "failed to marshal term")
-	termPath := filepath.Join(poolerDir, "consensus_term.json")
+	// Write to the correct path: {poolerDir}/pg_data/consensus/consensus_term.json
+	consensusDir := filepath.Join(poolerDir, "pg_data", "consensus")
+	require.NoError(t, os.MkdirAll(consensusDir, 0o755), "failed to create consensus dir")
+	termPath := filepath.Join(consensusDir, "consensus_term.json")
 	require.NoError(t, os.WriteFile(termPath, data, 0o644), "failed to write term file")
 }
 
@@ -458,13 +461,14 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
 	setTermForTest(t, tmpDir, term)
 
-	// Acquire action lock to inspect consensus state
-	inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
-	require.NoError(t, err)
-	currentTerm, err := pm.consensusState.GetCurrentTermNumber(inspectCtx)
-	require.NoError(t, err)
-	pm.actionLock.Release(inspectCtx)
-	assert.Equal(t, int64(10), currentTerm, "Term should be set to 10")
+	// Initialize consensus state so the manager can read the term
+	pm.mu.Lock()
+	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.mu.Unlock()
+
+	// Load the term from file
+	_, err = pm.consensusState.Load()
+	require.NoError(t, err, "Failed to load consensus state")
 
 	return pm, tmpDir
 }
@@ -1068,6 +1072,9 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
 	setTermForTest(t, tmpDir, term)
+	// Reload consensus state to pick up the term from file
+	_, err = pm.consensusState.Load()
+	require.NoError(t, err, "Failed to load consensus state")
 
 	// Call SetPrimaryConnInfo with a specific primary MultiPooler
 	testPrimaryID := &clustermetadatapb.ID{
