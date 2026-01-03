@@ -182,7 +182,7 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 	// Wait for server to be ready
 	logger.Info("Waiting for PostgreSQL to be ready")
-	if err := waitForPostgreSQLWithConfig(config); err != nil {
+	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
@@ -271,22 +271,32 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	}
 
 	// Wait for PostgreSQL to be ready using pg_isready
-	return waitForPostgreSQLWithConfig(config)
+	return waitForPostgreSQLWithConfig(logger, config)
 }
 
-func waitForPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig) error {
-	// Try to connect using pg_isready
+func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
+
 	for i := 0; i < config.Timeout; i++ {
 		cmd := exec.Command("pg_isready",
 			"-h", socketDir,
-			"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+			"-p", fmt.Sprintf("%d", config.Port),
 			"-U", config.User,
 			"-d", config.Database,
 		)
 
-		if err := cmd.Run(); err == nil {
+		output, err := cmd.CombinedOutput()
+		if err == nil {
 			return nil
+		}
+
+		// Log progress every 5 seconds
+		if i > 0 && i%5 == 0 {
+			logger.Info("Still waiting for PostgreSQL to be ready",
+				"attempt", i,
+				"timeout", config.Timeout,
+				"pg_isready_output", strings.TrimSpace(string(output)),
+			)
 		}
 
 		time.Sleep(1 * time.Second)

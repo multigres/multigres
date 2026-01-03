@@ -262,7 +262,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		err = waitForPostgreSQLWithConfig(config)
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		err = waitForPostgreSQLWithConfig(logger, config)
 		assert.NoError(t, err)
 	})
 
@@ -296,7 +297,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		err = waitForPostgreSQLWithConfig(config)
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		err = waitForPostgreSQLWithConfig(logger, config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "did not become ready")
 	})
