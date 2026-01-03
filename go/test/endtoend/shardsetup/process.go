@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/provisioner/local"
 )
 
 // ProcessInstance represents a process instance for testing (pgctld, multipooler, or multiorch).
@@ -56,6 +57,10 @@ type ProcessInstance struct {
 	Cell         string   // Cell name (used by multipooler and multiorch)
 	WatchTargets []string // Database/tablegroup/shard targets to watch (multiorch)
 	ServiceID    string   // Service ID (used by multipooler and multiorch)
+
+	// PgBackRest-specific fields (used by multipooler)
+	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths
+	PgBackRestPort      int                        // pgBackRest server port
 }
 
 // Start starts the process instance (pgctld, multipooler, or multiorch).
@@ -129,6 +134,18 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 		"--hostname", "localhost",
 		"--log-output", p.LogFile,
 		"--log-level", "debug",
+	}
+
+	// Add pgBackRest certificate paths and port if configured
+	if p.PgBackRestCertPaths != nil {
+		args = append(args,
+			"--pgbackrest-cert-file", p.PgBackRestCertPaths.ServerCertFile,
+			"--pgbackrest-key-file", p.PgBackRestCertPaths.ServerKeyFile,
+			"--pgbackrest-ca-file", p.PgBackRestCertPaths.CACertFile,
+		)
+	}
+	if p.PgBackRestPort > 0 {
+		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
 	}
 
 	// Start the multipooler server

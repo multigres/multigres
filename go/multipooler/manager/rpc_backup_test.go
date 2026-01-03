@@ -1401,8 +1401,8 @@ func TestInitPgBackRest_ConfigFileFormat(t *testing.T) {
 	}
 }
 
-func TestInitPgBackRest_ForBackupCreatesTemp(t *testing.T) {
-	// Test that forBackup=true creates a temp config file in /tmp
+func TestInitPgBackRest_ForBackupCreatesBackupConfig(t *testing.T) {
+	// Test that forBackup=true creates pgbackrest-backup.conf in pgbackrest directory
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
@@ -1414,69 +1414,62 @@ func TestInitPgBackRest_ForBackupCreatesTemp(t *testing.T) {
 	)
 
 	// Call with ForBackup mode
-	tempConfigPath, err := pm.initPgBackRest(context.Background(), ForBackup)
+	backupConfigPath, err := pm.initPgBackRest(context.Background(), ForBackup)
 	require.NoError(t, err)
-	assert.NotEmpty(t, tempConfigPath)
+	assert.NotEmpty(t, backupConfigPath)
 
-	// Verify the config file was created in /tmp (not in poolerDir)
-	assert.Contains(t, tempConfigPath, os.TempDir(), "temp config should be in /tmp")
-	assert.NotContains(t, tempConfigPath, poolerDir, "temp config should not be in pooler directory")
-	assert.Contains(t, tempConfigPath, "pgbackrest-", "temp config should have pgbackrest- prefix")
-	assert.True(t, strings.HasSuffix(tempConfigPath, ".conf"), "temp config should have .conf extension")
+	// Verify the config file was created in pgbackrest directory with the name pgbackrest-backup.conf
+	pgbackrestPath := pm.pgbackrestPath()
+	expectedPath := filepath.Join(pgbackrestPath, "pgbackrest-backup.conf")
+	assert.Equal(t, expectedPath, backupConfigPath, "backup config should be pgbackrest-backup.conf in pgbackrest directory")
 
-	// Verify the temp file exists and is readable
-	fileInfo, err := os.Stat(tempConfigPath)
-	require.NoError(t, err, "temp config file should exist")
-	assert.False(t, fileInfo.IsDir(), "temp config should be a file, not a directory")
+	// Verify the backup config file exists and is readable
+	fileInfo, err := os.Stat(backupConfigPath)
+	require.NoError(t, err, "backup config file should exist")
+	assert.False(t, fileInfo.IsDir(), "backup config should be a file, not a directory")
 
 	// Verify the config content is valid
-	configContent, err := os.ReadFile(tempConfigPath)
+	configContent, err := os.ReadFile(backupConfigPath)
 	require.NoError(t, err)
 	configStr := string(configContent)
 
 	// Should have proper sections and content
-	assert.Contains(t, configStr, "[global]", "temp config should have [global] section")
-	assert.Contains(t, configStr, "[multigres]", "temp config should have [multigres] section")
-	assert.NotContains(t, configStr, "{{", "temp config should not contain template variables")
+	assert.Contains(t, configStr, "[global]", "backup config should have [global] section")
+	assert.Contains(t, configStr, "[multigres]", "backup config should have [multigres] section")
+	assert.NotContains(t, configStr, "{{", "backup config should not contain template variables")
 
-	// Clean up the temp file
-	err = os.Remove(tempConfigPath)
+	// Verify the config content after multiple calls
+	firstContent := string(configContent)
+
+	// Call again with ForBackup mode - should overwrite the same file
+	backupConfigPath2, err := pm.initPgBackRest(context.Background(), ForBackup)
 	require.NoError(t, err)
+	assert.NotEmpty(t, backupConfigPath2)
+	assert.Equal(t, backupConfigPath, backupConfigPath2, "second call should use the same pgbackrest-backup.conf path")
 
-	// Call again with ForBackup mode - should create a NEW temp file each time
-	tempConfigPath2, err := pm.initPgBackRest(context.Background(), ForBackup)
+	// Verify the backup config file exists
+	_, err = os.Stat(backupConfigPath2)
+	require.NoError(t, err, "backup config file should exist after second call")
+
+	// Verify content is consistent
+	configContent2, err := os.ReadFile(backupConfigPath2)
 	require.NoError(t, err)
-	assert.NotEmpty(t, tempConfigPath2)
-	assert.NotEqual(t, tempConfigPath, tempConfigPath2, "second call should create a different temp file")
+	assert.Equal(t, firstContent, string(configContent2), "backup config content should be consistent across calls")
 
-	// Verify the second temp file exists
-	_, err = os.Stat(tempConfigPath2)
-	require.NoError(t, err, "second temp config file should exist")
-
-	// Clean up the second temp file
-	err = os.Remove(tempConfigPath2)
-	require.NoError(t, err)
-
-	// Verify that the persistent config was NOT created in poolerDir
-	pgbackrestPath := pm.pgbackrestPath()
+	// Verify that the persistent config was NOT created when using ForBackup mode
 	persistentConfigPath := filepath.Join(pgbackrestPath, "pgbackrest.conf")
 	_, err = os.Stat(persistentConfigPath)
 	assert.True(t, os.IsNotExist(err), "persistent config should not be created when using ForBackup mode")
 
-	// Verify that directories were NOT created in poolerDir when using ForBackup mode
-	_, err = os.Stat(pgbackrestPath)
-	assert.True(t, os.IsNotExist(err), "pgbackrest directory should not be created when using ForBackup mode")
+	// Verify that only the pgbackrest directory was created (not the subdirectories)
+	assert.DirExists(t, pgbackrestPath, "pgbackrest directory should be created")
 
-	logsPath := filepath.Join(pgbackrestPath, "logs")
-	_, err = os.Stat(logsPath)
+	// Verify that subdirectories were NOT created in ForBackup mode
+	_, err = os.Stat(filepath.Join(pgbackrestPath, "logs"))
 	assert.True(t, os.IsNotExist(err), "logs directory should not be created when using ForBackup mode")
-
-	spoolPath := filepath.Join(pgbackrestPath, "spool")
-	_, err = os.Stat(spoolPath)
+	_, err = os.Stat(filepath.Join(pgbackrestPath, "spool"))
 	assert.True(t, os.IsNotExist(err), "spool directory should not be created when using ForBackup mode")
-
-	lockPath := filepath.Join(pgbackrestPath, "lock")
-	_, err = os.Stat(lockPath)
+	_, err = os.Stat(filepath.Join(pgbackrestPath, "lock"))
 	assert.True(t, os.IsNotExist(err), "lock directory should not be created when using ForBackup mode")
 }
 

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -33,6 +34,7 @@ type MultipoolerInstance struct {
 	Name        string
 	Pgctld      *ProcessInstance
 	Multipooler *ProcessInstance
+	PgBackRest  *PgBackRestInstance
 }
 
 // ShardSetup holds shared test infrastructure for a single shard.
@@ -54,6 +56,9 @@ type ShardSetup struct {
 
 	// Multiorch instances (can have multiple)
 	MultiOrchInstances map[string]*ProcessInstance
+
+	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
+	PgBackRestCertPaths *local.PgBackRestCertPaths
 
 	// BaselineGucs stores the GUC values captured after bootstrap completes.
 	// These are the "clean state" values that ValidateCleanState checks against
@@ -143,13 +148,22 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 		s.Multipoolers = make(map[string]*MultipoolerInstance)
 	}
 
+	// Generate pgBackRest certificates once for the entire setup (shared across all multipoolers)
+	if s.PgBackRestCertPaths == nil {
+		s.PgBackRestCertPaths = s.generatePgBackRestCerts(t)
+	}
+
+	// Allocate a port for pgBackRest server (one per multipooler)
+	pgbackrestPort := utils.GetFreePort(t)
+
 	// Create pgctld instance
 	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort)
 
-	// Create multipooler instance
+	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
 	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
-		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, s.CellName)
+		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, s.CellName,
+		s.PgBackRestCertPaths, pgbackrestPort)
 
 	inst := &MultipoolerInstance{
 		Name:        name,
@@ -186,7 +200,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 
 // CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
-func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string) *ProcessInstance {
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgBackRestCertPaths, pgbackrestPort int) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -194,7 +208,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
 	require.NoError(t, err)
 
-	return &ProcessInstance{
+	inst := &ProcessInstance{
 		Name:        name,
 		Cell:        cell,
 		LogFile:     logFile,
@@ -206,6 +220,12 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		Binary:      "multipooler",
 		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
 	}
+
+	// Store pgBackRest cert paths struct and port for later use when starting multipooler
+	inst.PgBackRestCertPaths = certPaths
+	inst.PgBackRestPort = pgbackrestPort
+
+	return inst
 }
 
 // CreateMultiOrchInstance creates a new multiorch instance and adds it to the setup.
@@ -261,8 +281,11 @@ func (s *ShardSetup) Cleanup() {
 		}
 	}
 
-	// Stop multipooler instances (multipooler first, then pgctld)
+	// Stop multipooler instances (pgbackrest, multipooler, then pgctld)
 	for _, inst := range s.Multipoolers {
+		if inst.PgBackRest != nil {
+			inst.PgBackRest.Stop()
+		}
 		if inst.Multipooler != nil {
 			inst.Multipooler.Stop()
 		}
@@ -354,6 +377,9 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 		}
 		if inst.Multipooler != nil && !inst.Multipooler.IsRunning() {
 			dead = append(dead, name+"-multipooler")
+		}
+		if inst.PgBackRest != nil && !inst.PgBackRest.IsRunning() {
+			dead = append(dead, name+"-pgbackrest")
 		}
 	}
 

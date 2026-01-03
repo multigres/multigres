@@ -288,8 +288,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			name, grpcPort, pgPort, multipoolerPort)
 	}
 
-	// Start all processes (pgctld, multipooler) for all nodes
-	startProcessesWithoutInit(t, tempDir, multipoolerInstances, config)
+	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
+	startProcessesWithoutInit(t, setup, multipoolerInstances, config)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -303,6 +303,10 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Use multiorch to bootstrap the shard organically
 	initializeWithMultiOrch(t, setup, config)
+
+	// Start pgBackRest servers after initialization completes
+	// (multipooler generates config files during initialization)
+	setup.startPgBackRestServers(t)
 
 	t.Logf("Shard setup complete: %d multipoolers, %d multiorchs",
 		config.MultipoolerCount, config.MultiOrchCount)
@@ -517,10 +521,11 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 
 // startProcessesWithoutInit starts pgctld and multipooler processes without initializing postgres.
 // Use this for bootstrap tests where multiorch will initialize the shard.
+// pgBackRest servers are started later via startPgBackRestServers() after initialization.
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*MultipoolerInstance, config *SetupConfig) {
+func startProcessesWithoutInit(t *testing.T, setup *ShardSetup, instances []*MultipoolerInstance, config *SetupConfig) {
 	t.Helper()
 
 	for _, inst := range instances {
@@ -544,6 +549,21 @@ func startProcessesWithoutInit(t *testing.T, baseDir string, instances []*Multip
 	}
 
 	t.Logf("Started %d processes without initialization (ready for bootstrap)", len(instances))
+}
+
+// startPgBackRestServers starts pgBackRest servers for all multipooler instances.
+// This must be called AFTER PostgreSQL initialization is complete, because multipooler
+// generates the pgbackrest config files during initialization (in configureArchiveMode).
+func (s *ShardSetup) startPgBackRestServers(t *testing.T) {
+	t.Helper()
+
+	for name, inst := range s.Multipoolers {
+		pgbackrest := s.startPgBackRestServer(t, name, inst.Pgctld.DataDir, inst.Multipooler.PgBackRestPort)
+		inst.PgBackRest = pgbackrest
+		t.Logf("Started pgBackRest for %s (port=%d)", name, pgbackrest.Port)
+	}
+
+	t.Logf("Started %d pgBackRest servers", len(s.Multipoolers))
 }
 
 // startEtcd starts etcd without registering t.Cleanup() handlers
