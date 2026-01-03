@@ -38,9 +38,6 @@ import (
 // Compile-time assertion that DemoteStalePrimaryAction implements types.RecoveryAction.
 var _ types.RecoveryAction = (*DemoteStalePrimaryAction)(nil)
 
-// DefaultDrainTimeout is the default time to wait for connections to drain during demotion.
-const DefaultDrainTimeout = 30 * time.Second
-
 // StalePrimaryDrainTimeout is a shorter drain timeout for stale primaries.
 // Stale primaries that just came back online typically have no active connections,
 // so we use a shorter timeout to speed up demotion.
