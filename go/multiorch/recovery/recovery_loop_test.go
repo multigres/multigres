@@ -1472,14 +1472,18 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
+	// Create coordinator (required by NewRecoveryActionFactory)
+	fakeClient := &rpcclient.FakeClient{}
+	coord := newTestCoordinator(ts, fakeClient, "zone1")
+
 	// Create engine
 	engine := NewEngine(
 		ts,
 		logger,
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
-		&rpcclient.FakeClient{},
-		nil,
+		fakeClient,
+		coord,
 	)
 
 	// Create a mock analyzer that always detects a problem
