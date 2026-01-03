@@ -501,7 +501,7 @@ func (a *FixReplicationAction) Priority() types.Priority {
 func (a *FixReplicationAction) markPoolerDrained(ctx context.Context, pooler *multiorchdatapb.PoolerHealthState) error {
 	a.logger.InfoContext(ctx, "marking pooler as DRAINED", "pooler", pooler.MultiPooler.Id.Name)
 	_, err := a.topoStore.UpdateMultiPoolerFields(ctx, pooler.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
-		mp.Type = clustermetadatapb.PoolerType_POOLER_TYPE_DRAINED
+		mp.Type = clustermetadatapb.PoolerType_DRAINED
 		return nil
 	})
 	if err != nil {

@@ -47,9 +47,8 @@ const (
 	PoolerType_PRIMARY PoolerType = 1
 	// REPLICA replicates from leader. It is used to read only traffic
 	PoolerType_REPLICA PoolerType = 2
-	// POOLER_TYPE_DRAINED is used for poolers that are temporarily removed from serving traffic
-	// Note: Named POOLER_TYPE_DRAINED because DRAINED is already used in PoolerServingStatus
-	PoolerType_POOLER_TYPE_DRAINED PoolerType = 3
+	// DRAINED is used for poolers that are temporarily removed from serving traffic
+	PoolerType_DRAINED PoolerType = 3
 )
 
 // Enum value maps for PoolerType.
@@ -58,13 +57,13 @@ var (
 		0: "UNKNOWN",
 		1: "PRIMARY",
 		2: "REPLICA",
-		3: "POOLER_TYPE_DRAINED",
+		3: "DRAINED",
 	}
 	PoolerType_value = map[string]int32{
-		"UNKNOWN":             0,
-		"PRIMARY":             1,
-		"REPLICA":             2,
-		"POOLER_TYPE_DRAINED": 3,
+		"UNKNOWN": 0,
+		"PRIMARY": 1,
+		"REPLICA": 2,
+		"DRAINED": 3,
 	}
 )
 
@@ -111,12 +110,6 @@ const (
 	// RESTORE is the status a server uses when restoring a backup, at
 	// startup time.  No queries can be served in RESTORE mode.
 	PoolerServingStatus_RESTORE PoolerServingStatus = 3
-	// DRAINED is the status a server goes into when used by Multigres tools
-	// to perform an offline action. It is a serving type (as
-	// the tools processes may need to run queries), but it's not used
-	// to route queries from Multigres users. In this state,
-	// this multipooler is dedicated to the process that uses it.
-	PoolerServingStatus_DRAINED PoolerServingStatus = 4
 	// SERVING_RDONLY is the status of a server in read-only mode.
 	// This is used during demotion when the server transitions from PRIMARY to REPLICA,
 	// or for read-only replicas. The server accepts connections but only serves read queries.
@@ -130,7 +123,6 @@ var (
 		1: "NOT_SERVING",
 		2: "BACKUP",
 		3: "RESTORE",
-		4: "DRAINED",
 		5: "SERVING_RDONLY",
 	}
 	PoolerServingStatus_value = map[string]int32{
@@ -138,7 +130,6 @@ var (
 		"NOT_SERVING":    1,
 		"BACKUP":         2,
 		"RESTORE":        3,
-		"DRAINED":        4,
 		"SERVING_RDONLY": 5,
 	}
 )
@@ -1157,21 +1148,20 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"quorumType\x12%\n" +
 	"\x0erequired_count\x18\x02 \x01(\x05R\rrequiredCount\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12T\n" +
-	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback*L\n" +
+	"\x0easync_fallback\x18\x04 \x01(\x0e2-.clustermetadata.AsyncReplicationFallbackModeR\rasyncFallback*@\n" +
 	"\n" +
 	"PoolerType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
-	"\aREPLICA\x10\x02\x12\x17\n" +
-	"\x13POOLER_TYPE_DRAINED\x10\x03*m\n" +
+	"\aREPLICA\x10\x02\x12\v\n" +
+	"\aDRAINED\x10\x03*f\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
 	"\vNOT_SERVING\x10\x01\x12\n" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
-	"\aRESTORE\x10\x03\x12\v\n" +
-	"\aDRAINED\x10\x04\x12\x12\n" +
-	"\x0eSERVING_RDONLY\x10\x05*^\n" +
+	"\aRESTORE\x10\x03\x12\x12\n" +
+	"\x0eSERVING_RDONLY\x10\x05\"\x04\b\x04\x10\x04*^\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +

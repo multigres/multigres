@@ -187,9 +187,8 @@ enum PoolerType {
   // REPLICA replicates from leader. It is used to read only traffic
   REPLICA = 2;
 
-  // POOLER_TYPE_DRAINED is used for poolers that are temporarily removed from serving traffic
-  // Note: Named POOLER_TYPE_DRAINED because DRAINED is already used in PoolerServingStatus
-  POOLER_TYPE_DRAINED = 3;
+  // DRAINED is used for poolers that are temporarily removed from serving traffic
+  DRAINED = 3;
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.
@@ -215,7 +214,10 @@ enum PoolerServingStatus {
   // the tools processes may need to run queries), but it's not used
   // to route queries from Multigres users. In this state,
   // this multipooler is dedicated to the process that uses it.
-  DRAINED = 4;
+  // DRAINED = 4;
+  // (TODO): This enum value conflicts with DRAINED in PoolerType.
+  // We need to reconcile them once we have serving state transitions in Pooler.
+  reserved 4;
 
   // SERVING_RDONLY is the status of a server in read-only mode.
   // This is used during demotion when the server transitions from PRIMARY to REPLICA,

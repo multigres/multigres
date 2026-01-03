@@ -505,5 +505,5 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	// Verify the pooler was marked as DRAINED in topology
 	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
 	require.NoError(t, err)
-	assert.Equal(t, clustermetadatapb.PoolerType_POOLER_TYPE_DRAINED, updatedPooler.Type)
+	assert.Equal(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type)
 }
