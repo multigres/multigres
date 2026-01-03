@@ -30,7 +30,7 @@ kubectl create configmap grafana-dashboard-multigres \
 
 echo "Triggering Grafana dashboard reload..."
 kubectl exec deployment/observability -c grafana -- \
-  curl -s -u admin:admin -X POST http://localhost:3000/api/admin/provisioning/dashboards/reload
+  curl -s -u admin:admin -X POST http://localhost:3000/api/admin/provisioning/dashboards/reload # gitleaks:allow
 
 echo ""
 echo "Dashboard updated successfully."

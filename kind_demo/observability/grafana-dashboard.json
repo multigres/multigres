@@ -347,10 +347,7 @@
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": [
-    "multigres",
-    "exemplars"
-  ],
+  "tags": ["multigres", "exemplars"],
   "templating": {
     "list": []
   },

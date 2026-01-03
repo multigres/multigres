@@ -120,7 +120,8 @@ message GetDatabaseResponse {
 }
 
 // GetCellNamesRequest requests all cell names
-message GetCellNamesRequest {}
+message GetCellNamesRequest {
+}
 
 // GetCellNamesResponse contains all cell names
 message GetCellNamesResponse {
@@ -128,7 +129,8 @@ message GetCellNamesResponse {
 }
 
 // GetDatabaseNamesRequest requests all database names
-message GetDatabaseNamesRequest {}
+message GetDatabaseNamesRequest {
+}
 
 // GetDatabaseNamesResponse contains all database names
 message GetDatabaseNamesResponse {

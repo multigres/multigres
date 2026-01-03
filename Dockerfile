@@ -25,7 +25,11 @@ LABEL org.opencontainers.image.source="https://github.com/multigres/multigres"
 LABEL org.opencontainers.image.description="A single container image containing all Multigres components."
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
+# Set pipefail to catch errors in piped commands
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Install pgBackRest from PostgreSQL APT repository and procps
+# hadolint ignore=DL3008
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
