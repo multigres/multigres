@@ -398,7 +398,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 		shard := ""
 		jobID := ""
 		multipoolerID := ""
-		poolerType := clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED
+		poolerType := clustermetadatapb.PoolerType_UNKNOWN
 		if pgBackup.Annotation != nil {
 			tableGroup = pgBackup.Annotation["table_group"]
 			shard = pgBackup.Annotation["shard"]

@@ -143,19 +143,6 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 		"stale_primary", poolerIDStr,
 		"lsn_position", demoteResp.LsnPosition)
 
-	// Update topology to reflect the demotion
-	// The pooler's type in topology should be changed to REPLICA
-	_, err = a.topoStore.UpdateMultiPoolerFields(ctx, problem.PoolerID, func(mp *clustermetadatapb.MultiPooler) error {
-		mp.Type = clustermetadatapb.PoolerType_REPLICA
-		return nil
-	})
-	if err != nil {
-		a.logger.WarnContext(ctx, "failed to update topology after demotion",
-			"stale_primary", poolerIDStr,
-			"error", err)
-		// Don't fail the action - the demotion itself succeeded
-	}
-
 	// Verify the demotion by checking status
 	statusResp, err := a.rpcClient.Status(ctx, stalePrimary.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
@@ -202,7 +189,7 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimaryTerm(ctx context.Context, s
 
 		// Check if this pooler is a PRIMARY
 		poolerType := pooler.PoolerType
-		if poolerType == clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED && pooler.MultiPooler != nil {
+		if poolerType == clustermetadatapb.PoolerType_UNKNOWN && pooler.MultiPooler != nil {
 			poolerType = pooler.MultiPooler.Type
 		}
 

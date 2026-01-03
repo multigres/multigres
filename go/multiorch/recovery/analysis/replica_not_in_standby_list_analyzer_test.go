@@ -149,7 +149,7 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			analysis: &store.ReplicationAnalysis{
 				PoolerID:               &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "unknown1"},
 				ShardKey:               commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-				PoolerType:             clustermetadatapb.PoolerType_POOLER_TYPE_UNSPECIFIED,
+				PoolerType:             clustermetadatapb.PoolerType_UNKNOWN,
 				IsPrimary:              false,
 				IsInitialized:          true,
 				PrimaryPoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},

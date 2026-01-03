@@ -177,9 +177,9 @@ message KeyRange {
 
 // PoolerType represents the type of a given MultiPooler.
 enum PoolerType {
-  // POOLER_TYPE_UNSPECIFIED is not a valid type.
+  // UNKNOWN is not a valid type.
   // It is useful during upgrades to detect when a value is not initialized
-  POOLER_TYPE_UNSPECIFIED = 0;
+  UNKNOWN = 0;
 
   // PRIMARY is the primary server for the shard. Only PRIMARY allows DMLs.
   PRIMARY = 1;
@@ -188,6 +188,7 @@ enum PoolerType {
   REPLICA = 2;
 
   // POOLER_TYPE_DRAINED is used for poolers that are temporarily removed from serving traffic
+  // Note: Named POOLER_TYPE_DRAINED because DRAINED is already used in PoolerServingStatus
   POOLER_TYPE_DRAINED = 3;
 }
 
