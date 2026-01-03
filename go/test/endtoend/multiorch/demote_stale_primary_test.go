@@ -30,8 +30,8 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestDivergedTimelineRepair tests multiorch's ability to detect a diverged timeline
-// after failover and repair it using pg_rewind.
+// TestDemoteStalePrimary tests multiorch's ability to detect a stale primary
+// after failover and demote it, then repair its diverged timeline using pg_rewind.
 //
 // Scenario:
 // 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with ANY_2 durability
@@ -49,12 +49,12 @@ import (
 // 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
 // 3. NotReplicatingAnalyzer detects the replica is not replicating
 // 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
-func TestDivergedTimelineRepair(t *testing.T) {
+func TestDemoteStalePrimary(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping TestDivergedTimelineRepair test in short mode")
+		t.Skip("skipping TestDemoteStalePrimary test in short mode")
 	}
 	if utils.ShouldSkipRealPostgres() {
-		t.Skip("Skipping end-to-end diverged timeline test (no postgres binaries)")
+		t.Skip("Skipping end-to-end stale primary demotion test (no postgres binaries)")
 	}
 
 	// Create 3-node cluster with multiorch
@@ -99,14 +99,14 @@ func TestDivergedTimelineRepair(t *testing.T) {
 	// 3. Detect timeline divergence when configuring replication
 	// 4. Run pg_rewind to repair
 	// 5. Configure replication and start WAL receiver
-	t.Log("Waiting for multiorch to repair diverged timeline...")
+	t.Log("Waiting for multiorch to demote stale primary and repair diverged timeline...")
 	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 120*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
 	verifyReplicaReplicating(t, setup, oldPrimaryName, newPrimaryName)
 
-	t.Log("TestDivergedTimelineRepair completed successfully")
+	t.Log("TestDemoteStalePrimary completed successfully")
 }
 
 // writeDataToNewPrimary writes data to the new primary to ensure timeline divergence
