@@ -260,8 +260,8 @@ type Engine struct {
 	actionFactory *analysis.RecoveryActionFactory
 
 	// Context for shutting down loops
-	ctx    context.Context
-	cancel context.CancelFunc
+	shutdownCtx context.Context
+	cancel      context.CancelFunc
 
 	// WaitGroup to track goroutines for graceful shutdown
 	wg sync.WaitGroup
@@ -289,7 +289,7 @@ func NewEngine(
 		healthCheckQueue:  NewQueue(logger, config),
 		shardWatchTargets: shardWatchTargets,
 		recentPollCache:   make(map[string]time.Time),
-		ctx:               ctx,
+		shutdownCtx:       ctx,
 		cancel:            cancel,
 	}
 
@@ -386,7 +386,7 @@ func (re *Engine) runMaintenanceLoop() {
 
 	for {
 		select {
-		case <-re.ctx.Done():
+		case <-re.shutdownCtx.Done():
 			re.logger.Info("maintenance loop stopped")
 			return
 
@@ -420,7 +420,7 @@ func (re *Engine) runHealthCheckTickerLoop() {
 
 	for {
 		select {
-		case <-re.ctx.Done():
+		case <-re.shutdownCtx.Done():
 			re.logger.Info("health check ticker loop stopped")
 			return
 
