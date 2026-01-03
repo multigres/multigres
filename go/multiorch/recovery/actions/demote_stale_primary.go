@@ -115,7 +115,7 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 	}
 
 	// Find the correct primary (the one with higher term) to get its term
-	correctPrimaryTerm, err := a.findCorrectPrimaryTerm(ctx, problem.ShardKey, poolerIDStr)
+	correctPrimaryTerm, err := a.findCorrectPrimaryTerm(problem.ShardKey, poolerIDStr)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to find correct primary term")
 	}
@@ -160,7 +160,7 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 
 // findCorrectPrimaryTerm finds the correct primary in the shard and returns its term.
 // The correct primary is the one with the higher consensus term.
-func (a *DemoteStalePrimaryAction) findCorrectPrimaryTerm(ctx context.Context, shardKey commontypes.ShardKey, stalePrimaryIDStr string) (int64, error) {
+func (a *DemoteStalePrimaryAction) findCorrectPrimaryTerm(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (int64, error) {
 	var maxTerm int64
 	var foundCorrectPrimary bool
 
