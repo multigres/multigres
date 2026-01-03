@@ -274,8 +274,30 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	return waitForPostgreSQLWithConfig(logger, config)
 }
 
+// readLogTail reads the last N lines from the PostgreSQL log file for diagnostics
+func readLogTail(logPath string, lines int) string {
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return fmt.Sprintf("(failed to read log: %v)", err)
+	}
+
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" {
+		return "(empty log file)"
+	}
+
+	allLines := strings.Split(trimmed, "\n")
+	if len(allLines) <= lines {
+		return trimmed
+	}
+
+	return strings.Join(allLines[len(allLines)-lines:], "\n")
+}
+
 func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
+	logPath := filepath.Join(config.PostgresDataDir, "postgresql.log")
+	var lastOutput string
 
 	for i := 0; i < config.Timeout; i++ {
 		cmd := exec.Command("pg_isready",
@@ -286,6 +308,7 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 		)
 
 		output, err := cmd.CombinedOutput()
+		lastOutput = strings.TrimSpace(string(output))
 		if err == nil {
 			return nil
 		}
@@ -295,14 +318,23 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 			logger.Info("Still waiting for PostgreSQL to be ready",
 				"attempt", i,
 				"timeout", config.Timeout,
-				"pg_isready_output", strings.TrimSpace(string(output)),
+				"pg_isready_output", lastOutput,
 			)
 		}
 
 		time.Sleep(1 * time.Second)
 	}
 
-	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", config.Timeout)
+	// On timeout, include diagnostic information
+	logTail := readLogTail(logPath, 20)
+	logger.Error("PostgreSQL startup timeout",
+		"timeout_seconds", config.Timeout,
+		"last_pg_isready_output", lastOutput,
+		"postgresql_log_tail", logTail,
+	)
+
+	return fmt.Errorf("PostgreSQL did not become ready within %d seconds (pg_isready: %s)",
+		config.Timeout, lastOutput)
 }
 
 func readPostmasterPID(dataDir string) (int, error) {
