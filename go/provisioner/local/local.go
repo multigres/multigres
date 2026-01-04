@@ -53,7 +53,8 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config *LocalProvisionerConfig
+	config              *LocalProvisionerConfig
+	pgBackRestCertPaths *PgBackRestCertPaths
 }
 
 // Compile-time check to ensure localProvisioner implements Provisioner
@@ -803,7 +804,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pooler-dir", poolerDir,
 		"--pg-port", fmt.Sprintf("%d", pgPort),
 		"--hostname", "localhost",
-		"--pgbackrest-stanza", "multigres",
 		"--connpool-admin-password", "postgres", // Password created in initializePgctldDirectories
 		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
 	}
@@ -815,6 +815,24 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
+
+	// Get pgbackrest port from config
+	pgbackrestConfig, err := p.getCellServiceConfig(cell, constants.ServicePgbackrest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pgbackrest config for cell %s: %w", cell, err)
+	}
+	pgbackrestPort := ports.DefaultPgbackRestPort
+	if port, ok := pgbackrestConfig["port"].(int); ok && port > 0 {
+		pgbackrestPort = port
+	}
+
+	// Add pgbackrest TLS certificate paths and port
+	args = append(args,
+		"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
+		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
+		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
+		"--pgbackrest-port", fmt.Sprintf("%d", pgbackrestPort),
+	)
 
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
@@ -1093,11 +1111,12 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case constants.ServiceMultiorch:
 		fallthrough
+	case constants.ServiceMultipooler:
+		fallthrough
 	case constants.ServiceMultiadmin:
 		return p.deprovisionService(ctx, req)
-	case constants.ServiceMultipooler:
-		// multipooler requires special handling to clean up pgbackrest logs
-		return p.deprovisionMultipooler(ctx, req)
+	case constants.ServicePgbackrest:
+		return p.deprovisionPgbackRestServer(ctx, req)
 	case constants.ServicePgctld:
 		// pgctld requires special handling to stop PostgreSQL first
 		service, err := p.loadServiceState(req)
@@ -1150,22 +1169,6 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 		if err := os.RemoveAll(service.DataDir); err != nil {
 			return fmt.Errorf("failed to remove etcd data directory: %w", err)
 		}
-	}
-
-	return nil
-}
-
-// deprovisionMultipooler stops a multipooler service instance with special cleanup for pgbackrest logs
-func (p *localProvisioner) deprovisionMultipooler(ctx context.Context, req *provisioner.DeprovisionRequest) error {
-	// First, perform standard service deprovisioning
-	if err := p.deprovisionService(ctx, req); err != nil {
-		return err
-	}
-
-	// Clean up pgbackrest logs (specific to multipooler)
-	pgBackRestLogPath := filepath.Join(p.config.RootWorkingDir, "logs", "dbs", "postgres", "pgbackrest")
-	if err := os.RemoveAll(pgBackRestLogPath); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("Warning: failed to clean up pgbackrest logs: %v\n", err)
 	}
 
 	return nil
@@ -1304,13 +1307,6 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	fmt.Println("=== Setting up pgctld directories ===")
 	if err := p.initializePgctldDirectories(); err != nil {
 		return nil, fmt.Errorf("failed to initialize pgctld directories: %w", err)
-	}
-	fmt.Println("")
-
-	// Generate pgBackRest configurations for all poolers
-	fmt.Println("=== Generating pgBackRest configurations ===")
-	if err := p.GeneratePgBackRestConfigs(); err != nil {
-		return nil, fmt.Errorf("failed to generate pgBackRest configurations: %w", err)
 	}
 	fmt.Println("")
 
@@ -1580,6 +1576,16 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
 	fmt.Println("")
 
+	// Set default backup repository path if not specified
+	if p.config.BackupRepoPath == "" {
+		p.config.BackupRepoPath = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+	}
+
+	// Create the backup repository directory if it doesn't exist
+	if err := os.MkdirAll(p.config.BackupRepoPath, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create backup repository directory %s: %w", p.config.BackupRepoPath, err)
+	}
+
 	// Get topology configuration from provisioner config
 	topoConfig := p.config.Topology
 
@@ -1624,6 +1630,11 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 	fmt.Println("")
 
+	// Generate pgBackRest certificates before starting services
+	if err := p.generatePgBackRestCertsOnce(ctx); err != nil {
+		return nil, err
+	}
+
 	// Provision all services in parallel across all cells.
 	// Multiorch's bootstrap action has a quorum check that will wait for enough
 	// poolers to be available before attempting bootstrap, so strict ordering
@@ -1636,7 +1647,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 
 	// Calculate total number of services to provision
-	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell
+	numServices := len(cellNames) * 4 // multigateway + multipooler + multiorch + pgbackrest per cell
 	resultsChan := make(chan provisionResult, numServices)
 
 	// Start all services in parallel
@@ -1699,6 +1710,18 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			}
 			resultsChan <- provisionResult{result: result}
 		}()
+
+		// Start pgbackrest
+		go func() {
+			// Provision pgbackrest server for this cell
+			_, err := p.provisionPgbackRestServer(ctx, databaseName, cell)
+			if err != nil {
+				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision pgbackrest server for cell %s: %w", cell, err)}
+				return
+			}
+			// pgbackrest doesn't return a ProvisionResult in the same format, so we send a nil result
+			resultsChan <- provisionResult{result: nil}
+		}()
 	}
 
 	// Collect all results
@@ -1708,7 +1731,8 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		res := <-resultsChan
 		if res.err != nil {
 			provisionErrors = append(provisionErrors, res.err)
-		} else {
+		} else if res.result != nil {
+			// Only append non-nil results (pgbackrest returns nil)
 			results = append(results, res.result)
 		}
 	}
@@ -1721,15 +1745,22 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Println("")
 	fmt.Printf("✓ All cells provisioned successfully\n\n")
 
-	// Skip pgBackRest stanza initialization during bootstrap
-	// Stanzas should be created after replication is configured between cells
-	// to avoid "more than one primary cluster found" errors
-	// TODO: Initialize stanzas after replication is set up
-	fmt.Println("=== Skipping pgBackRest stanza initialization (will be done after replication setup) ===")
-	fmt.Println("")
-
 	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))
 	return results, nil
+}
+
+// generatePgBackRestCertsOnce generates pgBackRest certificates once for all cells
+func (p *localProvisioner) generatePgBackRestCertsOnce(ctx context.Context) error {
+	fmt.Println("=== Generating pgBackRest certs ===")
+	certDir := p.certDir()
+	certPaths, err := GeneratePgBackRestCerts(certDir)
+	if err != nil {
+		return fmt.Errorf("failed to generate pgBackRest certs: %w", err)
+	}
+	// Store the cert paths for later use
+	p.pgBackRestCertPaths = certPaths
+	fmt.Println("")
+	return nil
 }
 
 // setupDefaultCell initializes the topology cell configuration for a database

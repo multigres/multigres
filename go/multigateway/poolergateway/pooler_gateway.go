@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -42,13 +43,13 @@ import (
 // PoolerDiscovery is the interface for discovering multipooler instances.
 // This abstracts the PoolerDiscovery implementation for easier testing.
 type PoolerDiscovery interface {
-	// GetPoolers returns all discovered poolers
-	GetPoolers() []*clustermetadatapb.MultiPooler
-
 	// GetPooler returns a pooler matching the target specification.
 	// Target specifies the tablegroup, shard, and pooler type to route to.
 	// Returns nil if no matching pooler is found.
 	GetPooler(target *query.Target) *clustermetadatapb.MultiPooler
+
+	// PoolerCount returns the total number of discovered poolers.
+	PoolerCount() int
 }
 
 // A Gateway is the query processing module for each shard,
@@ -211,7 +212,7 @@ func (pg *PoolerGateway) getOrCreateConnection(
 		"addr", addr)
 
 	// Create gRPC connection (non-blocking in newer gRPC)
-	conn, err := grpc.NewClient(addr,
+	conn, err := grpccommon.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -310,6 +311,6 @@ func (pg *PoolerGateway) Stats() map[string]any {
 
 	return map[string]any{
 		"active_connections": len(pg.connections),
-		"poolers_discovered": len(pg.discovery.GetPoolers()),
+		"poolers_discovered": pg.discovery.PoolerCount(),
 	}
 }

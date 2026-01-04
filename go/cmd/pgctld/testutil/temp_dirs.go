@@ -138,6 +138,30 @@ func RemovePIDFile(t *testing.T, dataDir string) {
 	}
 }
 
+// CreateDeadPIDFile creates a postmaster.pid file with a PID that does not exist,
+// simulating a crashed PostgreSQL process
+func CreateDeadPIDFile(t *testing.T, dataDir string, deadPID int) {
+	t.Helper()
+
+	pidFile := filepath.Join(dataDir, "postmaster.pid")
+
+	content := []string{
+		fmt.Sprintf("%d", deadPID),
+		dataDir,
+		"1234567890",
+		"5432",
+		"/tmp",
+		"localhost",
+		"*",
+		"ready",
+	}
+
+	pidContent := strings.Join(content, "\n") + "\n"
+	if err := os.WriteFile(pidFile, []byte(pidContent), 0o644); err != nil {
+		t.Fatalf("Failed to create dead PID file: %v", err)
+	}
+}
+
 // cleanupMockProcesses kills any leftover sleep processes created by mock PostgreSQL binaries
 func cleanupMockProcesses(t *testing.T, tempDir string) {
 	t.Helper()

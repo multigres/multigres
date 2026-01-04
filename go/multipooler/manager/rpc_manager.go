@@ -103,8 +103,12 @@ func (pm *MultiPoolerManager) SetPrimaryConnInfo(ctx context.Context, primary *c
 	pm.mu.Lock()
 	if primary != nil {
 		pm.primaryPoolerID = primary.Id
+		pm.primaryHost = host
+		pm.primaryPort = port
 	} else {
 		pm.primaryPoolerID = nil
+		pm.primaryHost = ""
+		pm.primaryPort = 0
 	}
 	pm.mu.Unlock()
 

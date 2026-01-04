@@ -17,6 +17,7 @@ package multigateway
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,12 +31,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// PoolerDiscovery is a discovery service that watches for multipoolers
-// in the topology using topology watches and maintains a list of available poolers.
-type PoolerDiscovery struct {
+// CellPoolerDiscovery is a discovery service that watches for multipoolers
+// in a single cell using topology watches and maintains a list of available poolers.
+type CellPoolerDiscovery struct {
 	// Configuration
 	topoStore topoclient.Store
-	cell      string
+	cell      string // The cell this watcher is monitoring
 	logger    *slog.Logger
 
 	// Control
@@ -49,14 +50,14 @@ type PoolerDiscovery struct {
 	lastRefresh time.Time
 }
 
-// NewPoolerDiscovery creates a new pooler discovery service.
-func NewPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, cell string, logger *slog.Logger) *PoolerDiscovery {
+// NewCellPoolerDiscovery creates a new pooler discovery service for a single cell.
+func NewCellPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, cell string, logger *slog.Logger) *CellPoolerDiscovery {
 	discoveryCtx, cancel := context.WithCancel(ctx)
 
-	return &PoolerDiscovery{
+	return &CellPoolerDiscovery{
 		topoStore:  topoStore,
 		cell:       cell,
-		logger:     logger,
+		logger:     logger.With("cell", cell),
 		ctx:        discoveryCtx,
 		cancelFunc: cancel,
 		poolers:    make(map[string]*topoclient.MultiPoolerInfo),
@@ -64,7 +65,7 @@ func NewPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, cell st
 }
 
 // Start begins the discovery process using topology watch.
-func (pd *PoolerDiscovery) Start() {
+func (pd *CellPoolerDiscovery) Start() {
 	pd.wg.Go(func() {
 		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
 
@@ -132,13 +133,13 @@ func (pd *PoolerDiscovery) Start() {
 }
 
 // Stop stops the discovery service.
-func (pd *PoolerDiscovery) Stop() {
+func (pd *CellPoolerDiscovery) Stop() {
 	pd.cancelFunc()
 	pd.wg.Wait()
 }
 
 // processInitialPoolers processes the initial set of poolers from the watch
-func (pd *PoolerDiscovery) processInitialPoolers(initial []*topoclient.WatchDataRecursive) {
+func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.WatchDataRecursive) {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 
@@ -179,7 +180,7 @@ func (pd *PoolerDiscovery) processInitialPoolers(initial []*topoclient.WatchData
 }
 
 // processPoolerChange processes a single pooler change from the watch
-func (pd *PoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDataRecursive) {
+func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDataRecursive) {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 
@@ -225,13 +226,23 @@ func (pd *PoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDataRe
 	}
 }
 
-// GetPoolers returns a list of all discovered poolers.
-func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
+// GetPoolersForAdmin returns a list of all discovered poolers in this cell.
+// This is intended for admin/status pages, not the hot query path.
+// Poolers are sorted by name for consistent display order.
+func (pd *CellPoolerDiscovery) GetPoolersForAdmin() []*clustermetadatapb.MultiPooler {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 
+	// Collect and sort pooler IDs for consistent ordering
+	poolerIDs := make([]string, 0, len(pd.poolers))
+	for id := range pd.poolers {
+		poolerIDs = append(poolerIDs, id)
+	}
+	sort.Strings(poolerIDs)
+
 	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
-	for _, pooler := range pd.poolers {
+	for _, id := range poolerIDs {
+		pooler := pd.poolers[id]
 		poolers = append(poolers, proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler))
 	}
 	return poolers
@@ -245,7 +256,7 @@ func (pd *PoolerDiscovery) GetPoolers() []*clustermetadatapb.MultiPooler {
 // - TableGroup: Required, must match exactly
 // - PoolerType: If not specified (UNKNOWN), defaults to PRIMARY
 // - Shard: If empty, matches any shard; otherwise must match exactly
-func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.MultiPooler {
+func (pd *CellPoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.MultiPooler {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 
@@ -304,21 +315,21 @@ func (pd *PoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.Mu
 }
 
 // LastRefresh returns the timestamp of the last successful refresh.
-func (pd *PoolerDiscovery) LastRefresh() time.Time {
+func (pd *CellPoolerDiscovery) LastRefresh() time.Time {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 	return pd.lastRefresh
 }
 
 // PoolerCount returns the current number of discovered poolers.
-func (pd *PoolerDiscovery) PoolerCount() int {
+func (pd *CellPoolerDiscovery) PoolerCount() int {
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 	return len(pd.poolers)
 }
 
 // parsePoolerFromWatchData parses a MultiPooler from watch data
-func (pd *PoolerDiscovery) parsePoolerFromWatchData(watchData *topoclient.WatchDataRecursive) (*topoclient.MultiPoolerInfo, error) {
+func (pd *CellPoolerDiscovery) parsePoolerFromWatchData(watchData *topoclient.WatchDataRecursive) (*topoclient.MultiPoolerInfo, error) {
 	// Only process files that end with "Pooler" (the actual pooler data files)
 	if !strings.HasSuffix(watchData.Path, "/Pooler") {
 		return nil, nil // Not a pooler file, skip
@@ -338,4 +349,201 @@ func (pd *PoolerDiscovery) parsePoolerFromWatchData(watchData *topoclient.WatchD
 	return &topoclient.MultiPoolerInfo{
 		MultiPooler: pooler,
 	}, nil
+}
+
+// Cell returns the cell this discovery is watching.
+func (pd *CellPoolerDiscovery) Cell() string {
+	return pd.cell
+}
+
+// GlobalPoolerDiscovery orchestrates multiple CellPoolerDiscovery instances,
+// one per cell. It watches for cell changes from global etcd and creates/removes
+// cell watchers as cells appear/disappear.
+type GlobalPoolerDiscovery struct {
+	// Configuration
+	topoStore topoclient.Store
+	localCell string // The cell this multigateway is running in (for cell affinity)
+	logger    *slog.Logger
+
+	// Control
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+	wg         sync.WaitGroup
+
+	// State
+	mu           sync.Mutex
+	cellWatchers map[string]*CellPoolerDiscovery // cell name -> cell watcher
+}
+
+// NewGlobalPoolerDiscovery creates a new global pooler discovery service.
+// The localCell parameter indicates which cell this multigateway is running in,
+// which will be used for cell affinity when selecting poolers.
+func NewGlobalPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, localCell string, logger *slog.Logger) *GlobalPoolerDiscovery {
+	discoveryCtx, cancel := context.WithCancel(ctx)
+
+	return &GlobalPoolerDiscovery{
+		topoStore:    topoStore,
+		localCell:    localCell,
+		logger:       logger,
+		ctx:          discoveryCtx,
+		cancelFunc:   cancel,
+		cellWatchers: make(map[string]*CellPoolerDiscovery),
+	}
+}
+
+// Start begins the discovery process by watching for cells and starting
+// a CellPoolerDiscovery for each cell.
+func (gd *GlobalPoolerDiscovery) Start() {
+	gd.wg.Go(func() {
+		gd.logger.Info("Starting global pooler discovery")
+
+		r := retry.New(100*time.Millisecond, 30*time.Second)
+		for attempt, err := range r.Attempts(gd.ctx) {
+			if err != nil {
+				// Context cancelled
+				gd.logger.Info("Global pooler discovery shutting down")
+				return
+			}
+
+			if attempt > 0 {
+				gd.logger.Info("Restarting global pooler discovery")
+			}
+
+			// Watch for cells and manage cell watchers
+			func() {
+				// Get initial list of cells
+				cells, err := gd.topoStore.GetCellNames(gd.ctx)
+				if err != nil {
+					gd.logger.Error("Failed to get cell names", "error", err)
+					return
+				}
+
+				gd.logger.Info("Discovered cells", "cells", cells)
+
+				// Start watchers for each cell
+				gd.mu.Lock()
+				for _, cell := range cells {
+					if _, exists := gd.cellWatchers[cell]; !exists {
+						gd.startCellWatcher(cell)
+					}
+				}
+				gd.mu.Unlock()
+
+				// Reset backoff after stable for 30s
+				resetTimer := time.AfterFunc(30*time.Second, func() {
+					r.Reset()
+				})
+				defer resetTimer.Stop()
+
+				// TODO: Watch for cell changes (cells being added/removed)
+				// For now, just wait for context cancellation
+				<-gd.ctx.Done()
+			}()
+		}
+	})
+}
+
+// startCellWatcher starts a CellPoolerDiscovery for the given cell.
+// Caller must hold gd.mu.
+func (gd *GlobalPoolerDiscovery) startCellWatcher(cell string) {
+	gd.logger.Info("Starting cell watcher", "cell", cell)
+
+	cellWatcher := NewCellPoolerDiscovery(gd.ctx, gd.topoStore, cell, gd.logger)
+	gd.cellWatchers[cell] = cellWatcher
+	cellWatcher.Start()
+}
+
+// Stop stops the global discovery service and all cell watchers.
+func (gd *GlobalPoolerDiscovery) Stop() {
+	gd.cancelFunc()
+
+	// Stop all cell watchers
+	gd.mu.Lock()
+	for _, watcher := range gd.cellWatchers {
+		watcher.Stop()
+	}
+	gd.mu.Unlock()
+
+	gd.wg.Wait()
+}
+
+// GetPooler returns a pooler matching the target specification.
+// It searches across all cells, preferring the local cell for replicas.
+// For primaries, it will return a primary from any cell.
+func (gd *GlobalPoolerDiscovery) GetPooler(target *query.Target) *clustermetadatapb.MultiPooler {
+	gd.mu.Lock()
+	defer gd.mu.Unlock()
+
+	// Default to PRIMARY if not specified
+	targetType := target.PoolerType
+	if targetType == clustermetadatapb.PoolerType_UNKNOWN {
+		targetType = clustermetadatapb.PoolerType_PRIMARY
+	}
+
+	// For replicas, try local cell first
+	if targetType != clustermetadatapb.PoolerType_PRIMARY {
+		if localWatcher, exists := gd.cellWatchers[gd.localCell]; exists {
+			if pooler := localWatcher.GetPooler(target); pooler != nil {
+				return pooler
+			}
+		}
+	}
+
+	// Search all cells
+	for _, watcher := range gd.cellWatchers {
+		if pooler := watcher.GetPooler(target); pooler != nil {
+			return pooler
+		}
+	}
+
+	gd.logger.Warn("No matching pooler found across all cells",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", targetType.String())
+	return nil
+}
+
+// PoolerCount returns the total number of discovered poolers across all cells.
+func (gd *GlobalPoolerDiscovery) PoolerCount() int {
+	gd.mu.Lock()
+	defer gd.mu.Unlock()
+
+	count := 0
+	for _, watcher := range gd.cellWatchers {
+		count += watcher.PoolerCount()
+	}
+	return count
+}
+
+// CellStatusInfo contains status information for a single cell's discovery.
+type CellStatusInfo struct {
+	Cell        string
+	LastRefresh time.Time
+	Poolers     []*clustermetadatapb.MultiPooler
+}
+
+// GetCellStatusesForAdmin returns status information for each cell.
+// This is intended for admin/status pages, not the hot query path.
+// Cells are sorted alphabetically for consistent display order.
+func (gd *GlobalPoolerDiscovery) GetCellStatusesForAdmin() []CellStatusInfo {
+	gd.mu.Lock()
+	defer gd.mu.Unlock()
+
+	// Collect and sort cell names for consistent ordering
+	cellNames := make([]string, 0, len(gd.cellWatchers))
+	for cellName := range gd.cellWatchers {
+		cellNames = append(cellNames, cellName)
+	}
+	sort.Strings(cellNames)
+
+	statuses := make([]CellStatusInfo, 0, len(gd.cellWatchers))
+	for _, cellName := range cellNames {
+		watcher := gd.cellWatchers[cellName]
+		statuses = append(statuses, CellStatusInfo{
+			Cell:        watcher.Cell(),
+			LastRefresh: watcher.LastRefresh(),
+			Poolers:     watcher.GetPoolersForAdmin(),
+		})
+	}
+	return statuses
 }

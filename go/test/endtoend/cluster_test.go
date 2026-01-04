@@ -19,7 +19,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -447,46 +449,42 @@ func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
 	return count > 0, nil
 }
 
-// findReadyMultigateway finds a multigateway that is ready to execute queries.
-// It tries each provided port and returns the first one that can successfully execute
-// a query. This is necessary because:
-//  1. PoolerDiscovery is async and may not have discovered poolers yet
-//  2. lib/pq Ping uses an empty query (";") that bypasses pooler discovery
-//  3. Each multigateway only discovers poolers in its own zone, and the PRIMARY
-//     may be in any zone after bootstrap
-func findReadyMultigateway(t *testing.T, ctx context.Context, pgPorts []int) (int, error) {
+// waitForMultigatewayReady waits for a multigateway to be ready to execute queries.
+// This is necessary because PoolerDiscovery is async and may not have discovered
+// poolers yet, and lib/pq Ping uses an empty query (";") that bypasses pooler discovery.
+// With multi-cell discovery, any multigateway can find the primary in any zone,
+// so we only need to wait on the first port.
+func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) error {
 	t.Helper()
 
 	r := retry.New(1*time.Millisecond, 500*time.Millisecond)
 	for attempt, err := range r.Attempts(ctx) {
 		if err != nil {
-			return 0, fmt.Errorf("timeout waiting for any multigateway to be ready after %d attempts: %w", attempt, err)
+			return fmt.Errorf("timeout waiting for multigateway to be ready after %d attempts: %w", attempt, err)
 		}
 
-		for _, port := range pgPorts {
-			connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", port)
-			db, err := sql.Open("postgres", connStr)
-			if err != nil {
-				continue
-			}
+		connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", pgPort)
+		db, err := sql.Open("postgres", connStr)
+		if err != nil {
+			continue
+		}
 
-			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_, err = db.ExecContext(queryCtx, "SELECT 1")
-			cancel()
-			db.Close()
+		queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, err = db.ExecContext(queryCtx, "SELECT 1")
+		cancel()
+		db.Close()
 
-			if err == nil {
-				t.Logf("Multigateway on port %d is ready to execute queries", port)
-				return port, nil
-			}
+		if err == nil {
+			t.Logf("Multigateway on port %d is ready to execute queries", pgPort)
+			return nil
 		}
 
 		if attempt == 1 || attempt%10 == 0 {
-			t.Logf("Waiting for a multigateway to be ready (attempt %d)...", attempt)
+			t.Logf("Waiting for multigateway to be ready (attempt %d)...", attempt)
 		}
 	}
 
-	return 0, fmt.Errorf("timeout waiting for any multigateway to be ready")
+	return fmt.Errorf("timeout waiting for multigateway to be ready")
 }
 
 // queryHeartbeatCount queries the number of heartbeats in the heartbeat table via
@@ -995,6 +993,11 @@ func TestClusterLifecycle(t *testing.T) {
 		testPgctldGRPC(t, "unix://"+filepath.Join(tempDir, "sockets", "pgctld-zone2.sock"))
 		t.Log("Both pgctld gRPC instances are working correctly via Unix socket!")
 
+		// Test multiadmin HTTP REST API (grpc-gateway)
+		t.Log("Testing multiadmin HTTP REST API...")
+		testMultiadminHTTPAPI(t, testPorts.MultiadminHTTPPort)
+		t.Log("Multiadmin HTTP REST API is working correctly!")
+
 		// Start cluster is idempotent
 		t.Log("Attempting to start running cluster...")
 		upOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
@@ -1185,10 +1188,13 @@ func TestClusterLifecycle(t *testing.T) {
 		err = os.WriteFile(configFile, originalConfig, 0o644)
 		require.NoError(t, err)
 
+		// Add a small delay to ensure previous stop completed
+		time.Sleep(2 * time.Second)
+
 		// Start cluster again for clean stop test
 		t.Log("Starting cluster again for clean stop test...")
-		_, err = executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
-		require.NoError(t, err, "Start should succeed with original config")
+		restartOutput, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "Start should succeed with original config. Output: %s", restartOutput)
 
 		// Stop with --clean flag
 		downCleanOutput, err := executeStopCommand(t, []string{"--config-path", tempDir, "--clean"})
@@ -1419,6 +1425,38 @@ func testPgctldGRPC(t *testing.T, addr string) {
 	t.Logf("Pgctld gRPC test completed successfully for %s", addr)
 }
 
+// testMultiadminHTTPAPI tests the multiadmin HTTP REST API (grpc-gateway)
+func testMultiadminHTTPAPI(t *testing.T, httpPort int) {
+	t.Helper()
+
+	// Test GET /api/v1/cells endpoint
+	url := fmt.Sprintf("http://localhost:%d/api/v1/cells", httpPort)
+	resp, err := http.Get(url) //nolint:gosec // test code with trusted localhost URL
+	require.NoError(t, err, "Failed to GET %s", url)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, "Expected 200 OK from %s", url)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "Failed to read response body")
+
+	// Parse the JSON response
+	var result map[string]any
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err, "Failed to parse JSON response: %s", string(body))
+
+	// Verify response has names field (GetCellNamesResponse)
+	names, ok := result["names"]
+	require.True(t, ok, "Response should have 'names' field, got: %s", string(body))
+
+	// Verify we have at least one cell
+	namesList, ok := names.([]any)
+	require.True(t, ok, "names should be an array")
+	require.NotEmpty(t, namesList, "Should have at least one cell")
+
+	t.Logf("Multiadmin HTTP API test passed: found %d cells", len(namesList))
+}
+
 // stringHash generates a simple hash from a string for creating unique identifiers
 func stringHash(s string) int {
 	h := 0
@@ -1535,16 +1573,12 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 	t.Log("Test cluster setup completed successfully")
 
 	// Find a multigateway that has access to the PRIMARY pooler.
-	// TODO: In the long term, all multigateways should have access to the PRIMARY.
-	// We want zone-local reads from replicas, but writes always go to the single
-	// PRIMARY regardless of zone.
-	pgPorts := []int{
-		testPorts.Zones[0].MultigatewayPGPort,
-		testPorts.Zones[1].MultigatewayPGPort,
-	}
-	findCtx := utils.WithTimeout(t, 30*time.Second)
-	readyPort, err := findReadyMultigateway(t, findCtx, pgPorts)
-	require.NoError(t, err, "should find a ready multigateway after bootstrap")
+	// We need to wait for discovery to complete.
+	readyPort := testPorts.Zones[0].MultigatewayPGPort
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer waitCancel()
+	err = waitForMultigatewayReady(t, waitCtx, readyPort)
+	require.NoError(t, err, "multigateway should be ready after bootstrap")
 
 	return &testClusterSetup{
 		TempDir:     tempDir,

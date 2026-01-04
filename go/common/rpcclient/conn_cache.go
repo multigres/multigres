@@ -28,6 +28,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/tools/grpccommon"
+
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -287,7 +289,7 @@ func (cc *connCache) pollOnce(ctx context.Context, addr string) (client *cachedC
 // It returns the two-tuple of connection and closer that getOrDial returns.
 func (cc *connCache) newDial(ctx context.Context, addr string) (*cachedConn, closeFunc, error) {
 	// TODO: Add proper TLS configuration for production
-	grpcConn, err := grpc.NewClient(
+	grpcConn, err := grpccommon.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
