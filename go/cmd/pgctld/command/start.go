@@ -270,8 +270,7 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		}
 	}
 
-	// Wait for PostgreSQL to be ready using pg_isready
-	return waitForPostgreSQLWithConfig(logger, config)
+	return nil
 }
 
 // readLogTail reads the last N lines from the PostgreSQL log file for diagnostics
