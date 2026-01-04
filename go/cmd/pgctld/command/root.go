@@ -18,10 +18,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
@@ -40,6 +42,7 @@ type PgCtlCommand struct {
 	timeout           viperutil.Value[int]
 	pgPort            viperutil.Value[int]
 	pgListenAddresses viperutil.Value[string]
+	pgHbaTemplate     viperutil.Value[string]
 	vc                *viperutil.ViperConfig
 	lg                *servenv.Logger
 	telemetry         *telemetry.Telemetry
@@ -79,6 +82,11 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		pgListenAddresses: viperutil.Configure(reg, "pg-listen-addresses", viperutil.Options[string]{
 			Default:  "localhost",
 			FlagName: "pg-listen-addresses",
+			Dynamic:  false,
+		}),
+		pgHbaTemplate: viperutil.Configure(reg, "pg-hba-template", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-hba-template",
 			Dynamic:  false,
 		}),
 		vc:        viperutil.NewViperConfig(reg),
@@ -125,6 +133,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
 	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
+	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
 
@@ -135,6 +144,7 @@ management for PostgreSQL servers.`,
 		pc.poolerDir,
 		pc.pgPort,
 		pc.pgListenAddresses,
+		pc.pgHbaTemplate,
 	)
 
 	// Add all subcommands
@@ -156,6 +166,17 @@ func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) e
 	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {
 		return fmt.Errorf("pooler-dir needs to be set")
+	}
+
+	// If pg-hba-template is specified, read and replace the default template
+	pgHbaTemplatePath := pc.pgHbaTemplate.Get()
+	if pgHbaTemplatePath != "" {
+		contents, err := os.ReadFile(pgHbaTemplatePath)
+		if err != nil {
+			return fmt.Errorf("failed to read pg-hba-template file %s: %w", pgHbaTemplatePath, err)
+		}
+		config.PostgresHbaDefaultTmpl = string(contents)
+		pc.GetLogger().Info("replaced default pg_hba.conf template", "path", pgHbaTemplatePath)
 	}
 
 	return nil
