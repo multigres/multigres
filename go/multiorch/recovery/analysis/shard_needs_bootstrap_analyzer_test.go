@@ -50,10 +50,11 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects uninitialized shard", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
-			PoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsInitialized:   false,
-			PrimaryPoolerID: nil, // no primary exists
+			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsInitialized:    false,
+			HasDataDirectory: false, // Explicitly set - no data directory
+			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
 		problems, err := analyzer.Analyze(analysis)
