@@ -182,7 +182,7 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 	// Wait for server to be ready
 	logger.Info("Waiting for PostgreSQL to be ready")
-	if err := waitForPostgreSQLWithConfig(config); err != nil {
+	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
@@ -271,28 +271,96 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	}
 
 	// Wait for PostgreSQL to be ready using pg_isready
-	return waitForPostgreSQLWithConfig(config)
+	return waitForPostgreSQLWithConfig(logger, config)
 }
 
-func waitForPostgreSQLWithConfig(config *pgctld.PostgresCtlConfig) error {
-	// Try to connect using pg_isready
+// readLogTail reads the last N lines from the PostgreSQL log file for diagnostics
+func readLogTail(logPath string, lines int) string {
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return fmt.Sprintf("(failed to read log: %v)", err)
+	}
+
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" {
+		return "(empty log file)"
+	}
+
+	allLines := strings.Split(trimmed, "\n")
+	if len(allLines) <= lines {
+		return trimmed
+	}
+
+	return strings.Join(allLines[len(allLines)-lines:], "\n")
+}
+
+func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
+	logPath := filepath.Join(config.PostgresDataDir, "postgresql.log")
+	var lastOutput string
+
 	for i := 0; i < config.Timeout; i++ {
+		// Check if PostgreSQL process is still running (after first second)
+		if i > 0 {
+			pid, err := readPostmasterPID(config.PostgresDataDir)
+			if err != nil {
+				// No PID file means PostgreSQL never started or crashed immediately
+				logTail := readLogTail(logPath, 20)
+				logger.Error("PostgreSQL process not running during startup",
+					"attempt", i,
+					"error", err,
+					"postgresql_log_tail", logTail,
+				)
+				return fmt.Errorf("PostgreSQL process not running: %w (check postgresql.log)", err)
+			}
+
+			if !isProcessRunning(pid) {
+				// PID file exists but process is gone - crashed
+				logTail := readLogTail(logPath, 20)
+				logger.Error("PostgreSQL process crashed during startup",
+					"pid", pid,
+					"attempt", i,
+					"postgresql_log_tail", logTail,
+				)
+				return fmt.Errorf("PostgreSQL process (PID %d) crashed during startup (check postgresql.log)", pid)
+			}
+		}
+
 		cmd := exec.Command("pg_isready",
 			"-h", socketDir,
-			"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+			"-p", fmt.Sprintf("%d", config.Port),
 			"-U", config.User,
 			"-d", config.Database,
 		)
 
-		if err := cmd.Run(); err == nil {
+		output, err := cmd.CombinedOutput()
+		lastOutput = strings.TrimSpace(string(output))
+		if err == nil {
 			return nil
+		}
+
+		// Log progress every 5 seconds
+		if i > 0 && i%5 == 0 {
+			logger.Info("Still waiting for PostgreSQL to be ready",
+				"attempt", i,
+				"timeout", config.Timeout,
+				"pg_isready_output", lastOutput,
+			)
 		}
 
 		time.Sleep(1 * time.Second)
 	}
 
-	return fmt.Errorf("PostgreSQL did not become ready within %d seconds", config.Timeout)
+	// On timeout, include diagnostic information
+	logTail := readLogTail(logPath, 20)
+	logger.Error("PostgreSQL startup timeout",
+		"timeout_seconds", config.Timeout,
+		"last_pg_isready_output", lastOutput,
+		"postgresql_log_tail", logTail,
+	)
+
+	return fmt.Errorf("PostgreSQL did not become ready within %d seconds (pg_isready: %s)",
+		config.Timeout, lastOutput)
 }
 
 func readPostmasterPID(dataDir string) (int, error) {
