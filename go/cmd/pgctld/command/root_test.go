@@ -160,3 +160,84 @@ host    all             all             ::1/128                 scram-sha-256
 		assert.Equal(t, originalTemplate, config.PostgresHbaDefaultTmpl)
 	})
 }
+
+func TestPostgresConfigTemplate(t *testing.T) {
+	// Save the original template so we can restore it after tests
+	originalTemplate := config.PostgresConfigDefaultTmpl
+	defer func() {
+		config.PostgresConfigDefaultTmpl = originalTemplate
+	}()
+
+	t.Run("custom template replaces default", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
+		defer cleanup()
+
+		// Create a custom postgresql.conf template file
+		customTemplate := `# Custom postgresql.conf template for testing
+max_connections = {{.MaxConnections}}
+shared_buffers = {{.SharedBuffers}}
+work_mem = {{.WorkMem}}
+`
+		templatePath := filepath.Join(baseDir, "custom_postgresql.conf")
+		err := os.WriteFile(templatePath, []byte(customTemplate), 0o644)
+		require.NoError(t, err)
+
+		// Reset template before test
+		config.PostgresConfigDefaultTmpl = originalTemplate
+
+		// Create command and test validateGlobalFlags directly
+		_, pc := GetRootCommand()
+		pc.poolerDir.Set(baseDir)
+		pc.postgresConfigTmpl.Set(templatePath)
+
+		err = pc.validateGlobalFlags(nil, nil)
+		require.NoError(t, err)
+
+		// Verify the template was replaced
+		assert.Equal(t, customTemplate, config.PostgresConfigDefaultTmpl)
+		assert.NotEqual(t, originalTemplate, config.PostgresConfigDefaultTmpl)
+	})
+
+	t.Run("non-existent template file returns error", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
+		defer cleanup()
+
+		nonExistentPath := filepath.Join(baseDir, "nonexistent.conf")
+
+		// Reset template before test
+		config.PostgresConfigDefaultTmpl = originalTemplate
+
+		// Create command and test validateGlobalFlags directly
+		_, pc := GetRootCommand()
+		pc.poolerDir.Set(baseDir)
+		pc.postgresConfigTmpl.Set(nonExistentPath)
+
+		err := pc.validateGlobalFlags(nil, nil)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read postgres-config-template file")
+		assert.Contains(t, err.Error(), nonExistentPath)
+
+		// Verify template was NOT changed
+		assert.Equal(t, originalTemplate, config.PostgresConfigDefaultTmpl)
+	})
+
+	t.Run("empty template flag does not replace default", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
+		defer cleanup()
+
+		// Reset template before test
+		config.PostgresConfigDefaultTmpl = originalTemplate
+
+		// Create command and test validateGlobalFlags directly without setting postgresConfigTmpl
+		_, pc := GetRootCommand()
+		pc.poolerDir.Set(baseDir)
+		// Don't set postgresConfigTmpl - it should remain empty
+
+		err := pc.validateGlobalFlags(nil, nil)
+		require.NoError(t, err)
+
+		// Verify template was NOT changed
+		assert.Equal(t, originalTemplate, config.PostgresConfigDefaultTmpl)
+	})
+}
