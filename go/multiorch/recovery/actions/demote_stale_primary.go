@@ -79,7 +79,7 @@ func (a *DemoteStalePrimaryAction) Metadata() types.RecoveryMetadata {
 }
 
 func (a *DemoteStalePrimaryAction) Priority() types.Priority {
-	return types.PriorityEmergency
+	return types.PriorityHigh
 }
 
 func (a *DemoteStalePrimaryAction) RequiresHealthyPrimary() bool {
