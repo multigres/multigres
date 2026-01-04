@@ -722,3 +722,25 @@ message CreateDurabilityPolicyRequest {
 // Errors are returned via gRPC status codes, not in the response body
 message CreateDurabilityPolicyResponse {
 }
+
+// =============================================================================
+// PgRewind APIs
+// =============================================================================
+
+// RewindToSourceRequest requests pg_rewind to synchronize with a source server.
+// This stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
+message RewindToSourceRequest {
+  // Source multipooler (the primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+
+  // If true, only check if rewind is possible without making changes
+  bool dry_run = 2;
+}
+
+message RewindToSourceResponse {
+  // True if the rewind was successful (or would be successful for dry_run)
+  bool success = 1;
+
+  // Error message if rewind failed or is not possible
+  string error_message = 2;
+}

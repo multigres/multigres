@@ -70,6 +70,11 @@ func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
 	return actions.NewFixReplicationAction(f.rpcClient, poolerStore, f.topoStore, f.logger)
 }
 
+// NewDemoteStalePrimaryAction creates an action to demote a stale primary.
+func (f *RecoveryActionFactory) NewDemoteStalePrimaryAction() types.RecoveryAction {
+	return actions.NewDemoteStalePrimaryAction(f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+}
+
 // Logger returns the factory's logger for use by analyzers.
 func (f *RecoveryActionFactory) Logger() *slog.Logger {
 	return f.logger
