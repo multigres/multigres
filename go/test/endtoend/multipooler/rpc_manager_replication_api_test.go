@@ -27,7 +27,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/test/endtoend"
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -122,8 +121,7 @@ func TestReplicationAPIs(t *testing.T) {
 		ctx = utils.WithTimeout(t, 1*time.Second)
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=true
-		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
-
+		// Use Force=true since we're testing replication functionality, not term validation
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -137,8 +135,8 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -290,11 +288,10 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "t", isPaused, "WAL replay should be paused")
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=false
+		// Use Force=true since we're testing replication functionality, not term validation
 		ctx = utils.WithTimeout(t, 1*time.Second)
 
 		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=false...")
-		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
-
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -308,8 +305,8 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -914,8 +911,8 @@ func TestReplicationAPIs(t *testing.T) {
 		// and that data inserted after reset does not replicate until replication is re-enabled
 
 		// First ensure replication is configured
+		// Use Force=true since we're testing ResetReplication functionality, not term validation
 		t.Log("Ensuring replication is configured...")
-		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -929,8 +926,8 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -1186,9 +1183,8 @@ func TestStandbyReplicationStatus(t *testing.T) {
 		setupPoolerTest(t, setup)
 
 		// Configure replication but stop it
+		// Use Force=true since we're testing ReplicationStatus functionality, not term validation
 		t.Log("Configuring replication and then stopping it...")
-		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
-
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1202,8 +1198,8 @@ func TestStandbyReplicationStatus(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: false,
 			StopReplicationBefore: true,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -1292,8 +1288,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		defer primaryPoolerClient.Close()
 
 		// First, configure and start replication
-		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
-
+		// Use Force=true since we're testing StopReplicationAndGetStatus functionality, not term validation
 		t.Log("Configuring replication on standby...")
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -1308,8 +1303,8 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -1747,8 +1742,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 				len(config.StandbyIds) == 1
 		}, "Synchronous replication configuration should converge")
 
-		shardsetup.SetTermDirectly(t, setup.StandbyPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
-
+		// Use Force=true since we're testing synchronous replication functionality, not term validation
 		t.Log("Ensuring standby is connected to primary and replicating...")
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -1763,8 +1757,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -2017,14 +2011,13 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		t.Log("Initial configuration verified")
 
-		shardsetup.SetTermDirectly(t, setup.PrimaryPgctld.DataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
-
+		// Use Force=true since we're testing UpdateSynchronousStandbyList functionality, not term validation
 		updateReq := &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
 			Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
 			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
 			ReloadConfig:  true,
-			ConsensusTerm: 1,
-			Force:         false,
+			ConsensusTerm: 0, // Ignored when Force=true
+			Force:         true,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.NoError(t, err, "ADD should succeed")

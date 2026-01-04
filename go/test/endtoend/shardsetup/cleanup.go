@@ -28,19 +28,24 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// InitializeNodeForTest sets up a node with initial term 1 for testing.
-// Uses direct file manipulation instead of gRPC.
-func InitializeNodeForTest(t *testing.T, poolerDataDir string) {
-	t.Helper()
-
-	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:                    1,
-		AcceptedTermFromCoordinatorId: nil,
-		LastAcceptanceTime:            nil,
-		LeaderId:                      nil,
+// GetCurrentTerm returns the current consensus term from a node.
+// Use this instead of hardcoded term values for test isolation.
+func GetCurrentTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusClient) (int64, error) {
+	resp, err := client.Status(ctx, &consensusdatapb.StatusRequest{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to get consensus status: %w", err)
 	}
+	return resp.CurrentTerm, nil
+}
 
-	SetTermDirectly(t, poolerDataDir, initialTerm)
+// MustGetCurrentTerm returns the current term or fails the test.
+func MustGetCurrentTerm(t *testing.T, ctx context.Context, client consensuspb.MultiPoolerConsensusClient) int64 {
+	t.Helper()
+	term, err := GetCurrentTerm(ctx, client)
+	if err != nil {
+		t.Fatalf("failed to get current term: %v", err)
+	}
+	return term
 }
 
 // SetPoolerType sets the pooler type using the provided manager client.
@@ -90,13 +95,10 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 }
 
 // RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
-// Uses Force=true and resets term to 1 for simplicity in test cleanup.
-// Follows the pattern from multipooler/setup_test.go:restorePrimaryAfterDemotion.
+// Uses Force=true to bypass term validation for simplicity in test cleanup.
+// Note: poolerDataDir parameter is kept for API compatibility but no longer used.
 func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, poolerDataDir string) error {
 	t.Helper()
-
-	// Reset term to 1 via direct file write (bypasses gRPC which we're removing)
-	SetTermDirectly(t, poolerDataDir, &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1})
 
 	// Stop replication on primary
 	_, err := client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
@@ -110,9 +112,10 @@ func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multi
 		return fmt.Errorf("failed to get primary replication status: %w", err)
 	}
 
-	// Force promote primary back
+	// Force promote primary back - term value doesn't matter when Force=true
+	// (Force bypasses term validation)
 	_, err = client.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm: 1,
+		ConsensusTerm: 0, // Ignored when Force=true
 		ExpectedLsn:   statusResp.Status.LastReplayLsn,
 		Force:         true,
 	})

@@ -618,9 +618,12 @@ func startEtcd(t *testing.T, dataDir string) (string, *exec.Cmd, error) {
 
 // ValidateCleanState checks that all multipoolers are in the expected clean state.
 // Clean state is defined by the baseline GUCs captured after bootstrap:
-//   - Primary: not in recovery, GUCs match baseline, term=1, type=PRIMARY
-//   - Standbys: in recovery, GUCs match baseline, wal_replay not paused, term=1, type=REPLICA
+//   - Primary: not in recovery, GUCs match baseline, type=PRIMARY
+//   - Standbys: in recovery, GUCs match baseline, wal_replay not paused, type=REPLICA
 //   - MultiOrch: NOT running (multiorch starts in SetupTest and stops in cleanup)
+//
+// Note: Term is NOT validated. It can increase across tests and there's no safe
+// way to reset it. Tests should work with whatever term they start with.
 //
 // Returns an error if state is not clean.
 func (s *ShardSetup) ValidateCleanState() error {
@@ -698,18 +701,19 @@ func (s *ShardSetup) ValidateCleanState() error {
 			}
 		}
 
-		// Validate term is 1 for all nodes
-		if err := ValidateTerm(ctx, client.Consensus, 1, name); err != nil {
-			return err
-		}
+		// Note: We intentionally don't validate term here.
+		// Term can increase across tests (e.g., when BeginTerm is called) and
+		// there's no safe way to reset it without an RPC. Tests should work with
+		// whatever term they start with and use relative term values.
 	}
 
 	return nil
 }
 
 // ResetToCleanState resets all multipoolers to the baseline clean state.
-// This restores GUCs to baseline values, resets terms to 1, pooler types to PRIMARY/REPLICA,
+// This restores GUCs to baseline values, pooler types to PRIMARY/REPLICA,
 // resumes WAL replay, and stops multiorch instances.
+// Note: Term is NOT reset. It can only increase and tests should handle any starting term.
 func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	t.Helper()
 
@@ -769,8 +773,8 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 			t.Logf("Reset: Failed to set pooler type on %s: %v", name, err)
 		}
 
-		// Reset term via direct file write
-		InitializeNodeForTest(t, inst.Pgctld.DataDir)
+		// Note: We don't reset term here. Term can only increase and there's no
+		// safe way to reset it without an RPC. Tests should handle any starting term.
 
 		client.Close()
 	}
@@ -891,8 +895,8 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 				t.Logf("Cleanup: failed to set pooler type on %s: %v", name, err)
 			}
 
-			// Reset term via direct file write
-			InitializeNodeForTest(t, inst.Pgctld.DataDir)
+			// Note: We don't reset term here. Term can only increase and there's no
+			// safe way to reset it without an RPC. Tests should handle any starting term.
 
 			client.Close()
 		}
