@@ -21,7 +21,6 @@ import (
 
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // ShardNeedsBootstrapAnalyzer detects when all nodes in a shard are uninitialized.
@@ -56,10 +55,12 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 		return nil, nil
 	}
 
-	// Skip if node is registered as a REPLICA - it was initialized at some point.
-	// Even if IsInitialized is false (e.g., due to failed health check when primary died),
-	// a node that was ever a REPLICA should not trigger bootstrap.
-	if poolerAnalysis.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+	// Skip if node has a data directory - it was initialized at some point.
+	// HasDataDirectory (presence of PG_VERSION file) is the canonical signal for
+	// "was ever initialized", regardless of pooler type.
+	// This allows poolers to start as REPLICA type while still detecting
+	// fresh poolers that need bootstrap.
+	if poolerAnalysis.HasDataDirectory {
 		return nil, nil
 	}
 
