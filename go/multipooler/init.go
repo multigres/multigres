@@ -289,8 +289,6 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	switch mp.initialPoolerType.Get() {
 	case "REPLICA":
 		multipooler.Type = clustermetadatapb.PoolerType_REPLICA
-	case "UNKNOWN":
-		multipooler.Type = clustermetadatapb.PoolerType_UNKNOWN
 	default:
 		// Default to REPLICA if invalid value
 		multipooler.Type = clustermetadatapb.PoolerType_REPLICA
