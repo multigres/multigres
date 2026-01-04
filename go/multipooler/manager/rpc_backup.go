@@ -818,6 +818,14 @@ func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) {
 		return
 	}
 
+	// Skip if data directory exists - pooler was initialized at some point.
+	// This prevents restore attempts when the pooler has data but the
+	// initialization marker was lost or the pooler is temporarily down.
+	if pm.hasDataDirectory() {
+		pm.logger.InfoContext(ctx, "Auto-restore skipped: data directory already exists")
+		return
+	}
+
 	// Only auto-restore REPLICA poolers - PRIMARY must be explicitly initialized.
 	poolerType := pm.getPoolerType()
 	if poolerType != clustermetadatapb.PoolerType_REPLICA {
