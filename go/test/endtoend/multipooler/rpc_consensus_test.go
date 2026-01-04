@@ -557,17 +557,7 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
-		// Set term on standby for promotion
-		promoteTerm := newTerm + 1
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: promoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err, "SetTerm should succeed on standby")
-
-		// Stop replication on standby
+		// Stop replication on standby to prepare for promotion
 		_, err = standbyManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
 		require.NoError(t, err, "StopReplication should succeed")
 
@@ -578,43 +568,28 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		standbyLSN := standbyStatusResp.Status.LastReplayLsn
 
 		// Promote standby to primary
+		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: promoteTerm,
+			ConsensusTerm: 0, // Ignored when Force=true
 			ExpectedLsn:   standbyLSN,
-			Force:         false,
+			Force:         true,
 		}
 		_, err = standbyManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote should succeed on standby")
 		t.Log("Standby promoted to primary")
 
 		// Now demote the new primary (standby) and promote original primary back
-		demoteTerm := promoteTerm + 1
-		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: demoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
-		require.NoError(t, err)
-
+		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
-			ConsensusTerm: demoteTerm,
-			Force:         false,
+			ConsensusTerm: 0, // Ignored when Force=true
+			Force:         true,
 		}
 		_, err = standbyManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed on new primary")
 		t.Log("New primary (original standby) demoted")
 
 		// Promote original primary back
-		restoreTerm := demoteTerm + 1
-		setTermReq3 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: restoreTerm,
-			},
-		}
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq3)
-		require.NoError(t, err)
-
+		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
 		require.NoError(t, err)
 
@@ -624,9 +599,9 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		primaryLSN := primaryStatusResp.Status.LastReplayLsn
 
 		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: restoreTerm,
+			ConsensusTerm: 0, // Ignored when Force=true
 			ExpectedLsn:   primaryLSN,
-			Force:         false,
+			Force:         true,
 		}
 		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
 		require.NoError(t, err, "Promote should succeed on original primary")
