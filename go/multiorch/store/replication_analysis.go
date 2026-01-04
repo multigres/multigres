@@ -37,6 +37,7 @@ type ReplicationAnalysis struct {
 	IsStale              bool
 	IsUnreachable        bool
 	IsInitialized        bool // Whether this pooler has been initialized
+	HasDataDirectory     bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
 	AnalyzedAt           time.Time
 
 	// Primary-specific fields
