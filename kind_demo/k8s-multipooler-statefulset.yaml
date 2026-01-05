@@ -108,13 +108,12 @@ spec:
             - --connpool-admin-password=postgres
             - --socket-file=/data/pg_sockets/.s.PGSQL.5432
             - --grpc-socket-file=/data/multipooler.sock
-            - --log-level=info
             - --service-map=grpc-pooler
-            - --pprof-http=true
             - --pgbackrest-cert-file=/certs/pgbackrest.crt
             - --pgbackrest-key-file=/certs/pgbackrest.key
             - --pgbackrest-ca-file=/certs/ca.crt
             - --pgbackrest-port=8432
+            - --pprof-http=true
           ports:
             - containerPort: 16000
               name: http
@@ -161,14 +160,9 @@ spec:
             - --pooler-dir=/data
             - --grpc-port=16200
             - --pg-port=5432
-            - --pg-listen-addresses=* # The default value is localhost, which won't work here.
-            - --pg-database=postgres
-            - --pg-user=postgres
-            - --timeout=30
-            - --log-level=info
             - --grpc-socket-file=/data/pgctld.sock
-            - --pprof-http=true
             - --pg-hba-template=/etc/pgctld/pg_hba_template.conf
+            - --pprof-http=true
           ports:
             - containerPort: 16200
               name: pgctldgrpc # This can't be grpc because multipooler has a grpc port.

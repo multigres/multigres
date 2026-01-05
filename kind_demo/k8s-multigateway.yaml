@@ -27,7 +27,6 @@ spec:
             - --topo-global-server-addresses=etcd:2379
             - --topo-global-root=/multigres/test/global
             - --cell=zone1
-            - --log-level=info
             - --pprof-http=true
           env:
             - name: OTEL_SERVICE_NAME

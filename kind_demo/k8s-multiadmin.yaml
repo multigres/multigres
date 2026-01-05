@@ -25,7 +25,6 @@ spec:
             - --grpc-port=18070
             - --topo-global-server-addresses=etcd:2379
             - --topo-global-root=/multigres/test/global
-            - --log-level=info
             - --service-map=grpc-multiadmin
             - --pprof-http=true
           env:
