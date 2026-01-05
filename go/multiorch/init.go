@@ -97,8 +97,11 @@ func NewMultiOrch() *MultiOrch {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mo *MultiOrch) Init() error {
-	// TODO(sougou): Should multiorch have a --service-id flag like other services?
-	serviceID := servenv.GenerateRandomServiceID()
+	// Get service ID from config, or generate random one if not specified
+	serviceID := mo.cfg.GetServiceID()
+	if serviceID == "" {
+		serviceID = servenv.GenerateRandomServiceID()
+	}
 	cell := mo.cfg.GetCell()
 
 	if err := mo.senv.Init(servenv.ServiceIdentity{
