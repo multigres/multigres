@@ -50,10 +50,11 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("detects uninitialized shard", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
-			PoolerID:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
-			ShardKey:        commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsInitialized:   false,
-			PrimaryPoolerID: nil, // no primary exists
+			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsInitialized:    false,
+			HasDataDirectory: false, // Explicitly set - no data directory
+			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
 		problems, err := analyzer.Analyze(analysis)
@@ -80,6 +81,37 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
 			IsInitialized:   false,
 			PrimaryPoolerID: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
+		}
+
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
+		require.Len(t, problems, 0)
+	})
+
+	t.Run("detects bootstrap needed for REPLICA type without data directory", func(t *testing.T) {
+		analysis := &store.ReplicationAnalysis{
+			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA, // REPLICA type
+			IsInitialized:    false,
+			HasDataDirectory: false, // No data directory
+			PrimaryPoolerID:  nil,   // no primary exists
+		}
+
+		problems, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemShardNeedsBootstrap, problems[0].Code)
+	})
+
+	t.Run("skips REPLICA type with data directory", func(t *testing.T) {
+		analysis := &store.ReplicationAnalysis{
+			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA, // REPLICA type
+			IsInitialized:    false,                                // might be temporarily down
+			HasDataDirectory: true,                                 // Has data directory
+			PrimaryPoolerID:  nil,
 		}
 
 		problems, err := analyzer.Analyze(analysis)

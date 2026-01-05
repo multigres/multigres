@@ -276,6 +276,8 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	multipooler.PoolerDir = mp.poolerDir.Get()
+	// For now, all poolers start as REPLICA
+	multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager, err := manager.NewMultiPoolerManager(logger, &manager.Config{
