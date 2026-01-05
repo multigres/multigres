@@ -145,6 +145,22 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.Equal(t, 1, result)
 	})
 
+	// Verify sync replication is configured on the new primary
+	t.Run("verify sync replication configured on new primary", func(t *testing.T) {
+		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
+		require.NotNil(t, newPrimaryInst, "new primary instance should exist")
+
+		socketDir := filepath.Join(newPrimaryInst.Pgctld.DataDir, "pg_sockets")
+		db := connectToPostgres(t, socketDir, newPrimaryInst.Pgctld.PgPort)
+		defer db.Close()
+
+		var syncStandbyNames string
+		err := db.QueryRow("SHOW synchronous_standby_names").Scan(&syncStandbyNames)
+		require.NoError(t, err, "Should be able to query synchronous_standby_names")
+		require.NotEmpty(t, syncStandbyNames, "New primary should have synchronous_standby_names configured after failover")
+		t.Logf("New primary synchronous_standby_names: %s", syncStandbyNames)
+	})
+
 	// Verify leadership_history records the failover
 	t.Run("verify leadership_history after failover", func(t *testing.T) {
 		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)

@@ -1284,14 +1284,19 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 	state.syncReplicationMatches = true
 
 	// Check sync replication state if config was provided
-	if syncReplicationConfig != nil && state.isPrimaryInPostgres {
-		state.syncReplicationMatches = false
-		currentConfig, err := pm.getSynchronousReplicationConfig(ctx)
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Failed to get current sync replication config", "error", err)
-		}
-		if err == nil {
-			state.syncReplicationMatches = pm.syncReplicationConfigMatches(currentConfig, syncReplicationConfig)
+	if syncReplicationConfig != nil {
+		if state.isPrimaryInPostgres {
+			state.syncReplicationMatches = false
+			currentConfig, err := pm.getSynchronousReplicationConfig(ctx)
+			if err != nil {
+				pm.logger.WarnContext(ctx, "Failed to get current sync replication config", "error", err)
+			}
+			if err == nil {
+				state.syncReplicationMatches = pm.syncReplicationConfigMatches(currentConfig, syncReplicationConfig)
+			}
+		} else {
+			// Node is a standby being promoted - it doesn't have sync replication configured yet
+			state.syncReplicationMatches = false
 		}
 	}
 
@@ -1402,7 +1407,8 @@ func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Con
 
 	pm.logger.InfoContext(ctx, "Sync replication configuration needed")
 	pm.logger.InfoContext(ctx, "Configuring synchronous replication for new cohort")
-	err := pm.ConfigureSynchronousReplication(ctx,
+	// Use the locked version since we're already holding the action lock from Promote
+	err := pm.configureSynchronousReplicationLocked(ctx,
 		syncReplicationConfig.SynchronousCommit,
 		syncReplicationConfig.SynchronousMethod,
 		syncReplicationConfig.NumSync,

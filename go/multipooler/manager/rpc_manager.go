@@ -369,13 +369,19 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 	}
 	defer pm.actionLock.Release(ctx)
 
+	return pm.configureSynchronousReplicationLocked(ctx, synchronousCommit, synchronousMethod, numSync, standbyIDs, reloadConfig)
+}
+
+// configureSynchronousReplicationLocked configures PostgreSQL synchronous replication settings.
+// The caller MUST already hold the action lock.
+func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.Context, synchronousCommit multipoolermanagerdatapb.SynchronousCommitLevel, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID, reloadConfig bool) error {
 	// Validate input parameters
-	if err = validateSyncReplicationParams(numSync, standbyIDs); err != nil {
+	if err := validateSyncReplicationParams(numSync, standbyIDs); err != nil {
 		return err
 	}
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
-	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
 	}
 
