@@ -27,7 +27,6 @@ spec:
             - --topo-global-root=/multigres/test/global
             - --cell=zone1
             - --watch-targets=postgres
-            - --log-level=info
             - --cluster-metadata-refresh-interval=500ms
             - --pooler-health-check-interval=500ms
             - --recovery-cycle-interval=500ms

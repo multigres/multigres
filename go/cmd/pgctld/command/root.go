@@ -81,7 +81,7 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			Dynamic:  false,
 		}),
 		pgListenAddresses: viperutil.Configure(reg, "pg-listen-addresses", viperutil.Options[string]{
-			Default:  "localhost",
+			Default:  "*",
 			FlagName: "pg-listen-addresses",
 			Dynamic:  false,
 		}),
