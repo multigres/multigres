@@ -39,53 +39,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// ProblemType categorizes shard-level problems detected by the analyzer
-type ProblemType int32
-
-const (
-	ProblemType_PROBLEM_TYPE_UNSPECIFIED          ProblemType = 0
-	ProblemType_PROBLEM_REPLICA_TIMELINE_DIVERGED ProblemType = 1
-)
-
-// Enum value maps for ProblemType.
-var (
-	ProblemType_name = map[int32]string{
-		0: "PROBLEM_TYPE_UNSPECIFIED",
-		1: "PROBLEM_REPLICA_TIMELINE_DIVERGED",
-	}
-	ProblemType_value = map[string]int32{
-		"PROBLEM_TYPE_UNSPECIFIED":          0,
-		"PROBLEM_REPLICA_TIMELINE_DIVERGED": 1,
-	}
-)
-
-func (x ProblemType) Enum() *ProblemType {
-	p := new(ProblemType)
-	*p = x
-	return p
-}
-
-func (x ProblemType) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (ProblemType) Descriptor() protoreflect.EnumDescriptor {
-	return file_multiorchdata_proto_enumTypes[0].Descriptor()
-}
-
-func (ProblemType) Type() protoreflect.EnumType {
-	return &file_multiorchdata_proto_enumTypes[0]
-}
-
-func (x ProblemType) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use ProblemType.Descriptor instead.
-func (ProblemType) EnumDescriptor() ([]byte, []int) {
-	return file_multiorchdata_proto_rawDescGZIP(), []int{0}
-}
-
 // PoolerHealthState represents the runtime state of a MultiPooler instance.
 // This is the in-memory representation used by multiorch to track pooler health.
 //
@@ -255,70 +208,6 @@ func (x *PoolerHealthState) GetConsensusStatus() *consensusdata.StatusResponse {
 	return nil
 }
 
-// ShardProblem represents a problem detected in a shard
-type ShardProblem struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Type of problem
-	Type ProblemType `protobuf:"varint,1,opt,name=type,proto3,enum=multiorchdata.ProblemType" json:"type,omitempty"`
-	// Human-readable description
-	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	// IDs of poolers affected by this problem
-	AffectedPoolers []*clustermetadata.ID `protobuf:"bytes,3,rep,name=affected_poolers,json=affectedPoolers,proto3" json:"affected_poolers,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *ShardProblem) Reset() {
-	*x = ShardProblem{}
-	mi := &file_multiorchdata_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ShardProblem) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ShardProblem) ProtoMessage() {}
-
-func (x *ShardProblem) ProtoReflect() protoreflect.Message {
-	mi := &file_multiorchdata_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ShardProblem.ProtoReflect.Descriptor instead.
-func (*ShardProblem) Descriptor() ([]byte, []int) {
-	return file_multiorchdata_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ShardProblem) GetType() ProblemType {
-	if x != nil {
-		return x.Type
-	}
-	return ProblemType_PROBLEM_TYPE_UNSPECIFIED
-}
-
-func (x *ShardProblem) GetDescription() string {
-	if x != nil {
-		return x.Description
-	}
-	return ""
-}
-
-func (x *ShardProblem) GetAffectedPoolers() []*clustermetadata.ID {
-	if x != nil {
-		return x.AffectedPoolers
-	}
-	return nil
-}
-
 var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
@@ -340,14 +229,7 @@ const file_multiorchdata_proto_rawDesc = "" +
 	" \x01(\bR\x11isPostgresRunning\x12%\n" +
 	"\x0eis_initialized\x18\v \x01(\bR\risInitialized\x12,\n" +
 	"\x12has_data_directory\x18\f \x01(\bR\x10hasDataDirectory\x12H\n" +
-	"\x10consensus_status\x18\r \x01(\v2\x1d.consensusdata.StatusResponseR\x0fconsensusStatus\"\xa0\x01\n" +
-	"\fShardProblem\x12.\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x1a.multiorchdata.ProblemTypeR\x04type\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\x12>\n" +
-	"\x10affected_poolers\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x0faffectedPoolers*R\n" +
-	"\vProblemType\x12\x1c\n" +
-	"\x18PROBLEM_TYPE_UNSPECIFIED\x10\x00\x12%\n" +
-	"!PROBLEM_REPLICA_TIMELINE_DIVERGED\x10\x01B4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
+	"\x10consensus_status\x18\r \x01(\v2\x1d.consensusdata.StatusResponseR\x0fconsensusStatusB4Z2github.com/multigres/multigres/go/pb/multiorchdatab\x06proto3"
 
 var (
 	file_multiorchdata_proto_rawDescOnce sync.Once
@@ -361,36 +243,30 @@ func file_multiorchdata_proto_rawDescGZIP() []byte {
 	return file_multiorchdata_proto_rawDescData
 }
 
-var file_multiorchdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_multiorchdata_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_multiorchdata_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_multiorchdata_proto_goTypes = []any{
-	(ProblemType)(0),                                        // 0: multiorchdata.ProblemType
-	(*PoolerHealthState)(nil),                               // 1: multiorchdata.PoolerHealthState
-	(*ShardProblem)(nil),                                    // 2: multiorchdata.ShardProblem
-	(*clustermetadata.MultiPooler)(nil),                     // 3: clustermetadata.MultiPooler
-	(*timestamppb.Timestamp)(nil),                           // 4: google.protobuf.Timestamp
-	(clustermetadata.PoolerType)(0),                         // 5: clustermetadata.PoolerType
-	(*multipoolermanagerdata.PrimaryStatus)(nil),            // 6: multipoolermanagerdata.PrimaryStatus
-	(*multipoolermanagerdata.StandbyReplicationStatus)(nil), // 7: multipoolermanagerdata.StandbyReplicationStatus
-	(*consensusdata.StatusResponse)(nil),                    // 8: consensusdata.StatusResponse
-	(*clustermetadata.ID)(nil),                              // 9: clustermetadata.ID
+	(*PoolerHealthState)(nil),                               // 0: multiorchdata.PoolerHealthState
+	(*clustermetadata.MultiPooler)(nil),                     // 1: clustermetadata.MultiPooler
+	(*timestamppb.Timestamp)(nil),                           // 2: google.protobuf.Timestamp
+	(clustermetadata.PoolerType)(0),                         // 3: clustermetadata.PoolerType
+	(*multipoolermanagerdata.PrimaryStatus)(nil),            // 4: multipoolermanagerdata.PrimaryStatus
+	(*multipoolermanagerdata.StandbyReplicationStatus)(nil), // 5: multipoolermanagerdata.StandbyReplicationStatus
+	(*consensusdata.StatusResponse)(nil),                    // 6: consensusdata.StatusResponse
 }
 var file_multiorchdata_proto_depIdxs = []int32{
-	3,  // 0: multiorchdata.PoolerHealthState.multi_pooler:type_name -> clustermetadata.MultiPooler
-	4,  // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
-	4,  // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
-	4,  // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
-	5,  // 4: multiorchdata.PoolerHealthState.pooler_type:type_name -> clustermetadata.PoolerType
-	6,  // 5: multiorchdata.PoolerHealthState.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	7,  // 6: multiorchdata.PoolerHealthState.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	8,  // 7: multiorchdata.PoolerHealthState.consensus_status:type_name -> consensusdata.StatusResponse
-	0,  // 8: multiorchdata.ShardProblem.type:type_name -> multiorchdata.ProblemType
-	9,  // 9: multiorchdata.ShardProblem.affected_poolers:type_name -> clustermetadata.ID
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	1, // 0: multiorchdata.PoolerHealthState.multi_pooler:type_name -> clustermetadata.MultiPooler
+	2, // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
+	2, // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
+	2, // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp
+	3, // 4: multiorchdata.PoolerHealthState.pooler_type:type_name -> clustermetadata.PoolerType
+	4, // 5: multiorchdata.PoolerHealthState.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	5, // 6: multiorchdata.PoolerHealthState.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	6, // 7: multiorchdata.PoolerHealthState.consensus_status:type_name -> consensusdata.StatusResponse
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_multiorchdata_proto_init() }
@@ -403,14 +279,13 @@ func file_multiorchdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multiorchdata_proto_rawDesc), len(file_multiorchdata_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   2,
+			NumEnums:      0,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_multiorchdata_proto_goTypes,
 		DependencyIndexes: file_multiorchdata_proto_depIdxs,
-		EnumInfos:         file_multiorchdata_proto_enumTypes,
 		MessageInfos:      file_multiorchdata_proto_msgTypes,
 	}.Build()
 	File_multiorchdata_proto = out.File

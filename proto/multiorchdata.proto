@@ -76,21 +76,3 @@ message PoolerHealthState {
   // Consensus status from ConsensusStatus RPC (for divergence detection)
   consensusdata.StatusResponse consensus_status = 13;
 }
-
-// ProblemType categorizes shard-level problems detected by the analyzer
-enum ProblemType {
-  PROBLEM_TYPE_UNSPECIFIED = 0;
-  PROBLEM_REPLICA_TIMELINE_DIVERGED = 1;
-}
-
-// ShardProblem represents a problem detected in a shard
-message ShardProblem {
-  // Type of problem
-  ProblemType type = 1;
-
-  // Human-readable description
-  string description = 2;
-
-  // IDs of poolers affected by this problem
-  repeated clustermetadata.ID affected_poolers = 3;
-}
