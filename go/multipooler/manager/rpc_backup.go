@@ -929,7 +929,7 @@ func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success b
 	// validateAndUpdateTerm will automatically update our term when multiorc fixes replication.
 	var term int64 = 0
 	if pm.consensusState != nil {
-		pm.logger.InfoContext(ctx, "Loading default consensus term for auto-restore")
+		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
 		pm.loadConsensusTermFromDisk()
 		term = pm.consensusState.term.TermNumber
 	}
