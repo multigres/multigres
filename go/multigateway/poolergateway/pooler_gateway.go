@@ -212,8 +212,9 @@ func (pg *PoolerGateway) getOrCreateConnection(
 		"addr", addr)
 
 	// Create gRPC connection (non-blocking in newer gRPC)
-	conn, err := grpccommon.NewClient(addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpccommon.NewClientWithOptions(addr,
+		grpccommon.WithMultipoolerTarget(poolerID),
+		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for pooler %s at %s: %w", poolerID, addr, err)
