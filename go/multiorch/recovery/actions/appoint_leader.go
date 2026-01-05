@@ -96,7 +96,10 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	// It will select the most advanced node based on WAL position
 	// and run the full consensus protocol (term discovery, candidate selection,
 	// node recruitment, quorum validation, promotion, and replication setup)
-	if err := a.coordinator.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database); err != nil {
+	//
+	// Use the problem code as the reason for the election
+	reason := string(problem.Code)
+	if err := a.coordinator.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 

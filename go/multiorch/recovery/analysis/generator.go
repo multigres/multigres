@@ -182,6 +182,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		IsPrimary:            poolerType == clustermetadatapb.PoolerType_PRIMARY,
 		LastCheckValid:       pooler.IsLastCheckValid,
 		IsInitialized:        store.IsInitialized(pooler),
+		HasDataDirectory:     pooler.HasDataDirectory,
 		AnalyzedAt:           time.Now(),
 	}
 

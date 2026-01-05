@@ -50,7 +50,12 @@ type MultiPooler struct {
 	poolerDir           viperutil.Value[string]
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
-	pgBackRestStanza    viperutil.Value[string]
+	pgBackRestStanza    viperutil.Value[string] // TODO(sougou): this is deprecated. It's now hardcoded to multigres.
+	// pgBackRest TLS certificate paths (used for both server and client authentication)
+	pgBackRestCertFile viperutil.Value[string]
+	pgBackRestKeyFile  viperutil.Value[string]
+	pgBackRestCAFile   viperutil.Value[string]
+	pgBackRestPort     viperutil.Value[int]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -131,6 +136,26 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-stanza",
 			Dynamic:  false,
 		}),
+		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
+			Default:  "/certs/pgbackrest.crt",
+			FlagName: "pgbackrest-cert-file",
+			Dynamic:  false,
+		}),
+		pgBackRestKeyFile: viperutil.Configure(reg, "pgbackrest-key-file", viperutil.Options[string]{
+			Default:  "/certs/pgbackrest.key",
+			FlagName: "pgbackrest-key-file",
+			Dynamic:  false,
+		}),
+		pgBackRestCAFile: viperutil.Configure(reg, "pgbackrest-ca-file", viperutil.Options[string]{
+			Default:  "/certs/ca.crt",
+			FlagName: "pgbackrest-ca-file",
+			Dynamic:  false,
+		}),
+		pgBackRestPort: viperutil.Configure(reg, "pgbackrest-port", viperutil.Options[int]{
+			Default:  8432,
+			FlagName: "pgbackrest-port",
+			Dynamic:  false,
+		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -164,6 +189,10 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
 	flags.String("pgbackrest-stanza", mp.pgBackRestStanza.Default(), "pgBackRest stanza name (defaults to service ID if empty)")
+	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "pgBackRest TLS certificate file path (used for both server and client)")
+	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "pgBackRest TLS key file path (used for both server and client)")
+	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "pgBackRest TLS CA file path (used for both server and client)")
+	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -177,6 +206,10 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
 		mp.pgBackRestStanza,
+		mp.pgBackRestCertFile,
+		mp.pgBackRestKeyFile,
+		mp.pgBackRestCAFile,
+		mp.pgBackRestPort,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -249,9 +282,13 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
+	multipooler.PortMap["pgbackrest"] = int32(mp.pgBackRestPort.Get())
 	multipooler.Database = mp.database.Get()
 	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	multipooler.PoolerDir = mp.poolerDir.Get()
+	// For now, all poolers start as REPLICA
+	multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager, err := manager.NewMultiPoolerManager(logger, &manager.Config{
@@ -265,9 +302,12 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
-		PgBackRestStanza:    mp.pgBackRestStanza.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 		ConnPoolConfig:      mp.connPoolConfig,
+		PgBackRestCertFile:  mp.pgBackRestCertFile.Get(),
+		PgBackRestKeyFile:   mp.pgBackRestKeyFile.Get(),
+		PgBackRestCAFile:    mp.pgBackRestCAFile.Get(),
+		PgBackRestPort:      mp.pgBackRestPort.Get(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -321,6 +361,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 						mp.PortMap = multipooler.PortMap
 						mp.Hostname = multipooler.Hostname
 						mp.ServingStatus = multipooler.ServingStatus
+						mp.PoolerDir = multipooler.PoolerDir
 						return nil
 					})
 				return err

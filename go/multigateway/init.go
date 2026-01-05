@@ -43,8 +43,10 @@ type MultiGateway struct {
 	serviceID viperutil.Value[string]
 	// pgPort is the PostgreSQL protocol listen port
 	pgPort viperutil.Value[int]
-	// poolerDiscovery handles discovery of multipoolers
-	poolerDiscovery *PoolerDiscovery
+	// pgBindAddress is the address to bind the PostgreSQL listener to
+	pgBindAddress viperutil.Value[string]
+	// poolerDiscovery handles discovery of multipoolers across all cells
+	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
@@ -85,6 +87,12 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_PORT"},
 		}),
+		pgBindAddress: viperutil.Configure(reg, "pg-bind-address", viperutil.Options[string]{
+			Default:  "0.0.0.0",
+			FlagName: "pg-bind-address",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_BIND_ADDRESS"},
+		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
@@ -115,10 +123,12 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
+	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
+		mg.pgBindAddress,
 	)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
@@ -152,13 +162,13 @@ func (mg *MultiGateway) Init() error {
 	}
 
 	// This doesn't change
-	mg.serverStatus.Cell = mg.cell.Get()
+	mg.serverStatus.LocalCell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 
-	// Start pooler discovery first
-	mg.poolerDiscovery = NewPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
+	// Start pooler discovery (watches all cells)
+	mg.poolerDiscovery = NewGlobalPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
 	mg.poolerDiscovery.Start()
-	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
+	logger.Info("Global pooler discovery started", "local_cell", mg.cell.Get())
 
 	// Initialize PoolerGateway for managing pooler connections
 	mg.poolerGateway = poolergateway.NewPoolerGateway(mg.poolerDiscovery, logger)
@@ -172,7 +182,7 @@ func (mg *MultiGateway) Init() error {
 
 	// Create and start PostgreSQL protocol listener
 	pgHandler := handler.NewMultiGatewayHandler(mg.executor, logger)
-	pgAddr := fmt.Sprintf("localhost:%d", mg.pgPort.Get())
+	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address: pgAddr,
 		Handler: pgHandler,

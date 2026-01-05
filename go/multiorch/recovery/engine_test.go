@@ -67,7 +67,7 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Verify initial config
@@ -130,7 +130,7 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Set up config reloader that returns same targets
@@ -182,7 +182,7 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Set up config reloader that returns empty targets
@@ -222,7 +222,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Start the engine
@@ -239,7 +239,7 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 
 	// Verify context is cancelled
 	select {
-	case <-re.ctx.Done():
+	case <-re.shutdownCtx.Done():
 		// Success - context is cancelled
 	case <-time.After(1 * time.Second):
 		t.Error("context was not cancelled after Stop()")
@@ -267,7 +267,7 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "db1"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Track config reloads
@@ -324,7 +324,7 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Set up config reloader that returns invalid targets
@@ -426,7 +426,7 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 		cfg,
 		initialTargets,
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Set up config reloader that reads from viperutil.Value
@@ -502,7 +502,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Start the engine - it should discover existing poolers
@@ -551,7 +551,7 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add poolers to store BEFORE starting engine
@@ -644,7 +644,7 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 		cfg,
 		[]config.WatchTarget{{Database: "mydb"}},
 		&rpcclient.FakeClient{},
-		nil,
+		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
 	// Add pooler to topology BEFORE starting

@@ -130,6 +130,7 @@ func (mo *MultiOrch) Init() error {
 
 	logger.Info("multiorch starting up",
 		"cell", mo.cfg.GetCell(),
+		"service_id", mo.cfg.GetServiceID(),
 		"http_port", mo.senv.GetHTTPPort(),
 		"grpc_port", mo.grpcServer.Port(),
 		"watch_targets", targets,

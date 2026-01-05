@@ -420,8 +420,27 @@ func TestPropagate(t *testing.T) {
 			Description:   "Test quorum",
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
+		// Build cohort and recruited lists for the test
+		cohort := []*multiorchdatapb.PoolerHealthState{candidate}
+		cohort = append(cohort, standbys...)
+		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
+		recruited = append(recruited, standbys...)
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
 		require.NoError(t, err)
+
+		// Verify the PromoteRequest contains the expected election metadata
+		candidateKey := "multipooler-zone1-mp1"
+		promoteReq, ok := fakeClient.PromoteRequests[candidateKey]
+		require.True(t, ok, "PromoteRequest should be recorded for candidate")
+		require.NotNil(t, promoteReq, "PromoteRequest should not be nil")
+
+		// Verify election metadata fields
+		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
+		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match cell_name format")
+		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers, "CohortMembers should match")
+		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.AcceptedMembers, "AcceptedMembers should match")
+		require.Equal(t, int64(6), promoteReq.ConsensusTerm, "ConsensusTerm should match")
 	})
 
 	t.Run("success - continues even if some standbys fail", func(t *testing.T) {
@@ -453,9 +472,27 @@ func TestPropagate(t *testing.T) {
 			Description:   "Test quorum",
 		}
 
-		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule)
+		// Build cohort and recruited lists for the test
+		cohort := []*multiorchdatapb.PoolerHealthState{candidate}
+		cohort = append(cohort, standbys...)
+		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
+		recruited = append(recruited, standbys...)
+
+		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
 		// Should succeed even though one standby failed
 		require.NoError(t, err)
+
+		// Verify the PromoteRequest contains the expected election metadata even when some standbys fail
+		candidateKey := "multipooler-zone1-mp1"
+		promoteReq, ok := fakeClient.PromoteRequests[candidateKey]
+		require.True(t, ok, "PromoteRequest should be recorded for candidate")
+		require.NotNil(t, promoteReq, "PromoteRequest should not be nil")
+
+		// Verify election metadata fields
+		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
+		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match cell_name format")
+		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
+		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
 	})
 }
 

@@ -28,14 +28,14 @@ import (
 func (re *Engine) refreshClusterMetadata() {
 	startTime := time.Now()
 	defer func() {
-		re.metrics.clusterMetadataRefreshDuration.Record(re.ctx, time.Since(startTime).Seconds())
+		re.metrics.clusterMetadataRefreshDuration.Record(re.shutdownCtx, time.Since(startTime).Seconds())
 	}()
 
 	re.logger.Debug("refreshing cluster metadata")
 
 	// Create a timeout context for this refresh operation
 	// Use the configured timeout, but respect parent context cancellation
-	ctx, cancel := context.WithTimeout(re.ctx, re.config.GetClusterMetadataRefreshTimeout())
+	ctx, cancel := context.WithTimeout(re.shutdownCtx, re.config.GetClusterMetadataRefreshTimeout())
 	defer cancel()
 
 	// Get all cells
@@ -74,7 +74,8 @@ func (re *Engine) refreshClusterMetadata() {
 		re.logger.Debug("refreshed poolers for target", "target", target.String(), "count", count)
 	}
 
-	re.logger.Info("cluster metadata refresh complete",
+	// Info level log is too spammy
+	re.logger.Debug("cluster metadata refresh complete",
 		"cells", len(cells),
 		"total_poolers", totalPoolers,
 	)

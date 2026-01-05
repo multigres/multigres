@@ -26,6 +26,7 @@ import (
 
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
 // Conn wraps a gRPC connection to the multiadmin server.
@@ -45,7 +46,7 @@ func NewClient(cmd *cobra.Command) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpccommon.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to admin server at %s: %w", addr, err)
 	}

@@ -146,6 +146,7 @@ func ParseShardWatchTargets(targets []string) ([]WatchTarget, error) {
 // This is passed to the recovery engine and other components.
 type Config struct {
 	cell                           viperutil.Value[string]
+	serviceID                      viperutil.Value[string]
 	shardWatchTargets              viperutil.Value[[]string]
 	bookkeepingInterval            viperutil.Value[time.Duration]
 	clusterMetadataRefreshInterval viperutil.Value[time.Duration]
@@ -170,6 +171,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			FlagName: "cell",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_CELL"},
+		}),
+		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "service-id",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_SERVICE_ID"},
 		}),
 		shardWatchTargets: viperutil.Configure(reg, "watch-targets", viperutil.Options[[]string]{
 			FlagName: "watch-targets",
@@ -221,6 +228,10 @@ func (c *Config) GetCell() string {
 	return c.cell.Get()
 }
 
+func (c *Config) GetServiceID() string {
+	return c.serviceID.Get()
+}
+
 func (c *Config) GetShardWatchTargets() []string {
 	return c.shardWatchTargets.Get()
 }
@@ -255,6 +266,10 @@ func (c *Config) DefaultCell() string {
 	return c.cell.Default()
 }
 
+func (c *Config) DefaultServiceID() string {
+	return c.serviceID.Default()
+}
+
 func (c *Config) DefaultShardWatchTargets() []string {
 	return c.shardWatchTargets.Default()
 }
@@ -286,6 +301,7 @@ func (c *Config) DefaultRecoveryCycleInterval() time.Duration {
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
+	fs.String("service-id", c.DefaultServiceID(), "optional service ID (if empty, a random ID will be generated)")
 	fs.StringSlice("watch-targets", c.DefaultShardWatchTargets(), "list of db/tablegroup/shard targets to watch")
 	fs.Duration("bookkeeping-interval", c.DefaultBookkeepingInterval(), "interval for bookkeeping tasks")
 	fs.Duration("cluster-metadata-refresh-interval", c.DefaultClusterMetadataRefreshInterval(), "interval for refreshing cluster metadata from topology")
@@ -295,6 +311,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
 	viperutil.BindFlags(fs,
 		c.cell,
+		c.serviceID,
 		c.shardWatchTargets,
 		c.bookkeepingInterval,
 		c.clusterMetadataRefreshInterval,
