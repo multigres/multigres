@@ -28,16 +28,22 @@ export function SiteHeader({
         {breadcrumbs && breadcrumbs.length ? (
           <Breadcrumb>
             <BreadcrumbList>
-              {breadcrumbs.map((bc, idx) => (
-                <BreadcrumbItem key={idx}>
-                  {bc.href && idx < breadcrumbs.length - 1 ? (
-                    <BreadcrumbLink href={bc.href}>{bc.label}</BreadcrumbLink>
-                  ) : (
-                    <BreadcrumbPage>{bc.label}</BreadcrumbPage>
-                  )}
-                  {idx < breadcrumbs.length - 1 && <BreadcrumbSeparator />}
-                </BreadcrumbItem>
-              ))}
+              {breadcrumbs.flatMap((bc, idx) => {
+                const item = (
+                  <BreadcrumbItem key={`item-${idx}`}>
+                    {bc.href && idx < breadcrumbs.length - 1 ? (
+                      <BreadcrumbLink href={bc.href}>{bc.label}</BreadcrumbLink>
+                    ) : (
+                      <BreadcrumbPage>{bc.label}</BreadcrumbPage>
+                    )}
+                  </BreadcrumbItem>
+                );
+                const separator =
+                  idx < breadcrumbs.length - 1 ? (
+                    <BreadcrumbSeparator key={`sep-${idx}`} />
+                  ) : null;
+                return [item, separator].filter(Boolean);
+              })}
             </BreadcrumbList>
           </Breadcrumb>
         ) : (
