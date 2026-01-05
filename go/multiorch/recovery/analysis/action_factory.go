@@ -42,6 +42,9 @@ func NewRecoveryActionFactory(
 	coordinator *coordinator.Coordinator,
 	logger *slog.Logger,
 ) *RecoveryActionFactory {
+	if coordinator == nil {
+		panic("coordinator cannot be nil")
+	}
 	return &RecoveryActionFactory{
 		poolerStore: poolerStore,
 		rpcClient:   rpcClient,
@@ -53,7 +56,7 @@ func NewRecoveryActionFactory(
 
 // NewBootstrapShardAction creates a bootstrap shard action.
 func (f *RecoveryActionFactory) NewBootstrapShardAction() types.RecoveryAction {
-	return actions.NewBootstrapShardAction(f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewBootstrapShardAction(f.rpcClient, f.poolerStore, f.topoStore, f.coordinator, f.logger)
 }
 
 // NewAppointLeaderAction creates an appoint leader action.

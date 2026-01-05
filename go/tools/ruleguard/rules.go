@@ -61,5 +61,15 @@ func requireContextBackgroundJustification(m dsl.Matcher) {
 		Where(
 			!m.File().Name.Matches(`_test\.go$`) &&
 				!m.File().PkgPath.Matches(`/test/|/testutil/|testutil$`)).
-		Report("context.Background() requires justification. Use context.TODO() if no context is available, or add //nolint:gocritic // <reason> for legitimate entry points")
+		Report("context.Background() requires justification. Use context.TODO() if no context is available, ctxutil.Detach(ctx) for long-lived background tasks, or add //nolint:gocritic // <reason> for legitimate entry points")
+}
+
+func requireGrpcCommonNewClient(m dsl.Matcher) {
+	m.Import("google.golang.org/grpc")
+
+	m.Match(`grpc.NewClient($*_)`).
+		Where(
+			!m.File().Name.Matches(`_test\.go$`) &&
+				!m.File().PkgPath.Matches(`/grpccommon$|/test/|/testutil/|testutil$`)).
+		Report("use grpccommon.NewClient() instead of grpc.NewClient() to ensure telemetry instrumentation")
 }

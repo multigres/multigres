@@ -37,13 +37,30 @@ func (sv *ServEnv) HTTPHandleFunc(pattern string, handler func(http.ResponseWrit
 	sv.mux.HandleFunc(pattern, handler)
 }
 
+// corsMiddleware adds CORS headers to allow cross-origin requests.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// Handle preflight OPTIONS requests
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // HTTPServe starts the HTTP server for the internal servenv mux on the listener.
 func (sv *ServEnv) HTTPServe(l net.Listener) error {
 	slog.Info("Listening for HTTP calls on port", "httpPort", sv.httpPort.Get())
 
-	// Wrap the mux with OpenTelemetry instrumentation
+	// Wrap the mux with CORS middleware and OpenTelemetry instrumentation
 	// If no OTEL exporters are configured, noop exporters are used with minimal overhead
-	handler := otelhttp.NewHandler(sv.mux, "http-server")
+	handler := otelhttp.NewHandler(corsMiddleware(sv.mux), "http-server")
 
 	server := &http.Server{
 		Handler:           handler,

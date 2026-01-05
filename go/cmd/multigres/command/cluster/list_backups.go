@@ -55,8 +55,7 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 	defer client.Close()
 
 	// Create context with timeout
-	//nolint:gocritic // CLI entry point - no parent context available
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	// Note: TableGroup and Shard are currently hardcoded to defaults because

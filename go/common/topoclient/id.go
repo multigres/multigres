@@ -15,6 +15,7 @@
 package topoclient
 
 import (
+	"fmt"
 	"strings"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -30,4 +31,13 @@ func ComponentTypeToString(component clustermetadatapb.ID_ComponentType) string 
 		return strings.ToLower(name)
 	}
 	return "unknown"
+}
+
+// ClusterIDString returns a string representation of the cluster ID in cell_name format.
+// Returns empty string if id is nil.
+func ClusterIDString(id *clustermetadatapb.ID) string {
+	if id == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
 }

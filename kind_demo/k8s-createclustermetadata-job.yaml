@@ -1,0 +1,24 @@
+# createclustermetadata currently only creates the cell metadata
+# on the global etcd cluster. It will later be enhanced to accept
+# cell-specific topo.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: createclustermetadata
+spec:
+  template:
+    spec:
+      containers:
+        - name: multigres
+          image: docker.io/multigres/multigres:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/multigres/bin/multigres"]
+          args:
+            - createclustermetadata
+            - --global-topo-address=etcd:2379
+            - --global-topo-root=/multigres/test/global
+            - --cells=zone1 # This demo is for a single zone cluster.
+            - --durability-policy=ANY_2 # multiorch does not support single node durability policies yet.
+            - --backup-location=/backups # This path is mounted on all nodes and pods through hostPath.
+      restartPolicy: OnFailure
+  backoffLimit: 3

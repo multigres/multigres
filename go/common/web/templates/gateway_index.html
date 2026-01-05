@@ -26,20 +26,12 @@
             </tr>
             {{template "topostatus.tmpl" .TopoStatus}}
             <tr>
-              <th>Cell</th>
-              <td>{{.Cell}}</td>
+              <th>Local Cell</th>
+              <td>{{.LocalCell}}</td>
             </tr>
             <tr>
               <th>Service ID</th>
               <td>{{.ServiceID}}</td>
-            </tr>
-            <tr>
-              <th>Pooler count</th>
-              <td>{{.PoolerCount}}</td>
-            </tr>
-            <tr>
-              <th>Last refresh</th>
-              <td>{{.LastRefresh}}</td>
             </tr>
           </tbody>
         </table>
@@ -57,8 +49,10 @@
       </section>
     </main>
 
+    {{range .Cells}}
     <section>
-      <h4>Poolers</h4>
+      <h4>Poolers in Cell: {{.Cell}}</h4>
+      <p><small>Last refresh: {{.LastRefresh}}</small></p>
       <table>
         <thead>
           <tr>
@@ -78,6 +72,7 @@
         </tbody>
       </table>
     </section>
+    {{end}}
 
     <footer>{{template "timestamp.tmpl"}}</footer>
   </body>

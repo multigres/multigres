@@ -30,4 +30,5 @@ func AddTopoCommands(root *cobra.Command, mc *MultigresCommand) {
 	root.AddCommand(topo.AddGetGatewaysCommand())
 	root.AddCommand(topo.AddGetPoolersCommand())
 	root.AddCommand(topo.AddGetOrchsCommand())
+	root.AddCommand(topo.CreateClusterMetadataCommand())
 }

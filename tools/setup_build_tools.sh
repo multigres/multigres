@@ -415,6 +415,8 @@ install_pgbackrest_macos() {
 install_go_plugins() {
   # Reinstall protoc-gen-go and protoc-gen-go-grpc
   GOBIN=$MTROOT/bin go install google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
+  # Install protoc-gen-grpc-gateway (separate install due to different module)
+  GOBIN=$MTROOT/bin go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.27.4
 }
 
 install_go_tools() {

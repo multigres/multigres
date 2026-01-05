@@ -23,6 +23,8 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/ctxutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -51,11 +53,14 @@ func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 	// Create a job to track this backup operation
 	s.backupJobTracker.CreateJobWithID(jobID, multiadminpb.JobType_JOB_TYPE_BACKUP, req.Database, req.TableGroup, req.Shard)
 
-	// Start the backup operation asynchronously
+	// Start the backup operation asynchronously with a linked root span
 	go func() {
-		//nolint:gocritic // async goroutine outlives request context
-		bgCtx := context.Background()
+		bgCtx := ctxutil.Detach(ctx)
+		bgCtx, span := ctxutil.StartLinkedSpan(bgCtx, telemetry.Tracer(), "Backup")
+		defer span.End()
+
 		if err := s.executeBackup(bgCtx, jobID, pooler, req); err != nil {
+			span.RecordError(err)
 			s.logger.ErrorContext(bgCtx, "Backup failed", "job_id", jobID, "error", err)
 			s.backupJobTracker.FailJob(jobID, err.Error())
 		}
@@ -176,11 +181,15 @@ func (s *MultiAdminServer) RestoreFromBackup(ctx context.Context, req *multiadmi
 	// TODO: store job_id somewhere persistent, such as the PGDATA directory or topo,
 	// so that job state is not lost after multiadmin restart
 
-	// Start restore in background
+	// Start restore in background with a linked root span
 	go func() {
-		//nolint:gocritic // async goroutine outlives request context
-		if err := s.executeRestore(context.Background(), jobID, req); err != nil {
-			s.logger.ErrorContext(context.Background(), "Restore failed", "job_id", jobID, "error", err) //nolint:gocritic // async goroutine
+		bgCtx := ctxutil.Detach(ctx)
+		bgCtx, span := ctxutil.StartLinkedSpan(bgCtx, telemetry.Tracer(), "Restore")
+		defer span.End()
+
+		if err := s.executeRestore(bgCtx, jobID, req); err != nil {
+			span.RecordError(err)
+			s.logger.ErrorContext(bgCtx, "Restore failed", "job_id", jobID, "error", err)
 			s.backupJobTracker.FailJob(jobID, err.Error())
 		}
 	}()

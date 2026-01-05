@@ -129,21 +129,34 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 		logger.Info("standby.signal created successfully", "path", standbySignalPath)
 	}
 
-	// Start the server
+	// Start the server with detailed context
 	if asStandby {
-		logger.Info("Starting PostgreSQL server as standby")
+		logger.Info("Starting PostgreSQL server as standby",
+			"data_dir", config.PostgresDataDir,
+			"port", config.Port,
+			"timeout", config.Timeout,
+		)
 	} else {
 		logger.Info("Starting PostgreSQL server")
 	}
+
 	startResult, err := StartPostgreSQLWithResult(logger, config)
 	if err != nil {
+		// Enhanced error logging for standby mode
+		if asStandby {
+			logger.Error("Failed to start PostgreSQL as standby",
+				"error", err,
+				"data_dir", config.PostgresDataDir,
+				"port", config.Port,
+			)
+		}
 		return nil, fmt.Errorf("failed to start PostgreSQL during restart: %w", err)
 	}
 
 	result.PID = startResult.PID
 	if asStandby {
 		result.Message = "PostgreSQL server restarted as standby successfully"
-		logger.Info("PostgreSQL server restarted as standby successfully")
+		logger.Info("PostgreSQL server restarted as standby successfully", "pid", result.PID)
 	} else {
 		result.Message = "PostgreSQL server restarted successfully"
 		logger.Info("PostgreSQL server restarted successfully")

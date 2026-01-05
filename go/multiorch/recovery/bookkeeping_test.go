@@ -16,8 +16,6 @@ package recovery
 
 import (
 	"context"
-	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -25,20 +23,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	commontypes "github.com/multigres/multigres/go/common/types"
-	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
 func TestForgetLongUnseenInstances_BrokenEntries(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
+	engine := newTestEngine(ctx, t)
 
 	// Add broken entries
 	engine.poolerStore.Set("broken-nil-info", nil)
@@ -62,10 +54,7 @@ func TestForgetLongUnseenInstances_BrokenEntries(t *testing.T) {
 
 func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
+	engine := newTestEngine(ctx, t)
 
 	now := time.Now()
 	threshold := 4 * time.Hour
@@ -138,10 +127,7 @@ func TestForgetLongUnseenInstances_NeverSeen(t *testing.T) {
 
 func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
+	engine := newTestEngine(ctx, t)
 
 	now := time.Now()
 	threshold := 4 * time.Hour
@@ -198,10 +184,7 @@ func TestForgetLongUnseenInstances_LongUnseen(t *testing.T) {
 
 func TestForgetLongUnseenInstances_MixedScenario(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
+	engine := newTestEngine(ctx, t)
 
 	now := time.Now()
 	threshold := 4 * time.Hour
@@ -285,10 +268,7 @@ func TestForgetLongUnseenInstances_MixedScenario(t *testing.T) {
 
 func TestForgetLongUnseenInstances_EmptyStore(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
+	engine := newTestEngine(ctx, t)
 
 	// Run forget on empty store (should not panic)
 	engine.forgetLongUnseenInstances()
@@ -298,10 +278,7 @@ func TestForgetLongUnseenInstances_EmptyStore(t *testing.T) {
 
 func TestRunBookkeeping(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
+	engine := newTestEngine(ctx, t)
 
 	now := time.Now()
 	threshold := 4 * time.Hour
@@ -333,10 +310,7 @@ func TestRunBookkeeping(t *testing.T) {
 
 func TestAudit(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, nil)
+	engine := newTestEngine(ctx, t)
 
 	// Just verify audit doesn't panic (output is logged)
 	engine.audit("test-type", "pooler-1", commontypes.ShardKey{Database: "db1", TableGroup: "default", Shard: "-"}, "test message")
