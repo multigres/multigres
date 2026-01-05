@@ -119,10 +119,6 @@ service MultiPoolerManager {
   rpc State(multipoolermanagerdata.StateRequest)
     returns (multipoolermanagerdata.StateResponse);
 
-  // SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
-  rpc SetTerm(multipoolermanagerdata.SetTermRequest)
-    returns (multipoolermanagerdata.SetTermResponse);
-
   //
   // Shard Initialization APIs
   // The following methods are used by MultiOrch to bootstrap new shards
