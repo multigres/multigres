@@ -43,8 +43,8 @@ const managementNav = [
 ];
 
 const clusterNav = [
-  // { title: "MultiGateways", url: "/dashboard/multigateways", icon: IconFolder },
-  // { title: "MultiPoolers", url: "/dashboard/multipoolers", icon: IconFolder },
+  { title: "MultiGateways", url: "/dashboard/multigateways", icon: IconFolder },
+  { title: "MultiPoolers", url: "/dashboard/multipoolers", icon: IconFolder },
   // { title: "Settings", url: "/dashboard/settings", icon: IconSettings },
 ];
 
@@ -83,7 +83,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             ))}
           </SidebarMenu>
         </SidebarGroup>
-        {/* <SidebarGroup>
+        <SidebarGroup>
           <SidebarGroupLabel>Cluster</SidebarGroupLabel>
           <SidebarMenu>
             {clusterNav.map((item) => (
@@ -100,7 +100,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
-        </SidebarGroup> */}
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   );
