@@ -56,7 +56,6 @@ type MultiPooler struct {
 	pgBackRestKeyFile  viperutil.Value[string]
 	pgBackRestCAFile   viperutil.Value[string]
 	pgBackRestPort     viperutil.Value[int]
-	initialPoolerType  viperutil.Value[string]
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -157,11 +156,6 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-port",
 			Dynamic:  false,
 		}),
-		initialPoolerType: viperutil.Configure(reg, "initial-pooler-type", viperutil.Options[string]{
-			Default:  "REPLICA",
-			FlagName: "initial-pooler-type",
-			Dynamic:  false,
-		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
 		senv:           servenv.NewServEnvWithConfig(reg, servenv.NewLogger(reg, telemetry), viperutil.NewViperConfig(reg), telemetry),
 		telemetry:      telemetry,
@@ -199,7 +193,6 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "pgBackRest TLS key file path (used for both server and client)")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "pgBackRest TLS CA file path (used for both server and client)")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
-	flags.String("initial-pooler-type", mp.initialPoolerType.Default(), "Initial pooler type when creating new pooler record (UNKNOWN, REPLICA)")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -217,7 +210,6 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
-		mp.initialPoolerType,
 	)
 
 	mp.grpcServer.RegisterFlags(flags)
@@ -284,15 +276,8 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	multipooler.PoolerDir = mp.poolerDir.Get()
-
-	// Set initial pooler type based on flag (only affects first-time registration)
-	switch mp.initialPoolerType.Get() {
-	case "REPLICA":
-		multipooler.Type = clustermetadatapb.PoolerType_REPLICA
-	default:
-		// Default to REPLICA if invalid value
-		multipooler.Type = clustermetadatapb.PoolerType_REPLICA
-	}
+	// For now, all poolers start as REPLICA
+	multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
 	poolerManager, err := manager.NewMultiPoolerManager(logger, &manager.Config{
