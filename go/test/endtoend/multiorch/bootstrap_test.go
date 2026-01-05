@@ -347,7 +347,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return status.Status.IsInitialized && status.Status.PostgresRunning
+			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm > 0
 		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
 
 		// Verify final state
