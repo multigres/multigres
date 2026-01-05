@@ -45,6 +45,7 @@ const managementNav = [
 const clusterNav = [
   { title: "MultiGateways", url: "/dashboard/multigateways", icon: IconFolder },
   { title: "MultiPoolers", url: "/dashboard/multipoolers", icon: IconFolder },
+  { title: "MultiOrchestrator", url: "/dashboard/multiorch", icon: IconFolder },
   // { title: "Settings", url: "/dashboard/settings", icon: IconSettings },
 ];
 
