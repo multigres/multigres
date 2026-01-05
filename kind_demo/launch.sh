@@ -29,6 +29,15 @@ fi
 
 # Initialize the cluster with etcd
 kind create cluster --config=kind.yaml --name=multidemo
+
+# Increase limits on all Kind nodes for high-connection workloads
+for node in $(kind get nodes --name=multidemo); do
+  docker exec "$node" sh -c "sysctl -w fs.file-max=2097152"
+  docker exec "$node" sh -c "sysctl -w fs.nr_open=2097152"
+  docker exec "$node" sh -c "sysctl -w net.core.somaxconn=65535"
+  docker exec "$node" sh -c "sysctl -w net.ipv4.ip_local_port_range='1024 65535'"
+done
+
 kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/multiadmin-web --name=multidemo
 # This single etcd will be used for both the global topo and cell topo.
 kubectl apply -f k8s-etcd.yaml
