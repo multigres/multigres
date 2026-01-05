@@ -213,8 +213,49 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	return c.authenticate()
 }
 
-// authenticate performs SCRAM-SHA-256 authentication with the client.
+// authenticate performs authentication with the client.
+// If a TrustAuthProvider is configured and allows the user, trust auth is used.
+// Otherwise, SCRAM-SHA-256 authentication is performed.
 func (c *Conn) authenticate() error {
+	// Check if trust auth is allowed for this connection
+	if c.trustAuthProvider != nil && c.trustAuthProvider.AllowTrustAuth(c.ctx, c.user, c.database) {
+		return c.authenticateTrust()
+	}
+
+	return c.authenticateSCRAM()
+}
+
+// authenticateTrust performs trust authentication (no password required).
+// This is used in tests to simulate Unix socket trust authentication.
+func (c *Conn) authenticateTrust() error {
+	c.logger.Debug("authenticating client", "method", "trust")
+
+	// For trust auth, we just send AuthenticationOk immediately.
+	if err := c.sendAuthenticationOk(); err != nil {
+		return fmt.Errorf("failed to send AuthenticationOk: %w", err)
+	}
+
+	// Send BackendKeyData for query cancellation.
+	if err := c.sendBackendKeyData(); err != nil {
+		return fmt.Errorf("failed to send BackendKeyData: %w", err)
+	}
+
+	// Send initial ParameterStatus messages.
+	if err := c.sendParameterStatuses(); err != nil {
+		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
+	}
+
+	// Send ReadyForQuery to indicate we're ready to receive commands.
+	if err := c.sendReadyForQuery(); err != nil {
+		return fmt.Errorf("failed to send ReadyForQuery: %w", err)
+	}
+
+	c.logger.Info("authentication complete", "user", c.user, "method", "trust")
+	return nil
+}
+
+// authenticateSCRAM performs SCRAM-SHA-256 authentication with the client.
+func (c *Conn) authenticateSCRAM() error {
 	c.logger.Debug("authenticating client", "method", "scram-sha-256")
 
 	// Create the SCRAM authenticator.

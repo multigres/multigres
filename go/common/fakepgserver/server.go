@@ -30,7 +30,6 @@ import (
 	"testing"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
-	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -95,35 +94,14 @@ type exprResult struct {
 	err          string
 }
 
-// testHashProvider implements scram.PasswordHashProvider for testing.
-// It accepts a fixed password for any user/database combination.
-type testHashProvider struct {
-	hash *scram.ScramHash
-}
+// trustAllProvider implements server.TrustAuthProvider for testing.
+// It allows all connections without password authentication,
+// simulating Unix socket trust authentication.
+type trustAllProvider struct{}
 
-// TestPassword is the password clients must use to authenticate with fakepgserver.
-const TestPassword = "test"
-
-var (
-	testSalt       = []byte("fakepgserversalt")
-	testIterations = 4096
-)
-
-func newTestHashProvider() *testHashProvider {
-	saltedPassword := scram.ComputeSaltedPassword(TestPassword, testSalt, testIterations)
-	clientKey := scram.ComputeClientKey(saltedPassword)
-	return &testHashProvider{
-		hash: &scram.ScramHash{
-			Iterations: testIterations,
-			Salt:       testSalt,
-			StoredKey:  scram.ComputeStoredKey(clientKey),
-			ServerKey:  scram.ComputeServerKey(saltedPassword),
-		},
-	}
-}
-
-func (p *testHashProvider) GetPasswordHash(_ context.Context, _, _ string) (*scram.ScramHash, error) {
-	return p.hash, nil
+// AllowTrustAuth always returns true, allowing all connections without password.
+func (p *trustAllProvider) AllowTrustAuth(_ context.Context, _, _ string) bool {
+	return true
 }
 
 // ExpectedExecuteFetch defines for an expected query the to be faked output.
@@ -151,13 +129,13 @@ func New(t testing.TB) *Server {
 	// Create the handler.
 	handler := &fakeHandler{server: s}
 
-	// Create listener on random port.
+	// Create listener on random port with trust auth (simulates Unix socket trust auth).
 	var err error
 	s.listener, err = server.NewListener(server.ListenerConfig{
-		Address:      "127.0.0.1:0", // Random available port.
-		Handler:      handler,
-		HashProvider: newTestHashProvider(),
-		Logger:       slog.Default(),
+		Address:           "127.0.0.1:0", // Random available port.
+		Handler:           handler,
+		TrustAuthProvider: &trustAllProvider{},
+		Logger:            slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("fakepgserver: failed to create listener: %v", err)
@@ -202,6 +180,7 @@ func (s *Server) Address() string {
 }
 
 // ClientConfig returns a client.Config for connecting to this server.
+// No password is needed since fakepgserver uses trust authentication.
 func (s *Server) ClientConfig() *client.Config {
 	host, port, err := net.SplitHostPort(s.address)
 	if err != nil {
@@ -215,7 +194,6 @@ func (s *Server) ClientConfig() *client.Config {
 		Host:     host,
 		Port:     portNum,
 		User:     "test",
-		Password: TestPassword,
 		Database: "testdb",
 	}
 }

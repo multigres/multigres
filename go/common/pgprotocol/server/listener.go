@@ -40,6 +40,10 @@ type Listener struct {
 	// hashProvider provides password hashes for SCRAM authentication.
 	hashProvider scram.PasswordHashProvider
 
+	// trustAuthProvider enables trust authentication for testing.
+	// When set and AllowTrustAuth() returns true, password auth is skipped.
+	trustAuthProvider TrustAuthProvider
+
 	// logger for logging.
 	logger *slog.Logger
 
@@ -63,6 +67,18 @@ type Listener struct {
 	cancel context.CancelFunc
 }
 
+// TrustAuthProvider determines whether trust authentication is allowed.
+// When this interface is provided, connections can skip password authentication.
+// This is intended for testing scenarios to simulate Unix socket trust auth.
+//
+// WARNING: This should only be used in tests. Production code should not
+// provide a TrustAuthProvider, ensuring all connections use SCRAM authentication.
+type TrustAuthProvider interface {
+	// AllowTrustAuth returns true if the given user/database connection
+	// should be allowed with trust authentication (no password).
+	AllowTrustAuth(ctx context.Context, user, database string) bool
+}
+
 // ListenerConfig holds configuration for the listener.
 type ListenerConfig struct {
 	// Address to listen on (e.g., "localhost:5432").
@@ -71,8 +87,15 @@ type ListenerConfig struct {
 	// Handler processes queries.
 	Handler Handler
 
-	// HashProvider provides password hashes for SCRAM authentication (required).
+	// HashProvider provides password hashes for SCRAM authentication.
+	// Required unless TrustAuthProvider is set.
 	HashProvider scram.PasswordHashProvider
+
+	// TrustAuthProvider enables trust authentication for testing.
+	// When set, connections that pass AllowTrustAuth() skip password auth.
+	// This is intended for testing to simulate Unix socket trust auth.
+	// Production code should NOT set this field.
+	TrustAuthProvider TrustAuthProvider
 
 	// Logger for logging (optional, defaults to slog.Default()).
 	Logger *slog.Logger
@@ -83,8 +106,10 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	if config.Handler == nil {
 		return nil, errors.New("handler is required")
 	}
-	if config.HashProvider == nil {
-		return nil, fmt.Errorf("hash provider is required")
+
+	// HashProvider is required unless TrustAuthProvider is set
+	if config.HashProvider == nil && config.TrustAuthProvider == nil {
+		return nil, fmt.Errorf("hash provider is required (or TrustAuthProvider for testing)")
 	}
 
 	netListener, err := net.Listen("tcp", config.Address)
@@ -100,12 +125,13 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	l := &Listener{
-		listener:     netListener,
-		handler:      config.Handler,
-		hashProvider: config.HashProvider,
-		logger:       logger,
-		ctx:          ctx,
-		cancel:       cancel,
+		listener:          netListener,
+		handler:           config.Handler,
+		hashProvider:      config.HashProvider,
+		trustAuthProvider: config.TrustAuthProvider,
+		logger:            logger,
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 
 	// Initialize buffer pools.
@@ -147,6 +173,7 @@ func (l *Listener) Serve() error {
 		conn := newConn(netConn, l, connID)
 		conn.handler = l.handler
 		conn.hashProvider = l.hashProvider
+		conn.trustAuthProvider = l.trustAuthProvider
 
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {
