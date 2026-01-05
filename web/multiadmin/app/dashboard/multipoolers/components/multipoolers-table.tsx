@@ -14,15 +14,23 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { useApi } from "@/lib/api/context";
 import type { MultiPooler } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 
 function PoolerTypeBadge({ type }: { type?: string }) {
   if (!type) return <>-</>;
 
   const isPrimary = type === "PRIMARY";
   return (
-    <Badge variant={isPrimary ? "default" : "secondary"} className="text-xs">
+    <span
+      className={cn(
+        "font-mono text-xs px-1.5 py-0.5 rounded",
+        isPrimary
+          ? "bg-blue-500/20 text-blue-400"
+          : "bg-purple-500/20 text-purple-400"
+      )}
+    >
       {type}
-    </Badge>
+    </span>
   );
 }
 
@@ -33,7 +41,7 @@ function ServingStatusBadge({ status }: { status?: string }) {
   return (
     <Badge
       variant={isServing ? "default" : "destructive"}
-      className="text-xs"
+      className="font-mono text-xs"
     >
       {status}
     </Badge>
@@ -162,19 +170,21 @@ export function MultiPoolersTable() {
             <TableBody>
               {filteredPoolers.map((pooler, idx) => (
                 <TableRow key={pooler.id?.name || idx}>
-                  <TableCell className="pl-6 font-medium py-3">
+                  <TableCell className="pl-6 font-mono text-xs py-3">
                     {pooler.id?.cell || "-"}
                   </TableCell>
-                  <TableCell className="font-medium py-3">
+                  <TableCell className="font-mono text-xs py-3">
                     {pooler.id?.name || "-"}
                   </TableCell>
-                  <TableCell className="py-3">
+                  <TableCell className="font-mono text-xs py-3">
                     {pooler.database || "-"}
                   </TableCell>
-                  <TableCell className="py-3">
+                  <TableCell className="font-mono text-xs py-3">
                     {pooler.table_group || "-"}
                   </TableCell>
-                  <TableCell className="py-3">{pooler.shard || "-"}</TableCell>
+                  <TableCell className="font-mono text-xs py-3">
+                    {pooler.shard || "-"}
+                  </TableCell>
                   <TableCell className="text-center py-3">
                     <PoolerTypeBadge type={pooler.type} />
                   </TableCell>

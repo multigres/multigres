@@ -128,10 +128,10 @@ export function MultiGatewaysTable() {
             <TableBody>
               {filteredGateways.map((gateway, idx) => (
                 <TableRow key={gateway.id?.name || idx}>
-                  <TableCell className="pl-6 font-medium py-3">
+                  <TableCell className="pl-6 font-mono text-xs py-3">
                     {gateway.id?.cell || "-"}
                   </TableCell>
-                  <TableCell className="font-medium py-3">
+                  <TableCell className="font-mono text-xs py-3">
                     {gateway.id?.name || "-"}
                   </TableCell>
                   <TableCell className="font-mono text-xs py-3">
