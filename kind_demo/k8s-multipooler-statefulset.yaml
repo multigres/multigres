@@ -116,7 +116,7 @@ spec:
             - --database=postgres
             - --table-group=default
             - --shard=0-inf
-            - --service-id=$(POD_INDEX)
+            - --service-id=multipooler-$(MT_CELL)-$(POD_INDEX)
             - --pooler-dir=/data
             - --pgctld-addr=localhost:16200
             - --pg-port=5432
@@ -160,6 +160,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+            - name: MT_CELL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['cell']
             - name: OTEL_SERVICE_NAME
               value: "multipooler"
           envFrom:

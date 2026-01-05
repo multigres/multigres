@@ -236,6 +236,9 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		ServiceName:       constants.ServiceMultipooler,
 		ServiceInstanceID: serviceID,
 		Cell:              cell,
+		Shard:             mp.shard.Get(),
+		Database:          mp.database.Get(),
+		TableGroup:        mp.tableGroup.Get(),
 	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
