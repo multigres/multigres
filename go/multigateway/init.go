@@ -43,6 +43,8 @@ type MultiGateway struct {
 	serviceID viperutil.Value[string]
 	// pgPort is the PostgreSQL protocol listen port
 	pgPort viperutil.Value[int]
+	// pgBindAddress is the address to bind the PostgreSQL listener to
+	pgBindAddress viperutil.Value[string]
 	// poolerDiscovery handles discovery of multipoolers across all cells
 	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
@@ -85,6 +87,12 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_PORT"},
 		}),
+		pgBindAddress: viperutil.Configure(reg, "pg-bind-address", viperutil.Options[string]{
+			Default:  "0.0.0.0",
+			FlagName: "pg-bind-address",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_BIND_ADDRESS"},
+		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
@@ -115,10 +123,12 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
+	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
+		mg.pgBindAddress,
 	)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
@@ -161,7 +171,7 @@ func (mg *MultiGateway) Init() error {
 
 	// Create and start PostgreSQL protocol listener
 	pgHandler := handler.NewMultiGatewayHandler(mg.executor, logger)
-	pgAddr := fmt.Sprintf("0.0.0.0:%d", mg.pgPort.Get())
+	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address: pgAddr,
 		Handler: pgHandler,
