@@ -83,7 +83,7 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // Init initializes the multiadmin. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (ma *MultiAdmin) Init() error {
+func (ma *MultiAdmin) Init(ctx context.Context) error {
 	if err := ma.senv.Init(constants.ServiceMultiadmin); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
@@ -96,7 +96,7 @@ func (ma *MultiAdmin) Init() error {
 		return fmt.Errorf("topo open: %w", err)
 	}
 
-	logger.Info("multiadmin starting up",
+	logger.InfoContext(ctx, "multiadmin starting up",
 		"http_port", ma.senv.GetHTTPPort(),
 		"grpc_port", ma.grpcServer.Port(),
 	)
@@ -114,8 +114,8 @@ func (ma *MultiAdmin) Init() error {
 					UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: true},
 				}),
 			)
-			//nolint:gocritic // grpc-gateway handler registration runs at startup before request context is available
-			if err := multiadminpb.RegisterMultiAdminServiceHandlerServer(context.Background(), gwmux, ma.adminServer); err != nil {
+			// NOTE: The ctx parameter to the generated method here is unused.
+			if err := multiadminpb.RegisterMultiAdminServiceHandlerServer(ctx, gwmux, ma.adminServer); err != nil {
 				logger.Error("failed to register grpc-gateway handler", "error", err)
 			} else {
 				ma.senv.HTTPHandle("/api/", gwmux)
