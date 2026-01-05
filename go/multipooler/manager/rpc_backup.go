@@ -924,7 +924,26 @@ func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success b
 		return false, false
 	}
 
-	pm.logger.InfoContext(ctx, "Auto-restore: completed successfully", "backup_id", latestBackup.BackupId)
+	// Set consensus term after restore.
+	// If the cluster is at a higher term,
+	// validateAndUpdateTerm will automatically update our term when multiorc fixes replication.
+	var term int64 = 0
+	if pm.consensusState != nil {
+		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
+		pm.loadConsensusTermFromDisk()
+		term = pm.consensusState.term.TermNumber
+	}
+
+	if term == 0 {
+		pm.logger.ErrorContext(ctx, "Auto-restore: term is uninitialized even after restore")
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby via auto-restore",
+		"shard", pm.getShardID(),
+		"term", term,
+		"backup_id", latestBackup.BackupId,
+	)
+
 	return true, true
 }
 
