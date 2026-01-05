@@ -49,3 +49,12 @@ func TestBackupCommandFlags_Primary(t *testing.T) {
 	assert.NotNil(t, primaryFlag, "primary flag should exist")
 	assert.Equal(t, "false", primaryFlag.DefValue, "primary flag should default to false")
 }
+
+func TestBackupCommandFlags_AdminServer(t *testing.T) {
+	cmd := getBackupCommand()
+	require.NotNil(t, cmd)
+
+	adminServerFlag := cmd.Flag("admin-server")
+	assert.NotNil(t, adminServerFlag, "admin-server flag should exist")
+	assert.Equal(t, "", adminServerFlag.DefValue, "admin-server flag should default to empty string")
+}
