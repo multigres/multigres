@@ -49,3 +49,12 @@ func TestListBackupsCommandFlags(t *testing.T) {
 		assert.Equal(t, "0", limitFlag.DefValue, "limit should default to 0 (no limit)")
 	})
 }
+
+func TestListBackupsCommandFlags_AdminServer(t *testing.T) {
+	cmd := getListBackupsCommand()
+	require.NotNil(t, cmd)
+
+	adminServerFlag := cmd.Flag("admin-server")
+	assert.NotNil(t, adminServerFlag, "admin-server flag should exist")
+	assert.Equal(t, "", adminServerFlag.DefValue, "admin-server flag should default to empty string")
+}
