@@ -362,6 +362,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		assert.True(t, status.Status.IsInitialized, "Standby should be initialized after auto-restore")
 		assert.True(t, status.Status.HasDataDirectory, "Standby should have data directory after auto-restore")
 		assert.True(t, status.Status.PostgresRunning, "PostgreSQL should be running after auto-restore")
+		assert.True(t, status.Status.ConsensusTerm > 0, "Consensus term should be greater than 0 after auto-restore")
 		assert.Equal(t, "standby", status.Status.PostgresRole, "Should be in standby role after auto-restore")
 
 		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
