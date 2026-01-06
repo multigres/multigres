@@ -286,16 +286,16 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
     });
 
     // Group poolers by database/table_group/shard
-    const poolerGroups = new Map<string, { primary?: MultiPoolerWithStatus; replicas: MultiPoolerWithStatus[] }>();
+    const poolerGroups = new Map<string, { primaries: MultiPoolerWithStatus[]; replicas: MultiPoolerWithStatus[] }>();
 
     poolers.forEach((pooler) => {
       const key = `${pooler.database || ""}/${pooler.table_group || "default"}/${pooler.shard || "0-"}`;
       if (!poolerGroups.has(key)) {
-        poolerGroups.set(key, { replicas: [] });
+        poolerGroups.set(key, { primaries: [], replicas: [] });
       }
       const group = poolerGroups.get(key)!;
       if (isPrimary(pooler)) {
-        group.primary = pooler;
+        group.primaries.push(pooler);
       } else {
         group.replicas.push(pooler);
       }
@@ -307,19 +307,21 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
       const [database, tableGroup, shard] = key.split("/");
       const groupCenterX = gatewayStartX + groupIndex * (NODE_WIDTH * 2 + NODE_GAP * 2);
 
-      // Primary node
-      if (group.primary) {
-        const primary = group.primary; // Store for type narrowing in nested scopes
-        const primaryId = `pooler-${primary.id?.name || `primary-${groupIndex}`}`;
+      // Primary nodes - render all primaries
+      group.primaries.forEach((primary, primaryIndex) => {
+        const primaryId = `pooler-${primary.id?.name || `primary-${groupIndex}-${primaryIndex}`}`;
         const hasValidStatus = hasPrimaryStatus(primary);
         const hasConnectedReplicas = countConnectedReplicas(primary, group.replicas) > 0;
 
         // Show red border if: no valid status OR (has replicas but none connected)
         const showDisconnected = !hasValidStatus || (!hasConnectedReplicas && group.replicas.length > 0);
 
+        // Offset primaries horizontally if there are multiple
+        const primaryX = groupCenterX + NODE_WIDTH / 2 + primaryIndex * (NODE_WIDTH + NODE_GAP);
+
         nodes.push({
           id: primaryId,
-          position: { x: groupCenterX + NODE_WIDTH / 2, y: PRIMARY_Y },
+          position: { x: primaryX, y: PRIMARY_Y },
           className: showDisconnected ? 'disconnected-node' : '',
           data: {
             label: (
@@ -349,66 +351,72 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
           },
         });
 
-        // Connect all gateways to this primary
-        gateways.forEach((gw, gwIndex) => {
-          const gwId = `gw-${gw.id?.name || gwIndex}`;
-          edges.push({
-            id: `${gwId}-${primaryId}`,
-            source: gwId,
-            target: primaryId,
+        // Connect all gateways to this primary (only if it has valid status)
+        if (hasValidStatus) {
+          gateways.forEach((gw, gwIndex) => {
+            const gwId = `gw-${gw.id?.name || gwIndex}`;
+            edges.push({
+              id: `${gwId}-${primaryId}`,
+              source: gwId,
+              target: primaryId,
+            });
           });
-        });
+        }
+      });
 
-        // Replica nodes
-        group.replicas.forEach((replica, replicaIndex) => {
-          const replicaId = `pooler-${replica.id?.name || `replica-${groupIndex}-${replicaIndex}`}`;
-          const replicaX = groupCenterX + replicaIndex * (NODE_WIDTH + NODE_GAP);
-          const isConnected = isReplicaConnected(replica, primary);
+      // Replica nodes
+      group.replicas.forEach((replica, replicaIndex) => {
+        const replicaId = `pooler-${replica.id?.name || `replica-${groupIndex}-${replicaIndex}`}`;
+        const replicaX = groupCenterX + replicaIndex * (NODE_WIDTH + NODE_GAP);
 
-          nodes.push({
-            id: replicaId,
-            position: { x: replicaX, y: REPLICA_Y },
-            className: !isConnected ? 'disconnected-node' : '',
-            data: {
-              label: (
-                <div className="text-left text-xs">
-                  <div className="bg-sidebar p-3 border-b">
-                    <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">Pooler</div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">
-                        {replica.id?.name || `replica-${replicaIndex + 1}`}
-                      </span>
-                      <PoolerTypeBadge type="replica" />
-                    </div>
-                    <div className="text-muted-foreground">
-                      {database} / {tableGroup} / {shard}
-                    </div>
+        // Find the primary this replica is connected to (if any)
+        const connectedPrimary = group.primaries.find(p => isReplicaConnected(replica, p));
+        const isConnected = !!connectedPrimary;
+
+        nodes.push({
+          id: replicaId,
+          position: { x: replicaX, y: REPLICA_Y },
+          className: !isConnected ? 'disconnected-node' : '',
+          data: {
+            label: (
+              <div className="text-left text-xs">
+                <div className="bg-sidebar p-3 border-b">
+                  <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">Pooler</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">
+                      {replica.id?.name || `replica-${replicaIndex + 1}`}
+                    </span>
+                    <PoolerTypeBadge type="replica" />
                   </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3">
-                    <div className="text-muted-foreground">Cell</div>
-                    <div className="text-right">{replica.id?.cell || "unknown"}</div>
-                    <div className="text-muted-foreground">WAL Pos</div>
-                    <div className="text-right text-xs">{formatWalPosition(replica)}</div>
-                    <div className="text-muted-foreground">Lag</div>
-                    <div className="text-right">{formatReplicationLag(replica)}</div>
+                  <div className="text-muted-foreground">
+                    {database} / {tableGroup} / {shard}
                   </div>
                 </div>
-              ),
-            },
-          });
-
-          // Connect primary to replica (only if connected)
-          if (isConnected) {
-            edges.push({
-              id: `${primaryId}-${replicaId}`,
-              source: primaryId,
-              target: replicaId,
-              className: 'connected-edge',
-              animated: true,
-            });
-          }
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3">
+                  <div className="text-muted-foreground">Cell</div>
+                  <div className="text-right">{replica.id?.cell || "unknown"}</div>
+                  <div className="text-muted-foreground">WAL Pos</div>
+                  <div className="text-right text-xs">{formatWalPosition(replica)}</div>
+                  <div className="text-muted-foreground">Lag</div>
+                  <div className="text-right">{formatReplicationLag(replica)}</div>
+                </div>
+              </div>
+            ),
+          },
         });
-      }
+
+        // Connect primary to replica (only if connected)
+        if (isConnected && connectedPrimary) {
+          const connectedPrimaryId = `pooler-${connectedPrimary.id?.name || `primary-${groupIndex}-${group.primaries.indexOf(connectedPrimary)}`}`;
+          edges.push({
+            id: `${connectedPrimaryId}-${replicaId}`,
+            source: connectedPrimaryId,
+            target: replicaId,
+            className: 'connected-edge',
+            animated: true,
+          });
+        }
+      });
 
       groupIndex++;
     });
