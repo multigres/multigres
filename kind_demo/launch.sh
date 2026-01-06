@@ -38,7 +38,11 @@ for node in $(kind get nodes --name=multidemo); do
   docker exec "$node" sh -c "sysctl -w net.ipv4.ip_local_port_range='1024 65535'"
 done
 
-kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/multiadmin-web --name=multidemo
+# Pre-pull images to avoid Docker Hub rate limits
+docker pull busybox:latest
+docker pull curlimages/curl:latest
+
+kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/multiadmin-web busybox:latest curlimages/curl:latest --name=multidemo
 # This single etcd will be used for both the global topo and cell topo.
 kubectl apply -f k8s-etcd.yaml
 kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
@@ -60,6 +64,27 @@ kubectl wait --for=condition=Available --timeout=300s \
   -n cert-manager deployment/cert-manager \
   deployment/cert-manager-webhook \
   deployment/cert-manager-cainjector
+
+
+# Verify the cert-manager webhook is actually accepting connections
+echo "Testing webhook connectivity..."
+max_attempts=5
+attempt=1
+while [ $attempt -le $max_attempts ]; do
+  # Test connectivity using kubectl run with a temporary pod
+  if kubectl run webhook-test-$$ --rm -i --restart=Never --image=curlimages/curl:latest -n cert-manager -- \
+    curl -k -s -o /dev/null -w "%{http_code}" --max-time 5 https://cert-manager-webhook.cert-manager.svc:443/validate 2>/dev/null | grep -q .; then
+    echo "Webhook is accepting connections"
+    break
+  fi
+  if [ $attempt -eq $max_attempts ]; then
+    echo "Timeout: webhook not accepting connections after $max_attempts attempts"
+    exit 1
+  fi
+  echo "Webhook not ready, waiting... (attempt $attempt/$max_attempts)"
+  sleep 5
+  attempt=$((attempt + 1))
+done
 
 # Deploy pgBackRest certificates using cert-manager
 echo "Creating pgBackRest TLS certificates..."
