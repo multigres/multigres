@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import "./topology-graph.css";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -38,6 +39,41 @@ function formatWalPosition(pooler: MultiPoolerWithStatus): string {
   }
 
   return "N/A";
+}
+
+// Helper function to check if a replica is connected to the primary
+function isReplicaConnected(replica: MultiPoolerWithStatus, primary: MultiPoolerWithStatus): boolean {
+  if (!primary.status?.primary_status?.connected_followers || !replica.id) {
+    return false;
+  }
+
+  return primary.status.primary_status.connected_followers.some(
+    follower => follower.cell === replica.id?.cell && follower.name === replica.id?.name
+  );
+}
+
+// Helper function to count connected replicas for a primary
+function countConnectedReplicas(primary: MultiPoolerWithStatus, replicas: MultiPoolerWithStatus[]): number {
+  if (!primary.status?.primary_status?.connected_followers) {
+    return 0;
+  }
+
+  return replicas.filter(replica => isReplicaConnected(replica, primary)).length;
+}
+
+// Helper function to check if primary has valid status
+function hasPrimaryStatus(primary: MultiPoolerWithStatus): boolean {
+  // Check if we have status at all (gRPC call succeeded)
+  if (!primary.status) {
+    return false;
+  }
+
+  // Check if postgres is running and we have primary status
+  if (!primary.status.postgres_running || !primary.status.primary_status) {
+    return false;
+  }
+
+  return true;
 }
 
 // Helper function to calculate lag from timestamp
@@ -274,9 +310,16 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
       // Primary node
       if (group.primary) {
         const primaryId = `pooler-${group.primary.id?.name || `primary-${groupIndex}`}`;
+        const hasValidStatus = hasPrimaryStatus(group.primary);
+        const hasConnectedReplicas = countConnectedReplicas(group.primary, group.replicas) > 0;
+
+        // Show red border if: no valid status OR (has replicas but none connected)
+        const showDisconnected = !hasValidStatus || (!hasConnectedReplicas && group.replicas.length > 0);
+
         nodes.push({
           id: primaryId,
           position: { x: groupCenterX + NODE_WIDTH / 2, y: PRIMARY_Y },
+          className: showDisconnected ? 'disconnected-node' : '',
           data: {
             label: (
               <div className="text-left text-xs">
@@ -319,10 +362,12 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
         group.replicas.forEach((replica, replicaIndex) => {
           const replicaId = `pooler-${replica.id?.name || `replica-${groupIndex}-${replicaIndex}`}`;
           const replicaX = groupCenterX + replicaIndex * (NODE_WIDTH + NODE_GAP);
+          const isConnected = isReplicaConnected(replica, group.primary);
 
           nodes.push({
             id: replicaId,
             position: { x: replicaX, y: REPLICA_Y },
+            className: !isConnected ? 'disconnected-node' : '',
             data: {
               label: (
                 <div className="text-left text-xs">
@@ -351,13 +396,16 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
             },
           });
 
-          // Connect primary to replica
-          edges.push({
-            id: `${primaryId}-${replicaId}`,
-            source: primaryId,
-            target: replicaId,
-            style: { strokeDasharray: "5,5" },
-          });
+          // Connect primary to replica (only if connected)
+          if (isConnected) {
+            edges.push({
+              id: `${primaryId}-${replicaId}`,
+              source: primaryId,
+              target: replicaId,
+              className: 'connected-edge',
+              animated: true,
+            });
+          }
         });
       }
 
