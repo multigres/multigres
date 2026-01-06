@@ -1044,7 +1044,9 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// Write leadership history record - always record for audit trail
+	// Write leadership history record - this validates that sync replication is working.
+	// If this fails (typically due to timeout waiting for standby acknowledgment), we fail
+	// the promotion. It's better to have no primary than one that can't satisfy durability.
 	leaderID := generateApplicationName(pm.serviceID)
 	if reason == "" {
 		reason = "unknown"
@@ -1053,10 +1055,10 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		coordinatorID = "unknown"
 	}
 	if err := pm.insertLeadershipHistory(ctx, consensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
-		// Log but don't fail the promotion - history is for audit, not correctness
-		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
+		pm.logger.ErrorContext(ctx, "Failed to insert leadership history - promotion failed",
 			"term", consensusTerm,
 			"error", err)
+		return nil, mterrors.Wrap(err, "promotion failed: could not write leadership history (sync replication may not be functioning)")
 	}
 
 	pm.logger.InfoContext(ctx, "Promote completed successfully",

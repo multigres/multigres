@@ -327,6 +327,9 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 }
 
 // insertLeadershipHistory inserts a leadership history record into the leadership_history table.
+// This operation uses the remote-operation-timeout and will fail if it cannot complete within
+// that time. A timeout typically indicates that synchronous replication is not functioning
+// (no standbys are connected to acknowledge the write).
 func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termNumber int64, leaderID, coordinatorID, walPosition, reason string, cohortMembers, acceptedMembers []string) error {
 	pm.logger.InfoContext(ctx, "Inserting leadership history",
 		"term", termNumber,
@@ -344,7 +347,8 @@ func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termN
 		return mterrors.Wrap(err, "failed to marshal accepted_members")
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	timeout := pm.topoClient.GetRemoteOperationTimeout()
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
 		(term_number, leader_id, coordinator_id, wal_position, reason, cohort_members, accepted_members)

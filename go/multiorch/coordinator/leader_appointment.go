@@ -314,9 +314,13 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 }
 
 // Propagate implements stage 5 of the consensus protocol:
-// - Promote the candidate to primary
-// - Configure standbys to replicate from the new primary
-// - Configure synchronous replication based on quorum policy
+// - Configure standbys to replicate from the candidate (before promotion)
+// - Promote the candidate to primary (includes sync replication configuration)
+//
+// Standbys are configured BEFORE promotion to avoid a deadlock: the Promote RPC
+// configures sync replication and writes leadership history, which blocks until
+// at least one standby acknowledges. If standbys aren't configured to replicate
+// yet, the write blocks forever.
 func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, term int64, quorumRule *clustermetadatapb.QuorumRule, reason string, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
 	// Build synchronous replication configuration based on quorum policy
 	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, standbys, candidate)
@@ -376,6 +380,50 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 		}
 	}
 
+	// Configure standbys to replicate from the candidate BEFORE promoting.
+	// This ensures standbys are ready to connect when sync replication is configured.
+	// Without this, the Promote call can deadlock: it configures sync replication and
+	// tries to write leadership history, but blocks waiting for standby acknowledgment.
+	// The standbys can't acknowledge because they haven't been told to replicate yet.
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(standbys))
+
+	for _, standby := range standbys {
+		wg.Add(1)
+		go func(s *multiorchdatapb.PoolerHealthState) {
+			defer wg.Done()
+			c.logger.InfoContext(ctx, "Configuring standby replication before promotion",
+				"standby", s.MultiPooler.Id.Name,
+				"primary", candidate.MultiPooler.Id.Name)
+
+			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+				Primary:               candidate.MultiPooler,
+				CurrentTerm:           term,
+				StopReplicationBefore: false,
+				StartReplicationAfter: true, // Start streaming immediately so sync replication can proceed
+				Force:                 false,
+			}
+			if _, err := c.rpcClient.SetPrimaryConnInfo(ctx, s.MultiPooler, setPrimaryReq); err != nil {
+				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.MultiPooler.Id.Name)
+				return
+			}
+
+			c.logger.InfoContext(ctx, "Standby configured successfully", "standby", s.MultiPooler.Id.Name)
+		}(standby)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Check for errors - log but don't fail, standbys can be fixed later
+	var standbyErrs []error
+	for err := range errChan {
+		standbyErrs = append(standbyErrs, err)
+	}
+	for _, err := range standbyErrs {
+		c.logger.WarnContext(ctx, "Standby configuration failed", "error", err)
+	}
+
 	// Get coordinator ID as a string
 	coordinatorIDStr := topoclient.ClusterIDString(c.GetCoordinatorID())
 
@@ -395,52 +443,6 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 	}
 
 	c.logger.InfoContext(ctx, "Candidate promoted successfully", "node", candidate.MultiPooler.Id.Name)
-
-	// Configure standbys to replicate from the new primary
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(standbys))
-
-	for _, standby := range standbys {
-		wg.Add(1)
-		go func(s *multiorchdatapb.PoolerHealthState) {
-			defer wg.Done()
-			c.logger.InfoContext(ctx, "Configuring standby replication",
-				"standby", s.MultiPooler.Id.Name,
-				"primary", candidate.MultiPooler.Id.Name)
-
-			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-				Primary:               candidate.MultiPooler,
-				CurrentTerm:           term,
-				StopReplicationBefore: false,
-				StartReplicationAfter: false,
-				Force:                 false,
-			}
-			if _, err := c.rpcClient.SetPrimaryConnInfo(ctx, s.MultiPooler, setPrimaryReq); err != nil {
-				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.MultiPooler.Id.Name)
-				return
-			}
-
-			c.logger.InfoContext(ctx, "Standby configured successfully", "standby", s.MultiPooler.Id.Name)
-		}(standby)
-	}
-
-	wg.Wait()
-	close(errChan)
-
-	// Check for errors
-	var errs []error
-	for err := range errChan {
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		// Log all errors but continue - partial success is acceptable
-		for _, err := range errs {
-			c.logger.WarnContext(ctx, "Standby configuration failed", "error", err)
-		}
-		// Don't fail the whole operation if some standbys failed
-		// The primary is established, standbys can be fixed later
-	}
 
 	return nil
 }
