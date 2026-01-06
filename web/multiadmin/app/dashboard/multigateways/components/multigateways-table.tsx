@@ -10,9 +10,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
+import { Loader2, ExternalLink } from "lucide-react";
 import { useApi } from "@/lib/api/context";
 import type { MultiGateway } from "@/lib/api/types";
+
+const BASE_URL =
+  process.env.NEXT_PUBLIC_MULTIADMIN_API_URL || "http://localhost:15000";
 
 export function MultiGatewaysTable() {
   const api = useApi();
@@ -122,32 +125,48 @@ export function MultiGatewaysTable() {
                 <TableHead>Hostname</TableHead>
                 <TableHead className="text-right">gRPC Port</TableHead>
                 <TableHead className="text-right">HTTP Port</TableHead>
-                <TableHead className="text-right pr-6">Postgres Port</TableHead>
+                <TableHead className="text-right">Postgres Port</TableHead>
+                <TableHead className="pr-6">Dashboard</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredGateways.map((gateway, idx) => (
-                <TableRow key={gateway.id?.name || idx}>
-                  <TableCell className="pl-6 font-mono text-xs py-3">
-                    {gateway.id?.cell || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {gateway.id?.name || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {gateway.hostname || "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs py-3">
-                    {gateway.port_map?.grpc || "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs py-3">
-                    {gateway.port_map?.http || "-"}
-                  </TableCell>
-                  <TableCell className="text-right pr-6 font-mono text-xs py-3">
-                    {gateway.port_map?.postgres || "-"}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {filteredGateways.map((gateway, idx) => {
+                const dashboardUrl = `${BASE_URL}/proxy/gate/${gateway.id?.cell}/${gateway.id?.name}`;
+
+                return (
+                  <TableRow key={gateway.id?.name || idx}>
+                    <TableCell className="pl-6 font-mono text-xs py-3">
+                      {gateway.id?.cell || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {gateway.id?.name || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {gateway.hostname || "-"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs py-3">
+                      {gateway.port_map?.grpc || "-"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs py-3">
+                      {gateway.port_map?.http || "-"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs py-3">
+                      {gateway.port_map?.postgres || "-"}
+                    </TableCell>
+                    <TableCell className="pr-6 py-3">
+                      <a
+                        href={dashboardUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View
+                      </a>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>

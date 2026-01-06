@@ -11,10 +11,13 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { Loader2, ExternalLink } from "lucide-react";
 import { useApi } from "@/lib/api/context";
 import type { MultiPooler } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
+
+const BASE_URL =
+  process.env.NEXT_PUBLIC_MULTIADMIN_API_URL || "http://localhost:15000";
 
 function PoolerTypeBadge({ type }: { type?: string }) {
   if (!type) return <>-</>;
@@ -164,41 +167,57 @@ export function MultiPoolersTable() {
                 <TableHead className="text-center">Type</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead>Hostname</TableHead>
-                <TableHead className="text-right pr-6">gRPC Port</TableHead>
+                <TableHead className="text-right">gRPC Port</TableHead>
+                <TableHead className="pr-6">Dashboard</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredPoolers.map((pooler, idx) => (
-                <TableRow key={pooler.id?.name || idx}>
-                  <TableCell className="pl-6 font-mono text-xs py-3">
-                    {pooler.id?.cell || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {pooler.id?.name || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {pooler.database || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {pooler.table_group || "-"}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {pooler.shard || "-"}
-                  </TableCell>
-                  <TableCell className="text-center py-3">
-                    <PoolerTypeBadge type={pooler.type} />
-                  </TableCell>
-                  <TableCell className="text-center py-3">
-                    <ServingStatusBadge status={pooler.serving_status} />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs py-3">
-                    {pooler.hostname || "-"}
-                  </TableCell>
-                  <TableCell className="text-right pr-6 font-mono text-xs py-3">
-                    {pooler.port_map?.grpc || "-"}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {filteredPoolers.map((pooler, idx) => {
+                const dashboardUrl = `${BASE_URL}/proxy/pool/${pooler.id?.cell}/${pooler.id?.name}`;
+
+                return (
+                  <TableRow key={pooler.id?.name || idx}>
+                    <TableCell className="pl-6 font-mono text-xs py-3">
+                      {pooler.id?.cell || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {pooler.id?.name || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {pooler.database || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {pooler.table_group || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {pooler.shard || "-"}
+                    </TableCell>
+                    <TableCell className="text-center py-3">
+                      <PoolerTypeBadge type={pooler.type} />
+                    </TableCell>
+                    <TableCell className="text-center py-3">
+                      <ServingStatusBadge status={pooler.serving_status} />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-3">
+                      {pooler.hostname || "-"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs py-3">
+                      {pooler.port_map?.grpc || "-"}
+                    </TableCell>
+                    <TableCell className="pr-6 py-3">
+                      <a
+                        href={dashboardUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View
+                      </a>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
