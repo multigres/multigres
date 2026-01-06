@@ -39,6 +39,7 @@ const (
 	// Primary problems (catastrophic - block everything else).
 	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
 	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
+	ProblemStalePrimary       ProblemCode = "StalePrimary"
 
 	// Primary configuration problems (can fix while primary alive).
 	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"

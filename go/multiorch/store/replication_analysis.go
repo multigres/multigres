@@ -66,6 +66,11 @@ type ReplicationAnalysis struct {
 	ReplicationLagBytes    int64
 	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
 
+	// Stale primary detection: populated for PRIMARY nodes only
+	OtherPrimaryInShard *clustermetadatapb.ID // ID of another PRIMARY in same shard (if detected)
+	OtherPrimaryTerm    int64                 // Consensus term of the other primary
+	ConsensusTerm       int64                 // This node's consensus term (from health check)
+
 	// Primary health details (for distinguishing pooler-down vs postgres-down)
 	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
 	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)

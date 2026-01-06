@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
@@ -56,9 +57,14 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mockQueryService := mock.NewQueryService()
 
+	// Create a memorytopo store for tests that need topoClient (e.g., GetRemoteOperationTimeout)
+	ctx := context.Background()
+	topoStore := memorytopo.NewServer(ctx, "test-cell")
+
 	pm := &MultiPoolerManager{
-		logger: logger,
-		qsc:    &mockPoolerController{queryService: mockQueryService},
+		logger:     logger,
+		qsc:        &mockPoolerController{queryService: mockQueryService},
+		topoClient: topoStore,
 		config: &Config{
 			TableGroup: tableGroup,
 			Shard:      shard,

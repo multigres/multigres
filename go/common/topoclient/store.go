@@ -210,6 +210,10 @@ type Store interface {
 	// See shard_lock.go for full documentation.
 	TryLockShard(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
 
+	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
+	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+	GetRemoteOperationTimeout() time.Duration
+
 	// Resource cleanup
 	io.Closer
 }
@@ -264,8 +268,9 @@ func (ts *store) getLockTimeout() time.Duration {
 	return ts.config.GetLockTimeout()
 }
 
-// getRemoteOperationTimeout returns the configured remote operation timeout.
-func (ts *store) getRemoteOperationTimeout() time.Duration {
+// GetRemoteOperationTimeout returns the configured remote operation timeout.
+// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+func (ts *store) GetRemoteOperationTimeout() time.Duration {
 	return ts.config.GetRemoteOperationTimeout()
 }
 

@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -173,6 +174,10 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	pooler.IsInitialized = status.IsInitialized
 	pooler.HasDataDirectory = status.HasDataDirectory
 
+	// Fetch consensus status for stale primary detection and timeline divergence
+	// This is a separate RPC call that gives us the consensus term and timeline info
+	pooler.ConsensusStatus = re.fetchConsensusStatus(ctx, poolerID, pooler)
+
 	re.logger.DebugContext(ctx, "pooler poll successful",
 		"pooler_id", poolerIDStr,
 		"topology_type", pooler.MultiPooler.Type,
@@ -230,6 +235,37 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 	return &poolerStatusResult{
 		Status: resp.Status,
 	}, nil
+}
+
+// fetchConsensusStatus fetches the consensus status from a pooler.
+// This provides consensus term and timeline information needed for stale primary detection
+// and timeline divergence detection.
+// Returns nil on failure (non-critical for health check).
+func (re *Engine) fetchConsensusStatus(ctx context.Context, poolerID *clustermetadata.ID, pooler *multiorchdatapb.PoolerHealthState) *consensusdata.StatusResponse {
+	poolerIDStr := topoclient.MultiPoolerIDString(poolerID)
+
+	// Call ConsensusStatus RPC
+	resp, err := re.rpcClient.ConsensusStatus(ctx, pooler.MultiPooler, &consensusdata.StatusRequest{})
+	if err != nil {
+		// Log at debug level - consensus status is optional for health checks
+		re.logger.DebugContext(ctx, "consensus status RPC failed",
+			"pooler_id", poolerIDStr,
+			"error", err,
+		)
+		return nil
+	}
+
+	if resp == nil {
+		return nil
+	}
+
+	re.logger.DebugContext(ctx, "consensus status received",
+		"pooler_id", poolerIDStr,
+		"current_term", resp.CurrentTerm,
+		"has_timeline_info", resp.TimelineInfo != nil,
+	)
+
+	return resp
 }
 
 // existsInCache checks if a pooler ID was recently polled.

@@ -429,6 +429,13 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	baseFakeClient.UpdateSynchronousStandbyListResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
 		"multipooler-cell1-primary": {},
 	}
+	// pg_rewind dry-run fails, so it marks the pooler as DRAINED
+	baseFakeClient.RewindToSourceResponses = map[string]*multipoolermanagerdatapb.RewindToSourceResponse{
+		"multipooler-cell1-replica1": {
+			Success:      false,
+			ErrorMessage: "pg_rewind not feasible: source timeline diverged before target's last checkpoint",
+		},
+	}
 
 	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient}
 	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
@@ -439,29 +446,36 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         replicaID,
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_REPLICA,
+	replica := &clustermetadatapb.MultiPooler{
+		Id:         replicaID,
+		Database:   "testdb",
+		TableGroup: "default",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+	}
+	primary := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "cell1",
+			Name:      "primary",
 		},
+		Database:   "testdb",
+		TableGroup: "default",
+		Shard:      "0",
+		Type:       clustermetadatapb.PoolerType_PRIMARY,
+		Hostname:   "primary.example.com",
+		PortMap:    map[string]int32{"postgres": 5432},
+	}
+
+	// Create in topology for markPoolerDrained to work
+	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
+	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
+
+	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: replica,
 	})
 	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "primary",
-			},
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       clustermetadatapb.PoolerType_PRIMARY,
-			Hostname:   "primary.example.com",
-			PortMap:    map[string]int32{"postgres": 5432},
-		},
+		MultiPooler: primary,
 	})
 
 	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
@@ -478,10 +492,18 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	err := action.Execute(ctx, problem)
 
-	// Should fail because replication never started streaming
+	// Should fail because replication didn't start and pg_rewind marked it as DRAINED
+	// but then we still tried to reconfigure and it still fails
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "replication configured but failed to verify streaming")
+	assert.Contains(t, err.Error(), "replication still not working after pg_rewind")
 
 	// Verify SetPrimaryConnInfo was still called (configuration was attempted)
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
+	// Verify pg_rewind was tried as fallback
+	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
+
+	// Verify the pooler was marked as DRAINED in topology
+	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
+	require.NoError(t, err)
+	assert.Equal(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type)
 }

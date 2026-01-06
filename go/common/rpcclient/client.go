@@ -257,6 +257,13 @@ type MultiPoolerClient interface {
 	GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error)
 
 	//
+	// Manager Service Methods - Timeline Repair
+	//
+
+	// RewindToSource performs pg_rewind to synchronize a replica with its source.
+	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
+
+	//
 	// Connection Management Methods
 	//
 
