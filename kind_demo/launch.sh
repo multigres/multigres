@@ -38,11 +38,7 @@ for node in $(kind get nodes --name=multidemo); do
   docker exec "$node" sh -c "sysctl -w net.ipv4.ip_local_port_range='1024 65535'"
 done
 
-# Pre-pull images to avoid Docker Hub rate limits
-docker pull busybox:latest
-docker pull curlimages/curl:latest
-
-kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/multiadmin-web busybox:latest curlimages/curl:latest --name=multidemo
+kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/multiadmin-web --name=multidemo
 # This single etcd will be used for both the global topo and cell topo.
 kubectl apply -f k8s-etcd.yaml
 kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
