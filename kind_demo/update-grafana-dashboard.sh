@@ -28,9 +28,9 @@ kubectl create configmap grafana-dashboard-multigres \
   --from-file=multigres.json=observability/grafana-dashboard.json \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "Triggering Grafana dashboard reload..."
-kubectl exec deployment/observability -c grafana -- \
-  curl -s -u admin:admin -X POST http://localhost:3000/api/admin/provisioning/dashboards/reload # gitleaks:allow
+echo "Restarting observability deployment to reload dashboards..."
+kubectl rollout restart deployment/observability
+kubectl rollout status deployment/observability --timeout=60s
 
 echo ""
 echo "Dashboard updated successfully."
