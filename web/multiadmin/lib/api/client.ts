@@ -17,6 +17,8 @@ import type {
   GetBackupJobStatusResponse,
   GetBackupsRequest,
   GetBackupsResponse,
+  GetPoolerStatusResponse,
+  ID,
 } from "./types";
 
 export interface ApiClientConfig {
@@ -191,6 +193,14 @@ export class MultiAdminClient {
     const query = params.toString();
     return this.fetch<GetBackupsResponse>(
       `/api/v1/backups${query ? `?${query}` : ""}`
+    );
+  }
+
+  // Pooler Status operations
+
+  async getPoolerStatus(poolerId: ID): Promise<GetPoolerStatusResponse> {
+    return this.fetch<GetPoolerStatusResponse>(
+      `/api/v1/poolers/${encodeURIComponent(poolerId.cell)}/${encodeURIComponent(poolerId.name)}/status`
     );
   }
 }

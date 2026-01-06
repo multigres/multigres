@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -10,8 +10,92 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { cn } from "@/lib/utils";
 import { useApi } from "@/lib/api";
-import type { MultiGateway, MultiPooler } from "@/lib/api";
+import type { MultiGateway, MultiPoolerWithStatus, ID } from "@/lib/api";
 import { Loader2 } from "lucide-react";
+
+// Utility functions for smart data comparison
+function getStableId(id?: ID): string {
+  return id ? `${id.component}:${id.cell}:${id.name}` : '';
+}
+
+// Helper function to format WAL position (LSN)
+function formatWalPosition(pooler: MultiPoolerWithStatus): string {
+  if (!pooler.status) return "N/A";
+
+  // For primary: show current LSN from primary_status
+  if (pooler.type === "PRIMARY" && pooler.status.primary_status?.lsn) {
+    return pooler.status.primary_status.lsn;
+  }
+
+  // For replica: show last replay LSN from replication_status
+  if (pooler.type === "REPLICA" && pooler.status.replication_status?.last_replay_lsn) {
+    return pooler.status.replication_status.last_replay_lsn;
+  }
+
+  // Fallback to wal_position if available
+  if (pooler.status.wal_position) {
+    return pooler.status.wal_position;
+  }
+
+  return "N/A";
+}
+
+// Helper function to calculate lag from timestamp
+function calculateLagFromTimestamp(timestamp: string): string {
+  try {
+    const replayTime = new Date(timestamp);
+    const now = new Date();
+    const lagMs = now.getTime() - replayTime.getTime();
+
+    // Show in milliseconds if < 1000ms, otherwise show in seconds
+    if (lagMs < 1000) {
+      return `${lagMs}ms`;
+    } else {
+      return `${(lagMs / 1000).toFixed(1)}s`;
+    }
+  } catch (err) {
+    console.error("Failed to parse timestamp:", err);
+    return "N/A";
+  }
+}
+
+// Helper function to format replication lag
+function formatReplicationLag(pooler: MultiPoolerWithStatus): string {
+  if (!pooler.status) return "N/A";
+
+  // Only show lag for replicas
+  if (pooler.type === "REPLICA" && pooler.status.replication_status?.last_xact_replay_timestamp) {
+    return calculateLagFromTimestamp(pooler.status.replication_status.last_xact_replay_timestamp);
+  }
+
+  return "N/A";
+}
+
+function hasDataChanged<T extends { id?: ID }>(prev: T[], next: T[]): boolean {
+  // Check topology structure change (nodes added/removed)
+  if (prev.length !== next.length) return true;
+
+  const prevIds = new Set(prev.map(item => getStableId(item.id)));
+  const nextIds = new Set(next.map(item => getStableId(item.id)));
+
+  if (prevIds.size !== nextIds.size) return true;
+  for (const id of nextIds) {
+    if (!prevIds.has(id)) return true;
+  }
+
+  // Check field changes
+  const prevMap = new Map(prev.map(item => [getStableId(item.id), item]));
+  for (const item of next) {
+    const id = getStableId(item.id);
+    const prevItem = prevMap.get(id);
+    if (!prevItem) continue;
+    if (JSON.stringify(prevItem) !== JSON.stringify(item)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 function StatusBadge({ status }: { status: string }) {
   const isActive = status.toLowerCase() === "active";
@@ -37,39 +121,91 @@ function PoolerTypeBadge({ type }: { type: "primary" | "replica" }) {
   );
 }
 
-function isPrimary(pooler: MultiPooler): boolean {
+function isPrimary(pooler: MultiPoolerWithStatus): boolean {
   return pooler.type === "PRIMARY";
 }
 
 export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: string }) {
   const api = useApi();
   const [gateways, setGateways] = useState<MultiGateway[]>([]);
-  const [poolers, setPoolers] = useState<MultiPooler[]>([]);
+  const [poolers, setPoolers] = useState<MultiPoolerWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
+  const prevDataRef = useRef({ gateways: [] as MultiGateway[], poolers: [] as MultiPoolerWithStatus[] });
+
+  const fetchData = useCallback(async (isInitial = false) => {
+    try {
+      if (isInitial) {
         setLoading(true);
-        setError(null);
+      }
+      setError(null);
 
-        const [gatewaysRes, poolersRes] = await Promise.all([
-          api.getGateways(),
-          api.getPoolers(),
-        ]);
+      const [gatewaysRes, poolersRes] = await Promise.all([
+        api.getGateways(),
+        api.getPoolers(),
+      ]);
 
-        setGateways(gatewaysRes.gateways || []);
-        setPoolers(poolersRes.poolers || []);
-      } catch (err) {
+      const newGateways = gatewaysRes.gateways || [];
+      const basePoolers = poolersRes.poolers || [];
+
+      // Fetch status for each pooler in parallel
+      const poolerStatusPromises = basePoolers.map(async (pooler) => {
+        if (!pooler.id) return pooler;
+
+        try {
+          const statusRes = await api.getPoolerStatus(pooler.id);
+          return { ...pooler, status: statusRes.status };
+        } catch (err) {
+          console.error(`Failed to fetch status for pooler ${pooler.id.name}:`, err);
+          return pooler; // Return pooler without status if fetch fails
+        }
+      });
+
+      const newPoolers = await Promise.all(poolerStatusPromises);
+
+      // Smart comparison - only update if data actually changed
+      const gatewaysChanged = hasDataChanged(prevDataRef.current.gateways, newGateways);
+      const poolersChanged = hasDataChanged(prevDataRef.current.poolers, newPoolers);
+
+      if (gatewaysChanged || poolersChanged) {
+        setGateways(newGateways);
+        setPoolers(newPoolers);
+        prevDataRef.current = { gateways: newGateways, poolers: newPoolers };
+      }
+    } catch (err) {
+      // On initial fetch, show error
+      if (isInitial) {
         setError(err instanceof Error ? err.message : "Failed to fetch topology");
-      } finally {
+      } else {
+        // On polling errors, log but don't disrupt UI
+        console.error("Polling error:", err);
+      }
+    } finally {
+      if (isInitial) {
         setLoading(false);
       }
     }
-
-    fetchData();
   }, [api]);
+
+  useEffect(() => {
+    // Initial fetch
+    fetchData(true);
+
+    // Get poll interval from env or use default (500ms)
+    const pollInterval = parseInt(
+      process.env.NEXT_PUBLIC_TOPOLOGY_POLL_INTERVAL || '500',
+      10
+    );
+
+    // Start polling
+    const intervalId = setInterval(() => {
+      fetchData(false);
+    }, pollInterval);
+
+    // Cleanup on unmount
+    return () => clearInterval(intervalId);
+  }, [fetchData]);
 
   const { nodes, edges } = useMemo(() => {
     if (gateways.length === 0 && poolers.length === 0) {
@@ -81,10 +217,10 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
 
     // Layout constants
     const GATEWAY_Y = 0;
-    const PRIMARY_Y = 150;
-    const REPLICA_Y = 320;
+    const PRIMARY_Y = 200;
+    const REPLICA_Y = 450;
     const NODE_WIDTH = 200;
-    const NODE_GAP = 50;
+    const NODE_GAP = 100;
 
     // Create gateway nodes
     const gatewayStartX = 100;
@@ -95,11 +231,17 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
         position: { x: gatewayStartX + index * (NODE_WIDTH + NODE_GAP), y: GATEWAY_Y },
         data: {
           label: (
-            <div className="text-left text-sm p-3">
-              <div className="font-medium">{gw.id?.name || `gateway-${index + 1}`}</div>
-              <div className="text-xs text-muted-foreground">{gw.id?.cell || "unknown"}</div>
-              <div className="mt-1">
-                <StatusBadge status="Active" />
+            <div className="text-left text-xs">
+              <div className="bg-sidebar p-3 border-b">
+                <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">Gateway</div>
+                <div className="font-semibold">{gw.id?.name || `gateway-${index + 1}`}</div>
+                <div className="mt-1">
+                  <StatusBadge status="Active" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3">
+                <div className="text-muted-foreground">Cell</div>
+                <div className="text-right">{gw.id?.cell || "unknown"}</div>
               </div>
             </div>
           ),
@@ -108,7 +250,7 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
     });
 
     // Group poolers by database/table_group/shard
-    const poolerGroups = new Map<string, { primary?: MultiPooler; replicas: MultiPooler[] }>();
+    const poolerGroups = new Map<string, { primary?: MultiPoolerWithStatus; replicas: MultiPoolerWithStatus[] }>();
 
     poolers.forEach((pooler) => {
       const key = `${pooler.database || ""}/${pooler.table_group || "default"}/${pooler.shard || "0-"}`;
@@ -139,6 +281,7 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
             label: (
               <div className="text-left text-xs">
                 <div className="bg-sidebar p-3 border-b">
+                  <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">Pooler</div>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">
                       {group.primary.id?.name || "primary"}
@@ -152,6 +295,10 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3">
                   <div className="text-muted-foreground">Cell</div>
                   <div className="text-right">{group.primary.id?.cell || "unknown"}</div>
+                  <div className="text-muted-foreground">WAL Pos</div>
+                  <div className="text-right text-xs">{formatWalPosition(group.primary)}</div>
+                  <div className="text-muted-foreground">Lag</div>
+                  <div className="text-right">{formatReplicationLag(group.primary)}</div>
                 </div>
               </div>
             ),
@@ -180,6 +327,7 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
               label: (
                 <div className="text-left text-xs">
                   <div className="bg-sidebar p-3 border-b">
+                    <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">Pooler</div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">
                         {replica.id?.name || `replica-${replicaIndex + 1}`}
@@ -193,6 +341,10 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3">
                     <div className="text-muted-foreground">Cell</div>
                     <div className="text-right">{replica.id?.cell || "unknown"}</div>
+                    <div className="text-muted-foreground">WAL Pos</div>
+                    <div className="text-right text-xs">{formatWalPosition(replica)}</div>
+                    <div className="text-muted-foreground">Lag</div>
+                    <div className="text-right">{formatReplicationLag(replica)}</div>
                   </div>
                 </div>
               ),
@@ -205,7 +357,6 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
             source: primaryId,
             target: replicaId,
             style: { strokeDasharray: "5,5" },
-            label: "replication",
           });
         });
       }
