@@ -87,6 +87,21 @@ spec:
         app: multipooler
         cell: zone1
     spec:
+      initContainers:
+        - name: setup-certs
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              cp /certs-secret/* /certs/
+              chmod 600 /certs/*.key
+              chmod 644 /certs/*.crt
+          volumeMounts:
+            - name: certs-secret
+              mountPath: /certs-secret
+            - name: certs
+              mountPath: /certs
       containers:
         - name: multipooler
           image: docker.io/multigres/multigres:latest
@@ -109,8 +124,8 @@ spec:
             - --socket-file=/data/pg_sockets/.s.PGSQL.5432
             - --grpc-socket-file=/data/multipooler.sock
             - --service-map=grpc-pooler
-            - --pgbackrest-cert-file=/certs/pgbackrest.crt
-            - --pgbackrest-key-file=/certs/pgbackrest.key
+            - --pgbackrest-cert-file=/certs/tls.crt
+            - --pgbackrest-key-file=/certs/tls.key
             - --pgbackrest-ca-file=/certs/ca.crt
             - --pgbackrest-port=8432
             - --pprof-http=true
@@ -229,6 +244,9 @@ spec:
           hostPath:
             path: /data
             type: DirectoryOrCreate
+        - name: certs-secret
+          secret:
+            secretName: pgbackrest-tls
         - name: certs
           hostPath:
             path: /data/certs
