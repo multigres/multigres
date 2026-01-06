@@ -70,6 +70,8 @@ kind: Service
 metadata:
   name: multigateway
 spec:
+  # Fixed ClusterIP for load testing to bypass DNS
+  clusterIP: 10.96.100.1
   selector:
     app: multigateway
   ports:

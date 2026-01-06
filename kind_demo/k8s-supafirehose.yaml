@@ -14,6 +14,12 @@ spec:
       labels:
         app: supafirehose
     spec:
+      # Bypass DNS for multigateway - resolve via /etc/hosts instead
+      # This uses the ClusterIP service IP which is stable
+      hostAliases:
+        - ip: "10.96.100.1"
+          hostnames:
+            - "multigateway"
       containers:
         - name: supafirehose
           image: supafirehose:latest

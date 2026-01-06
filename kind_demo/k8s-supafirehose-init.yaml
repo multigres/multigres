@@ -28,6 +28,10 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      hostAliases:
+        - ip: "10.96.100.1"
+          hostnames:
+            - "multigateway"
       containers:
         - name: init
           image: postgres:15-alpine
