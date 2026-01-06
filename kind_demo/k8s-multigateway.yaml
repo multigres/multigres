@@ -24,11 +24,19 @@ spec:
             - --http-port=15000
             - --grpc-port=15100
             - --pg-port=15432
+            # Use POD_IP as hostname since pod hostnames are not DNS-resolvable
+            # in Deployments (unlike StatefulSets). This allows the admin proxy
+            # to connect to individual gateway instances.
+            - --hostname=$(POD_IP)
             - --topo-global-server-addresses=etcd:2379
             - --topo-global-root=/multigres/test/global
             - --cell=zone1
             - --pprof-http=true
           env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: OTEL_SERVICE_NAME
               value: "multigateway"
           envFrom:
