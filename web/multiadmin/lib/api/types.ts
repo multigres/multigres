@@ -66,7 +66,12 @@ export interface MultiOrch {
 
 // Job types and status
 export type JobType = "UNKNOWN" | "BACKUP" | "RESTORE";
-export type JobStatus = "UNKNOWN" | "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+export type JobStatus =
+  | "UNKNOWN"
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED";
 export type BackupStatus = "UNKNOWN" | "INCOMPLETE" | "COMPLETE" | "FAILED";
 
 // BackupInfo from GetBackups

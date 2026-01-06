@@ -31,10 +31,7 @@ export class MultiAdminClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
   }
 
-  private async fetch<T>(
-    path: string,
-    options?: RequestInit
-  ): Promise<T> {
+  private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const response = await fetch(url, {
       ...options,
@@ -60,7 +57,7 @@ export class MultiAdminClient {
 
   async getCell(name: string): Promise<GetCellResponse> {
     return this.fetch<GetCellResponse>(
-      `/api/v1/cells/${encodeURIComponent(name)}`
+      `/api/v1/cells/${encodeURIComponent(name)}`,
     );
   }
 
@@ -72,7 +69,7 @@ export class MultiAdminClient {
 
   async getDatabase(name: string): Promise<GetDatabaseResponse> {
     return this.fetch<GetDatabaseResponse>(
-      `/api/v1/databases/${encodeURIComponent(name)}`
+      `/api/v1/databases/${encodeURIComponent(name)}`,
     );
   }
 
@@ -85,7 +82,7 @@ export class MultiAdminClient {
     }
     const query = params.toString();
     return this.fetch<GetGatewaysResponse>(
-      `/api/v1/gateways${query ? `?${query}` : ""}`
+      `/api/v1/gateways${query ? `?${query}` : ""}`,
     );
   }
 
@@ -108,7 +105,7 @@ export class MultiAdminClient {
     }
     const query = params.toString();
     return this.fetch<GetPoolersResponse>(
-      `/api/v1/poolers${query ? `?${query}` : ""}`
+      `/api/v1/poolers${query ? `?${query}` : ""}`,
     );
   }
 
@@ -121,7 +118,7 @@ export class MultiAdminClient {
     }
     const query = params.toString();
     return this.fetch<GetOrchsResponse>(
-      `/api/v1/orchs${query ? `?${query}` : ""}`
+      `/api/v1/orchs${query ? `?${query}` : ""}`,
     );
   }
 
@@ -141,7 +138,7 @@ export class MultiAdminClient {
   }
 
   async restoreFromBackup(
-    request: RestoreFromBackupRequest
+    request: RestoreFromBackupRequest,
   ): Promise<RestoreFromBackupResponse> {
     return this.fetch<RestoreFromBackupResponse>("/api/v1/restores", {
       method: "POST",
@@ -156,7 +153,7 @@ export class MultiAdminClient {
   }
 
   async getBackupJobStatus(
-    request: GetBackupJobStatusRequest
+    request: GetBackupJobStatusRequest,
   ): Promise<GetBackupJobStatusResponse> {
     const params = new URLSearchParams();
     if (request.database) {
@@ -170,7 +167,7 @@ export class MultiAdminClient {
     }
     const query = params.toString();
     return this.fetch<GetBackupJobStatusResponse>(
-      `/api/v1/jobs/${encodeURIComponent(request.jobId)}${query ? `?${query}` : ""}`
+      `/api/v1/jobs/${encodeURIComponent(request.jobId)}${query ? `?${query}` : ""}`,
     );
   }
 
@@ -190,7 +187,7 @@ export class MultiAdminClient {
     }
     const query = params.toString();
     return this.fetch<GetBackupsResponse>(
-      `/api/v1/backups${query ? `?${query}` : ""}`
+      `/api/v1/backups${query ? `?${query}` : ""}`,
     );
   }
 }
@@ -199,7 +196,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public body: string,
-    public url: string
+    public url: string,
   ) {
     super(`API error ${status}: ${body}`);
     this.name = "ApiError";
