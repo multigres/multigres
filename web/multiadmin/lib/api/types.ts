@@ -60,7 +60,8 @@ export type PoolerType = "PRIMARY" | "REPLICA";
 // MultiOrch from clustermetadata.proto
 export interface MultiOrch {
   id?: ID;
-  address?: string;
+  hostname?: string;
+  port_map?: PortMap;
 }
 
 // Job types and status

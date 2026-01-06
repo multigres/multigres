@@ -1,15 +1,16 @@
 import { PageLayout } from "@/components/page-layout";
-import TopologyClient from "./TopologyClient";
+import { MultiOrchTable } from "./components/multiorch-table";
 
 export default function Page() {
   return (
     <PageLayout
+      title="MultiOrchestrator"
       breadcrumbs={[
         { label: "Dashboard", href: "/dashboard" },
-        { label: "Topology" },
+        { label: "MultiOrchestrator" },
       ]}
     >
-      <TopologyClient />
+      <MultiOrchTable />
     </PageLayout>
   );
 }

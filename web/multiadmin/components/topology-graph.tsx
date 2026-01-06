@@ -41,7 +41,7 @@ function isPrimary(pooler: MultiPooler): boolean {
   return pooler.type === "PRIMARY";
 }
 
-export function TopologyGraph({ heightClass }: { heightClass?: string }) {
+export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: string }) {
   const api = useApi();
   const [gateways, setGateways] = useState<MultiGateway[]>([]);
   const [poolers, setPoolers] = useState<MultiPooler[]>([]);
