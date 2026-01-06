@@ -309,9 +309,10 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
 
       // Primary node
       if (group.primary) {
-        const primaryId = `pooler-${group.primary.id?.name || `primary-${groupIndex}`}`;
-        const hasValidStatus = hasPrimaryStatus(group.primary);
-        const hasConnectedReplicas = countConnectedReplicas(group.primary, group.replicas) > 0;
+        const primary = group.primary; // Store for type narrowing in nested scopes
+        const primaryId = `pooler-${primary.id?.name || `primary-${groupIndex}`}`;
+        const hasValidStatus = hasPrimaryStatus(primary);
+        const hasConnectedReplicas = countConnectedReplicas(primary, group.replicas) > 0;
 
         // Show red border if: no valid status OR (has replicas but none connected)
         const showDisconnected = !hasValidStatus || (!hasConnectedReplicas && group.replicas.length > 0);
@@ -327,7 +328,7 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
                   <div className="text-muted-foreground text-[10px] uppercase tracking-wide mb-1">Pooler</div>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">
-                      {group.primary.id?.name || "primary"}
+                      {primary.id?.name || "primary"}
                     </span>
                     <PoolerTypeBadge type="primary" />
                   </div>
@@ -337,11 +338,11 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3">
                   <div className="text-muted-foreground">Cell</div>
-                  <div className="text-right">{group.primary.id?.cell || "unknown"}</div>
+                  <div className="text-right">{primary.id?.cell || "unknown"}</div>
                   <div className="text-muted-foreground">WAL Pos</div>
-                  <div className="text-right text-xs">{formatWalPosition(group.primary)}</div>
+                  <div className="text-right text-xs">{formatWalPosition(primary)}</div>
                   <div className="text-muted-foreground">Lag</div>
-                  <div className="text-right">{formatReplicationLag(group.primary)}</div>
+                  <div className="text-right">{formatReplicationLag(primary)}</div>
                 </div>
               </div>
             ),
@@ -362,7 +363,7 @@ export function TopologyGraph({ heightClass: _heightClass }: { heightClass?: str
         group.replicas.forEach((replica, replicaIndex) => {
           const replicaId = `pooler-${replica.id?.name || `replica-${groupIndex}-${replicaIndex}`}`;
           const replicaX = groupCenterX + replicaIndex * (NODE_WIDTH + NODE_GAP);
-          const isConnected = isReplicaConnected(replica, group.primary);
+          const isConnected = isReplicaConnected(replica, primary);
 
           nodes.push({
             id: replicaId,
