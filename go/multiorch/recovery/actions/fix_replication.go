@@ -450,15 +450,23 @@ func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, rep
 			continue
 		}
 
-		// Check that we have a receive LSN (indicates WAL receiver is connected)
+		// Check WAL receiver status first - this is the live connection state
+		if status.WalReceiverStatus != "streaming" {
+			lastErr = mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+				"WAL receiver not streaming (status: %s)", status.WalReceiverStatus)
+			continue
+		}
+
+		// Also verify we have a receive LSN (sanity check)
 		if status.LastReceiveLsn == "" {
 			lastErr = mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-				"WAL receiver not streaming (no receive LSN)")
+				"WAL receiver streaming but no receive LSN")
 			continue
 		}
 
 		a.logger.InfoContext(ctx, "verified replication is streaming",
 			"replica", replica.MultiPooler.Id.Name,
+			"wal_receiver_status", status.WalReceiverStatus,
 			"last_receive_lsn", status.LastReceiveLsn,
 			"last_replay_lsn", status.LastReplayLsn)
 
