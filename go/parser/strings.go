@@ -36,6 +36,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -260,7 +261,7 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 	ctx := l.context
 
 	if ctx.CurrentChar() != '$' {
-		return "", fmt.Errorf("expected '$' at start of dollar delimiter")
+		return "", errors.New("expected '$' at start of dollar delimiter")
 	}
 
 	var delimiter strings.Builder
@@ -272,19 +273,19 @@ func (l *Lexer) parseDollarDelimiter() (string, error) {
 	// dolq_cont: [A-Za-z\200-\377_0-9]
 	if !ctx.AtEOF() && l.isDollarQuoteStartChar(ctx.CurrentChar()) {
 		// Tag starts with valid character
-		delimiter.WriteString(string(ctx.CurrentChar()))
+		delimiter.WriteRune(ctx.CurrentChar())
 		ctx.AdvanceBy(1)
 
 		// Continue with valid tag characters
 		for !ctx.AtEOF() && l.isDollarQuoteCont(ctx.CurrentChar()) {
-			delimiter.WriteString(string(ctx.CurrentChar()))
+			delimiter.WriteRune(ctx.CurrentChar())
 			ctx.AdvanceBy(1)
 		}
 	}
 
 	// Must end with $
 	if ctx.AtEOF() || ctx.CurrentChar() != '$' {
-		return "", fmt.Errorf("unterminated dollar-quote delimiter")
+		return "", errors.New("unterminated dollar-quote delimiter")
 	}
 
 	delimiter.WriteString("$")
@@ -335,7 +336,7 @@ func (l *Lexer) scanEscapeSequence() error {
 	ctx := l.context
 
 	if ctx.CurrentChar() != '\\' {
-		return fmt.Errorf("expected backslash for escape sequence")
+		return errors.New("expected backslash for escape sequence")
 	}
 
 	ctx.AdvanceBy(1) // Skip backslash
@@ -398,15 +399,17 @@ func (l *Lexer) scanHexEscape() error {
 	hexDigits := ""
 	maxDigits := 2
 
+	var hexDigitsSb401 strings.Builder
 	for i := 0; i < maxDigits && !ctx.AtEOF(); i++ {
 		ch := ctx.CurrentChar()
 		if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') {
-			hexDigits += string(ch)
+			hexDigitsSb401.WriteRune(ch)
 			ctx.AdvanceBy(1)
 		} else {
 			break
 		}
 	}
+	hexDigits += hexDigitsSb401.String()
 
 	if len(hexDigits) == 0 {
 		_ = ctx.AddErrorWithType(InvalidEscape, "invalid hexadecimal escape sequence")
@@ -431,15 +434,17 @@ func (l *Lexer) scanOctalEscape() error {
 	octalDigits := ""
 	maxDigits := 3
 
+	var octalDigitsSb434 strings.Builder
 	for i := 0; i < maxDigits && !ctx.AtEOF(); i++ {
 		ch := ctx.CurrentChar()
 		if ch >= '0' && ch <= '7' {
-			octalDigits += string(ch)
+			octalDigitsSb434.WriteRune(ch)
 			ctx.AdvanceBy(1)
 		} else {
 			break
 		}
 	}
+	octalDigits += octalDigitsSb434.String()
 
 	if len(octalDigits) == 0 {
 		_ = ctx.AddErrorWithType(InvalidEscape, "invalid octal escape sequence")
@@ -463,16 +468,18 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 
 	hexDigits := ""
 
+	var hexDigitsSb466 strings.Builder
 	for i := 0; i < digitCount && !ctx.AtEOF(); i++ {
 		ch := ctx.CurrentChar()
 		if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') {
-			hexDigits += string(ch)
+			hexDigitsSb466.WriteRune(ch)
 			ctx.AdvanceBy(1)
 		} else {
 			_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
 			return nil
 		}
 	}
+	hexDigits += hexDigitsSb466.String()
 
 	if len(hexDigits) != digitCount {
 		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
@@ -787,10 +794,11 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 
 	// Parse hex digits for second surrogate
 	hexDigits := ""
+	var hexDigitsSb790 strings.Builder
 	for i := 0; i < digitCount && !ctx.AtEOF(); i++ {
 		ch := ctx.CurrentChar()
 		if (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f') {
-			hexDigits += string(ch)
+			hexDigitsSb790.WriteRune(ch)
 			ctx.AdvanceBy(1)
 		} else {
 			_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
@@ -798,6 +806,7 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 			return nil
 		}
 	}
+	hexDigits += hexDigitsSb790.String()
 
 	if len(hexDigits) != digitCount {
 		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))

@@ -271,7 +271,7 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Verify coordinator_id matches the multiorch's cell_name format
 		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := fmt.Sprintf("%s_test-multiorch", setup.CellName)
+		expectedCoordinatorID := setup.CellName + "_test-multiorch"
 		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
 
 		// Verify WAL position is non-empty

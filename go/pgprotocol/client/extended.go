@@ -16,6 +16,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -575,7 +576,7 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 				return firstErr
 			}
 			if !gotParseComplete {
-				return fmt.Errorf("did not receive ParseComplete")
+				return errors.New("did not receive ParseComplete")
 			}
 			return nil
 
@@ -622,7 +623,7 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 				return firstErr
 			}
 			if !gotCloseComplete {
-				return fmt.Errorf("did not receive CloseComplete")
+				return errors.New("did not receive CloseComplete")
 			}
 			return nil
 
@@ -863,7 +864,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 				return false, firstErr
 			}
 			if !gotBindComplete {
-				return false, fmt.Errorf("did not receive BindComplete")
+				return false, errors.New("did not receive BindComplete")
 			}
 			return completed, nil
 
@@ -926,7 +927,7 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 				return nil, firstErr
 			}
 			if !gotBindComplete {
-				return nil, fmt.Errorf("did not receive BindComplete")
+				return nil, errors.New("did not receive BindComplete")
 			}
 			return desc, nil
 
@@ -1081,10 +1082,10 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 				return firstErr
 			}
 			if !gotParseComplete {
-				return fmt.Errorf("did not receive ParseComplete")
+				return errors.New("did not receive ParseComplete")
 			}
 			if !gotBindComplete {
-				return fmt.Errorf("did not receive BindComplete")
+				return errors.New("did not receive BindComplete")
 			}
 			return nil
 

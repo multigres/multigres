@@ -17,6 +17,7 @@ package scram
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -78,14 +79,14 @@ type clientFinalMessage struct {
 // Example: "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL"
 func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 	if msg == "" {
-		return nil, fmt.Errorf("empty client-first-message")
+		return nil, errors.New("empty client-first-message")
 	}
 
 	// Split by comma to get parts.
 	// Format: gs2-cbind-flag, [authzid], client-first-message-bare-parts...
 	parts := strings.SplitN(msg, ",", 3)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid client-first-message: expected at least 3 comma-separated parts")
+		return nil, errors.New("invalid client-first-message: expected at least 3 comma-separated parts")
 	}
 
 	// Parse GS2 header.
@@ -126,10 +127,10 @@ func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 	}
 
 	if username == "" {
-		return nil, fmt.Errorf("missing username in client-first-message")
+		return nil, errors.New("missing username in client-first-message")
 	}
 	if clientNonce == "" {
-		return nil, fmt.Errorf("missing nonce in client-first-message")
+		return nil, errors.New("missing nonce in client-first-message")
 	}
 
 	return &clientFirstMessage{
@@ -146,7 +147,7 @@ func parseClientFirstMessage(msg string) (*clientFirstMessage, error) {
 // Example: "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts="
 func parseClientFinalMessage(msg string) (*clientFinalMessage, error) {
 	if msg == "" {
-		return nil, fmt.Errorf("empty client-final-message")
+		return nil, errors.New("empty client-final-message")
 	}
 
 	// Parse attributes.
@@ -163,13 +164,13 @@ func parseClientFinalMessage(msg string) (*clientFinalMessage, error) {
 	}
 
 	if channelBinding == "" {
-		return nil, fmt.Errorf("missing channel binding in client-final-message")
+		return nil, errors.New("missing channel binding in client-final-message")
 	}
 	if nonce == "" {
-		return nil, fmt.Errorf("missing nonce in client-final-message")
+		return nil, errors.New("missing nonce in client-final-message")
 	}
 	if proofB64 == "" {
-		return nil, fmt.Errorf("missing proof in client-final-message")
+		return nil, errors.New("missing proof in client-final-message")
 	}
 
 	// Decode the proof.
@@ -182,7 +183,7 @@ func parseClientFinalMessage(msg string) (*clientFinalMessage, error) {
 	// Find where ",p=" starts and take everything before it.
 	proofIdx := strings.LastIndex(msg, ",p=")
 	if proofIdx == -1 {
-		return nil, fmt.Errorf("malformed client-final-message: cannot find proof separator")
+		return nil, errors.New("malformed client-final-message: cannot find proof separator")
 	}
 	clientFinalMessageWithoutProof := msg[:proofIdx]
 
@@ -199,13 +200,13 @@ func parseClientFinalMessage(msg string) (*clientFinalMessage, error) {
 // The message format is: "r=" nonce "," "s=" salt "," "i=" iteration-count
 func generateServerFirstMessage(clientNonce string, salt []byte, iterations int) (string, string, error) {
 	if clientNonce == "" {
-		return "", "", fmt.Errorf("client nonce cannot be empty")
+		return "", "", errors.New("client nonce cannot be empty")
 	}
 	if len(salt) == 0 {
-		return "", "", fmt.Errorf("salt cannot be empty")
+		return "", "", errors.New("salt cannot be empty")
 	}
 	if iterations <= 0 {
-		return "", "", fmt.Errorf("iterations must be positive")
+		return "", "", errors.New("iterations must be positive")
 	}
 
 	// Generate server nonce (random bytes, base64 encoded to be printable).
@@ -254,7 +255,7 @@ func encodeSaslName(s string) string {
 // The message format is: "r=" nonce "," "s=" salt "," "i=" iteration-count
 func parseServerFirstMessage(msg string) (nonce string, salt []byte, iterations int, err error) {
 	if msg == "" {
-		return "", nil, 0, fmt.Errorf("empty server-first-message")
+		return "", nil, 0, errors.New("empty server-first-message")
 	}
 
 	for attr := range strings.SplitSeq(msg, ",") {
@@ -275,13 +276,13 @@ func parseServerFirstMessage(msg string) (nonce string, salt []byte, iterations 
 	}
 
 	if nonce == "" {
-		return "", nil, 0, fmt.Errorf("missing nonce in server-first-message")
+		return "", nil, 0, errors.New("missing nonce in server-first-message")
 	}
 	if salt == nil {
-		return "", nil, 0, fmt.Errorf("missing salt in server-first-message")
+		return "", nil, 0, errors.New("missing salt in server-first-message")
 	}
 	if iterations == 0 {
-		return "", nil, 0, fmt.Errorf("missing iterations in server-first-message")
+		return "", nil, 0, errors.New("missing iterations in server-first-message")
 	}
 
 	return nonce, salt, iterations, nil

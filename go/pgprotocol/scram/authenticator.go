@@ -200,13 +200,13 @@ func (a *ScramAuthenticator) HandleClientFinal(clientFinalMessage string) (strin
 	// Verify the nonce matches.
 	if parsed.nonce != a.combinedNonce {
 		a.state = stateFailed
-		return "", fmt.Errorf("auth: nonce mismatch (possible replay attack)")
+		return "", errors.New("auth: nonce mismatch (possible replay attack)")
 	}
 
 	// Verify the nonce starts with our client nonce (extra safety check).
 	if !strings.HasPrefix(parsed.nonce, a.clientNonce) {
 		a.state = stateFailed
-		return "", fmt.Errorf("auth: combined nonce does not start with client nonce")
+		return "", errors.New("auth: combined nonce does not start with client nonce")
 	}
 
 	// Build the AuthMessage for verification.

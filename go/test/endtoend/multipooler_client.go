@@ -16,6 +16,7 @@ package endtoend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ type MultiPoolerTestClient struct {
 func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 	// Validate address format
 	if addr == "" {
-		return nil, fmt.Errorf("address cannot be empty")
+		return nil, errors.New("address cannot be empty")
 	}
 	if addr == "invalid-address" {
 		return nil, fmt.Errorf("invalid address format: %s", addr)
@@ -126,7 +127,7 @@ func IsPrimary(addr string) (bool, error) {
 	}
 
 	if resp == nil || resp.Status == nil {
-		return false, fmt.Errorf("received nil status response")
+		return false, errors.New("received nil status response")
 	}
 
 	return resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY, nil
@@ -271,7 +272,7 @@ func TestQueryLimits(t *testing.T, client *MultiPoolerTestClient, tableName stri
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
-	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName)
+	selectSQL := "SELECT * FROM " + tableName
 
 	// Test with limit
 	result, err := client.ExecuteQuery(ctx, selectSQL, 2)
@@ -321,7 +322,7 @@ func TestDeleteData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 func TestDropTable(t *testing.T, client *MultiPoolerTestClient, tableName string) {
 	t.Helper()
 
-	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+	dropSQL := "DROP TABLE IF EXISTS " + tableName
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 

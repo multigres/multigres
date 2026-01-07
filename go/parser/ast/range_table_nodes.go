@@ -437,7 +437,7 @@ func NewRangeTableFuncCol(colName string, typeName *TypeName, forOrdinality, isN
 
 func (r *RangeTableFuncCol) String() string {
 	var parts []string
-	parts = append(parts, fmt.Sprintf("RangeTableFuncCol{%s", r.ColName))
+	parts = append(parts, "RangeTableFuncCol{"+r.ColName)
 	if r.ForOrdinality {
 		parts = append(parts, "FOR_ORDINALITY")
 	}

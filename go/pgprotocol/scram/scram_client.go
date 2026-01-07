@@ -18,6 +18,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 )
 
@@ -102,7 +103,7 @@ func (c *SCRAMClient) ProcessServerFirst(serverFirst string) (string, error) {
 
 	// Verify the combined nonce starts with our client nonce.
 	if len(combinedNonce) < len(c.clientNonce) || combinedNonce[:len(c.clientNonce)] != c.clientNonce {
-		return "", fmt.Errorf("server nonce does not start with client nonce (possible attack)")
+		return "", errors.New("server nonce does not start with client nonce (possible attack)")
 	}
 
 	// Build client-final-message-without-proof.
@@ -148,7 +149,7 @@ func (c *SCRAMClient) ProcessServerFirst(serverFirst string) (string, error) {
 func (c *SCRAMClient) VerifyServerFinal(serverFinal string) error {
 	// Parse server-final-message: v=<server_signature_b64>
 	if len(serverFinal) < 2 || serverFinal[:2] != "v=" {
-		return fmt.Errorf("invalid server-final-message: expected v=...")
+		return errors.New("invalid server-final-message: expected v=...")
 	}
 
 	serverSigB64 := serverFinal[2:]
@@ -159,13 +160,13 @@ func (c *SCRAMClient) VerifyServerFinal(serverFinal string) error {
 
 	// Compute expected server signature.
 	if c.serverKey == nil {
-		return fmt.Errorf("server key not available for verification")
+		return errors.New("server key not available for verification")
 	}
 	expectedServerSig := ComputeServerSignature(c.serverKey, c.authMessage)
 
 	// Use constant-time comparison.
 	if !hmac.Equal(serverSig, expectedServerSig) {
-		return fmt.Errorf("server signature verification failed")
+		return errors.New("server signature verification failed")
 	}
 
 	return nil

@@ -297,10 +297,10 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 
 	select {
 	case <-done:
-		slog.Info(fmt.Sprintf("%s hooks finished", name))
+		slog.Info(name + " hooks finished")
 		return true
 	case <-timer.C:
-		slog.Info(fmt.Sprintf("%s hooks timed out", name))
+		slog.Info(name + " hooks timed out")
 		return false
 	}
 }

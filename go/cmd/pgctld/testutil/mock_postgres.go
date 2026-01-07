@@ -58,7 +58,7 @@ func (m *MockExecCommand) MockCommand(name string, args ...string) *exec.Cmd {
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
-	cmd.Env = append(cmd.Env, fmt.Sprintf("MOCK_CMD=%s", cmdLine))
+	cmd.Env = append(cmd.Env, "MOCK_CMD="+cmdLine)
 
 	return cmd
 }

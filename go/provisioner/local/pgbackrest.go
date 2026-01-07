@@ -121,7 +121,7 @@ ConfigReady:
 
 	// Set environment variables
 	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("PGBACKREST_CONFIG=%s", configFile),
+		"PGBACKREST_CONFIG="+configFile,
 	)
 
 	return cmd, nil
@@ -131,7 +131,7 @@ ConfigReady:
 // It waits for the multipooler to generate the pgbackrest.conf file before starting the server
 func (p *localProvisioner) provisionPgbackRestServer(ctx context.Context, dbName, cell string) (*PgbackRestProvisionResult, error) {
 	// Create unique pgbackrest service ID for this cell
-	pgbackrestServiceID := fmt.Sprintf("pgbackrest-%s", cell)
+	pgbackrestServiceID := "pgbackrest-" + cell
 
 	// Check if pgbackrest server is already running for this service combination
 	existingService, err := p.findRunningDbService(constants.ServicePgbackrest, dbName, cell)

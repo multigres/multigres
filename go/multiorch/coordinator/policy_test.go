@@ -16,6 +16,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -162,7 +163,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		// Setup PRIMARY to fail
-		fakeClient.Errors[topoclient.MultiPoolerIDString(primaryPooler.Id)] = fmt.Errorf("primary is down")
+		fakeClient.Errors[topoclient.MultiPoolerIDString(primaryPooler.Id)] = errors.New("primary is down")
 
 		// Setup REPLICA responses
 		fakeClient.GetDurabilityPolicyResponses[topoclient.MultiPoolerIDString(replica1Pooler.Id)] = &multipoolermanagerdatapb.GetDurabilityPolicyResponse{
@@ -447,7 +448,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 		replica3Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica3Pooler}
 
 		// Setup replica1 to fail
-		fakeClient.Errors[topoclient.MultiPoolerIDString(replica1Pooler.Id)] = fmt.Errorf("replica1 is down")
+		fakeClient.Errors[topoclient.MultiPoolerIDString(replica1Pooler.Id)] = errors.New("replica1 is down")
 
 		// Setup replica2 and replica3 to succeed
 		fakeClient.GetDurabilityPolicyResponses[topoclient.MultiPoolerIDString(replica2Pooler.Id)] = &multipoolermanagerdatapb.GetDurabilityPolicyResponse{
@@ -519,8 +520,8 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		replica2Node := &multiorchdatapb.PoolerHealthState{MultiPooler: replica2Pooler}
 
 		// Setup all REPLICAs to fail
-		fakeClient.Errors[topoclient.MultiPoolerIDString(replica1Pooler.Id)] = fmt.Errorf("replica1 is down")
-		fakeClient.Errors[topoclient.MultiPoolerIDString(replica2Pooler.Id)] = fmt.Errorf("replica2 is down")
+		fakeClient.Errors[topoclient.MultiPoolerIDString(replica1Pooler.Id)] = errors.New("replica1 is down")
+		fakeClient.Errors[topoclient.MultiPoolerIDString(replica2Pooler.Id)] = errors.New("replica2 is down")
 
 		cohort := []*multiorchdatapb.PoolerHealthState{replica1Node, replica2Node}
 
@@ -553,7 +554,7 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		primaryNode := &multiorchdatapb.PoolerHealthState{MultiPooler: primaryPooler}
 
 		// Setup PRIMARY to fail
-		fakeClient.Errors[topoclient.MultiPoolerIDString(primaryPooler.Id)] = fmt.Errorf("primary is down")
+		fakeClient.Errors[topoclient.MultiPoolerIDString(primaryPooler.Id)] = errors.New("primary is down")
 
 		// No REPLICA nodes available
 		cohort := []*multiorchdatapb.PoolerHealthState{primaryNode}

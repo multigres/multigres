@@ -484,7 +484,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("unsupported operation: %s", operation.String()))
+			"unsupported operation: "+operation.String())
 	}
 
 	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList completed successfully",
@@ -1010,7 +1010,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 				fmt.Sprintf("inconsistent state: topology is PRIMARY but PostgreSQL state doesn't match (pg_primary=%v, sync_matches=%v). Manual intervention required or use force=true.",
 					state.isPrimaryInPostgres, state.syncReplicationMatches))
 		}
-
 	}
 
 	// If PostgreSQL is not promoted yet, validate expected LSN before promotion

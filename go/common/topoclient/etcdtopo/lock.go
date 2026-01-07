@@ -145,7 +145,7 @@ func (s *etcdtopo) TryLock(ctx context.Context, dirPath, contents string) (topoc
 	// Throw error in this case
 	for _, e := range entries {
 		if e.Name == locksPath && e.Type == topoclient.TypeDirectory && e.Ephemeral {
-			return nil, topoclient.NewError(topoclient.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
+			return nil, topoclient.NewError(topoclient.NodeExists, "lock already exists at path "+dirPath)
 		}
 	}
 
@@ -209,7 +209,7 @@ func (s *etcdtopo) TryLockName(ctx context.Context, dirPath, contents string) (t
 		return nil, convertError(err, dirPath)
 	}
 	if len(resp.Kvs) > 0 {
-		return nil, topoclient.NewError(topoclient.NodeExists, fmt.Sprintf("lock already exists at path %s", dirPath))
+		return nil, topoclient.NewError(topoclient.NodeExists, "lock already exists at path "+dirPath)
 	}
 	// No lock exists, proceed with acquiring the named lock
 	return s.lock(ctx, dirPath, contents, int(topoclient.NamedLockTTL.Seconds()))

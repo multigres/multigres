@@ -16,11 +16,11 @@ package manager
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1174,7 +1174,7 @@ func TestInitPgBackRest(t *testing.T) {
 				assert.Contains(t, configStr, "repo1-path="+tt.backupLocation)
 				assert.Contains(t, configStr, "pg1-path="+filepath.Join(tt.poolerDir, "pg_data"))
 				assert.Contains(t, configStr, "pg1-socket-path="+filepath.Join(tt.poolerDir, "pg_sockets"))
-				assert.Contains(t, configStr, "pg1-port="+fmt.Sprint(tt.pgPort))
+				assert.Contains(t, configStr, "pg1-port="+strconv.Itoa(tt.pgPort))
 				assert.Contains(t, configStr, "pg1-user=postgres")
 				assert.Contains(t, configStr, "pg1-database=postgres")
 

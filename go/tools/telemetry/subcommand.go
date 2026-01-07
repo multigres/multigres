@@ -16,7 +16,6 @@ package telemetry
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 
@@ -28,7 +27,6 @@ import (
 func getTraceparent(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
 	if span.SpanContext().IsValid() {
-
 		// Extract trace context to W3C Trace Context format
 		carrier := propagation.MapCarrier{}
 		propagator := otel.GetTextMapPropagator()
@@ -54,7 +52,7 @@ func addTraceparent(ctx context.Context, cmd *exec.Cmd) {
 			cmd.Env = os.Environ()
 		}
 		// Add TRACEPARENT environment variable
-		cmd.Env = append(cmd.Env, fmt.Sprintf("TRACEPARENT=%s", traceparent))
+		cmd.Env = append(cmd.Env, "TRACEPARENT="+traceparent)
 	}
 }
 

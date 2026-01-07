@@ -36,6 +36,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -128,7 +129,7 @@ func (l *Lexer) processUnicodeToken(token *Token) *Token {
 			l.RecordError(err)
 		} else if len(escapeStr) != 1 || !l.isValidUescapeChar(escapeStr[0]) {
 			// Invalid UESCAPE value - record error but continue with default
-			l.RecordError(fmt.Errorf("invalid Unicode escape character"))
+			l.RecordError(errors.New("invalid Unicode escape character"))
 		} else {
 			escapeChar = escapeStr[0]
 			consumeUescape = true
@@ -182,7 +183,7 @@ func (l *Lexer) peekUescapeValue() (string, error) {
 	// Skip the UESCAPE keyword
 	ident := l.peekNextIdentifier()
 	if strings.ToLower(ident) != "uescape" {
-		return "", fmt.Errorf("expected UESCAPE keyword")
+		return "", errors.New("expected UESCAPE keyword")
 	}
 	l.skipIdentifier()
 
@@ -192,7 +193,7 @@ func (l *Lexer) peekUescapeValue() (string, error) {
 	// Check for string literal (SCONST)
 	b, ok := l.context.CurrentByte()
 	if !ok || b != '\'' {
-		return "", fmt.Errorf("UESCAPE must be followed by a simple string literal")
+		return "", errors.New("UESCAPE must be followed by a simple string literal")
 	}
 
 	// Parse the string literal to get the escape character
@@ -202,7 +203,7 @@ func (l *Lexer) peekUescapeValue() (string, error) {
 	}
 
 	if token.Type != SCONST {
-		return "", fmt.Errorf("UESCAPE must be followed by a simple string literal")
+		return "", errors.New("UESCAPE must be followed by a simple string literal")
 	}
 
 	return token.Value.Str, nil
@@ -298,7 +299,7 @@ func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, erro
 				result = append(result, utf8Bytes...)
 				i += 8
 			} else {
-				return "", fmt.Errorf("invalid Unicode escape sequence")
+				return "", errors.New("invalid Unicode escape sequence")
 			}
 		} else {
 			result = append(result, input[i])
@@ -414,7 +415,7 @@ func (l *Lexer) nextTokenInternal() (*Token, error) {
 		case StateXEU:
 			// StateXEU is now handled within string processing, not as a separate token state
 			// This should not be reached in normal operation
-			return nil, fmt.Errorf("unexpected StateXEU in lexer main loop")
+			return nil, errors.New("unexpected StateXEU in lexer main loop")
 		default:
 			return nil, fmt.Errorf("invalid lexer state: %d", l.context.GetState())
 		}
@@ -1652,7 +1653,7 @@ func (l *Lexer) checkTrailingJunk() error {
 			break
 		}
 		_ = l.context.AddErrorWithType(TrailingJunk, "trailing junk after numeric literal")
-		return fmt.Errorf("trailing junk after numeric literal")
+		return errors.New("trailing junk after numeric literal")
 	}
 	return nil
 }
@@ -1664,7 +1665,6 @@ func (l *Lexer) checkIntegerFailPattern(peekAhead []byte, prefixChar byte, digit
 	if len(peekAhead) == 2 ||
 		(len(peekAhead) == 3 && peekAhead[2] == '_') ||
 		(len(peekAhead) >= 3 && peekAhead[2] == '_' && len(peekAhead) >= 4 && !digitChecker(peekAhead[3])) {
-
 		// This is a fail pattern - consume "0" + prefixChar and optional "_"
 		l.context.NextByte() // consume '0'
 		l.context.NextByte() // consume prefix char (x/o/b)

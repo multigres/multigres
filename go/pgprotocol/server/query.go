@@ -16,6 +16,7 @@ package server
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -52,7 +53,7 @@ func (c *Conn) readQueryMessage() (string, error) {
 
 	// Verify null terminator.
 	if queryBytes[len(queryBytes)-1] != 0 {
-		return "", fmt.Errorf("query string missing null terminator")
+		return "", errors.New("query string missing null terminator")
 	}
 
 	// Convert to string (excluding null terminator).

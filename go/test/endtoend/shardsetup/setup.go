@@ -16,6 +16,7 @@ package shardsetup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -418,7 +419,7 @@ func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("timeout waiting for shard bootstrap after 20s")
+			return "", errors.New("timeout waiting for shard bootstrap after 20s")
 		case <-ticker.C:
 			primaryName, allInitialized := checkBootstrapStatus(t, setup)
 			if primaryName != "" && allInitialized {
@@ -630,7 +631,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 
 	// Require primary to be set (happens after bootstrap)
 	if s.PrimaryName == "" {
-		return fmt.Errorf("no primary has been elected (PrimaryName not set)")
+		return errors.New("no primary has been elected (PrimaryName not set)")
 	}
 	if s.GetMultipoolerInstance(s.PrimaryName) == nil {
 		return fmt.Errorf("primary instance %s not found", s.PrimaryName)

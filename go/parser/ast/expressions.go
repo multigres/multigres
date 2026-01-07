@@ -347,7 +347,7 @@ func (b *BoolExpr) SqlString() string {
 
 	case NOT_EXPR:
 		if len(b.Args.Items) > 0 && b.Args.Items[0] != nil {
-			return fmt.Sprintf("NOT %s", b.Args.Items[0].SqlString())
+			return "NOT " + b.Args.Items[0].SqlString()
 		}
 
 	default:

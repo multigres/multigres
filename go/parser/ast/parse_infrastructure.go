@@ -169,7 +169,7 @@ func (a *A_Expr) SqlString() string {
 		// Unary operators (NOT, unary +, unary -)
 		if a.Lexpr == nil && a.Rexpr != nil {
 			if op == "NOT" {
-				return fmt.Sprintf("NOT %s", a.Rexpr.SqlString())
+				return "NOT " + a.Rexpr.SqlString()
 			}
 			// Unary + or -
 			return fmt.Sprintf("%s%s", op, a.Rexpr.SqlString())
@@ -825,7 +825,7 @@ func (f *FuncCall) SqlString() string {
 			}
 			result = fmt.Sprintf("%s is %s normalized", argStrs[0], normalForm)
 		} else {
-			result = fmt.Sprintf("%s is normalized", argStrs[0])
+			result = argStrs[0] + " is normalized"
 		}
 	} else if strings.ToLower(funcName) == "system_user" && len(argStrs) == 0 {
 		// SYSTEM_USER function call with no arguments should be deparsed as SYSTEM_USER (SQL value function)

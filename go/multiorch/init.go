@@ -17,6 +17,7 @@ package multiorch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -123,7 +124,7 @@ func (mo *MultiOrch) Init() error {
 	// Validate and parse shard watch targets
 	targetsRaw := mo.cfg.GetShardWatchTargets()
 	if len(targetsRaw) == 0 {
-		return fmt.Errorf("watch-targets is required")
+		return errors.New("watch-targets is required")
 	}
 
 	targets, err := config.ParseShardWatchTargets(targetsRaw)

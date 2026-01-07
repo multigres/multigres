@@ -18,9 +18,9 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"path"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -59,7 +59,7 @@ func getMultiPooler(database string, shard string, cell string, uid uint32) *clu
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cell,
-			Name:      fmt.Sprintf("%d", uid),
+			Name:      strconv.FormatUint(uint64(uid), 10),
 		},
 		Database: database,
 		Shard:    shard,

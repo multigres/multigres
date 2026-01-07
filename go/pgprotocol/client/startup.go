@@ -16,6 +16,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -63,7 +64,7 @@ func (c *Conn) negotiateSSL() error {
 	}
 
 	if response == 'N' {
-		return fmt.Errorf("server does not support SSL")
+		return errors.New("server does not support SSL")
 	}
 	if response != 'S' {
 		return fmt.Errorf("unexpected SSL response: %c", response)
@@ -71,7 +72,7 @@ func (c *Conn) negotiateSSL() error {
 
 	// Upgrade to TLS.
 	// TODO: Implement TLS upgrade when needed.
-	return fmt.Errorf("TLS upgrade not yet implemented")
+	return errors.New("TLS upgrade not yet implemented")
 }
 
 // sendStartupMessage sends the startup message to the server.
@@ -172,7 +173,7 @@ func (c *Conn) processStartupResponses(ctx context.Context) error {
 // handleAuthenticationRequest handles an AuthenticationRequest message.
 func (c *Conn) handleAuthenticationRequest(body []byte) error {
 	if len(body) < 4 {
-		return fmt.Errorf("authentication message too short")
+		return errors.New("authentication message too short")
 	}
 
 	reader := NewMessageReader(body)
@@ -187,10 +188,10 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 		return nil
 
 	case protocol.AuthCleartextPassword:
-		return fmt.Errorf("server requested cleartext password authentication, which is not supported for security reasons")
+		return errors.New("server requested cleartext password authentication, which is not supported for security reasons")
 
 	case protocol.AuthMD5Password:
-		return fmt.Errorf("server requested MD5 password authentication, which is not supported for security reasons")
+		return errors.New("server requested MD5 password authentication, which is not supported for security reasons")
 
 	case protocol.AuthSASL:
 		// Read available SASL mechanisms.
@@ -223,7 +224,7 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 // handleBackendKeyData handles a BackendKeyData message.
 func (c *Conn) handleBackendKeyData(body []byte) error {
 	if len(body) < 8 {
-		return fmt.Errorf("backend key data message too short")
+		return errors.New("backend key data message too short")
 	}
 
 	reader := NewMessageReader(body)
@@ -264,7 +265,7 @@ func (c *Conn) handleParameterStatus(body []byte) error {
 // handleReadyForQuery handles a ReadyForQuery message.
 func (c *Conn) handleReadyForQuery(body []byte) error {
 	if len(body) < 1 {
-		return fmt.Errorf("ready for query message too short")
+		return errors.New("ready for query message too short")
 	}
 
 	c.txnStatus = body[0]

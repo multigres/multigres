@@ -15,6 +15,7 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -77,7 +78,7 @@ func GetVersionWithResult(config *pgctld.PostgresCtlConfig) (*VersionResult, err
 	// Get server version using the same method as the gRPC service
 	version := getServerVersionWithConfig(config)
 	if version == "" {
-		return nil, fmt.Errorf("failed to get server version - ensure PostgreSQL server is running and accessible")
+		return nil, errors.New("failed to get server version - ensure PostgreSQL server is running and accessible")
 	}
 
 	result.Version = version

@@ -16,6 +16,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -104,7 +105,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 
 	// Basic validation: query must not be empty.
 	if queryStr == "" {
-		return fmt.Errorf("query string cannot be empty")
+		return errors.New("query string cannot be empty")
 	}
 
 	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)

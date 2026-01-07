@@ -121,7 +121,7 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 		assert.Equal(t, "test2", results[1].name)
 
 		// Drop table
-		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s", tableName))
+		_, err = db.ExecContext(ctx, "DROP TABLE "+tableName)
 		require.NoError(t, err, "failed to drop table")
 	})
 
@@ -174,7 +174,7 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 		assert.Equal(t, 30, results[1].value)
 
 		// Cleanup
-		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s", tableName))
+		_, err = db.ExecContext(ctx, "DROP TABLE "+tableName)
 		require.NoError(t, err)
 	})
 }
@@ -221,7 +221,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, name TEXT, value NUMERIC)", tableName))
 		require.NoError(t, err, "failed to create table")
 		defer func() {
-			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
 		}()
 
 		// Prepare a statement (explicit prepare)
@@ -308,7 +308,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, data TEXT)", tableName))
 		require.NoError(t, err)
 		defer func() {
-			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
 		}()
 
 		// Use pgx batch for multiple operations
@@ -316,7 +316,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		for i := 1; i <= 5; i++ {
 			batch.Queue(fmt.Sprintf("INSERT INTO %s (id, data) VALUES ($1, $2)", tableName), i, fmt.Sprintf("data_%d", i))
 		}
-		batch.Queue(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName))
+		batch.Queue("SELECT COUNT(*) FROM " + tableName)
 
 		results := conn.SendBatch(ctx, batch)
 		defer results.Close()
@@ -360,7 +360,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, value TEXT)", tableName))
 		require.NoError(t, err, "failed to create table")
 		defer func() {
-			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
 		}()
 
 		// Insert NULL, empty string, and regular string
@@ -414,7 +414,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT, value TEXT)", tableName))
 		require.NoError(t, err)
 		defer func() {
-			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
 		}()
 
 		// Insert test data
@@ -434,7 +434,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		require.NoError(t, err, "failed to declare cursor")
 
 		// Fetch first 3 rows
-		rows, err := tx.Query(ctx, fmt.Sprintf("FETCH 3 FROM %s", cursorName))
+		rows, err := tx.Query(ctx, "FETCH 3 FROM "+cursorName)
 		require.NoError(t, err, "failed to fetch from cursor")
 
 		var fetchedIds []int
@@ -450,7 +450,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		assert.Equal(t, []int{1, 2, 3}, fetchedIds, "expected first 3 rows from cursor")
 
 		// Fetch next 3 rows
-		rows, err = tx.Query(ctx, fmt.Sprintf("FETCH 3 FROM %s", cursorName))
+		rows, err = tx.Query(ctx, "FETCH 3 FROM "+cursorName)
 		require.NoError(t, err)
 
 		fetchedIds = nil
@@ -466,7 +466,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		assert.Equal(t, []int{4, 5, 6}, fetchedIds, "expected next 3 rows from cursor")
 
 		// Close cursor
-		_, err = tx.Exec(ctx, fmt.Sprintf("CLOSE %s", cursorName))
+		_, err = tx.Exec(ctx, "CLOSE "+cursorName)
 		require.NoError(t, err, "failed to close cursor")
 
 		err = tx.Commit(ctx)
@@ -482,7 +482,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, balance NUMERIC)", tableName))
 		require.NoError(t, err)
 		defer func() {
-			_, _ = conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
 		}()
 
 		// Insert initial data

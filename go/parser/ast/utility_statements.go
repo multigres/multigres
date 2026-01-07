@@ -30,6 +30,7 @@ package ast
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -530,7 +531,7 @@ func (gs *GrantStmt) SqlString() string {
 				objNames = append(objNames, str.SVal)
 			} else if integer, ok := obj.(*Integer); ok {
 				// For large objects and other numeric identifiers
-				objNames = append(objNames, fmt.Sprintf("%d", integer.IVal))
+				objNames = append(objNames, strconv.Itoa(integer.IVal))
 			} else if objWithArgs, ok := obj.(*ObjectWithArgs); ok {
 				// For functions, use the SqlString method
 				objNames = append(objNames, objWithArgs.SqlString())
@@ -1035,27 +1036,27 @@ func formatRoleOption(d *DefElem) string {
 		}
 	case "connectionlimit":
 		if d.Arg != nil {
-			return fmt.Sprintf("CONNECTION LIMIT %s", d.Arg.SqlString())
+			return "CONNECTION LIMIT " + d.Arg.SqlString()
 		}
 	case "validuntil":
 		if d.Arg != nil {
-			return fmt.Sprintf("VALID UNTIL %s", d.Arg.SqlString())
+			return "VALID UNTIL " + d.Arg.SqlString()
 		}
 	case "addroleto":
 		if d.Arg != nil {
-			return fmt.Sprintf("IN ROLE %s", d.Arg.SqlString())
+			return "IN ROLE " + d.Arg.SqlString()
 		}
 	case "rolemembers":
 		if d.Arg != nil {
-			return fmt.Sprintf("ROLE %s", d.Arg.SqlString())
+			return "ROLE " + d.Arg.SqlString()
 		}
 	case "adminmembers":
 		if d.Arg != nil {
-			return fmt.Sprintf("ADMIN %s", d.Arg.SqlString())
+			return "ADMIN " + d.Arg.SqlString()
 		}
 	case "password":
 		if d.Arg != nil {
-			return fmt.Sprintf("PASSWORD %s", d.Arg.SqlString())
+			return "PASSWORD " + d.Arg.SqlString()
 		} else {
 			return "PASSWORD NULL"
 		}
@@ -1077,9 +1078,9 @@ func formatTransactionOption(d *DefElem) string {
 		if d.Arg != nil {
 			// Special handling for isolation levels - don't quote them
 			if strNode, ok := d.Arg.(*String); ok {
-				return fmt.Sprintf("ISOLATION LEVEL %s", strings.ToUpper(strNode.SVal))
+				return "ISOLATION LEVEL " + strings.ToUpper(strNode.SVal)
 			}
-			return fmt.Sprintf("ISOLATION LEVEL %s", d.Arg.SqlString())
+			return "ISOLATION LEVEL " + d.Arg.SqlString()
 		}
 	case "transaction_read_only":
 		if boolVal, ok := d.Arg.(*Boolean); ok {
@@ -1238,7 +1239,7 @@ func (arss *AlterRoleSetStmt) String() string {
 	}
 	dbInfo := ""
 	if arss.Database != "" {
-		dbInfo = fmt.Sprintf(" IN DATABASE %s", arss.Database)
+		dbInfo = " IN DATABASE " + arss.Database
 	}
 	return fmt.Sprintf("AlterRoleSetStmt(%s%s)@%d", roleName, dbInfo, arss.Location())
 }
@@ -1516,7 +1517,7 @@ func (v *VariableSetStmt) SqlString() string {
 							values = append(values, str.SVal)
 						}
 					} else if integer, ok := arg.(*Integer); ok {
-						values = append(values, fmt.Sprintf("%d", integer.IVal))
+						values = append(values, strconv.Itoa(integer.IVal))
 					} else if typeCast, ok := arg.(*TypeCast); ok && v.Name == "timezone" {
 						// Special handling for INTERVAL expressions in SET TIME ZONE
 						// Convert from CAST('1' AS INTERVAL hour) back to INTERVAL '1' HOUR
@@ -1548,7 +1549,7 @@ func (v *VariableSetStmt) SqlString() string {
 										}
 									} else {
 										// INTERVAL 'value' format for full range without precision
-										values = append(values, fmt.Sprintf("INTERVAL %s", argStr))
+										values = append(values, "INTERVAL "+argStr)
 									}
 								} else {
 									// Fallback to regular CAST syntax
@@ -1579,7 +1580,7 @@ func (v *VariableSetStmt) SqlString() string {
 							values = append(values, str.SVal)
 						}
 					} else if integer, ok := arg.(*Integer); ok {
-						values = append(values, fmt.Sprintf("%d", integer.IVal))
+						values = append(values, strconv.Itoa(integer.IVal))
 					} else {
 						values = append(values, arg.SqlString())
 					}
@@ -1825,7 +1826,7 @@ func (ass *AlterSystemStmt) SqlString() string {
 							values = append(values, str.SVal)
 						}
 					} else if integer, ok := arg.(*Integer); ok {
-						values = append(values, fmt.Sprintf("%d", integer.IVal))
+						values = append(values, strconv.Itoa(integer.IVal))
 					} else {
 						values = append(values, arg.SqlString())
 					}
@@ -1976,7 +1977,7 @@ func formatExplainOption(option *DefElem) string {
 			return optionName + " false"
 		}
 	case *Integer:
-		return optionName + " " + fmt.Sprintf("%d", arg.IVal)
+		return optionName + " " + strconv.Itoa(arg.IVal)
 	default:
 		// Fallback for other types
 		if stringer, ok := arg.(interface{ SqlString() string }); ok {
@@ -2319,7 +2320,7 @@ func formatCopyOption(option *DefElem) string {
 			return optionName + " " + QuoteStringLiteral(arg.SVal)
 		}
 	case *Integer:
-		return optionName + " " + fmt.Sprintf("%d", arg.IVal)
+		return optionName + " " + strconv.Itoa(arg.IVal)
 	case *Float:
 		return optionName + " " + arg.FVal
 	case *A_Star:
@@ -2537,7 +2538,7 @@ func formatVacuumOption(option *DefElem) string {
 			return optionName + " false"
 		}
 	case *Integer:
-		return optionName + " " + fmt.Sprintf("%d", arg.IVal)
+		return optionName + " " + strconv.Itoa(arg.IVal)
 	default:
 		// Fallback for other types
 		if stringer, ok := arg.(interface{ SqlString() string }); ok {
@@ -2891,7 +2892,7 @@ func (ns *NotifyStmt) SqlString() string {
 	if ns.Payload != "" {
 		return fmt.Sprintf("NOTIFY %s, '%s'", ns.Conditionname, ns.Payload)
 	}
-	return fmt.Sprintf("NOTIFY %s", ns.Conditionname)
+	return "NOTIFY " + ns.Conditionname
 }
 
 // ListenStmt represents a LISTEN statement.
@@ -2919,7 +2920,7 @@ func (ls *ListenStmt) StatementType() string {
 
 // SqlString returns the SQL representation of the LISTEN statement
 func (ls *ListenStmt) SqlString() string {
-	return fmt.Sprintf("LISTEN %s", ls.Conditionname)
+	return "LISTEN " + ls.Conditionname
 }
 
 // UnlistenStmt represents an UNLISTEN statement.
@@ -2958,7 +2959,7 @@ func (us *UnlistenStmt) SqlString() string {
 	if us.Conditionname == "*" {
 		return "UNLISTEN *"
 	}
-	return fmt.Sprintf("UNLISTEN %s", us.Conditionname)
+	return "UNLISTEN " + us.Conditionname
 }
 
 // ==============================================================================

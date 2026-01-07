@@ -17,6 +17,7 @@ package regular
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -296,7 +297,7 @@ func (c *Conn) SecretKey() uint32 {
 // Requires adminPool to be set; returns error if adminPool is nil.
 func (c *Conn) Kill(ctx context.Context) error {
 	if c.adminPool == nil {
-		return fmt.Errorf("cannot kill connection: admin pool not configured")
+		return errors.New("cannot kill connection: admin pool not configured")
 	}
 	_, err := c.adminPool.TerminateBackend(ctx, c.ProcessID())
 	return err

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// Set orphan detection environment variable as baseline protection
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
 
 	exitCode := m.Run()
 

@@ -16,7 +16,7 @@ package executor
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
@@ -56,7 +56,7 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 		return nil, err
 	}
 	if len(results) != 1 {
-		return nil, fmt.Errorf("unexepected number of results")
+		return nil, errors.New("unexepected number of results")
 	}
 	return results[0], nil
 }
@@ -78,7 +78,7 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sql
 		return nil, err
 	}
 	if len(results) != 1 {
-		return nil, fmt.Errorf("unexepected number of results")
+		return nil, errors.New("unexepected number of results")
 	}
 	return results[0], nil
 }

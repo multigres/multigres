@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
@@ -203,7 +204,7 @@ func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	cmd := exec.Command("pg_isready",
 		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 	)
@@ -216,7 +217,7 @@ func getServerVersionWithConfig(config *pgctld.PostgresCtlConfig) string {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	cmd := exec.Command("psql",
 		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-t", "-c", "SELECT version()",

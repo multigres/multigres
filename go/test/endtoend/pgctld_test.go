@@ -15,6 +15,7 @@
 package endtoend
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -503,7 +504,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		initCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
-			fmt.Sprintf("PGPASSWORD=%s", testPassword),
+			"PGPASSWORD="+testPassword,
 		)
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
@@ -514,7 +515,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
 		startCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
-			fmt.Sprintf("PGPASSWORD=%s", testPassword),
+			"PGPASSWORD="+testPassword,
 		)
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
@@ -555,7 +556,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT current_user, current_database();",
 		)
-		tcpCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", testPassword))
+		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
 		output, err = tcpCmd.CombinedOutput()
 		require.NoError(t, err, "TCP connection with correct password should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "Should connect as postgres user")
@@ -667,7 +668,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT 'Password file authentication works!' as result;",
 		)
-		tcpCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", testPassword))
+		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
 		output, err = tcpCmd.CombinedOutput()
 		require.NoError(t, err, "TCP connection with password from file should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "Password file authentication works!", "Should connect successfully")
@@ -1169,7 +1170,7 @@ func readPostmasterPID(dataDir string) (int, error) {
 
 	lines := strings.Split(string(content), "\n")
 	if len(lines) == 0 {
-		return 0, fmt.Errorf("empty postmaster.pid file")
+		return 0, errors.New("empty postmaster.pid file")
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))

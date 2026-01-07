@@ -15,6 +15,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -92,7 +93,7 @@ func (t WatchTarget) MatchesShard(db, tablegroup, shard string) bool {
 // - Empty parts are not allowed
 func ParseShardWatchTarget(s string) (WatchTarget, error) {
 	if s == "" {
-		return WatchTarget{}, fmt.Errorf("empty shard watch target")
+		return WatchTarget{}, errors.New("empty shard watch target")
 	}
 
 	parts := strings.Split(s, "/")
@@ -102,7 +103,7 @@ func ParseShardWatchTarget(s string) (WatchTarget, error) {
 
 	// Database is always required
 	if parts[0] == "" {
-		return WatchTarget{}, fmt.Errorf("database cannot be empty")
+		return WatchTarget{}, errors.New("database cannot be empty")
 	}
 
 	target := WatchTarget{Database: parts[0]}
@@ -110,7 +111,7 @@ func ParseShardWatchTarget(s string) (WatchTarget, error) {
 	// Validate and set tablegroup if provided
 	if len(parts) >= 2 {
 		if parts[1] == "" {
-			return WatchTarget{}, fmt.Errorf("tablegroup cannot be empty when specified")
+			return WatchTarget{}, errors.New("tablegroup cannot be empty when specified")
 		}
 		target.TableGroup = parts[1]
 	}
@@ -118,10 +119,10 @@ func ParseShardWatchTarget(s string) (WatchTarget, error) {
 	// Validate and set shard if provided
 	if len(parts) == 3 {
 		if parts[2] == "" {
-			return WatchTarget{}, fmt.Errorf("shard cannot be empty when specified")
+			return WatchTarget{}, errors.New("shard cannot be empty when specified")
 		}
 		if target.TableGroup == "" {
-			return WatchTarget{}, fmt.Errorf("tablegroup must be specified when shard is provided")
+			return WatchTarget{}, errors.New("tablegroup must be specified when shard is provided")
 		}
 		target.Shard = parts[2]
 	}

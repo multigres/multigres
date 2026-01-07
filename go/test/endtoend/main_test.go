@@ -17,6 +17,7 @@ package endtoend
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/multigres/multigres/go/tools/pathutil"
@@ -34,7 +35,7 @@ func TestMain(m *testing.M) {
 	// Set orphan detection environment variable so postgres processes
 	// started by in-process services will have watchdogs that monitor
 	// the test process and kill postgres if the test crashes
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
 
 	// Run all tests
 	exitCode := m.Run()

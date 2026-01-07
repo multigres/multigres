@@ -775,7 +775,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 
 	if len(matchedBackups) == 0 {
 		return "", mterrors.New(mtrpcpb.Code_NOT_FOUND,
-			fmt.Sprintf("no backup found with job_id=%s", jobID))
+			"no backup found with job_id="+jobID)
 	}
 
 	if len(matchedBackups) > 1 {

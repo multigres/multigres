@@ -17,6 +17,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -120,7 +121,7 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 // getOrCreateUserPool returns the pool for the given user, creating it if needed.
 func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPool, error) {
 	if user == "" {
-		return nil, fmt.Errorf("user cannot be empty")
+		return nil, errors.New("user cannot be empty")
 	}
 
 	m.mu.Lock()
@@ -128,7 +129,7 @@ func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPo
 
 	// Check if closed
 	if m.closed {
-		return nil, fmt.Errorf("manager is closed")
+		return nil, errors.New("manager is closed")
 	}
 
 	// Check if pool already exists
