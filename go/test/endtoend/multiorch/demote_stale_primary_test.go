@@ -106,6 +106,10 @@ func TestDemoteStalePrimary(t *testing.T) {
 	t.Log("Verifying old primary is now a replica...")
 	verifyReplicaReplicating(t, setup, oldPrimaryName, newPrimaryName)
 
+	// Step 7: Verify replication is actually working by writing data and checking it replicates
+	t.Log("Verifying data replication works after pg_rewind...")
+	verifyDataReplication(t, setup, oldPrimaryName, newPrimaryName)
+
 	t.Log("TestDemoteStalePrimary completed successfully")
 }
 
@@ -261,4 +265,55 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 			resp.Status.WalReceiverStatus)
 		return true
 	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
+}
+
+// verifyDataReplication writes data to the new primary and verifies it replicates to the old primary
+func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaName, primaryName string) {
+	t.Helper()
+
+	primary := setup.GetMultipoolerInstance(primaryName)
+	require.NotNil(t, primary, "primary instance should exist")
+
+	replica := setup.GetMultipoolerInstance(replicaName)
+	require.NotNil(t, replica, "replica instance should exist")
+
+	// Get primary and replica clients
+	primaryClient, err := shardsetup.NewMultipoolerClient(primary.Multipooler.GrpcPort)
+	require.NoError(t, err, "should connect to primary client")
+	defer primaryClient.Close()
+
+	replicaClient, err := shardsetup.NewMultipoolerClient(replica.Multipooler.GrpcPort)
+	require.NoError(t, err, "should connect to replica client")
+	defer replicaClient.Close()
+
+	// Write a unique test value to the primary
+	testValue := fmt.Sprintf("replication_test_%d", time.Now().Unix())
+	_, err = primaryClient.Pooler.ExecuteQuery(context.Background(),
+		fmt.Sprintf("INSERT INTO timeline_test (data) VALUES ('%s')", testValue), 0)
+	require.NoError(t, err, "should insert test data on primary")
+	t.Logf("Wrote test data to primary: %s", testValue)
+
+	// Get primary's current LSN
+	primaryPosResp, err := primaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
+	require.NoError(t, err, "should get primary LSN position")
+	primaryLSN := primaryPosResp.LsnPosition
+	t.Logf("Primary LSN after insert: %s", primaryLSN)
+
+	// Wait for replica to catch up to primary's LSN
+	t.Logf("Waiting for replica %s to catch up to primary LSN %s...", replicaName, primaryLSN)
+	_, err = replicaClient.Manager.WaitForLSN(utils.WithTimeout(t, 10*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
+		TargetLsn: primaryLSN,
+	})
+	require.NoError(t, err, "replica should catch up to primary LSN")
+	t.Logf("Replica caught up to primary LSN")
+
+	// Verify the data is present on the replica
+	result, err := replicaClient.Pooler.ExecuteQuery(context.Background(),
+		fmt.Sprintf("SELECT COUNT(*) FROM timeline_test WHERE data = '%s'", testValue), 1)
+	require.NoError(t, err, "should be able to query replica")
+	require.Len(t, result.Rows, 1, "should have one result row")
+	rowCount := string(result.Rows[0].Values[0])
+	require.Equal(t, "1", rowCount, "replicated data should be found on replica")
+
+	t.Logf("Verified data replicated successfully: %s", testValue)
 }

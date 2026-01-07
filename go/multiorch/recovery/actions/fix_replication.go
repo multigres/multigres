@@ -223,7 +223,11 @@ func (a *FixReplicationAction) fixNotReplicating(
 }
 
 // tryPgRewind attempts to repair a replica using pg_rewind.
-// It first runs a dry-run to check feasibility, then runs the actual rewind.
+// RewindToSource will:
+// 1. Stop postgres
+// 2. Check if rewind is needed (dry-run)
+// 3. Run actual rewind if needed
+// 4. Start postgres
 // If pg_rewind is not feasible (missing WAL), it marks the pooler as DRAINED.
 func (a *FixReplicationAction) tryPgRewind(
 	ctx context.Context,
@@ -234,41 +238,31 @@ func (a *FixReplicationAction) tryPgRewind(
 		"replica", replica.MultiPooler.Id.Name,
 		"primary", primary.MultiPooler.Id.Name)
 
-	// Run pg_rewind --dry-run to check feasibility
-	dryRunReq := &multipoolermanagerdatapb.RewindToSourceRequest{
+	// Call RewindToSource - it handles the entire flow atomically
+	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
 		Source: primary.MultiPooler,
-		DryRun: true,
 	}
-	dryRunResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, dryRunReq)
+	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, rewindReq)
 	if err != nil {
-		a.logger.WarnContext(ctx, "pg_rewind dry-run RPC failed, marking as DRAINED",
+		a.logger.WarnContext(ctx, "pg_rewind RPC failed, marking as DRAINED",
 			"replica", replica.MultiPooler.Id.Name,
 			"error", err)
 		return a.markPoolerDrained(ctx, replica)
 	}
-	if !dryRunResp.Success {
+	if !rewindResp.Success {
 		a.logger.WarnContext(ctx, "pg_rewind not feasible, marking as DRAINED",
 			"replica", replica.MultiPooler.Id.Name,
-			"error", dryRunResp.ErrorMessage)
+			"error", rewindResp.ErrorMessage)
 		return a.markPoolerDrained(ctx, replica)
 	}
 
-	// Run actual pg_rewind
-	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		Source: primary.MultiPooler,
-		DryRun: false,
+	if rewindResp.RewindPerformed {
+		a.logger.InfoContext(ctx, "pg_rewind completed successfully - servers were diverged",
+			"replica", replica.MultiPooler.Id.Name)
+	} else {
+		a.logger.InfoContext(ctx, "pg_rewind not needed - timelines are compatible",
+			"replica", replica.MultiPooler.Id.Name)
 	}
-	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.MultiPooler, rewindReq)
-	if err != nil {
-		return mterrors.Wrap(err, "pg_rewind RPC failed")
-	}
-	if !rewindResp.Success {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"pg_rewind failed: %s", rewindResp.ErrorMessage)
-	}
-
-	a.logger.InfoContext(ctx, "pg_rewind completed successfully",
-		"replica", replica.MultiPooler.Id.Name)
 
 	return nil
 }

@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -1176,8 +1177,12 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 }
 
 // RewindToSource performs pg_rewind to synchronize this server with a source.
-// This operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
-func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *clustermetadatapb.MultiPooler, dryRun bool) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+// This operation:
+// 1. Stops PostgreSQL
+// 2. Runs pg_rewind --dry-run to check if rewind is needed
+// 3. If needed, runs actual pg_rewind
+// 4. Starts PostgreSQL
+func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *clustermetadatapb.MultiPooler) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	// Check if multipooler is ready
 	if err := pm.checkReady(); err != nil {
 		return nil, mterrors.Wrap(err, "multipooler not ready")
@@ -1192,9 +1197,7 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "source hostname is required")
 	}
 
-	pm.logger.InfoContext(ctx, "RewindToSource RPC called",
-		"source", source.Id.Name,
-		"dry_run", dryRun)
+	pm.logger.InfoContext(ctx, "RewindToSource RPC called", "source", source.Id.Name)
 
 	port, ok := source.PortMap["postgres"]
 	if !ok {
@@ -1213,68 +1216,99 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 	}
 
-	// Step 1: Stop PostgreSQL
-	if !dryRun {
-		pm.logger.InfoContext(ctx, "Stopping PostgreSQL for pg_rewind")
-		stopReq := &pgctldpb.StopRequest{
-			Mode: "fast",
-		}
-		if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to stop PostgreSQL", "error", err)
-			return nil, mterrors.Wrap(err, "failed to stop PostgreSQL before pg_rewind")
-		}
+	// Close manager and stop PostgreSQL
+	pm.logger.InfoContext(ctx, "Closing manager and stopping PostgreSQL for pg_rewind")
+
+	// Close the manager to release database connections
+	if err := pm.Close(); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to close manager before pg_rewind", "error", err)
+		// Continue - we'll try to stop postgres anyway
 	}
 
-	// Step 2: Run pg_rewind - pgctld will handle password resolution
-	pm.logger.InfoContext(ctx, "Running pg_rewind",
+	stopReq := &pgctldpb.StopRequest{
+		Mode: "fast",
+	}
+	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to stop PostgreSQL", "error", err)
+		return nil, mterrors.Wrap(err, "failed to stop PostgreSQL before pg_rewind")
+	}
+
+	// Run pg_rewind --dry-run to check if rewind is needed
+	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run to check for divergence",
 		"source_host", source.Hostname,
-		"source_port", port,
-		"dry_run", dryRun)
-	rewindReq := &pgctldpb.PgRewindRequest{
+		"source_port", port)
+	dryRunReq := &pgctldpb.PgRewindRequest{
 		SourceHost: source.Hostname,
 		SourcePort: port,
-		DryRun:     dryRun,
+		DryRun:     true,
 	}
-	resp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
+	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err)
-		if resp != nil {
-			pm.logger.ErrorContext(ctx, "pg_rewind output", "output", resp.Output)
+		pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed, leaving postgres stopped", "error", err)
+		if dryRunResp != nil {
+			pm.logger.ErrorContext(ctx, "pg_rewind dry-run output", "output", dryRunResp.Output)
 		}
-		// If not a dry run, we need to try to start PostgreSQL again
-		if !dryRun {
-			pm.logger.WarnContext(ctx, "Attempting to start PostgreSQL after pg_rewind failure")
-			startReq := &pgctldpb.StartRequest{}
-			if _, startErr := pm.pgctldClient.Start(ctx, startReq); startErr != nil {
-				pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL after pg_rewind failure", "error", startErr)
+		return nil, mterrors.Wrap(err, "pg_rewind dry-run failed")
+	}
+
+	// Check if rewind is needed by parsing output
+	rewindPerformed := false
+	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
+		// Servers have diverged - run actual pg_rewind
+		pm.logger.InfoContext(ctx, "Servers diverged, running actual pg_rewind",
+			"source_host", source.Hostname,
+			"source_port", port)
+
+		rewindReq := &pgctldpb.PgRewindRequest{
+			SourceHost: source.Hostname,
+			SourcePort: port,
+			DryRun:     false,
+		}
+		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "pg_rewind failed, leaving postgres stopped", "error", err)
+			if rewindResp != nil {
+				pm.logger.ErrorContext(ctx, "pg_rewind output", "output", rewindResp.Output)
 			}
+			return nil, mterrors.Wrap(err, "pg_rewind failed")
 		}
-		return nil, mterrors.Wrap(err, "pg_rewind failed")
+
+		pm.logger.InfoContext(ctx, "pg_rewind completed successfully", "message", rewindResp.Message)
+		rewindPerformed = true
+	} else {
+		pm.logger.InfoContext(ctx, "No timeline divergence detected, skipping rewind")
 	}
 
-	pm.logger.InfoContext(ctx, "pg_rewind completed successfully",
-		"message", resp.Message,
-		"dry_run", dryRun)
-
-	// Step 3: Start PostgreSQL (unless dry_run)
-	if !dryRun {
-		pm.logger.InfoContext(ctx, "Starting PostgreSQL after pg_rewind")
-		startReq := &pgctldpb.StartRequest{}
-		if _, err := pm.pgctldClient.Start(ctx, startReq); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to start PostgreSQL after pg_rewind", "error", err)
-			return nil, mterrors.Wrap(err, "failed to start PostgreSQL after pg_rewind")
-		}
-
-		// Wait for database connection
-		if err := pm.waitForDatabaseConnection(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to reconnect to database after pg_rewind", "error", err)
-			return nil, mterrors.Wrap(err, "failed to reconnect to database after pg_rewind")
-		}
+	// Step 4: Start PostgreSQL as standby
+	// Use Restart with as_standby=true to create standby.signal and start postgres
+	// Note: postgres is already stopped, so the stop phase will be a no-op
+	pm.logger.InfoContext(ctx, "Starting PostgreSQL as standby after pg_rewind")
+	restartReq := &pgctldpb.RestartRequest{
+		Mode:      "fast",
+		AsStandby: true,
+	}
+	if _, err := pm.pgctldClient.Restart(ctx, restartReq); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL as standby", "error", err)
+		return nil, mterrors.Wrap(err, "failed to start PostgreSQL as standby after pg_rewind")
 	}
 
-	pm.logger.InfoContext(ctx, "RewindToSource completed successfully", "dry_run", dryRun)
+	// Reopen the manager
+	if err := pm.Open(); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to reopen query service controller after restart", "error", err)
+		return nil, mterrors.Wrap(err, "failed to reopen query service controller")
+	}
+
+	// Wait for database connection
+	if err := pm.waitForDatabaseConnection(ctx); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to reconnect to database", "error", err)
+		return nil, mterrors.Wrap(err, "failed to reconnect to database after pg_rewind")
+	}
+
+	pm.logger.InfoContext(ctx, "RewindToSource completed successfully",
+		"rewind_performed", rewindPerformed)
 	return &multipoolermanagerdatapb.RewindToSourceResponse{
-		Success:      true,
-		ErrorMessage: "",
+		Success:         true,
+		ErrorMessage:    "",
+		RewindPerformed: rewindPerformed,
 	}, nil
 }

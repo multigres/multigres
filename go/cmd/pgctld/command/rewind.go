@@ -33,7 +33,7 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 
 	args := []string{
 		"--source-server", sourceServer,
-		"--target-pgdata", fmt.Sprintf("%s/pg_data/", poolerDir),
+		"--target-pgdata", fmt.Sprintf("%s/pg_data", poolerDir),
 	}
 	if dryRun {
 		args = append(args, "--dry-run")

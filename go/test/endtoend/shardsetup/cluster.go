@@ -307,7 +307,9 @@ func (s *ShardSetup) Cleanup() {
 
 	// Clean up temp directory
 	if s.TempDirCleanup != nil {
-		s.TempDirCleanup()
+		if os.Getenv("KEEP_TEMP_DIRS") == "" {
+			s.TempDirCleanup()
+		}
 	}
 }
 

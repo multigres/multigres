@@ -3900,13 +3900,15 @@ func (*CreateDurabilityPolicyResponse) Descriptor() ([]byte, []int) {
 }
 
 // RewindToSourceRequest requests pg_rewind to synchronize with a source server.
-// This stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
+// This operation:
+// 1. Stops PostgreSQL
+// 2. Runs pg_rewind --dry-run to check if rewind is needed
+// 3. If needed, runs actual pg_rewind
+// 4. Starts PostgreSQL
 type RewindToSourceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Source multipooler (the primary) to rewind to
-	Source *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
-	// If true, only check if rewind is possible without making changes
-	DryRun        bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	Source        *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3948,21 +3950,17 @@ func (x *RewindToSourceRequest) GetSource() *clustermetadata.MultiPooler {
 	return nil
 }
 
-func (x *RewindToSourceRequest) GetDryRun() bool {
-	if x != nil {
-		return x.DryRun
-	}
-	return false
-}
-
 type RewindToSourceResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// True if the rewind was successful (or would be successful for dry_run)
+	// True if the operation completed successfully
 	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Error message if rewind failed or is not possible
-	ErrorMessage  string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Error message if operation failed
+	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// True if servers had diverged and pg_rewind was performed
+	// False if timelines were compatible and no rewind was needed
+	RewindPerformed bool `protobuf:"varint,3,opt,name=rewind_performed,json=rewindPerformed,proto3" json:"rewind_performed,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RewindToSourceResponse) Reset() {
@@ -4007,6 +4005,13 @@ func (x *RewindToSourceResponse) GetErrorMessage() string {
 		return x.ErrorMessage
 	}
 	return ""
+}
+
+func (x *RewindToSourceResponse) GetRewindPerformed() bool {
+	if x != nil {
+		return x.RewindPerformed
+	}
+	return false
 }
 
 var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
@@ -4239,13 +4244,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"policyName\x12<\n" +
 	"\vquorum_rule\x18\x02 \x01(\v2\x1b.clustermetadata.QuorumRuleR\n" +
 	"quorumRule\" \n" +
-	"\x1eCreateDurabilityPolicyResponse\"f\n" +
+	"\x1eCreateDurabilityPolicyResponse\"M\n" +
 	"\x15RewindToSourceRequest\x124\n" +
-	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06source\x12\x17\n" +
-	"\adry_run\x18\x02 \x01(\bR\x06dryRun\"W\n" +
+	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06source\"\x82\x01\n" +
 	"\x16RewindToSourceResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage*\x98\x01\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12)\n" +
+	"\x10rewind_performed\x18\x03 \x01(\bR\x0frewindPerformed*\x98\x01\n" +
 	"\x14ReplicationPauseMode\x12&\n" +
 	"\"REPLICATION_PAUSE_MODE_REPLAY_ONLY\x10\x00\x12(\n" +
 	"$REPLICATION_PAUSE_MODE_RECEIVER_ONLY\x10\x01\x12.\n" +
