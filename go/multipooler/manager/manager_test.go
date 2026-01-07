@@ -196,6 +196,8 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	}
 
 	manager, err := NewMultiPoolerManager(logger, config)
+	// If we don't open, Close is a noop.
+	manager.isOpen = true
 	require.NoError(t, err)
 
 	// Start the async loader

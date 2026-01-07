@@ -204,14 +204,16 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		serviceID:                config.ServiceID,
 		actionLock:               NewActionLock(),
 		state:                    ManagerStateStarting,
-		ctx:                      ctx,
-		cancel:                   cancel,
 		loadTimeout:              loadTimeout,
-		autoRestoreRetryInterval: 1 * time.Second,
+		autoRestoreRetryInterval: 5 * time.Second,
 		queryServingState:        clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:             pgctldClient,
 		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
+		// We create a dummy context because some unit tests need them.
+		// These will be overwritten when Open gets called.
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	// Create the query service controller with the pool manager
@@ -278,12 +280,72 @@ func (pm *MultiPoolerManager) execArgs(ctx context.Context, sql string, args ...
 func (pm *MultiPoolerManager) Open() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
 	if pm.isOpen {
 		return nil
 	}
 
 	pm.logger.Info("MultiPoolerManager: opening")
+	pm.ctx, pm.cancel = context.WithCancel(context.TODO())
+
+	if err := pm.openConnectionsLocked(); err != nil {
+		return err
+	}
+	// Start background PostgreSQL monitoring and auto-recovery
+	go pm.MonitorPostgres(pm.ctx)
+	pm.isOpen = true
+	pm.logger.Info("MultiPoolerManager opened database connection")
+	return nil
+}
+
+// Close closes the database connection and stops the async loader.
+// Safe to call multiple times and safe to call even if never opened.
+func (pm *MultiPoolerManager) Close() error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if !pm.isOpen {
+		return nil
+	}
+
+	pm.closeConnectionsLocked()
+	pm.cancel()
+	pm.isOpen = false
+	pm.logger.Info("MultiPoolerManager: closed")
+	return nil
+}
+
+// startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
+func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
+	// Create the replication tracker using the executor's InternalQueryService
+	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQueryService(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
+
+	// Check if we're connected to a primary
+	isPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check if database is primary: %w", err)
+	}
+
+	if isPrimary {
+		pm.logger.InfoContext(ctx, "Starting heartbeat writer - connected to primary database")
+		pm.replTracker.MakePrimary()
+	} else {
+		pm.logger.InfoContext(ctx, "Not starting heartbeat writer - connected to standby database")
+		pm.replTracker.MakeNonPrimary()
+	}
+
+	return nil
+}
+
+// QueryServiceControl returns the query service controller.
+// This follows the TabletManager pattern of exposing the controller.
+func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerController {
+	return pm.qsc
+}
+
+// openConnectionsLocked opens database connections and initializes connection-related components.
+// Caller must hold pm.mu.
+// This is symmetric to closeConnectionsLocked and used by both Open() and reopenConnections().
+func (pm *MultiPoolerManager) openConnectionsLocked() error {
+	// Open connection pool manager
 
 	// Open connection pool manager
 	if pm.connPoolMgr != nil {
@@ -316,65 +378,14 @@ func (pm *MultiPoolerManager) Open() error {
 		}
 	}
 
-	pm.isOpen = true
-	pm.logger.Info("MultiPoolerManager opened database connection")
-
 	return nil
-}
-
-// startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
-func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
-	// Create the replication tracker using the executor's InternalQueryService
-	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQueryService(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
-
-	// Check if we're connected to a primary
-	isPrimary, err := pm.isPrimary(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check if database is primary: %w", err)
-	}
-
-	if isPrimary {
-		pm.logger.InfoContext(ctx, "Starting heartbeat writer - connected to primary database")
-		pm.replTracker.MakePrimary()
-	} else {
-		pm.logger.InfoContext(ctx, "Not starting heartbeat writer - connected to standby database")
-		pm.replTracker.MakeNonPrimary()
-	}
-
-	return nil
-}
-
-// QueryServiceControl returns the query service controller.
-// This follows the TabletManager pattern of exposing the controller.
-func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerController {
-	return pm.qsc
-}
-
-// Close closes the database connection and stops the async loader.
-// Safe to call multiple times and safe to call even if never opened.
-func (pm *MultiPoolerManager) Close() error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	// Always cancel context to stop async loaders (even if Open() was never called)
-	pm.cancel()
-
-	return pm.closeConnectionsLocked()
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
 // without canceling the main context. Caller must hold pm.mu.
 // This is used by reopenConnections() during auto-restore to avoid canceling
 // the startup context that WaitUntilReady is waiting on.
-func (pm *MultiPoolerManager) closeConnectionsLocked() error {
-	if !pm.isOpen {
-		pm.logger.Info("MultiPoolerManager: already closed")
-		return nil
-	}
-
-	// Set isOpen to false
-	pm.isOpen = false
-
+func (pm *MultiPoolerManager) closeConnectionsLocked() {
 	// Close resources (safe to call even if nil/never opened)
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
@@ -385,25 +396,17 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() error {
 	if pm.connPoolMgr != nil {
 		pm.connPoolMgr.Close()
 	}
-
-	pm.logger.Info("MultiPoolerManager: closed")
-	return nil
 }
 
 // reopenConnections closes and reopens database connections without canceling
 // the main context. This is used during auto-restore to restart connections
 // after PostgreSQL has been restored, without disrupting the startup flow.
 func (pm *MultiPoolerManager) reopenConnections(_ context.Context) error {
-	if err := func() error {
-		pm.mu.Lock()
-		defer pm.mu.Unlock()
-		return pm.closeConnectionsLocked()
-	}(); err != nil {
-		return err
-	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 
-	// Now reopen (Open() acquires its own lock)
-	return pm.Open()
+	pm.closeConnectionsLocked()
+	return pm.openConnectionsLocked()
 }
 
 // GetState returns the current state of the manager
@@ -1450,8 +1453,6 @@ func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	if pm.config.ConsensusEnabled {
 		go pm.loadConsensusTermFromDisk()
 	}
-	// Start background restore from backup, for replica poolers
-	go pm.tryAutoRestoreFromBackup(pm.ctx)
 
 	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services

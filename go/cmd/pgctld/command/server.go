@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -101,6 +104,12 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	// Get the configured logger
 	logger := s.senv.GetLogger()
 
+	// Start reaping orphaned children to prevent zombie processes
+	// This is necessary because pg_ctl with -W flag can create orphaned child processes
+	// that get reparented to pgctld (PID 1 in container). Without this, these processes
+	// remain in defunct state after exit.
+	go reapOrphanedChildren(logger)
+
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
 	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir, s.pgCtlCmd.pgListenAddresses.Get())
@@ -126,6 +135,31 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	})
 
 	return s.senv.RunDefault(s.grpcServer)
+}
+
+// reapOrphanedChildren handles SIGCHLD signals to reap zombie processes.
+// This is necessary because pg_ctl with -W flag creates child processes that get
+// reparented to pgctld (when running as PID 1 in a container). Without this reaper,
+// these child processes remain in defunct (zombie) state after exit.
+//
+// The function runs in a goroutine and continuously waits for SIGCHLD signals,
+// then reaps all available zombie children using Wait4 with WNOHANG.
+func reapOrphanedChildren(logger *slog.Logger) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGCHLD)
+
+	for range sigCh {
+		// Reap all zombie children
+		for {
+			var status syscall.WaitStatus
+			pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
+			if err != nil || pid <= 0 {
+				// No more children to reap
+				break
+			}
+			logger.Debug("Reaped orphaned child process", "pid", pid, "status", status)
+		}
+	}
 }
 
 // PgCtldService implements the pgctld gRPC service

@@ -990,3 +990,78 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 func (pm *MultiPoolerManager) pgbackrestPath() string {
 	return filepath.Join(pm.config.PoolerDir, "pgbackrest")
 }
+
+// restoreAndStartPostgres restores from backup and starts PostgreSQL.
+// This is used by MonitorPostgres for auto-restore functionality.
+func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error {
+	// Acquire action lock for restore operation
+	lockCtx, err := pm.actionLock.Acquire(ctx, "restoreAndStartPostgres")
+	if err != nil {
+		return fmt.Errorf("failed to acquire action lock: %w", err)
+	}
+	defer pm.actionLock.Release(lockCtx)
+
+	// Re-check status after acquiring lock to ensure conditions haven't changed
+	// (e.g., another process may have initialized or started postgres while we waited)
+	if pm.pgctldClient != nil {
+		statusResp, err := pm.pgctldClient.Status(lockCtx, &pgctldpb.StatusRequest{})
+		if err == nil {
+			// If directory is now initialized, skip restore
+			if statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED {
+				pm.logger.InfoContext(ctx, "MonitorPostgres: directory became initialized after acquiring lock, skipping restore")
+				return nil
+			}
+		}
+		// If status check fails, continue with restore attempt
+	}
+
+	// Get the latest complete backup
+	backups, err := pm.listBackups(lockCtx)
+	if err != nil {
+		return fmt.Errorf("failed to list backups: %w", err)
+	}
+
+	// Filter to only complete backups
+	var completeBackups []*multipoolermanagerdata.BackupMetadata
+	for _, b := range backups {
+		if b.Status == multipoolermanagerdata.BackupMetadata_COMPLETE {
+			completeBackups = append(completeBackups, b)
+		}
+	}
+
+	if len(completeBackups) == 0 {
+		return fmt.Errorf("no complete backups available")
+	}
+
+	// Use the latest complete backup (last in the list)
+	latestBackup := completeBackups[len(completeBackups)-1]
+
+	pm.logger.InfoContext(ctx, "MonitorPostgres: restoring from backup",
+		"backup_id", latestBackup.BackupId)
+
+	// Perform the restore
+	if err := pm.restoreFromBackupLocked(lockCtx, latestBackup.BackupId); err != nil {
+		return fmt.Errorf("failed to restore from backup: %w", err)
+	}
+
+	// Set consensus term after restore.
+	// If the cluster is at a higher term,
+	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
+	var term int64 = 0
+	if pm.consensusState != nil {
+		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
+		pm.loadConsensusTermFromDisk()
+		term = pm.consensusState.term.TermNumber
+	}
+
+	if term == 0 {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
+	}
+
+	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
+		"backup_id", latestBackup.BackupId,
+		"shard", pm.getShardID(),
+		"term", term)
+
+	return nil
+}

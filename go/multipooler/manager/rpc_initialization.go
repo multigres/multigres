@@ -597,3 +597,187 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 	pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", pm.stanzaName(), "config", configPath)
 	return nil
 }
+
+// postgresState represents the state of PostgreSQL for monitoring
+type postgresState struct {
+	pgctldAvailable  bool
+	dirInitialized   bool
+	postgresRunning  bool
+	backupsAvailable bool
+}
+
+// MonitorPostgres continuously monitors PostgreSQL status and takes remedial action.
+// This runs as an independent goroutine started by Start().
+// It waits for topo to be loaded, then monitors in a loop until context is cancelled.
+//
+// Monitoring loop:
+// - Discovers PostgreSQL status via pgctld
+// - Takes remedial action based on state
+// - Exits when server is shutting down (context cancelled)
+func (pm *MultiPoolerManager) MonitorPostgres(ctx context.Context) {
+	// Wait for manager to be ready (topo loaded) before monitoring
+	pm.waitForReady(ctx)
+
+	// Check context after waiting
+	if ctx.Err() != nil {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: context cancelled while waiting for topo")
+		return
+	}
+
+	pm.logger.InfoContext(ctx, "MonitorPostgres: starting monitoring loop")
+
+	// Track last logged reason to avoid duplicate logs
+	var lastLoggedReason string
+
+	// Use configurable retry interval (same as auto-restore)
+	r := retry.New(pm.autoRestoreRetryInterval, pm.autoRestoreRetryInterval)
+	for attempt, err := range r.Attempts(ctx) {
+		if err != nil {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: context cancelled, exiting monitoring loop", "attempts", attempt)
+			return
+		}
+
+		// Discover current status
+		currentState := pm.discoverPostgresState(ctx)
+
+		// Take remedial action based on state
+		pm.takeRemedialAction(ctx, currentState, &lastLoggedReason)
+	}
+}
+
+// discoverPostgresState discovers the current state of PostgreSQL
+func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgresState {
+	state := postgresState{}
+
+	// Check if pgctld client is available
+	if pm.pgctldClient == nil {
+		return state // All fields remain false
+	}
+	state.pgctldAvailable = true
+
+	// Get status from pgctld
+	statusResp, err := pm.pgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
+	if err != nil {
+		// pgctld call failed, treat as unavailable
+		state.pgctldAvailable = false
+		return state
+	}
+
+	// Check if directory is initialized
+	state.dirInitialized = (statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED)
+
+	// Check if Postgres is running
+	state.postgresRunning = (statusResp.Status == pgctldpb.ServerStatus_RUNNING)
+
+	// Check if backups are available (only if directory not initialized)
+	if !state.dirInitialized {
+		state.backupsAvailable = pm.hasCompleteBackups(ctx)
+	}
+
+	return state
+}
+
+// takeRemedialAction takes remedial action based on discovered state
+func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentState postgresState, lastLoggedReason *string) {
+	const (
+		reasonPgctldUnavailable   = "pgctld_unavailable"
+		reasonPostgresRunning     = "postgres_running"
+		reasonStartingPostgres    = "starting_postgres"
+		reasonRestoringFromBackup = "restoring_from_backup"
+		reasonWaitingForBackup    = "waiting_for_backup"
+	)
+
+	// Pgctld unavailable: Log every time
+	if !currentState.pgctldAvailable {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable")
+		*lastLoggedReason = reasonPgctldUnavailable
+		return
+	}
+
+	// Postgres is running: No action (if postgres is running, directory must be initialized)
+	if currentState.postgresRunning {
+		// Log only on reason change
+		if *lastLoggedReason != reasonPostgresRunning {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running")
+			*lastLoggedReason = reasonPostgresRunning
+		}
+		return
+	}
+
+	// Directory initialized and Postgres is not running: Start postgres
+	// Note: We only reach here if postgres is not running
+	if currentState.dirInitialized {
+		// Log only on reason change
+		if *lastLoggedReason != reasonStartingPostgres {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
+			*lastLoggedReason = reasonStartingPostgres
+		}
+		if err := pm.startPostgres(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
+		}
+		return
+	}
+
+	// Directory not initialized, backup available: Restore from backup and start postgres
+	// Note: We only reach here if postgres is not running and directory is not initialized
+	if currentState.backupsAvailable {
+		// Log only on reason change
+		if *lastLoggedReason != reasonRestoringFromBackup {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
+			*lastLoggedReason = reasonRestoringFromBackup
+		}
+		if err := pm.restoreAndStartPostgres(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+		}
+		return
+	}
+
+	// Directory not initialized, no backup available: No action
+	// Note: We only reach here if postgres is not running, directory is not initialized, and no backups available
+	// Log only on reason change
+	if *lastLoggedReason != reasonWaitingForBackup {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: directory not initialized and no backups available, waiting")
+		*lastLoggedReason = reasonWaitingForBackup
+	}
+}
+
+// hasCompleteBackups checks if there are any complete backups available
+func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
+	// Acquire action lock to safely check backups
+	lockCtx, err := pm.actionLock.Acquire(ctx, "hasCompleteBackups")
+	if err != nil {
+		// If we can't acquire the lock, assume no backups to avoid blocking
+		return false
+	}
+	defer pm.actionLock.Release(lockCtx)
+
+	// Get list of backups
+	backups, err := pm.listBackups(lockCtx)
+	if err != nil {
+		return false
+	}
+
+	// Filter to only complete backups
+	for _, b := range backups {
+		if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
+			return true
+		}
+	}
+
+	return false
+}
+
+// startPostgres starts PostgreSQL via pgctld
+func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
+	if pm.pgctldClient == nil {
+		return fmt.Errorf("pgctld client not available")
+	}
+
+	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+	}
+
+	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
+	return nil
+}
