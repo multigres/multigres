@@ -53,7 +53,7 @@ func NewClient(capacity int) *Client {
 // The closer should be called even if the RPC fails.
 func (c *Client) dialPersistent(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (*cachedConn, closeFunc, error) {
 	addr := getPoolerAddr(pooler)
-	return c.cache.getOrDial(ctx, addr)
+	return c.cache.getOrDial(ctx, addr, pooler.Id)
 }
 
 // getPoolerAddr returns the gRPC address for a pooler.

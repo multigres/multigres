@@ -181,7 +181,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
 	if config.PgctldAddr != "" {
-		conn, err := grpccommon.NewClient(config.PgctldAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpccommon.NewClient(config.PgctldAddr, grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
 		if err != nil {
 			logger.ErrorContext(ctx, "Failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
 			// Continue without client - operations that need it will fail gracefully

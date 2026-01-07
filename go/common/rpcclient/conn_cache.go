@@ -28,8 +28,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -170,7 +172,7 @@ func (cc *connCache) sortEvictionsLocked() {
 //  1. cache_fast: Try to get from cache without blocking
 //  2. sema_fast: Acquire semaphore without blocking and dial new connection
 //  3. sema_poll: Poll for evictable connections while waiting for capacity
-func (cc *connCache) getOrDial(ctx context.Context, addr string) (*cachedConn, closeFunc, error) {
+func (cc *connCache) getOrDial(ctx context.Context, addr string, poolerID *clustermetadatapb.ID) (*cachedConn, closeFunc, error) {
 	start := time.Now()
 
 	// Fast path: try to get from cache without blocking
@@ -194,7 +196,7 @@ func (cc *connCache) getOrDial(ctx context.Context, addr string) (*cachedConn, c
 			cc.connWaitSema.Release(1)
 			return client, closer, err
 		}
-		return cc.newDial(ctx, addr)
+		return cc.newDial(ctx, addr, poolerID)
 	}
 
 	// Slow path: poll for evictable connections
@@ -208,7 +210,7 @@ func (cc *connCache) getOrDial(ctx context.Context, addr string) (*cachedConn, c
 			cc.metrics.AddDialTimeout(ctx)
 			return nil, nil, ctx.Err()
 		default:
-			if client, closer, found, err := cc.pollOnce(ctx, addr); found {
+			if client, closer, found, err := cc.pollOnce(ctx, addr, poolerID); found {
 				return client, closer, err
 			}
 		}
@@ -255,7 +257,7 @@ func (cc *connCache) tryFromCache(ctx context.Context, addr string, locker sync.
 //
 // It returns a connection, a closer, a flag to indicate whether the getOrDial()
 // poll loop should exit, and an error.
-func (cc *connCache) pollOnce(ctx context.Context, addr string) (client *cachedConn, closer closeFunc, found bool, err error) {
+func (cc *connCache) pollOnce(ctx context.Context, addr string, poolerID *clustermetadatapb.ID) (client *cachedConn, closer closeFunc, found bool, err error) {
 	cc.m.Lock()
 
 	if client, closer, found, err := cc.tryFromCache(ctx, addr, nil); found {
@@ -278,7 +280,7 @@ func (cc *connCache) pollOnce(ctx context.Context, addr string) (client *cachedC
 	}
 	cc.m.Unlock()
 
-	client, closer, err = cc.newDial(ctx, addr)
+	client, closer, err = cc.newDial(ctx, addr, poolerID)
 	return client, closer, true, err
 }
 
@@ -287,12 +289,18 @@ func (cc *connCache) pollOnce(ctx context.Context, addr string) (client *cachedC
 // it will make a call to Release the connWaitSema for other newDial calls.
 //
 // It returns the two-tuple of connection and closer that getOrDial returns.
-func (cc *connCache) newDial(ctx context.Context, addr string) (*cachedConn, closeFunc, error) {
+func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *clustermetadatapb.ID) (*cachedConn, closeFunc, error) {
+	// Build client options with multipooler target for telemetry
+	clientOpts := []grpccommon.ClientOption{
+		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
+	}
+	if poolerID != nil {
+		poolerIDStr := topoclient.MultiPoolerIDString(poolerID)
+		clientOpts = append(clientOpts, grpccommon.WithMultipoolerTarget(poolerIDStr))
+	}
+
 	// TODO: Add proper TLS configuration for production
-	grpcConn, err := grpccommon.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	grpcConn, err := grpccommon.NewClient(addr, clientOpts...)
 	if err != nil {
 		cc.connWaitSema.Release(1)
 		return nil, nil, err
