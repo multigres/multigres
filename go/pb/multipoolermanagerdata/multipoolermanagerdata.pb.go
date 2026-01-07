@@ -412,8 +412,12 @@ type StandbyReplicationStatus struct {
 	LastXactReplayTimestamp string `protobuf:"bytes,6,opt,name=last_xact_replay_timestamp,json=lastXactReplayTimestamp,proto3" json:"last_xact_replay_timestamp,omitempty"`
 	// Primary connection info parsed from primary_conninfo setting
 	PrimaryConnInfo *PrimaryConnInfo `protobuf:"bytes,7,opt,name=primary_conn_info,json=primaryConnInfo,proto3" json:"primary_conn_info,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// WAL receiver status from pg_stat_wal_receiver.status
+	// Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
+	// Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
+	WalReceiverStatus string `protobuf:"bytes,8,opt,name=wal_receiver_status,json=walReceiverStatus,proto3" json:"wal_receiver_status,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *StandbyReplicationStatus) Reset() {
@@ -493,6 +497,13 @@ func (x *StandbyReplicationStatus) GetPrimaryConnInfo() *PrimaryConnInfo {
 		return x.PrimaryConnInfo
 	}
 	return nil
+}
+
+func (x *StandbyReplicationStatus) GetWalReceiverStatus() string {
+	if x != nil {
+		return x.WalReceiverStatus
+	}
+	return ""
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -4008,7 +4019,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +
 	"\x04user\x18\x03 \x01(\tR\x04user\x12)\n" +
 	"\x10application_name\x18\x04 \x01(\tR\x0fapplicationName\x12\x10\n" +
-	"\x03raw\x18\x05 \x01(\tR\x03raw\"\x91\x03\n" +
+	"\x03raw\x18\x05 \x01(\tR\x03raw\"\xc1\x03\n" +
 	"\x18StandbyReplicationStatus\x12&\n" +
 	"\x0flast_replay_lsn\x18\x01 \x01(\tR\rlastReplayLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12/\n" +
@@ -4016,7 +4027,8 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x16wal_replay_pause_state\x18\x04 \x01(\tR\x13walReplayPauseState\x12+\n" +
 	"\x03lag\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x03lag\x12;\n" +
 	"\x1alast_xact_replay_timestamp\x18\x06 \x01(\tR\x17lastXactReplayTimestamp\x12S\n" +
-	"\x11primary_conn_info\x18\a \x01(\v2'.multipoolermanagerdata.PrimaryConnInfoR\x0fprimaryConnInfo\"g\n" +
+	"\x11primary_conn_info\x18\a \x01(\v2'.multipoolermanagerdata.PrimaryConnInfoR\x0fprimaryConnInfo\x12.\n" +
+	"\x13wal_receiver_status\x18\b \x01(\tR\x11walReceiverStatus\"g\n" +
 	"\x11WaitForLSNRequest\x12\x1d\n" +
 	"\n" +
 	"target_lsn\x18\x01 \x01(\tR\ttargetLsn\x123\n" +

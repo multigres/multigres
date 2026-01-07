@@ -64,6 +64,11 @@ message StandbyReplicationStatus {
 
   // Primary connection info parsed from primary_conninfo setting
   PrimaryConnInfo primary_conn_info = 7;
+
+  // WAL receiver status from pg_stat_wal_receiver.status
+  // Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
+  // Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
+  string wal_receiver_status = 8;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
