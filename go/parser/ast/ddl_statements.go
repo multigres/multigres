@@ -330,14 +330,14 @@ func (ka *KeyAction) SqlString() string {
 	if ka.Cols != nil && len(ka.Cols.Items) > 0 {
 		if ka.Action == FKCONSTR_ACTION_SETNULL || ka.Action == FKCONSTR_ACTION_SETDEFAULT {
 			result += " ("
-			var resultSb332 strings.Builder
+			var colsBuilder strings.Builder
 			for i, col := range ka.Cols.Items {
 				if i > 0 {
-					resultSb332.WriteString(", ")
+					colsBuilder.WriteString(", ")
 				}
-				resultSb332.WriteString(col.SqlString())
+				colsBuilder.WriteString(col.SqlString())
 			}
-			result += resultSb332.String()
+			result += colsBuilder.String()
 			result += ")"
 		}
 	}
@@ -949,17 +949,17 @@ func (t *TypeName) SqlString() string {
 
 	// Add array bounds if present
 	if t.ArrayBounds != nil && t.ArrayBounds.Len() > 0 {
-		var resultSb949 strings.Builder
+		var boundsBuilder strings.Builder
 		for _, bound := range t.ArrayBounds.Items {
 			if intBound, ok := bound.(*Integer); ok {
 				if intBound.IVal == -1 {
-					resultSb949.WriteString("[]")
+					boundsBuilder.WriteString("[]")
 				} else {
-					resultSb949.WriteString(fmt.Sprintf("[%d]", intBound.IVal))
+					boundsBuilder.WriteString(fmt.Sprintf("[%d]", intBound.IVal))
 				}
 			}
 		}
-		result += resultSb949.String()
+		result += boundsBuilder.String()
 	}
 
 	return result
