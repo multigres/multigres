@@ -57,11 +57,12 @@ import (
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -103,10 +104,12 @@ func (t *Telemetry) WithTestExporters(spanExporter sdktrace.SpanExporter, metric
 	return t
 }
 
-// InitTelemetry initializes OpenTelemetry providers and exporters
+// InitTelemetry initializes OpenTelemetry providers and exporters.
+// The serviceName parameter sets the service.name resource attribute (can be overridden by OTEL_SERVICE_NAME env var).
+// Additional OTel resource attributes can be passed via the attrs variadic parameter.
 //
-// Configuration is done via standard OpenTelemetry environment variables
-func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string) error {
+// Configuration is done via standard OpenTelemetry environment variables.
+func (t *Telemetry) InitTelemetry(ctx context.Context, serviceName string, attrs ...attribute.KeyValue) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -114,18 +117,18 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string
 		return nil
 	}
 
-	// Determine service name (env var > default)
-	serviceName := os.Getenv("OTEL_SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = defaultServiceName
+	// Determine service name (env var > parameter)
+	if envServiceName := os.Getenv("OTEL_SERVICE_NAME"); envServiceName != "" {
+		serviceName = envServiceName
 	}
 
-	// Create resource with service name and standard attributes
+	// Create resource with service name and any additional attributes
 	// Note: We don't merge with resource.Default() to avoid schema version conflicts
-	res := resource.NewWithAttributes(
-		semconv.SchemaURL,
+	resourceAttrs := []attribute.KeyValue{
 		semconv.ServiceName(serviceName),
-	)
+	}
+	resourceAttrs = append(resourceAttrs, attrs...)
+	res := resource.NewWithAttributes(semconv.SchemaURL, resourceAttrs...)
 
 	if err := t.initTracing(ctx, res); err != nil {
 		return fmt.Errorf("failed to initialize tracing: %w", err)
@@ -258,8 +261,10 @@ func (t *Telemetry) WithEnvTraceparent(ctx context.Context) context.Context {
 	return propagator.Extract(ctx, carrier)
 }
 
-func (t *Telemetry) InitForCommand(cmd *cobra.Command, defaultServiceName string, startSpan bool) (trace.Span, error) {
-	if err := t.InitTelemetry(cmd.Context(), defaultServiceName); err != nil {
+// InitForCommand initializes telemetry for CLI commands with just a service name.
+// Use this for one-shot commands that don't need additional resource attributes.
+func (t *Telemetry) InitForCommand(cmd *cobra.Command, serviceName string, startSpan bool) (trace.Span, error) {
+	if err := t.InitTelemetry(cmd.Context(), serviceName); err != nil {
 		return nil, fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 	}
 
@@ -310,6 +315,9 @@ func (t *Telemetry) ShutdownTelemetry(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("failed to shutdown meter provider: %w", err))
 		}
 	}
+
+	// Mark as not initialized so subsequent calls are no-ops
+	t.initialized = false
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors during telemetry shutdown: %v", errs)

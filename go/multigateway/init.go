@@ -139,7 +139,18 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mg *MultiGateway) Init() error {
-	if err := mg.senv.Init(constants.ServiceMultigateway); err != nil {
+	// Resolve service ID early for telemetry resource attributes
+	serviceID := mg.serviceID.Get()
+	if serviceID == "" {
+		serviceID = servenv.GenerateRandomServiceID()
+	}
+	cell := mg.cell.Get()
+
+	if err := mg.senv.Init(servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultigateway,
+		ServiceInstanceID: serviceID,
+		Cell:              cell,
+	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	logger := mg.senv.GetLogger()
@@ -197,8 +208,8 @@ func (mg *MultiGateway) Init() error {
 		"pg_port", mg.pgPort.Get(),
 	)
 
-	// Create MultiGateway instance for topo registration
-	multigateway := topoclient.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.GetHostname())
+	// Create multigateway record with all fields now that servenv.Init() has set them up
+	multigateway := topoclient.NewMultiGateway(serviceID, cell, mg.senv.GetHostname())
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
