@@ -226,18 +226,39 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 	require.NoError(t, err, "should connect to replica")
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Use Eventually to allow time for WAL receiver to start streaming after pg_rewind
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-	require.NoError(t, err, "should get replication status")
-	require.NotNil(t, resp.Status, "status should not be nil")
-	require.NotNil(t, resp.Status.PrimaryConnInfo, "should have primary_conninfo")
-	require.NotEmpty(t, resp.Status.LastReceiveLsn, "should be receiving WAL")
+		resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+		if err != nil {
+			t.Logf("Failed to get replication status: %v", err)
+			return false
+		}
+		if resp.Status == nil {
+			t.Logf("Replication status is nil")
+			return false
+		}
+		if resp.Status.PrimaryConnInfo == nil {
+			t.Logf("Primary conninfo is nil")
+			return false
+		}
+		if resp.Status.LastReceiveLsn == "" {
+			t.Logf("Last receive LSN is empty")
+			return false
+		}
+		if resp.Status.WalReceiverStatus != "streaming" {
+			t.Logf("WAL receiver status is %q, waiting for 'streaming'", resp.Status.WalReceiverStatus)
+			return false
+		}
 
-	t.Logf("Replica %s is streaming from %s:%d, last_receive_lsn=%s",
-		replicaName,
-		resp.Status.PrimaryConnInfo.Host,
-		resp.Status.PrimaryConnInfo.Port,
-		resp.Status.LastReceiveLsn)
+		t.Logf("Replica %s is streaming from %s:%d, last_receive_lsn=%s, wal_receiver_status=%s",
+			replicaName,
+			resp.Status.PrimaryConnInfo.Host,
+			resp.Status.PrimaryConnInfo.Port,
+			resp.Status.LastReceiveLsn,
+			resp.Status.WalReceiverStatus)
+		return true
+	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
 }

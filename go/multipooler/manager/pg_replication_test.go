@@ -1258,8 +1258,8 @@ func TestPauseReplication(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
-					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432"}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
+					[][]any{{"0/3000000", "0/3000100", "t", "paused", "2025-01-15 10:00:00+00", "host=primary port=5432", "streaming"}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1297,8 +1297,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
-					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
+					[][]any{{"0/4000000", "", "f", "not paused", "2025-01-15 11:00:00+00", "", ""}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1350,13 +1350,13 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				// First query for waitForReceiverDisconnect - consumed after first match
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 				// Second query for waitForReplicationPause
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
-					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
+					[][]any{{"0/5000000", "", "t", "paused", "2025-01-15 12:00:00+00", "", ""}}))
 			},
 			expectError:  false,
 			expectStatus: true,
@@ -1374,8 +1374,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
 				m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
 			},
 			expectError:  false,
@@ -1412,8 +1412,8 @@ func TestPauseReplication(t *testing.T) {
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT COUNT", mock.MakeQueryResult([]string{"count"}, [][]any{{"0"}}))
 				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
-					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo"},
-					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", ""}}))
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status"},
+					[][]any{{"0/5000000", "", "f", "not paused", "2025-01-15 12:00:00+00", "", ""}}))
 				m.AddQueryPatternOnceWithError("SELECT pg_wal_replay_pause", fmt.Errorf("pause failed"))
 			},
 			expectError:   true,
