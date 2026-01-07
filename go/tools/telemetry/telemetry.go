@@ -58,6 +58,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -277,7 +278,7 @@ func (t *Telemetry) InitForCommand(cmd *cobra.Command, serviceName string, start
 	return span, nil
 }
 
-// GetTracerProvider returns the configured TracerProvider
+// GetTracerProvider returns the configured TracerProvider.
 func (t *Telemetry) GetTracerProvider() trace.TracerProvider {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -286,6 +287,17 @@ func (t *Telemetry) GetTracerProvider() trace.TracerProvider {
 		return otel.GetTracerProvider()
 	}
 	return t.tracerProvider
+}
+
+// GetMeterProvider returns the configured MeterProvider.
+func (t *Telemetry) GetMeterProvider() metric.MeterProvider {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.meterProvider == nil {
+		return otel.GetMeterProvider()
+	}
+	return t.meterProvider
 }
 
 // ShutdownTelemetry gracefully shuts down all telemetry providers

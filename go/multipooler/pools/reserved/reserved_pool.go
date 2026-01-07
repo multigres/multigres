@@ -102,8 +102,8 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	poolCtx, cancel := context.WithCancel(ctx)
 
 	// Create the underlying regular pool.
-	regularPool := regular.NewPool(config.RegularPoolConfig)
-	regularPool.Open(ctx)
+	regularPool := regular.NewPool(ctx, config.RegularPoolConfig)
+	regularPool.Open()
 
 	p := &Pool{
 		config: config,

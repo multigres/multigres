@@ -60,11 +60,12 @@ func (m *mockConnection) ResetSettings(ctx context.Context) error {
 }
 
 func newTestPool(capacity int64) *Pool[*mockConnection] {
-	pool := NewPool[*mockConnection](&Config{
+	pool := NewPool[*mockConnection](context.Background(), &Config{
+		Name:         "test",
 		Capacity:     capacity,
 		MaxIdleCount: capacity,
 	})
-	pool.Open(context.Background(), func(ctx context.Context) (*mockConnection, error) {
+	pool.Open(func(ctx context.Context) (*mockConnection, error) {
 		return newMockConnection(), nil
 	}, nil)
 	return pool
