@@ -62,19 +62,17 @@ kubectl wait --for=condition=Available --timeout=300s \
   deployment/cert-manager-cainjector
 
 
-# Verify the cert-manager webhook is actually accepting connections
+# Verify the cert-manager webhook is ready by testing certificate validation
 echo "Testing webhook connectivity..."
 max_attempts=5
 attempt=1
 while [ $attempt -le $max_attempts ]; do
-  # Test connectivity using kubectl run with a temporary pod
-  if kubectl run webhook-test-$$ --rm -i --restart=Never --image=curlimages/curl:latest -n cert-manager -- \
-    curl -k -s -o /dev/null -w "%{http_code}" --max-time 5 https://cert-manager-webhook.cert-manager.svc:443/validate 2>/dev/null | grep -q .; then
-    echo "Webhook is accepting connections"
+  if kubectl apply --dry-run=server -f k8s-pgbackrest-certs.yaml >/dev/null 2>&1; then
+    echo "Webhook is ready and accepting certificate requests"
     break
   fi
   if [ $attempt -eq $max_attempts ]; then
-    echo "Timeout: webhook not accepting connections after $max_attempts attempts"
+    echo "Timeout: webhook not accepting certificate requests after $max_attempts attempts"
     exit 1
   fi
   echo "Webhook not ready, waiting... (attempt $attempt/$max_attempts)"
