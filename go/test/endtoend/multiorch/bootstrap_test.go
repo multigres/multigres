@@ -197,20 +197,43 @@ func TestBootstrapInitialization(t *testing.T) {
 	})
 
 	t.Run("verify consensus term", func(t *testing.T) {
-		// All initialized nodes should have consensus term = 1
-		for name, inst := range setup.Multipoolers {
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			require.NoError(t, err)
+		// All nodes should eventually be initialized with consensus term = 1
+		require.Eventually(t, func() bool {
+			allInitialized := true
+			allHaveCorrectTerm := true
 
-			ctx := utils.WithTimeout(t, 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
+			for name, inst := range setup.Multipoolers {
+				client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+				if err != nil {
+					t.Logf("Node %s: failed to connect: %v", name, err)
+					allInitialized = false
+					continue
+				}
 
-			require.NoError(t, err)
-			if status.Status.IsInitialized {
-				assert.Equal(t, int64(1), status.Status.ConsensusTerm, "Node %s should have consensus term 1", name)
+				ctx := utils.WithTimeout(t, 5*time.Second)
+				status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+				client.Close()
+
+				if err != nil {
+					t.Logf("Node %s: failed to get status: %v", name, err)
+					allInitialized = false
+					continue
+				}
+
+				if !status.Status.IsInitialized {
+					t.Logf("Node %s: not yet initialized", name)
+					allInitialized = false
+					continue
+				}
+
+				if status.Status.ConsensusTerm != 1 {
+					t.Logf("Node %s: consensus term is %d, expected 1", name, status.Status.ConsensusTerm)
+					allHaveCorrectTerm = false
+				}
 			}
-		}
+
+			return allInitialized && allHaveCorrectTerm
+		}, 30*time.Second, 1*time.Second, "All nodes should be initialized with consensus term 1")
 	})
 
 	t.Run("verify leadership history", func(t *testing.T) {
