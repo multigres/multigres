@@ -47,6 +47,18 @@ type ServiceIdentity struct {
 
 	// Cell is the availability zone/cell this service runs in.
 	Cell string
+
+	// Shard is the shard range this service handles (multipooler-specific).
+	// Example: "0-inf"
+	Shard string
+
+	// Database is the PostgreSQL database this service manages (multipooler-specific).
+	// Example: "postgres"
+	Database string
+
+	// TableGroup is the table group this service handles (multipooler-specific).
+	// Example: "default"
+	TableGroup string
 }
 
 // GenerateRandomServiceID generates a random 8-character service instance ID.

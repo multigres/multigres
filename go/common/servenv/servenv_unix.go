@@ -54,6 +54,16 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 	if id.Cell != "" {
 		attrs = append(attrs, semconv.CloudAvailabilityZone(id.Cell))
 	}
+	// Add multigres-specific resource attributes (multipooler only)
+	if id.Shard != "" {
+		attrs = append(attrs, attribute.String("multigres.shard", id.Shard))
+	}
+	if id.Database != "" {
+		attrs = append(attrs, attribute.String("multigres.database", id.Database))
+	}
+	if id.TableGroup != "" {
+		attrs = append(attrs, attribute.String("multigres.tablegroup", id.TableGroup))
+	}
 
 	// Initialize OpenTelemetry with service identity attributes
 	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {
