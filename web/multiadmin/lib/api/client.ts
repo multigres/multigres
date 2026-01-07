@@ -61,7 +61,7 @@ export class MultiAdminClient {
       throw new ApiError(
         0,
         error instanceof Error ? error.message : "Network request failed",
-        url
+        url,
       );
     }
   }
@@ -212,7 +212,7 @@ export class MultiAdminClient {
 
   async getPoolerStatus(poolerId: ID): Promise<GetPoolerStatusResponse> {
     return this.fetch<GetPoolerStatusResponse>(
-      `/api/v1/poolers/${encodeURIComponent(poolerId.cell)}/${encodeURIComponent(poolerId.name)}/status`
+      `/api/v1/poolers/${encodeURIComponent(poolerId.cell)}/${encodeURIComponent(poolerId.name)}/status`,
     );
   }
 }

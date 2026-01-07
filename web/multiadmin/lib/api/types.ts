@@ -220,6 +220,6 @@ export interface StandbyReplicationStatus {
   last_receive_lsn?: string;
   is_wal_replay_paused?: boolean;
   wal_replay_pause_state?: string;
-  lag?: string;  // Duration as string (e.g., "5s")
+  lag?: string; // Duration as string (e.g., "5s")
   last_xact_replay_timestamp?: string;
 }

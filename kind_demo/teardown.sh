@@ -26,6 +26,6 @@ fi
 
 # Initialize the cluster with etcd
 kind delete cluster --name=multidemo
-rm -rf data/ || true
+rm -rf data/*
 
 echo "Cleaned up data and cluster."
