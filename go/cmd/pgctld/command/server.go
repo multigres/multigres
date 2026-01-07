@@ -90,7 +90,10 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 }
 
 func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
-	if err := s.senv.Init(constants.ServicePgctld); err != nil {
+	// TODO(dweitzman): Add ServiceInstanceID and Cell that relate to the multipooler this pgctld serves
+	if err := s.senv.Init(servenv.ServiceIdentity{
+		ServiceName: constants.ServicePgctld,
+	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 

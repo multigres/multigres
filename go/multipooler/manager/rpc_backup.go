@@ -884,12 +884,9 @@ func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success b
 		return false, false
 	}
 	if len(backups) == 0 {
-		// No backups at all - this is a fresh cluster. Bootstrap will handle
-		// initialization, so don't retry auto-restore. This prevents a race
-		// where auto-restore picks up a backup created during bootstrap before
-		// bootstrap can initialize this pooler as a standby.
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: no backups exist for shard (fresh cluster, bootstrap will initialize)")
-		return false, true // done, don't retry
+		// No backups available yet - wait for a backup to be created
+		pm.logger.InfoContext(ctx, "Auto-restore: no backups available yet, will retry")
+		return false, false // retry
 	}
 
 	// Filter to only complete backups for auto-restore

@@ -92,7 +92,9 @@ service MultiAdminService {
 
   // GetPoolerStatus retrieves the unified status of a specific pooler.
   // This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
-  rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse);
+  rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse) {
+    option (google.api.http) = {get: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"};
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve

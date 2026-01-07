@@ -23,6 +23,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 func TestNewTelemetry(t *testing.T) {
@@ -284,4 +287,165 @@ func (h *testHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *testHandler) WithGroup(name string) slog.Handler {
 	return h
+}
+
+func TestInitTelemetry_WithResourceAttributes(t *testing.T) {
+	setup := SetupTestTelemetry(t)
+	ctx := context.Background()
+
+	// Initialize with service name and additional resource attributes
+	err := setup.Telemetry.InitTelemetry(ctx, "test-service",
+		semconv.ServiceInstanceID("instance-123"),
+		semconv.CloudAvailabilityZone("zone-a"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, setup.Telemetry.ShutdownTelemetry(ctx))
+	})
+
+	// Create a span to capture resource attributes
+	tracer := otel.Tracer("test")
+	_, span := tracer.Start(ctx, "test-span")
+	span.End()
+
+	// Force flush to ensure span is exported
+	require.NoError(t, setup.ForceFlush(ctx))
+
+	// Get the exported spans
+	spans := setup.SpanExporter.GetSpans()
+	require.Len(t, spans, 1, "expected exactly one span")
+
+	// Extract resource attributes from the span
+	resource := spans[0].Resource
+	attrs := resource.Attributes()
+
+	// Helper to find attribute by key
+	findAttr := func(key attribute.Key) (attribute.Value, bool) {
+		for _, attr := range attrs {
+			if attr.Key == key {
+				return attr.Value, true
+			}
+		}
+		return attribute.Value{}, false
+	}
+
+	// Verify service.name
+	val, found := findAttr(semconv.ServiceNameKey)
+	require.True(t, found, "service.name should be present")
+	assert.Equal(t, "test-service", val.AsString())
+
+	// Verify service.instance.id
+	val, found = findAttr(semconv.ServiceInstanceIDKey)
+	require.True(t, found, "service.instance.id should be present")
+	assert.Equal(t, "instance-123", val.AsString())
+
+	// Verify cloud.availability_zone
+	val, found = findAttr(semconv.CloudAvailabilityZoneKey)
+	require.True(t, found, "cloud.availability_zone should be present")
+	assert.Equal(t, "zone-a", val.AsString())
+}
+
+func TestInitTelemetry_WithoutOptionalAttributes(t *testing.T) {
+	setup := SetupTestTelemetry(t)
+	ctx := context.Background()
+
+	// Initialize with only service name (no additional attributes)
+	err := setup.Telemetry.InitTelemetry(ctx, "minimal-service")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, setup.Telemetry.ShutdownTelemetry(ctx))
+	})
+
+	// Create a span
+	tracer := otel.Tracer("test")
+	_, span := tracer.Start(ctx, "test-span")
+	span.End()
+
+	require.NoError(t, setup.ForceFlush(ctx))
+
+	spans := setup.SpanExporter.GetSpans()
+	require.Len(t, spans, 1)
+
+	resource := spans[0].Resource
+	attrs := resource.Attributes()
+
+	// Helper to find attribute by key
+	findAttr := func(key attribute.Key) (attribute.Value, bool) {
+		for _, attr := range attrs {
+			if attr.Key == key {
+				return attr.Value, true
+			}
+		}
+		return attribute.Value{}, false
+	}
+
+	// Verify service.name is present
+	val, found := findAttr(semconv.ServiceNameKey)
+	require.True(t, found, "service.name should be present")
+	assert.Equal(t, "minimal-service", val.AsString())
+
+	// Verify optional attributes are NOT present
+	_, found = findAttr(semconv.ServiceInstanceIDKey)
+	assert.False(t, found, "service.instance.id should not be present when not provided")
+
+	_, found = findAttr(semconv.CloudAvailabilityZoneKey)
+	assert.False(t, found, "cloud.availability_zone should not be present when not provided")
+}
+
+func TestMetrics_WithResourceAttributes(t *testing.T) {
+	setup := SetupTestTelemetry(t)
+	ctx := context.Background()
+
+	// Initialize with service name and additional resource attributes
+	err := setup.Telemetry.InitTelemetry(ctx, "test-metrics-service",
+		semconv.ServiceInstanceID("metrics-instance-456"),
+		semconv.CloudAvailabilityZone("metrics-zone-b"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, setup.Telemetry.ShutdownTelemetry(ctx))
+	})
+
+	// Create a meter and record a metric
+	meter := otel.Meter("test-meter")
+	counter, err := meter.Int64Counter("test_counter")
+	require.NoError(t, err)
+
+	counter.Add(ctx, 1)
+
+	// Force flush and collect metrics
+	require.NoError(t, setup.ForceFlush(ctx))
+
+	var rm metricdata.ResourceMetrics
+	err = setup.MetricReader.Collect(ctx, &rm)
+	require.NoError(t, err)
+
+	// Extract resource attributes from metrics
+	resource := rm.Resource
+	attrs := resource.Attributes()
+
+	// Helper to find attribute by key
+	findAttr := func(key attribute.Key) (attribute.Value, bool) {
+		for _, attr := range attrs {
+			if attr.Key == key {
+				return attr.Value, true
+			}
+		}
+		return attribute.Value{}, false
+	}
+
+	// Verify service.name
+	val, found := findAttr(semconv.ServiceNameKey)
+	require.True(t, found, "service.name should be present on metrics")
+	assert.Equal(t, "test-metrics-service", val.AsString())
+
+	// Verify service.instance.id
+	val, found = findAttr(semconv.ServiceInstanceIDKey)
+	require.True(t, found, "service.instance.id should be present on metrics")
+	assert.Equal(t, "metrics-instance-456", val.AsString())
+
+	// Verify cloud.availability_zone
+	val, found = findAttr(semconv.CloudAvailabilityZoneKey)
+	require.True(t, found, "cloud.availability_zone should be present on metrics")
+	assert.Equal(t, "metrics-zone-b", val.AsString())
 }

@@ -1748,7 +1748,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x15BACKUP_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18BACKUP_STATUS_INCOMPLETE\x10\x01\x12\x1a\n" +
 	"\x16BACKUP_STATUS_COMPLETE\x10\x02\x12\x18\n" +
-	"\x14BACKUP_STATUS_FAILED\x10\x032\x9c\n" +
+	"\x14BACKUP_STATUS_FAILED\x10\x032\xdf\n" +
 	"\n" +
 	"\x11MultiAdminService\x12`\n" +
 	"\aGetCell\x12\x1a.multiadmin.GetCellRequest\x1a\x1b.multiadmin.GetCellResponse\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/cells/{name}\x12p\n" +
@@ -1763,8 +1763,8 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x11RestoreFromBackup\x12$.multiadmin.RestoreFromBackupRequest\x1a%.multiadmin.RestoreFromBackupResponse\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/api/v1/restores\x12\x82\x01\n" +
 	"\x12GetBackupJobStatus\x12%.multiadmin.GetBackupJobStatusRequest\x1a&.multiadmin.GetBackupJobStatusResponse\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/v1/jobs/{job_id}\x12d\n" +
 	"\n" +
-	"GetBackups\x12\x1d.multiadmin.GetBackupsRequest\x1a\x1e.multiadmin.GetBackupsResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/backups\x12Z\n" +
-	"\x0fGetPoolerStatus\x12\".multiadmin.GetPoolerStatusRequest\x1a#.multiadmin.GetPoolerStatusResponseB1Z/github.com/multigres/multigres/go/pb/multiadminb\x06proto3"
+	"GetBackups\x12\x1d.multiadmin.GetBackupsRequest\x1a\x1e.multiadmin.GetBackupsResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/backups\x12\x9c\x01\n" +
+	"\x0fGetPoolerStatus\x12\".multiadmin.GetPoolerStatusRequest\x1a#.multiadmin.GetPoolerStatusResponse\"@\x82\xd3\xe4\x93\x02:\x128/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/statusB1Z/github.com/multigres/multigres/go/pb/multiadminb\x06proto3"
 
 var (
 	file_multiadminservice_proto_rawDescOnce sync.Once

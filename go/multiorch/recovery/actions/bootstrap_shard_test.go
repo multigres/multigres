@@ -591,11 +591,11 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	// Should succeed - we have 2 reachable poolers and ANY_2 requires 2
 	assert.NoError(t, err)
 
-	// Verify that exactly one primary and one standby were initialized
-	// (order is non-deterministic due to map iteration)
+	// Verify that exactly one primary was initialized
+	// Standbys rely on auto-restore from the backup created by the primary
 	callCounts := countCallsByMethod(fakeClient.CallLog)
 	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
-	assert.Equal(t, 1, callCounts["InitializeAsStandby"], "exactly one standby should be initialized")
+	assert.Equal(t, 0, callCounts["InitializeAsStandby"], "standbys should auto-restore, not be explicitly initialized")
 }
 
 // TestBootstrapShardAction_FullBootstrapFlow tests the complete bootstrap flow
@@ -668,11 +668,12 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Count RPC calls by method name
-	// We expect: 1 InitializeEmptyPrimary, 2 InitializeAsStandby
+	// We expect: 1 InitializeEmptyPrimary, 0 InitializeAsStandby
+	// Standbys rely on auto-restore from the backup created by the primary
 	callCounts := countCallsByMethod(fakeClient.CallLog)
 
 	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
-	assert.Equal(t, 2, callCounts["InitializeAsStandby"], "two standbys should be initialized")
+	assert.Equal(t, 0, callCounts["InitializeAsStandby"], "standbys should auto-restore, not be explicitly initialized")
 }
 
 // countCallsByMethod counts RPC calls by method name from the FakeClient call log.

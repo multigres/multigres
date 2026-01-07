@@ -97,7 +97,18 @@ func NewMultiOrch() *MultiOrch {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mo *MultiOrch) Init() error {
-	if err := mo.senv.Init(constants.ServiceMultiorch); err != nil {
+	// Get service ID from config, or generate random one if not specified
+	serviceID := mo.cfg.GetServiceID()
+	if serviceID == "" {
+		serviceID = servenv.GenerateRandomServiceID()
+	}
+	cell := mo.cfg.GetCell()
+
+	if err := mo.senv.Init(servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultiorch,
+		ServiceInstanceID: serviceID,
+		Cell:              cell,
+	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	// Get the configured logger
@@ -128,9 +139,8 @@ func (mo *MultiOrch) Init() error {
 		"watch_targets", targets,
 	)
 
-	// Create MultiOrch instance for topo registration
-	// If serviceID is empty, NewMultiOrch will generate a random 8-character ID
-	multiorch := topoclient.NewMultiOrch(mo.cfg.GetServiceID(), mo.cfg.GetCell(), mo.senv.GetHostname())
+	// Create multiorch record with all fields now that servenv.Init() has set them up
+	multiorch := topoclient.NewMultiOrch(serviceID, cell, mo.senv.GetHostname())
 	multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
 	multiorch.PortMap["http"] = int32(mo.senv.GetHTTPPort())
 

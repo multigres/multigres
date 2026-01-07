@@ -84,7 +84,9 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (ma *MultiAdmin) Init(ctx context.Context) error {
-	if err := ma.senv.Init(constants.ServiceMultiadmin); err != nil {
+	if err := ma.senv.Init(servenv.ServiceIdentity{
+		ServiceName: constants.ServiceMultiadmin,
+	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	// Get the configured logger

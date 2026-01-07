@@ -203,7 +203,10 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"backup_id", resp.BackupId,
 		"policy_name", policyName)
 
-	// Initialize remaining nodes as standbys
+	// Configure synchronous replication. We still add the standby nodes, even if they are not wired up yet,
+	// because synchronous replication requires at least one standby configured.
+	// MultiOrch will wire them up later, so including them during bootstrap is fine.
+
 	standbys := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort)-1)
 	for _, pooler := range cohort {
 		if pooler.MultiPooler.Id.Name != candidate.MultiPooler.Id.Name {
@@ -211,25 +214,17 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		}
 	}
 
-	successfulStandbys, initErr := a.initializeStandbys(ctx, problem.ShardKey, candidate, standbys, resp.BackupId)
-	if initErr != nil {
-		// Log but don't fail - we have a primary at least
-		a.logger.WarnContext(ctx, "failed to initialize some standbys",
-			"shard_key", problem.ShardKey.String(),
-			"error", initErr)
-	}
-
 	// Configure synchronous replication on primary based on durability policy.
 	// This must be done AFTER standbys are initialized so they can receive WAL.
 	// Only include successfully initialized standbys in the sync replication config.
-	if err := a.configureSynchronousReplication(ctx, candidate, successfulStandbys, quorumRule); err != nil {
+	if err := a.configureSynchronousReplication(ctx, candidate, standbys, quorumRule); err != nil {
 		return mterrors.Wrap(err, "failed to configure synchronous replication")
 	}
 
 	a.logger.InfoContext(ctx, "bootstrap shard action completed successfully",
 		"shard_key", problem.ShardKey.String(),
 		"primary", candidate.MultiPooler.Id.Name,
-		"successful_standbys", len(successfulStandbys),
+		"standbys", len(standbys),
 		"total_standbys", len(standbys))
 
 	return nil
@@ -280,85 +275,6 @@ func (a *BootstrapShardAction) selectBootstrapCandidate(ctx context.Context, coh
 
 	return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 		"no reachable candidate found for bootstrap")
-}
-
-// initializeStandbys initializes multiple nodes as standbys of the given primary.
-// Returns the list of successfully initialized standbys and an error if any standbys failed.
-// The returned list contains only standbys that were successfully initialized.
-func (a *BootstrapShardAction) initializeStandbys(ctx context.Context, shardKey commontypes.ShardKey, primary *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, backupID string) ([]*multiorchdatapb.PoolerHealthState, error) {
-	if len(standbys) == 0 {
-		return nil, nil
-	}
-
-	a.logger.InfoContext(ctx, "initializing standbys",
-		"shard_key", shardKey.String(),
-		"primary", primary.MultiPooler.Id.Name,
-		"standby_count", len(standbys),
-		"backup_id", backupID)
-
-	// Initialize all standbys in parallel
-	type result struct {
-		node *multiorchdatapb.PoolerHealthState
-		err  error
-	}
-
-	results := make(chan result, len(standbys))
-
-	for _, standby := range standbys {
-		go func(node *multiorchdatapb.PoolerHealthState) {
-			err := a.initializeSingleStandby(ctx, node, primary, backupID)
-			results <- result{node: node, err: err}
-		}(standby)
-	}
-
-	// Collect results
-	var failedNodes []string
-	var successfulStandbys []*multiorchdatapb.PoolerHealthState
-	for range standbys {
-		res := <-results
-		if res.err != nil {
-			a.logger.WarnContext(ctx, "failed to initialize standby",
-				"shard_key", shardKey.String(),
-				"node", res.node.MultiPooler.Id.Name,
-				"error", res.err)
-			failedNodes = append(failedNodes, res.node.MultiPooler.Id.Name)
-		} else {
-			a.logger.InfoContext(ctx, "successfully initialized standby",
-				"shard_key", shardKey.String(),
-				"node", res.node.MultiPooler.Id.Name)
-			successfulStandbys = append(successfulStandbys, res.node)
-		}
-	}
-
-	if len(failedNodes) > 0 {
-		return successfulStandbys, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"failed to initialize %d standbys: %v", len(failedNodes), failedNodes)
-	}
-
-	return successfulStandbys, nil
-}
-
-// initializeSingleStandby initializes a single node as a standby of the given primary.
-func (a *BootstrapShardAction) initializeSingleStandby(ctx context.Context, node *multiorchdatapb.PoolerHealthState, primary *multiorchdatapb.PoolerHealthState, backupID string) error {
-	req := &multipoolermanagerdatapb.InitializeAsStandbyRequest{
-		Primary:       primary.MultiPooler,
-		ConsensusTerm: 1,
-		Force:         false,
-		BackupId:      backupID,
-	}
-	resp, err := a.rpcClient.InitializeAsStandby(ctx, node.MultiPooler, req)
-	if err != nil {
-		return err
-	}
-
-	if !resp.Success {
-		return fmt.Errorf("initialization failed: %s", resp.ErrorMessage)
-	}
-
-	// Note: InitializeAsStandby now sets the pooler type to REPLICA internally,
-	// matching the behavior of InitializeEmptyPrimary which sets type to PRIMARY.
-
-	return nil
 }
 
 // configureSynchronousReplication configures synchronous replication on the primary

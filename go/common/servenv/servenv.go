@@ -29,12 +29,30 @@ import (
 	viperdebug "github.com/multigres/multigres/go/common/servenv/viperdebug"
 	"github.com/multigres/multigres/go/tools/event"
 	"github.com/multigres/multigres/go/tools/netutil"
+	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+// ServiceIdentity holds service identification for telemetry and topology registration.
+type ServiceIdentity struct {
+	// ServiceName is the logical name of the service (e.g., "multipooler", "multigateway").
+	ServiceName string
+
+	// ServiceInstanceID is the unique identifier for this service instance.
+	ServiceInstanceID string
+
+	// Cell is the availability zone/cell this service runs in.
+	Cell string
+}
+
+// GenerateRandomServiceID generates a random 8-character service instance ID.
+func GenerateRandomServiceID() string {
+	return stringutil.RandomString(8)
+}
 
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
