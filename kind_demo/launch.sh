@@ -61,6 +61,25 @@ kubectl wait --for=condition=Available --timeout=300s \
   deployment/cert-manager-webhook \
   deployment/cert-manager-cainjector
 
+
+# Verify the cert-manager webhook is ready by testing certificate validation
+echo "Testing webhook connectivity..."
+max_attempts=5
+attempt=1
+while [ $attempt -le $max_attempts ]; do
+  if kubectl apply --dry-run=server -f k8s-pgbackrest-certs.yaml >/dev/null 2>&1; then
+    echo "Webhook is ready and accepting certificate requests"
+    break
+  fi
+  if [ $attempt -eq $max_attempts ]; then
+    echo "Timeout: webhook not accepting certificate requests after $max_attempts attempts"
+    exit 1
+  fi
+  echo "Webhook not ready, waiting... (attempt $attempt/$max_attempts)"
+  sleep 5
+  attempt=$((attempt + 1))
+done
+
 # Deploy pgBackRest certificates using cert-manager
 echo "Creating pgBackRest TLS certificates..."
 kubectl apply -f k8s-pgbackrest-certs.yaml
