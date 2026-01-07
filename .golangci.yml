@@ -20,6 +20,7 @@ linters:
   default: none
   enable:
     - bodyclose
+    - copyloopvar # Go 1.22+ loop variable capture bug prevention
     - depguard
     - errcheck
     - errorlint
@@ -33,15 +34,21 @@ linters:
     - gosec
     - govet
     - ineffassign
+    - mirror # Prevents incorrect array/slice copying patterns
     - misspell
     - modernize
     - nilerr
     # TODO: Enable noctx - requires fixing ~170 issues where context should be passed
     # - noctx
+    - nolintlint # Ensures //nolint directives are documented
+    - nosprintfhostport # Prevents fmt.Sprintf with host:port pattern bugs
+    - perfsprint # Avoids unnecessary sprintf calls for performance
     - sloglint
+    - sqlclosecheck # Prevents database connection leaks
     - staticcheck
     - unconvert
     - unused
+    - whitespace # Detects trailing whitespace and extra blank lines
   settings:
     # goconst:
     #   # Minimum length of string to trigger (shorter strings are often not worth extracting)
