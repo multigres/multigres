@@ -380,12 +380,12 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		return nil, fmt.Errorf("failed to resolve password: %w", err)
 	}
 
-	// Construct source server connection string with password
-	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres password=%s",
-		req.GetSourceHost(), req.GetSourcePort(), password)
+	// Construct source server connection string (without password - will use PGPASSWORD env var)
+	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
+		req.GetSourceHost(), req.GetSourcePort())
 
-	// Use the shared rewind function with detailed result
-	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, req.GetDryRun(), req.GetExtraArgs())
+	// Use the shared rewind function with detailed result, passing password separately
+	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
 	if err != nil {
 		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
 		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)

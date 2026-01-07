@@ -209,7 +209,7 @@ message PgRewindRequest {
 }
 
 message PgRewindResponse {
-    // Status message
-    string message = 1;
-    string output = 2;
+  // Status message
+  string message = 1;
+  string output = 2;
 }
