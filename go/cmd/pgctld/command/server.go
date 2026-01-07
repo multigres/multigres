@@ -367,3 +367,32 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 		Message: result.Message,
 	}, nil
 }
+
+func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
+	s.logger.InfoContext(ctx, "gRPC PgRewind request",
+		"source_host", req.GetSourceHost(),
+		"source_port", req.GetSourcePort(),
+		"dry_run", req.GetDryRun())
+
+	// Resolve password using existing function
+	password, err := resolvePassword(s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve password: %w", err)
+	}
+
+	// Construct source server connection string with password
+	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres password=%s",
+		req.GetSourceHost(), req.GetSourcePort(), password)
+
+	// Use the shared rewind function with detailed result
+	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, req.GetDryRun(), req.GetExtraArgs())
+	if err != nil {
+		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
+		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)
+	}
+
+	return &pb.PgRewindResponse{
+		Message: result.Message,
+		Output:  result.Output,
+	}, nil
+}
