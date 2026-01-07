@@ -38,20 +38,35 @@ export class MultiAdminClient {
     options?: RequestInit
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new ApiError(response.status, errorText, url);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new ApiError(response.status, errorText, url);
+      }
+
+      return response.json();
+    } catch (error) {
+      // If already an ApiError, rethrow it
+      if (error instanceof ApiError) {
+        throw error;
+      }
+
+      // Network error or other fetch failure
+      throw new ApiError(
+        0,
+        error instanceof Error ? error.message : "Network request failed",
+        url
+      );
     }
-
-    return response.json();
   }
 
   // Cell operations
