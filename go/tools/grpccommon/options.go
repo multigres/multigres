@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/pflag"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -69,7 +68,7 @@ func LocalClientDialOptions() []grpc.DialOption {
 }
 
 // ClientOption configures OpenTelemetry instrumentation for the gRPC client.
-// These options extend the stats handler that NewClientWithOptions creates.
+// These options extend the stats handler that NewClient creates.
 type ClientOption interface {
 	apply(*clientConfig)
 }
@@ -77,18 +76,6 @@ type ClientOption interface {
 type clientConfig struct {
 	otelOptions []otelgrpc.Option
 	dialOptions []grpc.DialOption
-}
-
-// WithPeerService sets the peer.service attribute for OpenTelemetry spans.
-// This helps identify which specific service instance the client is connecting to.
-func WithPeerService(name string) ClientOption {
-	return funcOption(func(c *clientConfig) {
-		c.otelOptions = append(c.otelOptions,
-			otelgrpc.WithSpanAttributes(
-				semconv.PeerServiceKey.String(name),
-			),
-		)
-	})
 }
 
 // WithMultipoolerTarget configures OpenTelemetry attributes for gRPC clients
@@ -122,19 +109,13 @@ func (f funcOption) apply(c *clientConfig) {
 	f(c)
 }
 
-// NewClient creates a gRPC client connection with OpenTelemetry instrumentation.
-// Deprecated: Use NewClientWithOptions for custom telemetry configuration.
-func NewClient(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-	return NewClientWithOptions(target, WithDialOptions(opts...))
-}
-
-// NewClientWithOptions creates a gRPC client with OpenTelemetry instrumentation.
+// NewClient creates a gRPC client with OpenTelemetry instrumentation.
 // Use WithPeerService to set the remote service identifier in traces.
 // Use WithDialOptions to pass standard gRPC dial options.
 //
 // All ClientOptions are used to configure a single stats handler, preventing
 // duplication and ensuring consistent telemetry across the application.
-func NewClientWithOptions(target string, opts ...ClientOption) (*grpc.ClientConn, error) {
+func NewClient(target string, opts ...ClientOption) (*grpc.ClientConn, error) {
 	cfg := &clientConfig{}
 	for _, opt := range opts {
 		opt.apply(cfg)

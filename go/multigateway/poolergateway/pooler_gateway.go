@@ -212,7 +212,7 @@ func (pg *PoolerGateway) getOrCreateConnection(
 		"addr", addr)
 
 	// Create gRPC connection (non-blocking in newer gRPC)
-	conn, err := grpccommon.NewClientWithOptions(addr,
+	conn, err := grpccommon.NewClient(addr,
 		grpccommon.WithMultipoolerTarget(poolerID),
 		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	)

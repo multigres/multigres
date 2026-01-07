@@ -300,7 +300,7 @@ func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *cluster
 	}
 
 	// TODO: Add proper TLS configuration for production
-	grpcConn, err := grpccommon.NewClientWithOptions(addr, clientOpts...)
+	grpcConn, err := grpccommon.NewClient(addr, clientOpts...)
 	if err != nil {
 		cc.connWaitSema.Release(1)
 		return nil, nil, err
