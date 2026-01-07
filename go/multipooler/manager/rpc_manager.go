@@ -1177,43 +1177,40 @@ func (pm *MultiPoolerManager) CreateDurabilityPolicy(ctx context.Context, req *m
 
 // RewindToSource performs pg_rewind to synchronize this server with a source.
 // This operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
-// Returns (success bool, error message string).
-func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *clustermetadatapb.MultiPooler, dryRun bool) (bool, string) {
+func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *clustermetadatapb.MultiPooler, dryRun bool) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+	// Check if multipooler is ready
 	if err := pm.checkReady(); err != nil {
-		return false, err.Error()
+		return nil, mterrors.Wrap(err, "multipooler not ready")
 	}
 
-	// Validate source multipooler
-	if source == nil {
-		return false, "source is required"
+	// Validate source pooler
+	if source == nil || source.PortMap == nil {
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "source pooler or port_map is nil")
 	}
+
 	if source.Hostname == "" {
-		return false, "source hostname is required"
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "source hostname is required")
 	}
+
+	pm.logger.InfoContext(ctx, "RewindToSource RPC called",
+		"source", source.Id.Name,
+		"dry_run", dryRun)
+
 	port, ok := source.PortMap["postgres"]
 	if !ok {
-		return false, "source has no postgres port configured"
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not found in source pooler's port map")
 	}
-
-	// Build connection string from MultiPooler
-	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
-		source.Hostname, port)
 
 	// Acquire the action lock to ensure only one mutation runs at a time
 	ctx, err := pm.actionLock.Acquire(ctx, "RewindToSource")
 	if err != nil {
-		return false, err.Error()
+		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.logger.InfoContext(ctx, "RewindToSource called",
-		"source_hostname", source.Hostname,
-		"source_port", port,
-		"dry_run", dryRun)
-
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
-		return false, "pgctld client not available"
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 	}
 
 	// Step 1: Stop PostgreSQL
@@ -1224,18 +1221,26 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		}
 		if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to stop PostgreSQL", "error", err)
-			return false, fmt.Sprintf("failed to stop PostgreSQL: %v", err)
+			return nil, mterrors.Wrap(err, "failed to stop PostgreSQL before pg_rewind")
 		}
 	}
 
-	// Step 2: Run pg_rewind
-	pm.logger.InfoContext(ctx, "Running pg_rewind", "source_server", sourceServer, "dry_run", dryRun)
+	// Step 2: Run pg_rewind - pgctld will handle password resolution
+	pm.logger.InfoContext(ctx, "Running pg_rewind",
+		"source_host", source.Hostname,
+		"source_port", port,
+		"dry_run", dryRun)
 	rewindReq := &pgctldpb.PgRewindRequest{
-		SourceServer: sourceServer,
-		DryRun:       dryRun,
+		SourceHost: source.Hostname,
+		SourcePort: port,
+		DryRun:     dryRun,
 	}
-	if _, err := pm.pgctldClient.PgRewind(ctx, rewindReq); err != nil {
+	resp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
+	if err != nil {
 		pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err)
+		if resp != nil {
+			pm.logger.ErrorContext(ctx, "pg_rewind output", "output", resp.Output)
+		}
 		// If not a dry run, we need to try to start PostgreSQL again
 		if !dryRun {
 			pm.logger.WarnContext(ctx, "Attempting to start PostgreSQL after pg_rewind failure")
@@ -1244,8 +1249,12 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 				pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL after pg_rewind failure", "error", startErr)
 			}
 		}
-		return false, fmt.Sprintf("pg_rewind failed: %v", err)
+		return nil, mterrors.Wrap(err, "pg_rewind failed")
 	}
+
+	pm.logger.InfoContext(ctx, "pg_rewind completed successfully",
+		"message", resp.Message,
+		"dry_run", dryRun)
 
 	// Step 3: Start PostgreSQL (unless dry_run)
 	if !dryRun {
@@ -1253,16 +1262,19 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		startReq := &pgctldpb.StartRequest{}
 		if _, err := pm.pgctldClient.Start(ctx, startReq); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to start PostgreSQL after pg_rewind", "error", err)
-			return false, fmt.Sprintf("failed to start PostgreSQL after pg_rewind: %v", err)
+			return nil, mterrors.Wrap(err, "failed to start PostgreSQL after pg_rewind")
 		}
 
 		// Wait for database connection
 		if err := pm.waitForDatabaseConnection(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to reconnect to database after pg_rewind", "error", err)
-			return false, fmt.Sprintf("failed to reconnect to database: %v", err)
+			return nil, mterrors.Wrap(err, "failed to reconnect to database after pg_rewind")
 		}
 	}
 
 	pm.logger.InfoContext(ctx, "RewindToSource completed successfully", "dry_run", dryRun)
-	return true, ""
+	return &multipoolermanagerdatapb.RewindToSourceResponse{
+		Success:      true,
+		ErrorMessage: "",
+	}, nil
 }
