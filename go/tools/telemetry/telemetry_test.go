@@ -26,6 +26,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 func TestNewTelemetry(t *testing.T) {
@@ -34,6 +36,7 @@ func TestNewTelemetry(t *testing.T) {
 	assert.False(t, tel.initialized)
 	assert.Nil(t, tel.tracerProvider)
 	assert.Nil(t, tel.meterProvider)
+	assert.Nil(t, tel.loggerProvider)
 }
 
 func TestInitTelemetry_DefaultServiceName(t *testing.T) {
@@ -47,6 +50,7 @@ func TestInitTelemetry_DefaultServiceName(t *testing.T) {
 	assert.True(t, setup.Telemetry.initialized)
 	assert.NotNil(t, setup.Telemetry.tracerProvider)
 	assert.NotNil(t, setup.Telemetry.meterProvider)
+	assert.NotNil(t, setup.Telemetry.loggerProvider)
 
 	// Verify shutdown works
 	err = setup.Telemetry.ShutdownTelemetry(ctx)
@@ -448,4 +452,84 @@ func TestMetrics_WithResourceAttributes(t *testing.T) {
 	val, found = findAttr(semconv.CloudAvailabilityZoneKey)
 	require.True(t, found, "cloud.availability_zone should be present on metrics")
 	assert.Equal(t, "metrics-zone-b", val.AsString())
+}
+
+func TestWrapSlogHandler_CompositeHandler(t *testing.T) {
+	setup := SetupTestTelemetry(t)
+	ctx := t.Context()
+
+	err := setup.Telemetry.InitTelemetry(ctx, "test-service")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 2*time.Second)
+		defer cancel()
+		require.NoError(t, setup.Telemetry.ShutdownTelemetry(cleanupCtx))
+	})
+
+	// Track calls to both local and OTLP handlers
+	var localCalled bool
+
+	baseHandler := &testHandler{
+		onHandle: func(ctx context.Context, r slog.Record) error {
+			localCalled = true
+			return nil
+		},
+	}
+
+	// Wrap the handler - should create composite handler with OTLP
+	wrappedHandler := setup.Telemetry.WrapSlogHandler(baseHandler)
+
+	// Log a message
+	logger := slog.New(wrappedHandler)
+	logger.InfoContext(ctx, "test message")
+
+	// Verify local handler was called
+	assert.True(t, localCalled, "local handler should be called")
+
+	// Note: We can't easily verify OTLP handler was called without exposing internals,
+	// but we verify the composite handler was created by checking the type
+	// The actual OTLP export is tested via the test log processor in SetupTestTelemetry
+	_, isComposite := wrappedHandler.(*compositeHandler)
+	assert.True(t, isComposite, "should return composite handler when LoggerProvider is initialized")
+}
+
+func TestWrapSlogHandler_WithoutLoggerProvider(t *testing.T) {
+	// Create telemetry WITHOUT initializing (no LoggerProvider)
+	tel := NewTelemetry()
+
+	baseHandler := &testHandler{
+		onHandle: func(ctx context.Context, r slog.Record) error {
+			return nil
+		},
+	}
+
+	// Wrap handler without LoggerProvider - should only get trace handler
+	wrappedHandler := tel.WrapSlogHandler(baseHandler)
+
+	// Verify it's NOT a composite handler
+	_, isComposite := wrappedHandler.(*compositeHandler)
+	assert.False(t, isComposite, "should not return composite handler when LoggerProvider is nil")
+
+	// Verify it IS a trace handler
+	_, isTrace := wrappedHandler.(*traceHandler)
+	assert.True(t, isTrace, "should return trace handler when LoggerProvider is nil")
+}
+
+func TestInitLogs_DefaultsToNone(t *testing.T) {
+	// Don't set OTEL_LOGS_EXPORTER env var
+	// The initLogs should default to "none" and not create a LoggerProvider
+
+	tel := NewTelemetry()
+	ctx := t.Context()
+
+	err := tel.InitTelemetry(ctx, "test-service")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 2*time.Second)
+		defer cancel()
+		require.NoError(t, tel.ShutdownTelemetry(cleanupCtx))
+	})
+
+	// LoggerProvider should be nil when OTEL_LOGS_EXPORTER defaults to "none"
+	assert.Nil(t, tel.loggerProvider, "loggerProvider should be nil when logs exporter is 'none'")
 }

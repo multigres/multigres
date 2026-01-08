@@ -103,9 +103,10 @@ func NewTelemetry() *Telemetry {
 // WithTestExporters configures the telemetry instance to use test exporters instead of autoexport.
 // This allows tests to capture and verify telemetry data while still going through normal initialization.
 // Must be called before InitTelemetry().
-func (t *Telemetry) WithTestExporters(spanExporter sdktrace.SpanExporter, metricReader sdkmetric.Reader) *Telemetry {
+func (t *Telemetry) WithTestExporters(spanExporter sdktrace.SpanExporter, metricReader sdkmetric.Reader, logProcessor sdklog.Processor) *Telemetry {
 	t.testSpanExporter = spanExporter
 	t.testMetricReader = metricReader
+	t.testLogProcessor = logProcessor
 	return t
 }
 
