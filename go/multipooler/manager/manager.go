@@ -1778,9 +1778,9 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	return nil
 }
 
-// EnableMonitor starts the PostgreSQL monitoring goroutine if it's not already running.
+// enableMonitorInternal starts the PostgreSQL monitoring goroutine if it's not already running.
 // This method is idempotent - calling it multiple times has no effect if monitoring is already enabled.
-func (pm *MultiPoolerManager) EnableMonitor() error {
+func (pm *MultiPoolerManager) enableMonitorInternal() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -1808,9 +1808,9 @@ func (pm *MultiPoolerManager) EnableMonitor() error {
 	return nil
 }
 
-// DisableMonitor stops the PostgreSQL monitoring goroutine.
+// disableMonitorInternal stops the PostgreSQL monitoring goroutine.
 // This method is idempotent - calling it multiple times has no effect if monitoring is already disabled.
-func (pm *MultiPoolerManager) DisableMonitor() {
+func (pm *MultiPoolerManager) disableMonitorInternal() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 

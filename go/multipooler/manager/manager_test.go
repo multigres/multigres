@@ -864,7 +864,7 @@ func TestEnableMonitor(t *testing.T) {
 	manager.mu.Unlock()
 
 	// Enable the monitor
-	err = manager.EnableMonitor()
+	err = manager.enableMonitorInternal()
 	require.NoError(t, err)
 
 	// Verify monitor is enabled
@@ -873,7 +873,7 @@ func TestEnableMonitor(t *testing.T) {
 	manager.mu.Unlock()
 
 	// Clean up: disable the monitor
-	manager.DisableMonitor()
+	manager.disableMonitorInternal()
 }
 
 func TestEnableMonitor_Idempotent(t *testing.T) {
@@ -906,7 +906,7 @@ func TestEnableMonitor_Idempotent(t *testing.T) {
 	defer manager.cancel()
 
 	// Enable the monitor
-	err = manager.EnableMonitor()
+	err = manager.enableMonitorInternal()
 	require.NoError(t, err)
 
 	// Verify monitor is enabled
@@ -915,7 +915,7 @@ func TestEnableMonitor_Idempotent(t *testing.T) {
 	manager.mu.Unlock()
 
 	// Enable again - should be idempotent (no error, monitor still enabled)
-	err = manager.EnableMonitor()
+	err = manager.enableMonitorInternal()
 	require.NoError(t, err)
 
 	// Verify monitor is still enabled (idempotency means calling again has no effect)
@@ -924,7 +924,7 @@ func TestEnableMonitor_Idempotent(t *testing.T) {
 	manager.mu.Unlock()
 
 	// Clean up: disable the monitor
-	manager.DisableMonitor()
+	manager.disableMonitorInternal()
 }
 
 func TestDisableMonitor(t *testing.T) {
@@ -957,16 +957,16 @@ func TestDisableMonitor(t *testing.T) {
 	defer manager.cancel()
 
 	// Enable the monitor first
-	err = manager.EnableMonitor()
+	err = manager.enableMonitorInternal()
 	require.NoError(t, err)
 
 	// Verify monitor is running
 	manager.mu.Lock()
-	assert.NotNil(t, manager.monitorCancel, "Monitor should be running after EnableMonitor")
+	assert.NotNil(t, manager.monitorCancel, "Monitor should be running after enableMonitorInternal")
 	manager.mu.Unlock()
 
 	// Disable the monitor
-	manager.DisableMonitor()
+	manager.disableMonitorInternal()
 
 	// Verify monitor is disabled
 	manager.mu.Lock()
@@ -1004,11 +1004,11 @@ func TestDisableMonitor_Idempotent(t *testing.T) {
 	defer manager.cancel()
 
 	// Enable the monitor first
-	err = manager.EnableMonitor()
+	err = manager.enableMonitorInternal()
 	require.NoError(t, err)
 
 	// Disable the monitor
-	manager.DisableMonitor()
+	manager.disableMonitorInternal()
 
 	// Verify monitor is disabled
 	manager.mu.Lock()
@@ -1016,7 +1016,7 @@ func TestDisableMonitor_Idempotent(t *testing.T) {
 	manager.mu.Unlock()
 
 	// Disable again - should be idempotent (no panic)
-	manager.DisableMonitor()
+	manager.disableMonitorInternal()
 
 	// Verify monitor is still disabled
 	manager.mu.Lock()
@@ -1056,7 +1056,7 @@ func TestEnableDisableMonitor_Cycle(t *testing.T) {
 	// Test multiple enable/disable cycles
 	for i := range 3 {
 		// Enable
-		err = manager.EnableMonitor()
+		err = manager.enableMonitorInternal()
 		require.NoError(t, err)
 		manager.mu.Lock()
 		assert.NotNil(t, manager.monitorCancel, "Monitor should be enabled at iteration %d", i)
@@ -1066,7 +1066,7 @@ func TestEnableDisableMonitor_Cycle(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Disable
-		manager.DisableMonitor()
+		manager.disableMonitorInternal()
 		manager.mu.Lock()
 		assert.Nil(t, manager.monitorCancel, "Monitor should be disabled at iteration %d", i)
 		manager.mu.Unlock()
@@ -1103,7 +1103,7 @@ func TestEnableMonitor_WhenNotOpen(t *testing.T) {
 	defer manager.cancel()
 
 	// Try to enable monitor when manager is not open
-	err = manager.EnableMonitor()
+	err = manager.enableMonitorInternal()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "manager is not open")
 }
