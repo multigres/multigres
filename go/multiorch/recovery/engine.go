@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/multiorch/config"
 	"github.com/multigres/multigres/go/multiorch/coordinator"
 	"github.com/multigres/multigres/go/multiorch/recovery/analysis"
+	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
@@ -253,6 +254,10 @@ type Engine struct {
 	recentPollCache   map[string]time.Time
 	recentPollCacheMu sync.Mutex
 
+	// Detected problems tracking for metrics (replaced each cycle)
+	detectedProblemsMu sync.Mutex
+	detectedProblems   []DetectedProblemData
+
 	// Metrics
 	metrics *Metrics
 
@@ -289,6 +294,7 @@ func NewEngine(
 		healthCheckQueue:  NewQueue(logger, config),
 		shardWatchTargets: shardWatchTargets,
 		recentPollCache:   make(map[string]time.Time),
+		detectedProblems:  nil,
 		shutdownCtx:       ctx,
 		cancel:            cancel,
 	}
@@ -306,6 +312,14 @@ func NewEngine(
 	})
 	if err != nil {
 		logger.Error("failed to monitor pooler store size", "error", err)
+	}
+
+	// Register callback for detected problems gauge
+	err = engine.metrics.RegisterDetectedProblemsCallback(func() []DetectedProblemData {
+		return engine.collectDetectedProblemsData()
+	})
+	if err != nil {
+		logger.Error("failed to register detected problems callback", "error", err)
 	}
 
 	// Create action factory for recovery actions
@@ -478,4 +492,31 @@ func shardWatchTargetsToStrings(targets []config.WatchTarget) []string {
 		result[i] = t.String()
 	}
 	return result
+}
+
+// collectDetectedProblemsData returns the current detected problems for metrics.
+// This is called by the observable gauge callback.
+func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
+	re.detectedProblemsMu.Lock()
+	defer re.detectedProblemsMu.Unlock()
+	return re.detectedProblems
+}
+
+// updateDetectedProblems replaces the detected problems slice with current problems.
+// Called each recovery cycle - the slice is replaced entirely rather than incrementally updated
+// for simplicity.
+func (re *Engine) updateDetectedProblems(problems []types.Problem) {
+	data := make([]DetectedProblemData, 0, len(problems))
+	for _, p := range problems {
+		data = append(data, DetectedProblemData{
+			AnalysisType: string(p.CheckName),
+			DBNamespace:  p.ShardKey.Database,
+			Shard:        p.ShardKey.Shard,
+			PoolerID:     topoclient.MultiPoolerIDString(p.PoolerID),
+		})
+	}
+
+	re.detectedProblemsMu.Lock()
+	re.detectedProblems = data
+	re.detectedProblemsMu.Unlock()
 }

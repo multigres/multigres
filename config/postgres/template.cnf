@@ -87,6 +87,7 @@ wal_buffers = {{.WalBuffers}}			# min 32kB, -1 sets based on shared_buffers
 					# (change requires restart)
 min_wal_size = {{.MinWalSize}}
 max_wal_size = {{.MaxWalSize}}
+wal_keep_size = 1000
 
 # - Checkpoints -
 
@@ -298,5 +299,4 @@ jit_provider = 'llvmjit'		# JIT library to use
 # Add settings for extensions here
 auto_explain.log_min_duration = 10s
 cron.database_name = 'postgres'
-
-
+wal_log_hints = 'on'

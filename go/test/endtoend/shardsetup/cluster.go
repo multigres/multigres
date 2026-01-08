@@ -194,7 +194,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
 		Binary:      "pgctld",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8"),
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
 	}
 }
 
@@ -307,7 +307,9 @@ func (s *ShardSetup) Cleanup() {
 
 	// Clean up temp directory
 	if s.TempDirCleanup != nil {
-		s.TempDirCleanup()
+		if os.Getenv("KEEP_TEMP_DIRS") == "" {
+			s.TempDirCleanup()
+		}
 	}
 }
 

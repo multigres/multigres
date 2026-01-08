@@ -18,16 +18,74 @@ import (
 	"context"
 	"fmt"
 
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // DefaultStreamingBatchSize is the default size threshold (in bytes) for batching
 // rows during streaming. When accumulated row data exceeds this size, the batch
 // is flushed via callback. This balances memory efficiency with callback overhead.
 const DefaultStreamingBatchSize = 2 * 1024 * 1024 // 2MB
+
+// queryTracingKey is the context key for query tracing configuration.
+type queryTracingKey struct{}
+
+// QueryTracingConfig holds optional configuration for query tracing.
+// Spans are always created for queries; this config controls optional details.
+type QueryTracingConfig struct {
+	// OperationName is a semantic name for the operation (e.g., "pg_is_in_recovery").
+	// This should describe what the query does, not the SQL itself.
+	// If empty, "QUERY" will be used.
+	OperationName string
+
+	// IncludeQueryText enables recording the SQL query text in the span.
+	//
+	// SECURITY WARNING: This should ONLY be enabled for internal system queries where:
+	// - The SQL is hardcoded or uses PostgreSQL system functions
+	// - No user-provided data appears in the query text
+	// - No PII (Personally Identifiable Information) is included
+	//
+	// Examples of SAFE usage (internal queries):
+	// - SELECT pg_is_in_recovery()
+	// - SHOW server_version
+	// - SELECT setting FROM pg_settings WHERE name = 'max_connections'
+	//
+	// Examples of UNSAFE usage (NEVER enable for these):
+	// - Any query containing user input
+	// - SELECT * FROM users WHERE email = 'user@example.com'
+	// - Queries with bind parameters that may contain PII
+	//
+	// Default: false (SQL text is never included in spans)
+	IncludeQueryText bool
+}
+
+// WithQueryTracing returns a context with query tracing configuration.
+// This allows callers to customize the span (e.g., set operation name, include SQL text).
+// Spans are created for all queries by default; this just adds configuration.
+func WithQueryTracing(ctx context.Context, config QueryTracingConfig) context.Context {
+	return context.WithValue(ctx, queryTracingKey{}, config)
+}
+
+// getQueryTracingConfig returns the tracing config from context.
+// Returns an empty config if none is set (spans are still created).
+func getQueryTracingConfig(ctx context.Context) QueryTracingConfig {
+	config, _ := ctx.Value(queryTracingKey{}).(QueryTracingConfig)
+	return config
+}
+
+// defaultOperationName returns a safe default operation name.
+// TODO: In the future, could support SELECT, UPDATE, INSERT, DELETE based on
+// parsing the first keyword from a fixed allowlist.
+func defaultOperationName() string {
+	return "QUERY"
+}
 
 // Query executes a simple query and returns all results.
 // For large result sets, consider using QueryStreaming instead.
@@ -72,17 +130,45 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*sqltypes.Result, 
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
 // For large result sets, multiple callbacks with rows, final one includes CommandTag.
 // For multi-statement queries, this pattern repeats for each statement.
+//
+// A span is always created for query execution with database semantic conventions.
+// Use WithQueryTracing to customize the span (operation name, include SQL text).
 func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+	// Create span for query execution
+	config := getQueryTracingConfig(ctx)
+	opName := config.OperationName
+	if opName == "" {
+		opName = defaultOperationName()
+	}
+	attrs := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			semconv.DBSystemPostgreSQL,
+			semconv.DBOperationName(opName),
+		),
+	}
+	if config.IncludeQueryText {
+		attrs = append(attrs, trace.WithAttributes(semconv.DBQueryText(queryStr)))
+	}
+	ctx, span := telemetry.Tracer().Start(ctx, opName+" postgresql", attrs...)
+	defer span.End()
+
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
 	// Send the Query message.
 	if err := c.writeQueryMessage(queryStr); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to send query")
 		return fmt.Errorf("failed to send query: %w", err)
 	}
 
 	// Process responses.
 	err := c.processQueryResponses(ctx, callback)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "query failed")
+	}
 	return err
 }
 

@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"testing"
 
@@ -36,8 +37,8 @@ func newTestManager(t *testing.T, server *fakepgserver.Server) *Manager {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 
-	manager := config.NewManager()
-	manager.Open(context.Background(), nil, &ConnectionConfig{
+	manager := config.NewManager(slog.Default())
+	manager.Open(context.Background(), &ConnectionConfig{
 		SocketFile: server.ClientConfig().SocketFile,
 		Host:       server.ClientConfig().Host,
 		Port:       server.ClientConfig().Port,

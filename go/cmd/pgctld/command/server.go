@@ -305,7 +305,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	// Use the pre-configured PostgreSQL config for status operation
-	result, err := GetStatusWithResult(s.logger, s.config)
+	result, err := GetStatusWithResult(ctx, s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
 	}
@@ -344,7 +344,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 
 func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
 	s.logger.DebugContext(ctx, "gRPC Version request")
-	result, err := GetVersionWithResult(s.config)
+	result, err := GetVersionWithResult(ctx, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version: %w", err)
 	}
@@ -366,5 +366,34 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 
 	return &pb.InitDataDirResponse{
 		Message: result.Message,
+	}, nil
+}
+
+func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
+	s.logger.InfoContext(ctx, "gRPC PgRewind request",
+		"source_host", req.GetSourceHost(),
+		"source_port", req.GetSourcePort(),
+		"dry_run", req.GetDryRun())
+
+	// Resolve password using existing function
+	password, err := resolvePassword(s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve password: %w", err)
+	}
+
+	// Construct source server connection string (without password - will use PGPASSWORD env var)
+	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
+		req.GetSourceHost(), req.GetSourcePort())
+
+	// Use the shared rewind function with detailed result, passing password separately
+	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
+	if err != nil {
+		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
+		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)
+	}
+
+	return &pb.PgRewindResponse{
+		Message: result.Message,
+		Output:  result.Output,
 	}, nil
 }

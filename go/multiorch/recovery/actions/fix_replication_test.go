@@ -232,7 +232,8 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			"multipooler-cell1-replica1": {
 				Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					// No PrimaryConnInfo - replication not configured
-					LastReceiveLsn: "0/1234", // Set after fix
+					WalReceiverStatus: "streaming", // WAL receiver connected after fix
+					LastReceiveLsn:    "0/1234",    // Set after fix
 				},
 			},
 		},
@@ -321,6 +322,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 						Host: "primary.example.com",
 						Port: 5432,
 					},
+					WalReceiverStatus: "streaming",
 					LastReceiveLsn:    "0/1234",
 					LastReplayLsn:     "0/1234",
 					IsWalReplayPaused: false,

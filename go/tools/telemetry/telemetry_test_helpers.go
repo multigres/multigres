@@ -25,13 +25,14 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
-// testTelemetrySetup holds test telemetry infrastructure
+// testTelemetrySetup holds test telemetry infrastructure.
 type testTelemetrySetup struct {
 	Telemetry    *Telemetry
 	SpanExporter *tracetest.InMemoryExporter
 	MetricReader *metric.ManualReader
 }
 
+// ForceFlush flushes both the tracer and meter providers.
 func (t *testTelemetrySetup) ForceFlush(ctx context.Context) error {
 	err := t.Telemetry.tracerProvider.ForceFlush(ctx)
 	if err != nil {
