@@ -291,16 +291,15 @@ func (pm *MultiPoolerManager) Open() error {
 	pm.logger.Info("MultiPoolerManager: opening")
 	pm.ctx, pm.cancel = context.WithCancel(context.TODO())
 
+	if err := pm.openConnectionsLocked(); err != nil {
+		return err
+	}
+
 	// Start background PostgreSQL monitoring and auto-recovery
 	monitorCtx, monitorCancel := context.WithCancel(pm.ctx)
 	pm.monitorCancel = monitorCancel
 	go pm.MonitorPostgres(monitorCtx)
 
-	if err := pm.openConnectionsLocked(); err != nil {
-		return err
-	}
-	// Start background PostgreSQL monitoring and auto-recovery
-	go pm.MonitorPostgres(pm.ctx)
 	pm.isOpen = true
 	pm.logger.Info("MultiPoolerManager opened database connection")
 	return nil
@@ -1691,7 +1690,7 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 // startPostgres starts PostgreSQL via pgctld
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 	if pm.pgctldClient == nil {
-		return fmt.Errorf("pgctld client not available")
+		return errors.New("pgctld client not available")
 	}
 
 	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
@@ -1742,7 +1741,7 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	}
 
 	if len(completeBackups) == 0 {
-		return fmt.Errorf("no complete backups available")
+		return errors.New("no complete backups available")
 	}
 
 	// Use the latest complete backup (last in the list)
@@ -1792,7 +1791,7 @@ func (pm *MultiPoolerManager) enableMonitorInternal() error {
 
 	// Check if the manager is open
 	if !pm.isOpen {
-		return fmt.Errorf("manager is not open, cannot enable monitor")
+		return errors.New("manager is not open, cannot enable monitor")
 	}
 
 	pm.logger.Info("Enabling MonitorPostgres")
