@@ -194,7 +194,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	// Create connection pool manager from config
 	var connPoolMgr connpoolmanager.PoolManager
 	if config.ConnPoolConfig != nil {
-		connPoolMgr = config.ConnPoolConfig.NewManager()
+		connPoolMgr = config.ConnPoolConfig.NewManager(logger)
 	}
 
 	pm := &MultiPoolerManager{
@@ -292,7 +292,7 @@ func (pm *MultiPoolerManager) Open() error {
 			Port:       pm.config.PgPort,
 			Database:   pm.config.Database,
 		}
-		pm.connPoolMgr.Open(pm.ctx, pm.logger, connConfig)
+		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
 	}
 
