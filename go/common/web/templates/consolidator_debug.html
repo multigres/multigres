@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta http-equiv="refresh" content="30" />
+    <title>{{.Title}}</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/pico.classless.jade.min.css" />
+    <link rel="stylesheet" href="/css/custom.css" />
+  </head>
+  <body>
+    <header>
+      <h1>{{.Title}}</h1>
+    </header>
+
+    <main>
+      <section>
+        <h4>Summary</h4>
+        <table>
+          <tbody>
+            <tr>
+              <th>Unique Statements</th>
+              <td>{{.Stats.UniqueStatements}}</td>
+            </tr>
+            <tr>
+              <th>Total References</th>
+              <td>{{.Stats.TotalReferences}}</td>
+            </tr>
+            <tr>
+              <th>Connection Count</th>
+              <td>{{.Stats.ConnectionCount}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h4>Prepared Statements</h4>
+        {{if .Stats.Statements}}
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Query</th>
+              <th>Usage Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Stats.Statements}}
+            <tr>
+              <td>{{.Name}}</td>
+              <td><code>{{.Query}}</code></td>
+              <td>{{.UsageCount}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <p><em>No prepared statements currently active</em></p>
+        {{end}}
+      </section>
+
+      <section>
+        <p><small><a href="/debug/consolidator?format=json">View as JSON</a></small></p>
+      </section>
+    </main>
+
+    <footer>{{template "timestamp.tmpl"}}</footer>
+  </body>
+</html>
