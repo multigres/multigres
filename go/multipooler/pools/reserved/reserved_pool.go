@@ -16,6 +16,7 @@ package reserved
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -149,7 +150,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
-		return nil, fmt.Errorf("reserved pool is closed")
+		return nil, errors.New("reserved pool is closed")
 	}
 	p.mu.Unlock()
 

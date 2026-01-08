@@ -18,9 +18,9 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"path"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -49,7 +49,7 @@ func getMultiGateway(cell string, uid uint32) *clustermetadatapb.MultiGateway {
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIGATEWAY,
 			Cell:      cell,
-			Name:      fmt.Sprintf("%d", uid),
+			Name:      strconv.FormatUint(uint64(uid), 10),
 		},
 		Hostname: "host1",
 		PortMap: map[string]int32{

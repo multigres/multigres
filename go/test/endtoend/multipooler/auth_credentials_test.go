@@ -46,7 +46,7 @@ func createTestUser(t *testing.T, client *endtoend.MultiPoolerTestClient, passwo
 
 	t.Cleanup(func() {
 		_, _ = client.ExecuteQuery(context.Background(),
-			fmt.Sprintf("DROP USER IF EXISTS %s", username), 0)
+			"DROP USER IF EXISTS "+username, 0)
 	})
 
 	return username

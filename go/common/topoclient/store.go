@@ -60,6 +60,7 @@ package topoclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -418,7 +419,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string, config *
 // root path, and server addresses for the global topology server.
 func OpenServer(implementation, root string, serverAddrs []string, config *TopoConfig) (Store, error) {
 	if config == nil {
-		return nil, fmt.Errorf("TopoConfig is required")
+		return nil, errors.New("TopoConfig is required")
 	}
 
 	factory, ok := factories[implementation]
@@ -430,7 +431,7 @@ func OpenServer(implementation, root string, serverAddrs []string, config *TopoC
 		}
 
 		if len(available) == 0 {
-			return nil, fmt.Errorf("no topology implementations registered. This may indicate a build or import issue")
+			return nil, errors.New("no topology implementations registered. This may indicate a build or import issue")
 		}
 
 		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
@@ -446,10 +447,10 @@ func (config *TopoConfig) Open() (Store, error) {
 	root := config.globalRoot.Get()
 
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("topo-global-server-addresses must be configured")
+		return nil, errors.New("topo-global-server-addresses must be configured")
 	}
 	if root == "" {
-		return nil, fmt.Errorf("topo-global-root must be non-empty")
+		return nil, errors.New("topo-global-root must be non-empty")
 	}
 
 	ts, err := OpenServer(DefaultTopoImplementation, root, addresses, config)

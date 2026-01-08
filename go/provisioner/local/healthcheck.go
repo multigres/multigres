@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -37,7 +38,7 @@ func (p *localProvisioner) waitForServiceReady(parentCtx context.Context, servic
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
-	ctx, span := tracer.Start(ctx, fmt.Sprintf("wait_for_service_ready/%s", serviceName))
+	ctx, span := tracer.Start(ctx, "wait_for_service_ready/"+serviceName)
 	defer span.End()
 
 	span.SetAttributes(attribute.String("service.name", serviceName))
@@ -51,7 +52,7 @@ func (p *localProvisioner) waitForServiceReady(parentCtx context.Context, servic
 		// First check TCP connectivity on all advertised ports
 		allPortsReady := true
 		for _, port := range servicePorts {
-			address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+			address := net.JoinHostPort(host, strconv.Itoa(port))
 			conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 			if err != nil {
 				allPortsReady = false
@@ -81,14 +82,14 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 		switch portType {
 		case "http_port":
 			// Run HTTP health check
-			httpAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+			httpAddress := net.JoinHostPort(host, strconv.Itoa(port))
 			if err := p.checkDebugConfigEndpoint(ctx, httpAddress); err != nil {
 				return err
 			}
 		case "grpc_port":
 			// Run gRPC health check for pgctld
 			if serviceName == "pgctld" {
-				grpcAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+				grpcAddress := net.JoinHostPort(host, strconv.Itoa(port))
 				if err := p.checkPgctldGrpcHealth(ctx, grpcAddress); err != nil {
 					return err
 				}
@@ -96,7 +97,7 @@ func (p *localProvisioner) checkMultigresServiceHealth(ctx context.Context, serv
 		case "etcd_port":
 			// Run etcd health check
 			if serviceName == "etcd" {
-				etcdAddress := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+				etcdAddress := net.JoinHostPort(host, strconv.Itoa(port))
 				if err := p.checkEtcdHealth(ctx, etcdAddress); err != nil {
 					return err
 				}

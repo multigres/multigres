@@ -15,6 +15,7 @@
 package preparedstatement
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -61,7 +62,7 @@ func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatement
 		return nil, err
 	}
 	if len(asts) != 1 {
-		return nil, fmt.Errorf("more than 1 query in prepare statement")
+		return nil, errors.New("more than 1 query in prepare statement")
 	}
 	return &PreparedStatementInfo{
 		PreparedStatement: ps,
@@ -101,7 +102,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 
 	// If the name is non-empty, and a prepared statement for this name already exists on the connection, we throw an error.
 	if _, exists := psc.incoming[connId][name]; exists && name != "" {
-		return nil, fmt.Errorf("Prepared statement with this name exists")
+		return nil, errors.New("Prepared statement with this name exists")
 	}
 
 	// Let's check if a prepared statement with this statement already exists.

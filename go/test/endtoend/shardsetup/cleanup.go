@@ -134,7 +134,7 @@ func RestorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerp
 func SaveGUCs(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucNames []string) map[string]string {
 	saved := make(map[string]string)
 	for _, gucName := range gucNames {
-		value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
+		value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
 		if err == nil {
 			saved[gucName] = value
 		}
@@ -149,7 +149,7 @@ func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPooler
 	for gucName, gucValue := range savedGucs {
 		var query string
 		if gucValue == "" {
-			query = fmt.Sprintf("ALTER SYSTEM RESET %s", gucName)
+			query = "ALTER SYSTEM RESET " + gucName
 		} else {
 			query = fmt.Sprintf("ALTER SYSTEM SET %s = '%s'", gucName, gucValue)
 		}
@@ -169,7 +169,7 @@ func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPooler
 // ValidateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
 // Follows the pattern from multipooler/setup_test.go:validateGUCValue.
 func ValidateGUCValue(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
-	value, err := QueryStringValue(ctx, client, fmt.Sprintf("SHOW %s", gucName))
+	value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
 	if err != nil {
 		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)
 	}

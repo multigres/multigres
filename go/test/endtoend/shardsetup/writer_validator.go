@@ -16,6 +16,7 @@ package shardsetup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -104,7 +105,7 @@ func (w *WriterValidator) createTable(ctx context.Context) error {
 
 // dropTable drops the test table.
 func (w *WriterValidator) dropTable(ctx context.Context) error {
-	query := fmt.Sprintf("DROP TABLE IF EXISTS %s", w.tableName)
+	query := "DROP TABLE IF EXISTS " + w.tableName
 	_, err := w.pooler.ExecuteQuery(ctx, query, 0)
 	return err
 }
@@ -223,14 +224,14 @@ func (w *WriterValidator) Verify(t *testing.T, poolers []*endtoend.MultiPoolerTe
 	w.mu.Unlock()
 
 	if len(successfulIDs) == 0 {
-		return fmt.Errorf("no successful writes to verify")
+		return errors.New("no successful writes to verify")
 	}
 
 	// Build set of all IDs found across all poolers
 	foundIDs := make(map[int64]bool)
 
 	for _, pooler := range poolers {
-		query := fmt.Sprintf("SELECT id FROM %s", w.tableName)
+		query := "SELECT id FROM " + w.tableName
 		resp, err := pooler.ExecuteQuery(t.Context(), query, 0)
 		if err != nil {
 			return fmt.Errorf("failed to execute query: %w", err)

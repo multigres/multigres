@@ -239,7 +239,7 @@ func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryServi
 func (pm *MultiPoolerManager) query(ctx context.Context, sql string) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
-		return nil, fmt.Errorf("internal query service not available")
+		return nil, errors.New("internal query service not available")
 	}
 	return queryService.Query(ctx, sql)
 }
@@ -256,7 +256,7 @@ func (pm *MultiPoolerManager) exec(ctx context.Context, sql string) error {
 func (pm *MultiPoolerManager) queryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
-		return nil, fmt.Errorf("internal query service not available")
+		return nil, errors.New("internal query service not available")
 	}
 	return queryService.QueryArgs(ctx, sql, args...)
 }
@@ -483,13 +483,13 @@ func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
 func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) (string, error) {
 	// Validate non-empty components
 	if database == "" {
-		return "", fmt.Errorf("database cannot be empty")
+		return "", errors.New("database cannot be empty")
 	}
 	if tableGroup == "" {
-		return "", fmt.Errorf("table group cannot be empty")
+		return "", errors.New("table group cannot be empty")
 	}
 	if shard == "" {
-		return "", fmt.Errorf("shard cannot be empty")
+		return "", errors.New("shard cannot be empty")
 	}
 
 	return safepath.Join(baseBackupLocation, database, tableGroup, shard)
@@ -528,7 +528,7 @@ func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.Poo
 	pm.mu.Unlock()
 
 	if poolerType != expectedType {
-		pm.logger.Error(fmt.Sprintf("%s called on incorrect pooler type", operationName),
+		pm.logger.Error(operationName+" called on incorrect pooler type",
 			"service_id", pm.serviceID.String(),
 			"pooler_type", poolerType.String(),
 			"expected_type", expectedType.String())
@@ -650,7 +650,7 @@ func (pm *MultiPoolerManager) waitForReady(ctx context.Context) {
 func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 	// Validate ServiceID is not nil
 	if pm.serviceID == nil {
-		pm.setStateError(fmt.Errorf("ServiceID cannot be nil"))
+		pm.setStateError(errors.New("ServiceID cannot be nil"))
 		return
 	}
 
@@ -664,7 +664,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			if errors.Is(err, context.DeadlineExceeded) {
 				pm.setStateError(fmt.Errorf("timeout waiting for multipooler record to be available in topology after %v", pm.loadTimeout))
 			} else {
-				pm.setStateError(fmt.Errorf("manager context cancelled while loading multipooler record"))
+				pm.setStateError(errors.New("manager context cancelled while loading multipooler record"))
 			}
 			return
 		}
@@ -681,7 +681,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		// Now load the backup location from the database topology
 		database := mp.Database
 		if database == "" {
-			pm.setStateError(fmt.Errorf("database name not set in multipooler"))
+			pm.setStateError(errors.New("database name not set in multipooler"))
 			return
 		}
 
@@ -896,7 +896,7 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 			if errors.Is(err, context.DeadlineExceeded) {
 				pm.setStateError(fmt.Errorf("timeout waiting for consensus term from disk after %v", pm.loadTimeout))
 			} else {
-				pm.setStateError(fmt.Errorf("manager context cancelled while loading consensus term"))
+				pm.setStateError(errors.New("manager context cancelled while loading consensus term"))
 			}
 			return
 		}

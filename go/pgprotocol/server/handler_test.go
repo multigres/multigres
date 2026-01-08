@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -72,7 +73,7 @@ func (h *testHandlerWithState) HandleQuery(ctx context.Context, conn *Conn, quer
 
 func (h *testHandlerWithState) HandleParse(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
 	if queryStr == "" {
-		return fmt.Errorf("query string cannot be empty")
+		return errors.New("query string cannot be empty")
 	}
 
 	stmt := &testPreparedStatement{

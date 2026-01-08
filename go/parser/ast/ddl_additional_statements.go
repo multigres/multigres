@@ -27,6 +27,7 @@ package ast
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -662,7 +663,7 @@ func formatSubscriptionOption(d *DefElem) string {
 			return optionName + " = false"
 		}
 	case *Integer:
-		return optionName + " = " + fmt.Sprintf("%d", arg.IVal)
+		return optionName + " = " + strconv.Itoa(arg.IVal)
 	default:
 		// Fallback to regular SqlString for other types
 		return fmt.Sprintf("%s = %s", optionName, arg.SqlString())

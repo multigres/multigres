@@ -33,7 +33,7 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 
 	args := []string{
 		"--source-server", sourceServer,
-		"--target-pgdata", fmt.Sprintf("%s/pg_data", poolerDir),
+		"--target-pgdata", poolerDir + "/pg_data",
 	}
 	if dryRun {
 		args = append(args, "--dry-run")
@@ -45,7 +45,7 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 	// Set PGPASSWORD environment variable for pg_rewind to use
 	// pg_rewind doesn't reliably use passwords from connection strings
 	if password != "" {
-		cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", password))
+		cmd.Env = append(os.Environ(), "PGPASSWORD="+password)
 	}
 
 	// Capture both Stdout and Stderr

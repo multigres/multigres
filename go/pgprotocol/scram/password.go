@@ -16,6 +16,7 @@ package scram
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -58,7 +59,7 @@ type ScramHash struct {
 // Example: SCRAM-SHA-256$4096:W22ZaJ0SNY7soEsUEjb6gQ==$WG5d8oPm3OtcPnkdi4Oln6rNiYzlYY42lUpMtdJ7U90=:HKZfkuYXDxJboM9DFNR0yFNHpRx/rbdVdNOTk/V0v0Q=
 func ParseScramSHA256Hash(hash string) (*ScramHash, error) {
 	if hash == "" {
-		return nil, fmt.Errorf("empty hash string")
+		return nil, errors.New("empty hash string")
 	}
 
 	// Check prefix.
@@ -81,7 +82,7 @@ func ParseScramSHA256Hash(hash string) (*ScramHash, error) {
 	// Parse iterations and salt.
 	iterSaltParts := strings.SplitN(iterationsAndSalt, ":", 2)
 	if len(iterSaltParts) != 2 {
-		return nil, fmt.Errorf("invalid SCRAM-SHA-256 hash format: expected iterations:salt")
+		return nil, errors.New("invalid SCRAM-SHA-256 hash format: expected iterations:salt")
 	}
 
 	iterations, err := strconv.Atoi(iterSaltParts[0])
@@ -106,7 +107,7 @@ func ParseScramSHA256Hash(hash string) (*ScramHash, error) {
 	// Parse StoredKey and ServerKey.
 	keyParts := strings.SplitN(keys, ":", 2)
 	if len(keyParts) != 2 {
-		return nil, fmt.Errorf("invalid SCRAM-SHA-256 hash format: expected StoredKey:ServerKey")
+		return nil, errors.New("invalid SCRAM-SHA-256 hash format: expected StoredKey:ServerKey")
 	}
 
 	storedKey, err := base64.StdEncoding.DecodeString(keyParts[0])

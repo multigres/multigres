@@ -269,15 +269,15 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	)
 
 	if mp.database.Get() == "" {
-		return fmt.Errorf("database is required")
+		return errors.New("database is required")
 	}
 
 	if mp.tableGroup.Get() == "" {
-		return fmt.Errorf("table group is required")
+		return errors.New("table group is required")
 	}
 
 	if mp.shard.Get() == "" {
-		return fmt.Errorf("shard is required")
+		return errors.New("shard is required")
 	}
 
 	// Create multipooler record with all fields now that servenv.Init() has set them up
@@ -335,19 +335,19 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 			logger.ErrorContext(startCtx, "database mismatch: existing value does not match new value (database is immutable after creation)",
 				"existing_database", existingMP.Database,
 				"new_database", multipooler.Database)
-			return fmt.Errorf("database mismatch: existing value does not match new value (database is immutable after creation)")
+			return errors.New("database mismatch: existing value does not match new value (database is immutable after creation)")
 		}
 		if existingMP.TableGroup != "" && existingMP.TableGroup != multipooler.TableGroup {
 			logger.ErrorContext(startCtx, "table group mismatch: existing value does not match new value (table group is immutable after creation)",
 				"existing_table_group", existingMP.TableGroup,
 				"new_table_group", multipooler.TableGroup)
-			return fmt.Errorf("table group mismatch: existing value does not match new value (table group is immutable after creation)")
+			return errors.New("table group mismatch: existing value does not match new value (table group is immutable after creation)")
 		}
 		if existingMP.Shard != "" && existingMP.Shard != multipooler.Shard {
 			logger.ErrorContext(startCtx, "shard mismatch: existing value does not match new value (shard is immutable after creation)",
 				"existing_shard", existingMP.Shard,
 				"new_shard", multipooler.Shard)
-			return fmt.Errorf("shard mismatch: existing value does not match new value (shard is immutable after creation)")
+			return errors.New("shard mismatch: existing value does not match new value (shard is immutable after creation)")
 		}
 	}
 

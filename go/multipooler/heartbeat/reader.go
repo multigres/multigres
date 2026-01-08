@@ -18,7 +18,7 @@ package heartbeat
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -161,7 +161,7 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
 		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
 	}
 	if result == nil || len(result.Rows) == 0 {
-		return 0, mterrors.Wrap(fmt.Errorf("no heartbeat found"), "failed to fetch heartbeat")
+		return 0, mterrors.Wrap(errors.New("no heartbeat found"), "failed to fetch heartbeat")
 	}
 
 	tsNano, err := strconv.ParseInt(string(result.Rows[0].Values[0]), 10, 64)
@@ -209,7 +209,7 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 		return nil, mterrors.Wrap(err, "failed to read leadership view")
 	}
 	if result == nil || len(result.Rows) == 0 {
-		return nil, mterrors.Wrap(fmt.Errorf("no heartbeat found"), "failed to read leadership view")
+		return nil, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read leadership view")
 	}
 
 	row := result.Rows[0]

@@ -17,6 +17,7 @@ package manager
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -444,7 +445,7 @@ func (pm *MultiPoolerManager) getShardID() string {
 // removeDataDirectory removes the PostgreSQL data directory
 func (pm *MultiPoolerManager) removeDataDirectory() error {
 	if pm.config == nil || pm.config.PoolerDir == "" {
-		return fmt.Errorf("pooler directory path not configured")
+		return errors.New("pooler directory path not configured")
 	}
 
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")

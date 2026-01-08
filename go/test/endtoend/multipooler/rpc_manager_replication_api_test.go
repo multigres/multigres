@@ -1747,7 +1747,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		// The standby's application_name is constructed as: {cell}_{name}
 		// Use the ServiceID from the setup which is the multipooler name
 		standbyID := makeMultipoolerID("test-cell", setup.StandbyMultipooler.Name)
-		standbyAppName := fmt.Sprintf("test-cell_%s", setup.StandbyMultipooler.Name)
+		standbyAppName := "test-cell_" + setup.StandbyMultipooler.Name
 		t.Logf("Using standby application_name from setup: %s", standbyAppName)
 
 		// Configure synchronous replication on primary with remote_apply and actual standby

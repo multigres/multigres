@@ -22,6 +22,7 @@ package servenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -96,7 +97,7 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 	// Once you run as root, you pretty much destroy the chances of a
 	// non-privileged user starting the program correctly.
 	if uid := os.Getuid(); uid == 0 {
-		return fmt.Errorf("running as root is not permitted")
+		return errors.New("running as root is not permitted")
 	}
 
 	// We used to set this limit directly, but you pretty much have to

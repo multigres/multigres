@@ -22,7 +22,6 @@ package multiorch
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -191,7 +190,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.Contains(t, leaderID, newPrimaryName, "leader_id should contain new primary name")
 		// Verify coordinator_id matches the multiorch's cell_name format
 		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := fmt.Sprintf("%s_multiorch", setup.CellName)
+		expectedCoordinatorID := setup.CellName + "_multiorch"
 		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
 		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")

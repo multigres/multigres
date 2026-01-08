@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -169,7 +171,7 @@ func cleanupTestProcesses(tempDir string) error {
 func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
 	numZones := len(portConfig.Zones)
 	if numZones == 0 {
-		return "", fmt.Errorf("portConfig must have at least one zone")
+		return "", errors.New("portConfig must have at least one zone")
 	}
 
 	// Build cell configs dynamically
@@ -427,7 +429,7 @@ func getServiceStates(configDir string) (map[string]local.LocalProvisionedServic
 // checkServiceConnectivity checks if a service is reachable on its configured ports
 func checkServiceConnectivity(service string, state local.LocalProvisionedService) error {
 	for portName, port := range state.Ports {
-		address := net.JoinHostPort(state.FQDN, fmt.Sprintf("%d", port))
+		address := net.JoinHostPort(state.FQDN, strconv.Itoa(port))
 		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s %s port at %s: %w", service, portName, address, err)
@@ -484,7 +486,7 @@ func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) err
 		}
 	}
 
-	return fmt.Errorf("timeout waiting for multigateway to be ready")
+	return errors.New("timeout waiting for multigateway to be ready")
 }
 
 // queryHeartbeatCount queries the number of heartbeats in the heartbeat table via
@@ -798,7 +800,7 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	t.Logf("Using Unix socket in directory: %s", socketDir)
 
 	// Execute psql command to test connectivity via Unix socket (no password needed)
-	cmd := exec.Command("psql", "-h", socketDir, "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s PostgreSQL is working!' as status, version();", zone))
+	cmd := exec.Command("psql", "-h", socketDir, "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s PostgreSQL is working!' as status, version();", zone))
 
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "PostgreSQL connection failed on port %d (Zone %s): %s", port, zone, string(output))
@@ -818,7 +820,7 @@ func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
 	t.Logf("Testing PostgreSQL TCP connection with password on port %d (Zone %s)...", port, zone)
 
 	// Connect via TCP using the default password "postgres" (from pgpassword.txt)
-	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", fmt.Sprintf("%d", port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
+	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
 	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
 
 	output, err := cmd.CombinedOutput()
@@ -1308,7 +1310,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		combined := err.Error() + "\n" + upOutput
 		assert.Contains(t, combined, "already in use", "error/output should mention port already in use. Got: %s", combined)
-		assert.Contains(t, combined, fmt.Sprintf("%d", conflictPort), "error/output should mention the conflicting port. Got: %s", combined)
+		assert.Contains(t, combined, strconv.Itoa(conflictPort), "error/output should mention the conflicting port. Got: %s", combined)
 	})
 }
 

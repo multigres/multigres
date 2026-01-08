@@ -16,6 +16,7 @@ package recovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -219,7 +220,7 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 
 	// Validate response
 	if resp == nil || resp.Status == nil {
-		return nil, fmt.Errorf("received nil status response")
+		return nil, errors.New("received nil status response")
 	}
 
 	// Log status information for observability

@@ -16,6 +16,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -149,22 +150,22 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
 	if poolerDir == "" {
-		return nil, fmt.Errorf("pooler-dir needs to be set")
+		return nil, errors.New("pooler-dir needs to be set")
 	}
 	if pgPort == 0 {
-		return nil, fmt.Errorf("pg-port needs to be set")
+		return nil, errors.New("pg-port needs to be set")
 	}
 	if pgUser == "" {
-		return nil, fmt.Errorf("pg-user needs to be set")
+		return nil, errors.New("pg-user needs to be set")
 	}
 	if pgDatabase == "" {
-		return nil, fmt.Errorf("pg-database needs to be set")
+		return nil, errors.New("pg-database needs to be set")
 	}
 	if timeout == 0 {
-		return nil, fmt.Errorf("timeout needs to be set")
+		return nil, errors.New("timeout needs to be set")
 	}
 	if listenAddresses == "" {
-		return nil, fmt.Errorf("listen-addresses needs to be set")
+		return nil, errors.New("listen-addresses needs to be set")
 	}
 
 	// Create the PostgreSQL config once during service initialization

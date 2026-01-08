@@ -16,6 +16,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -137,7 +138,7 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 			if resp.Policy == nil || resp.Policy.QuorumRule == nil {
 				results <- result{
 					node: n,
-					err:  fmt.Errorf("no active policy found"),
+					err:  errors.New("no active policy found"),
 				}
 				return
 			}

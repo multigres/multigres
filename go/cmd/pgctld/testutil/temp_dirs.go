@@ -15,7 +15,6 @@
 package testutil
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,7 +111,7 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
-		fmt.Sprintf("%d", realPID),
+		strconv.Itoa(realPID),
 		dataDir,
 		"1234567890",
 		"5432",
@@ -146,7 +145,7 @@ func CreateDeadPIDFile(t *testing.T, dataDir string, deadPID int) {
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
-		fmt.Sprintf("%d", deadPID),
+		strconv.Itoa(deadPID),
 		dataDir,
 		"1234567890",
 		"5432",

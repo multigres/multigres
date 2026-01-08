@@ -15,6 +15,7 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -327,7 +328,7 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 
 		cmd := exec.Command("pg_isready",
 			"-h", socketDir,
-			"-p", fmt.Sprintf("%d", config.Port),
+			"-p", strconv.Itoa(config.Port),
 			"-U", config.User,
 			"-d", config.Database,
 		)
@@ -372,7 +373,7 @@ func readPostmasterPID(dataDir string) (int, error) {
 	// First line contains the PID
 	lines := strings.Split(string(content), "\n")
 	if len(lines) == 0 {
-		return 0, fmt.Errorf("empty postmaster.pid file")
+		return 0, errors.New("empty postmaster.pid file")
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))

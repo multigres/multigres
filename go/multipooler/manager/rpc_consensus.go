@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -67,7 +68,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	pm.mu.Unlock()
 
 	if cs == nil {
-		return nil, fmt.Errorf("consensus state not initialized")
+		return nil, errors.New("consensus state not initialized")
 	}
 
 	currentTerm, err := cs.GetCurrentTermNumber(ctx)
@@ -215,7 +216,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	pm.mu.Unlock()
 
 	if cs == nil {
-		return nil, fmt.Errorf("consensus state not initialized")
+		return nil, errors.New("consensus state not initialized")
 	}
 
 	// Get local term from consensus state
@@ -283,7 +284,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 // GetLeadershipView returns leadership information from the heartbeat table
 func (pm *MultiPoolerManager) GetLeadershipView(ctx context.Context, req *consensusdatapb.LeadershipViewRequest) (*consensusdatapb.LeadershipViewResponse, error) {
 	if pm.replTracker == nil {
-		return nil, fmt.Errorf("replication tracker not initialized")
+		return nil, errors.New("replication tracker not initialized")
 	}
 
 	// Use the heartbeat reader to get leadership view

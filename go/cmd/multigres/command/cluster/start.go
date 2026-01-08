@@ -16,6 +16,8 @@ package cluster
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/provisioner"
@@ -102,7 +104,8 @@ func (s *ServiceSummary) PrintSummary() {
 	// Find services with HTTP ports and add direct links
 	for _, service := range s.Services {
 		if httpPort, exists := service.Ports["http_port"]; exists {
-			url := fmt.Sprintf("http://%s:%d", service.FQDN, httpPort)
+			hostPort := net.JoinHostPort(service.FQDN, strconv.Itoa(httpPort))
+			url := "http://" + hostPort
 			fmt.Printf("- Open %s in your browser: %s\n", service.Name, url)
 		}
 	}

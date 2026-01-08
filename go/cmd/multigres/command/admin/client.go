@@ -15,6 +15,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,7 +72,7 @@ func GetServerAddress(cmd *cobra.Command) (string, error) {
 	}
 
 	if len(configPaths) == 0 {
-		return "", fmt.Errorf("either --admin-server flag or --config-path must be provided")
+		return "", errors.New("either --admin-server flag or --config-path must be provided")
 	}
 
 	// Load config and extract multiadmin address
@@ -81,7 +82,7 @@ func GetServerAddress(cmd *cobra.Command) (string, error) {
 	}
 
 	if adminServerFromConfig == "" {
-		return "", fmt.Errorf("either --admin-server flag or --config-path with multiadmin configuration must be provided")
+		return "", errors.New("either --admin-server flag or --config-path with multiadmin configuration must be provided")
 	}
 
 	return adminServerFromConfig, nil
@@ -100,7 +101,7 @@ func getServerFromConfig(configPaths []string) (string, error) {
 	}
 
 	if configFile == "" {
-		return "", fmt.Errorf("multigres.yaml not found in any of the provided paths")
+		return "", errors.New("multigres.yaml not found in any of the provided paths")
 	}
 
 	// Read the config file directly

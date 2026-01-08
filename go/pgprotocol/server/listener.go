@@ -74,7 +74,7 @@ type ListenerConfig struct {
 // NewListener creates a new PostgreSQL protocol listener.
 func NewListener(config ListenerConfig) (*Listener, error) {
 	if config.Handler == nil {
-		return nil, fmt.Errorf("handler is required")
+		return nil, errors.New("handler is required")
 	}
 
 	netListener, err := net.Listen("tcp", config.Address)
