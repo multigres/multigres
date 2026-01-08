@@ -59,6 +59,11 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger) *MultiGatewa
 	}
 }
 
+// Consolidator returns the prepared statement consolidator.
+func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
+	return h.psc
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {

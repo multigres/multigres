@@ -53,6 +53,8 @@ type MultiGateway struct {
 	grpcServer *servenv.GrpcServer
 	// pgListener is the PostgreSQL protocol listener
 	pgListener *server.Listener
+	// pgHandler is the PostgreSQL protocol handler
+	pgHandler *handler.MultiGatewayHandler
 	// scatterConn coordinates query execution across poolers
 	scatterConn *scatterconn.ScatterConn
 	// executor handles query execution and routing
@@ -102,6 +104,7 @@ func NewMultiGateway() *MultiGateway {
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
 				{"Ready", "URL for readiness check", "/ready"},
+				{"Consolidator", "Prepared statement consolidator stats", "/debug/consolidator"},
 			},
 		},
 	}
@@ -181,11 +184,11 @@ func (mg *MultiGateway) Init() error {
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
 
 	// Create and start PostgreSQL protocol listener
-	pgHandler := handler.NewMultiGatewayHandler(mg.executor, logger)
+	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address: pgAddr,
-		Handler: pgHandler,
+		Handler: mg.pgHandler,
 		Logger:  logger,
 	})
 	if err != nil {
@@ -226,6 +229,7 @@ func (mg *MultiGateway) Init() error {
 
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
 	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
+	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
 
 	mg.senv.OnClose(func() {
 		mg.Shutdown()
