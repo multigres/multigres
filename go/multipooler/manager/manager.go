@@ -122,6 +122,10 @@ type MultiPoolerManager struct {
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
+	// monitorCancel cancels the MonitorPostgres goroutine.
+	// When nil, MonitorPostgres is not running or has been cancelled.
+	monitorCancel context.CancelFunc
+
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
 	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
@@ -286,6 +290,11 @@ func (pm *MultiPoolerManager) Open() error {
 
 	pm.logger.Info("MultiPoolerManager: opening")
 	pm.ctx, pm.cancel = context.WithCancel(context.TODO())
+
+	// Start background PostgreSQL monitoring and auto-recovery
+	monitorCtx, monitorCancel := context.WithCancel(pm.ctx)
+	pm.monitorCancel = monitorCancel
+	go pm.MonitorPostgres(monitorCtx)
 
 	if err := pm.openConnectionsLocked(); err != nil {
 		return err
@@ -1767,4 +1776,57 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"term", term)
 
 	return nil
+}
+
+// EnableMonitor starts the PostgreSQL monitoring goroutine if it's not already running.
+// This method is idempotent - calling it multiple times has no effect if monitoring is already enabled.
+func (pm *MultiPoolerManager) EnableMonitor() error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Check if monitor is already running
+	if pm.monitorCancel != nil {
+		pm.logger.Info("MonitorPostgres already enabled, skipping")
+		return nil
+	}
+
+	// Check if the manager is open
+	if !pm.isOpen {
+		return fmt.Errorf("manager is not open, cannot enable monitor")
+	}
+
+	pm.logger.Info("Enabling MonitorPostgres")
+
+	// Create a new cancelable context for the monitor
+	monitorCtx, monitorCancel := context.WithCancel(pm.ctx)
+	pm.monitorCancel = monitorCancel
+
+	// Start the monitoring goroutine
+	go pm.MonitorPostgres(monitorCtx)
+
+	pm.logger.Info("MonitorPostgres enabled successfully")
+	return nil
+}
+
+// DisableMonitor stops the PostgreSQL monitoring goroutine.
+// This method is idempotent - calling it multiple times has no effect if monitoring is already disabled.
+func (pm *MultiPoolerManager) DisableMonitor() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Check if monitor is already stopped
+	if pm.monitorCancel == nil {
+		pm.logger.Info("MonitorPostgres already disabled, skipping")
+		return
+	}
+
+	pm.logger.Info("Disabling MonitorPostgres")
+
+	// Cancel the monitor context
+	pm.monitorCancel()
+
+	// Set to nil to indicate it's been canceled
+	pm.monitorCancel = nil
+
+	pm.logger.Info("MonitorPostgres disabled successfully")
 }
