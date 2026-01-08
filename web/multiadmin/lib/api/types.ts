@@ -71,7 +71,12 @@ export interface MultiOrch {
 
 // Job types and status
 export type JobType = "UNKNOWN" | "BACKUP" | "RESTORE";
-export type JobStatus = "UNKNOWN" | "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+export type JobStatus =
+  | "UNKNOWN"
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED";
 export type BackupStatus = "UNKNOWN" | "INCOMPLETE" | "COMPLETE" | "FAILED";
 
 // BackupInfo from GetBackups
@@ -215,6 +220,6 @@ export interface StandbyReplicationStatus {
   last_receive_lsn?: string;
   is_wal_replay_paused?: boolean;
   wal_replay_pause_state?: string;
-  lag?: string;  // Duration as string (e.g., "5s")
+  lag?: string; // Duration as string (e.g., "5s")
   last_xact_replay_timestamp?: string;
 }

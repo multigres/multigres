@@ -36,12 +36,14 @@ export interface ShardRow {
 }
 
 export async function getTableGroups(): Promise<TableGroupRow[]> {
-  return query<TableGroupRow>("SELECT oid, name, type FROM multigres.tablegroup");
+  return query<TableGroupRow>(
+    "SELECT oid, name, type FROM multigres.tablegroup",
+  );
 }
 
 export async function getShards(): Promise<ShardRow[]> {
   return query<ShardRow>(
-    "SELECT oid, tablegroup_oid, shard_name, key_range_start, key_range_end FROM multigres.shard"
+    "SELECT oid, tablegroup_oid, shard_name, key_range_start, key_range_end FROM multigres.shard",
   );
 }
 
