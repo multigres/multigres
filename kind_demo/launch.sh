@@ -43,7 +43,7 @@ kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/m
 kubectl apply -f k8s-etcd.yaml
 kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
 
-# Deploy observability stack (Prometheus, Jaeger, Grafana)
+# Deploy observability stack (Prometheus, Tempo, Loki, Grafana)
 # The otel-config ConfigMap must exist before services that reference it.
 # We don't have to wait for the observability stack to be ready.
 kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=observability/grafana-dashboard.json --save-config
@@ -60,7 +60,6 @@ kubectl wait --for=condition=Available --timeout=300s \
   -n cert-manager deployment/cert-manager \
   deployment/cert-manager-webhook \
   deployment/cert-manager-cainjector
-
 
 # Verify the cert-manager webhook is ready by testing certificate validation
 echo "Testing webhook connectivity..."
@@ -123,8 +122,7 @@ echo "  REST API:   http://localhost:18000"
 echo "  gRPC API:   localhost:18070"
 echo ""
 echo "Observability access:"
-echo "  kubectl port-forward service/observability 3000:3000 9090:9090 16686:16686"
-echo "  Grafana:    http://localhost:3000/dashboards"
-echo "  Prometheus: http://localhost:9090"
-echo "  Jaeger:     http://localhost:16686"
+echo "  kubectl port-forward service/observability 3000:3000 9090:9090"
+echo "  Grafana:    http://localhost:3000/dashboards  (dashboards, traces, logs)"
+echo "  Prometheus: http://localhost:9090  (metrics UI)"
 echo ""

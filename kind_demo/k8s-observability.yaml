@@ -1,5 +1,85 @@
-# Observability stack for kind_demo: Prometheus + Jaeger + Grafana
-# All three services run in a single pod for simplicity.
+# Observability stack for kind_demo: Prometheus + Tempo + Loki + Grafana
+# All services run in a single pod for simplicity.
+---
+# ConfigMap: Tempo configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            http:
+              endpoint: 0.0.0.0:4318
+            grpc:
+              endpoint: 0.0.0.0:4317
+
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+      storage:
+        path: /tmp/tempo/generator/wal
+        remote_write:
+          - url: http://localhost:9090/api/v1/write
+            send_exemplars: true
+      processor:
+        service_graphs:
+          wait: 10s
+        span_metrics:
+          dimensions: []
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /tmp/tempo/blocks
+        wal:
+          path: /tmp/tempo/wal
+---
+# ConfigMap: Loki configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+data:
+  loki.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 0
+
+    common:
+      path_prefix: /tmp/loki
+      storage:
+        filesystem:
+          chunks_directory: /tmp/loki/chunks
+          rules_directory: /tmp/loki/rules
+      replication_factor: 1
+      ring:
+        instance_addr: 127.0.0.1
+        kvstore:
+          store: inmemory
+
+    limits_config:
+      allow_structured_metadata: true
+
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
 ---
 # ConfigMap: Prometheus configuration (minimal - using OTLP push, not scrape)
 apiVersion: v1
@@ -23,7 +103,7 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
-        uid: Prometheus
+        uid: prometheus-uid
         access: proxy
         url: http://localhost:9090
         isDefault: true
@@ -32,15 +112,40 @@ data:
           timeInterval: "60s"
           exemplarTraceIdDestinations:
             - name: trace_id
-              datasourceUid: jaeger
-              url: "http://localhost:16686/trace/$${__value.raw}"
-              urlDisplayLabel: "View Trace in Jaeger"
-      - name: Jaeger
-        type: jaeger
-        uid: jaeger
+              datasourceUid: tempo-uid
+      - name: Tempo
+        type: tempo
+        uid: tempo-uid
         access: proxy
-        url: http://localhost:16686
+        url: http://localhost:3200
         editable: false
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki-uid
+            tags:
+              - key: service.name
+                value: service_name
+            filterByTraceID: true
+          tracesToMetrics:
+            datasourceUid: prometheus-uid
+          serviceMap:
+            datasourceUid: prometheus-uid
+          nodeGraph:
+            enabled: true
+          lokiSearch:
+            datasourceUid: loki-uid
+      - name: Loki
+        type: loki
+        uid: loki-uid
+        access: proxy
+        url: http://localhost:3100
+        editable: false
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo-uid
+              matcherRegex: "trace_id[=:]\\s*(\\w+)"
+              name: "TraceID"
+              url: "$${__value.raw}"
 ---
 # ConfigMap: Grafana dashboard provisioning
 apiVersion: v1
@@ -69,13 +174,17 @@ data:
   OTEL_METRIC_EXPORT_INTERVAL: "5000"
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://observability:4318/v1/traces"
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://observability:9090/api/v1/otlp/v1/metrics"
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://observability:3100/otlp/v1/logs"
   OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
   OTEL_TRACES_EXPORTER: "otlp"
   OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_LOGS_EXPORTER: "otlp"
   OTEL_TRACES_SAMPLER: "always_on"
   OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: "base2_exponential_bucket_histogram"
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
+  OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: "http/protobuf"
 ---
-# Deployment: Observability stack (Prometheus + Jaeger + Grafana in one pod)
+# Deployment: Observability stack (Prometheus + Tempo + Loki + Grafana in one pod)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -93,19 +202,32 @@ spec:
         app: observability
     spec:
       containers:
-        - name: jaeger
-          image: jaegertracing/jaeger:2.3.0
+        - name: tempo
+          image: grafana/tempo:latest
           imagePullPolicy: IfNotPresent
+          args:
+            - "-config.file=/etc/tempo/tempo.yaml"
           ports:
-            - containerPort: 16686
-              name: ui
+            - containerPort: 3200
+              name: tempo-http
             - containerPort: 4318
               name: otlp-http
             - containerPort: 4317
               name: otlp-grpc
-          env:
-            - name: COLLECTOR_OTLP_ENABLED
-              value: "true"
+          volumeMounts:
+            - name: tempo-config
+              mountPath: /etc/tempo
+        - name: loki
+          image: grafana/loki:3.4.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-config.file=/etc/loki/loki.yaml"
+          ports:
+            - containerPort: 3100
+              name: loki-http
+          volumeMounts:
+            - name: loki-config
+              mountPath: /etc/loki
         - name: prometheus
           image: prom/prometheus:v3.1.0
           imagePullPolicy: IfNotPresent
@@ -138,6 +260,8 @@ spec:
               value: "true"
             - name: GF_SECURITY_ADMIN_PASSWORD
               value: "admin"
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: "traceqlEditor,traceQLStreaming,correlations"
           volumeMounts:
             - name: grafana-datasources
               mountPath: /etc/grafana/provisioning/datasources
@@ -146,6 +270,12 @@ spec:
             - name: grafana-dashboard-multigres
               mountPath: /var/lib/grafana/dashboards
       volumes:
+        - name: tempo-config
+          configMap:
+            name: tempo-config
+        - name: loki-config
+          configMap:
+            name: loki-config
         - name: prometheus-config
           configMap:
             name: prometheus-config
@@ -168,18 +298,25 @@ spec:
   selector:
     app: observability
   ports:
-    - port: 16686
-      targetPort: 16686
-      name: jaeger-ui
+    # Tempo ports
+    - port: 3200
+      targetPort: 3200
+      name: tempo-http
     - port: 4318
       targetPort: 4318
       name: otlp-http
     - port: 4317
       targetPort: 4317
       name: otlp-grpc
+    # Loki port
+    - port: 3100
+      targetPort: 3100
+      name: loki-http
+    # Prometheus port
     - port: 9090
       targetPort: 9090
       name: prometheus
+    # Grafana port
     - port: 3000
       targetPort: 3000
       name: grafana

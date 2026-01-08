@@ -69,6 +69,9 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {
 		slog.Error("Failed to initialize OpenTelemetry", "error", err)
 		// Continue without telemetry rather than crashing
+	} else {
+		// Re-wrap logger now that LoggerProvider is initialized
+		sv.lg.UpdateTelemetryWrapper()
 	}
 
 	// Ignore SIGPIPE if specified
