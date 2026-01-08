@@ -48,8 +48,19 @@ func (sv *ServEnv) Init(id ServiceIdentity) error {
 
 	// Build OTel resource attributes from service identity
 	var attrs []attribute.KeyValue
+	// Compute OTel-compliant service.instance.id (cell-qualified for multi-cell uniqueness).
+	// Per OTel semantic conventions, service.instance.id must be globally unique for each
+	// instance of the same service.name. For multi-cell deployments, we qualify the instance
+	// ID with the cell name to achieve global uniqueness.
 	if id.ServiceInstanceID != "" {
-		attrs = append(attrs, semconv.ServiceInstanceID(id.ServiceInstanceID))
+		if id.Cell != "" {
+			// Multi-cell: qualify instance ID with cell (e.g., "zone1-0")
+			otelInstanceID := fmt.Sprintf("%s-%s", id.Cell, id.ServiceInstanceID)
+			attrs = append(attrs, semconv.ServiceInstanceID(otelInstanceID))
+		} else {
+			// Single-cell: use instance ID directly
+			attrs = append(attrs, semconv.ServiceInstanceID(id.ServiceInstanceID))
+		}
 	}
 	if id.Cell != "" {
 		attrs = append(attrs, semconv.CloudAvailabilityZone(id.Cell))
