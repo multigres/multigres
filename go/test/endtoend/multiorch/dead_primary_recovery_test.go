@@ -31,6 +31,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+
 	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -94,6 +95,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
+
+	_, err = primaryClient.Manager.DisableMonitor(t.Context(), &multipoolermanagerdatapb.DisableMonitorRequest{})
+	require.NoError(t, err)
+	defer func() {
+		_, _ = primaryClient.Manager.EnableMonitor(t.Context(), &multipoolermanagerdatapb.EnableMonitorRequest{})
+	}()
 
 	t.Logf("Starting continuous writes to primary...")
 	validator.Start(t)
