@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/pgprotocol/scram"
 )
 
 const (
@@ -60,6 +61,13 @@ type Conn struct {
 
 	// handler processes queries for this connection.
 	handler Handler
+
+	// hashProvider provides password hashes for SCRAM authentication.
+	hashProvider scram.PasswordHashProvider
+
+	// trustAuthProvider enables trust authentication for testing.
+	// When set and AllowTrustAuth() returns true, password auth is skipped.
+	trustAuthProvider TrustAuthProvider
 
 	// logger for connection-specific logging.
 	logger *slog.Logger

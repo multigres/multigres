@@ -149,6 +149,7 @@ func TestGetAuthCredentials_NonExistentUser(t *testing.T) {
 }
 
 // TestGetAuthCredentials_PostgresUser tests fetching credentials for the default postgres superuser.
+// In our test setup, the postgres user's password is set via PGPASSWORD environment variable.
 func TestGetAuthCredentials_PostgresUser(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
@@ -183,8 +184,20 @@ func TestGetAuthCredentials_PostgresUser(t *testing.T) {
 	resp, err := client.GetAuthCredentials(ctx, req)
 	require.NoError(t, err, "GetAuthCredentials should succeed for postgres user")
 	require.NotNil(t, resp)
-	// Note: The postgres user may not have a password set (trust auth in tests),
-	// so we don't assert on ScramHash content - just that the call succeeds
+
+	// Verify the postgres user has a password set (via PGPASSWORD=test_password_123 in test setup)
+	require.NotEmpty(t, resp.ScramHash, "postgres user should have a password hash set")
+
+	// Parse the hash and verify it matches the expected password
+	parsed, err := scram.ParseScramSHA256Hash(resp.ScramHash)
+	require.NoError(t, err, "should be able to parse the SCRAM hash")
+
+	// Verify the password matches testPostgresPassword
+	saltedPassword := scram.ComputeSaltedPassword(testPostgresPassword, parsed.Salt, parsed.Iterations)
+	clientKey := scram.ComputeClientKey(saltedPassword)
+	computedStoredKey := scram.ComputeStoredKey(clientKey)
+	assert.Equal(t, parsed.StoredKey, computedStoredKey,
+		"computed StoredKey should match - password '%s' should work", testPostgresPassword)
 }
 
 // TestGetAuthCredentials_InvalidRequest tests that invalid requests are rejected.

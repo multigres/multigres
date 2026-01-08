@@ -18,6 +18,7 @@
 package fakepgserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -93,6 +94,16 @@ type exprResult struct {
 	err          string
 }
 
+// trustAllProvider implements server.TrustAuthProvider for testing.
+// It allows all connections without password authentication,
+// simulating Unix socket trust authentication.
+type trustAllProvider struct{}
+
+// AllowTrustAuth always returns true, allowing all connections without password.
+func (p *trustAllProvider) AllowTrustAuth(_ context.Context, _, _ string) bool {
+	return true
+}
+
 // ExpectedExecuteFetch defines for an expected query the to be faked output.
 // It is used for ordered expected output.
 type ExpectedExecuteFetch struct {
@@ -118,12 +129,13 @@ func New(t testing.TB) *Server {
 	// Create the handler.
 	handler := &fakeHandler{server: s}
 
-	// Create listener on random port.
+	// Create listener on random port with trust auth (simulates Unix socket trust auth).
 	var err error
 	s.listener, err = server.NewListener(server.ListenerConfig{
-		Address: "127.0.0.1:0", // Random available port.
-		Handler: handler,
-		Logger:  slog.Default(),
+		Address:           "127.0.0.1:0", // Random available port.
+		Handler:           handler,
+		TrustAuthProvider: &trustAllProvider{},
+		Logger:            slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("fakepgserver: failed to create listener: %v", err)
@@ -168,6 +180,7 @@ func (s *Server) Address() string {
 }
 
 // ClientConfig returns a client.Config for connecting to this server.
+// No password is needed since fakepgserver uses trust authentication.
 func (s *Server) ClientConfig() *client.Config {
 	host, port, err := net.SplitHostPort(s.address)
 	if err != nil {

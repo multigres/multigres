@@ -30,7 +30,8 @@ import (
 )
 
 // newTestManager creates a Manager configured for testing with the given fake server.
-// Note: The default admin user is "postgres" which matches the fakepgserver's default user.
+// No password configuration is needed since fakepgserver uses trust authentication,
+// which simulates the production behavior of Unix socket trust auth.
 func newTestManager(t *testing.T, server *fakepgserver.Server) *Manager {
 	t.Helper()
 
