@@ -74,6 +74,17 @@ func TestDemoteStalePrimary(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
+	// Disable monitoring on old primary so postgres is not restarted by pooler
+	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer oldPrimaryClient.Close()
+
+	_, err = oldPrimaryClient.Manager.DisableMonitor(t.Context(), &multipoolermanagerdatapb.DisableMonitorRequest{})
+	require.NoError(t, err)
+	defer func() {
+		_, _ = oldPrimaryClient.Manager.EnableMonitor(t.Context(), &multipoolermanagerdatapb.EnableMonitorRequest{})
+	}()
+
 	// Step 1: Kill postgres on primary to trigger failover
 	t.Log("Killing postgres on primary to trigger failover...")
 	setup.KillPostgres(t, oldPrimaryName)

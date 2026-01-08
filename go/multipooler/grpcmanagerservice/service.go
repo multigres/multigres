@@ -329,3 +329,13 @@ func (s *managerService) CreateDurabilityPolicy(ctx context.Context, req *multip
 func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	return s.manager.RewindToSource(ctx, req.Source)
 }
+
+// EnableMonitor enables the PostgreSQL monitoring goroutine
+func (s *managerService) EnableMonitor(ctx context.Context, req *multipoolermanagerdatapb.EnableMonitorRequest) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
+	return s.manager.EnableMonitor(ctx, req)
+}
+
+// DisableMonitor disables the PostgreSQL monitoring goroutine
+func (s *managerService) DisableMonitor(ctx context.Context, req *multipoolermanagerdatapb.DisableMonitorRequest) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
+	return s.manager.DisableMonitor(ctx, req)
+}
