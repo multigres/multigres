@@ -6,6 +6,7 @@ import time
 import subprocess
 import requests
 import yaml
+from datetime import datetime, timezone
 from typing import Optional, Dict, Tuple
 from dataclasses import dataclass
 
@@ -289,6 +290,46 @@ def run_sql_query(socket_dir: str, pg_port: int, query: str) -> Optional[str]:
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
         return None
 
+def print_timeline_info(pooler_info: PoolerInfo, label: str = ""):
+    """Print timeline information for a pooler."""
+    socket_dir = f"{pooler_info.pooler_dir}/pg_sockets"
+
+    if label:
+        log_info(f"{label}")
+
+    # Wait a moment for postgres to be queryable
+    for attempt in range(10):
+        checkpoint_result = run_sql_query(socket_dir, pooler_info.pg_port,
+                                         "SELECT timeline_id, redo_lsn FROM pg_control_checkpoint();")
+        if checkpoint_result:
+            parts = checkpoint_result.split('|')
+            if len(parts) == 2:
+                print(f"  {Colors.YELLOW}Timeline ID: {parts[0]}{Colors.NC}")
+                print(f"  Checkpoint Redo LSN: {parts[1]}")
+
+                # Also check if in recovery and WAL receiver status
+                recovery_result = run_sql_query(socket_dir, pooler_info.pg_port,
+                                               "SELECT pg_is_in_recovery();")
+                if recovery_result:
+                    in_recovery = recovery_result == 't'
+                    print(f"  In Recovery: {in_recovery}")
+
+                    if in_recovery:
+                        receiver_result = run_sql_query(socket_dir, pooler_info.pg_port,
+                                                       "SELECT status, received_tli FROM pg_stat_wal_receiver;")
+                        if receiver_result:
+                            recv_parts = receiver_result.split('|')
+                            if len(recv_parts) == 2:
+                                print(f"  WAL Receiver Status: {recv_parts[0]}")
+                                print(f"  Received Timeline: {recv_parts[1]}")
+                            else:
+                                print(f"  WAL Receiver: {Colors.YELLOW}no active receiver{Colors.NC}")
+                return
+            break
+        time.sleep(0.5)
+
+    log_warn("Could not query timeline information")
+
 def print_replication_status():
     """Print detailed replication status for all poolers."""
     print()
@@ -410,7 +451,8 @@ def stop_pooler(pooler_dir: str, pg_port: int):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
-    log_success("Pooler stopped")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " UTC"
+    log_success(f"Pooler stopped at {timestamp}")
 
 def start_pooler(pooler_dir: str, pg_port: int):
     """Start a pooler."""
@@ -421,7 +463,8 @@ def start_pooler(pooler_dir: str, pg_port: int):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
-    log_success("Pooler started")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " UTC"
+    log_success(f"Pooler started at {timestamp}")
 
 def failover_loop():
     """Main failover loop."""
@@ -478,6 +521,11 @@ def failover_loop():
         except subprocess.CalledProcessError as e:
             log_error(f"Failed to start pooler: {e}")
             return 1
+
+        # Print timeline info immediately after restart (before automation fixes it)
+        print()
+        print_timeline_info(primary_info, f"Timeline info for {primary_info.cell}/{primary_info.service_id} IMMEDIATELY after restart:")
+        print()
 
         # Wait for it to become a healthy replica (10 second timeout)
         if not wait_for_replica_health(primary_info.cell, primary_info.service_id, max_attempts=10):
