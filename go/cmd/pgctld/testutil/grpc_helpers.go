@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 // MockPgCtldService implements a mock version of the PgCtld gRPC service for testing
 type MockPgCtldService struct {
 	pb.UnimplementedPgCtldServer
+	mu           sync.Mutex
 	StartCalls   []*pb.StartRequest
 	StopCalls    []*pb.StopRequest
 	RestartCalls []*pb.RestartRequest
@@ -59,6 +61,9 @@ type MockPgCtldService struct {
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.StartCalls = append(m.StartCalls, req)
 	if m.StartError != nil {
 		return nil, m.StartError
@@ -70,6 +75,9 @@ func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*p
 }
 
 func (m *MockPgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.StopResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.StopCalls = append(m.StopCalls, req)
 	if m.StopError != nil {
 		return nil, m.StopError
@@ -81,6 +89,9 @@ func (m *MockPgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.
 }
 
 func (m *MockPgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.RestartCalls = append(m.RestartCalls, req)
 	if m.RestartError != nil {
 		return nil, m.RestartError
@@ -92,6 +103,9 @@ func (m *MockPgCtldService) Restart(ctx context.Context, req *pb.RestartRequest)
 }
 
 func (m *MockPgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConfigRequest) (*pb.ReloadConfigResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.ReloadCalls = append(m.ReloadCalls, req)
 	if m.ReloadError != nil {
 		return nil, m.ReloadError
@@ -103,6 +117,9 @@ func (m *MockPgCtldService) ReloadConfig(ctx context.Context, req *pb.ReloadConf
 }
 
 func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.StatusCalls = append(m.StatusCalls, req)
 	if m.StatusError != nil {
 		return nil, m.StatusError
@@ -123,6 +140,9 @@ func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (
 }
 
 func (m *MockPgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.VersionCalls = append(m.VersionCalls, req)
 	if m.VersionError != nil {
 		return nil, m.VersionError
@@ -134,6 +154,9 @@ func (m *MockPgCtldService) Version(ctx context.Context, req *pb.VersionRequest)
 }
 
 func (m *MockPgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequest) (*pb.InitDataDirResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.InitDirCalls = append(m.InitDirCalls, req)
 	if m.InitDirError != nil {
 		return nil, m.InitDirError
