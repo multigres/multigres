@@ -170,4 +170,16 @@ service MultiPoolerManager {
   // The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
   rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
       returns (multipoolermanagerdata.RewindToSourceResponse);
+  
+  //
+  // PostgreSQL Monitoring Control
+  //
+  
+  // EnableMonitor starts the PostgreSQL monitoring goroutine
+  rpc EnableMonitor(multipoolermanagerdata.EnableMonitorRequest)
+        returns (multipoolermanagerdata.EnableMonitorResponse);
+  
+  // DisableMonitor stops the PostgreSQL monitoring goroutine
+  rpc DisableMonitor(multipoolermanagerdata.DisableMonitorRequest)
+        returns (multipoolermanagerdata.DisableMonitorResponse);
 }

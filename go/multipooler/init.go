@@ -365,6 +365,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 						mp.Hostname = multipooler.Hostname
 						mp.ServingStatus = multipooler.ServingStatus
 						mp.PoolerDir = multipooler.PoolerDir
+						mp.Type = clustermetadatapb.PoolerType_REPLICA
 						return nil
 					})
 				return err
