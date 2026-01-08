@@ -114,9 +114,9 @@ type MultiPoolerManager struct {
 	// This is loaded once during startup and cached for fast access.
 	backupLocation string
 
-	// autoRestoreRetryInterval is the interval between auto-restore retry attempts.
+	// monitorRetryInterval is the interval between auto-restore retry attempts.
 	// Defaults to 1 second. Can be set to a shorter duration for testing.
-	autoRestoreRetryInterval time.Duration
+	monitorRetryInterval time.Duration
 
 	// initialized tracks whether this pooler has been fully initialized.
 	// Once true, stays true for the lifetime of the manager.
@@ -198,18 +198,18 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 	}
 
 	pm := &MultiPoolerManager{
-		logger:                   logger,
-		config:                   config,
-		topoClient:               config.TopoClient,
-		serviceID:                config.ServiceID,
-		actionLock:               NewActionLock(),
-		state:                    ManagerStateStarting,
-		loadTimeout:              loadTimeout,
-		autoRestoreRetryInterval: 5 * time.Second,
-		queryServingState:        clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		pgctldClient:             pgctldClient,
-		connPoolMgr:              connPoolMgr,
-		readyChan:                make(chan struct{}),
+		logger:               logger,
+		config:               config,
+		topoClient:           config.TopoClient,
+		serviceID:            config.ServiceID,
+		actionLock:           NewActionLock(),
+		state:                ManagerStateStarting,
+		loadTimeout:          loadTimeout,
+		monitorRetryInterval: 5 * time.Second,
+		queryServingState:    clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		pgctldClient:         pgctldClient,
+		connPoolMgr:          connPoolMgr,
+		readyChan:            make(chan struct{}),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,

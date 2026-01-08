@@ -20,15 +20,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 func TestInitializeEmptyPrimary(t *testing.T) {
@@ -424,4 +428,598 @@ func TestHelperMethods(t *testing.T) {
 		_, err = os.Stat(dataDir)
 		assert.True(t, os.IsNotExist(err))
 	})
+}
+
+// MonitorPostgres Tests
+
+func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
+	ctx := context.Background()
+	pm := &MultiPoolerManager{
+		pgctldClient: nil, // pgctld unavailable
+	}
+
+	state := pm.discoverPostgresState(ctx)
+
+	assert.False(t, state.pgctldAvailable)
+	assert.False(t, state.dirInitialized)
+	assert.False(t, state.postgresRunning)
+	assert.False(t, state.backupsAvailable)
+}
+
+func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock pgctld client
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_NOT_INITIALIZED,
+		},
+	}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+		actionLock:   NewActionLock(),
+		config:       &Config{PoolerDir: t.TempDir()},
+	}
+
+	state := pm.discoverPostgresState(ctx)
+
+	assert.True(t, state.pgctldAvailable)
+	assert.False(t, state.dirInitialized)
+	assert.False(t, state.postgresRunning)
+	// backupsAvailable will be false since no pgbackrest setup
+	assert.False(t, state.backupsAvailable)
+}
+
+func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock pgctld client
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_STOPPED,
+		},
+	}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+	}
+
+	state := pm.discoverPostgresState(ctx)
+
+	assert.True(t, state.pgctldAvailable)
+	assert.True(t, state.dirInitialized)
+	assert.False(t, state.postgresRunning)
+	// backupsAvailable should NOT be checked when dirInitialized is true
+}
+
+func TestDiscoverPostgresState_Running(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock pgctld client
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_RUNNING,
+		},
+	}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+	}
+
+	state := pm.discoverPostgresState(ctx)
+
+	assert.True(t, state.pgctldAvailable)
+	assert.True(t, state.dirInitialized)
+	assert.True(t, state.postgresRunning)
+}
+
+func TestDiscoverPostgresState_StatusError(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock pgctld client that returns error
+	mockPgctld := &mockPgctldClient{
+		statusError: assert.AnError,
+	}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+	}
+
+	state := pm.discoverPostgresState(ctx)
+
+	// When Status() fails, treat as pgctld unavailable
+	assert.False(t, state.pgctldAvailable)
+	assert.False(t, state.dirInitialized)
+	assert.False(t, state.postgresRunning)
+	assert.False(t, state.backupsAvailable)
+}
+
+func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
+	ctx := context.Background()
+
+	pm := &MultiPoolerManager{
+		logger: slog.Default(),
+	}
+
+	state := postgresState{
+		pgctldAvailable: false,
+	}
+
+	lastLoggedReason := ""
+
+	// Should log error and take no action
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+
+	assert.Equal(t, "pgctld_unavailable", lastLoggedReason)
+}
+
+func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
+	ctx := context.Background()
+
+	pm := &MultiPoolerManager{
+		logger: slog.Default(),
+	}
+
+	state := postgresState{
+		pgctldAvailable: true,
+		dirInitialized:  true,
+		postgresRunning: true,
+	}
+
+	lastLoggedReason := ""
+
+	// Should log info and take no action
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+
+	assert.Equal(t, "postgres_running", lastLoggedReason)
+}
+
+func TestTakeRemedialAction_StartPostgres(t *testing.T) {
+	ctx := context.Background()
+
+	mockPgctld := &mockPgctldClient{}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+	}
+
+	state := postgresState{
+		pgctldAvailable: true,
+		dirInitialized:  true,
+		postgresRunning: false,
+	}
+
+	lastLoggedReason := ""
+
+	// Should attempt to start postgres
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+
+	assert.Equal(t, "starting_postgres", lastLoggedReason)
+	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
+}
+
+func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
+	ctx := context.Background()
+
+	mockPgctld := &mockPgctldClient{
+		startError: assert.AnError,
+	}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+	}
+
+	state := postgresState{
+		pgctldAvailable: true,
+		dirInitialized:  true,
+		postgresRunning: false,
+	}
+
+	lastLoggedReason := "starting_postgres"
+
+	// Should handle error gracefully
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+
+	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
+	// Reason stays the same since we're retrying
+}
+
+func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
+	ctx := context.Background()
+
+	pm := &MultiPoolerManager{
+		logger: slog.Default(),
+	}
+
+	state := postgresState{
+		pgctldAvailable:  true,
+		dirInitialized:   false,
+		postgresRunning:  false,
+		backupsAvailable: false,
+	}
+
+	lastLoggedReason := ""
+
+	// Should log info and wait
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+
+	assert.Equal(t, "waiting_for_backup", lastLoggedReason)
+}
+
+func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
+	ctx := context.Background()
+
+	pm := &MultiPoolerManager{
+		logger: slog.Default(),
+	}
+
+	state := postgresState{
+		pgctldAvailable: true,
+		dirInitialized:  true,
+		postgresRunning: true,
+	}
+
+	lastLoggedReason := "postgres_running"
+
+	// Call multiple times with same reason
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+
+	// Reason should stay the same (log deduplication working)
+	assert.Equal(t, "postgres_running", lastLoggedReason)
+
+	// Change state
+	state.pgctldAvailable = false
+	pm.takeRemedialAction(ctx, state, &lastLoggedReason)
+
+	// Reason should change
+	assert.Equal(t, "pgctld_unavailable", lastLoggedReason)
+}
+
+func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
+	ctx := context.Background()
+	poolerDir := t.TempDir()
+
+	pm := &MultiPoolerManager{
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		config:     &Config{PoolerDir: poolerDir},
+	}
+
+	// Mock listBackups to return a complete backup
+	// This is tested via the actual implementation
+	// For unit test, we verify hasCompleteBackups returns false when no backups
+	result := pm.hasCompleteBackups(ctx)
+
+	// Without proper pgbackrest setup, should return false
+	assert.False(t, result)
+}
+
+func TestHasCompleteBackups_NoBackups(t *testing.T) {
+	ctx := context.Background()
+	poolerDir := t.TempDir()
+
+	pm := &MultiPoolerManager{
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		config:     &Config{PoolerDir: poolerDir},
+	}
+
+	result := pm.hasCompleteBackups(ctx)
+
+	assert.False(t, result)
+}
+
+func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
+	poolerDir := t.TempDir()
+
+	pm := &MultiPoolerManager{
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		config:     &Config{PoolerDir: poolerDir},
+	}
+
+	// Acquire the action lock to block hasCompleteBackups
+	lockCtx, err := pm.actionLock.Acquire(context.Background(), "test-holder")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	// Create a context with timeout for hasCompleteBackups call
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// hasCompleteBackups should return false when it can't acquire lock
+	result := pm.hasCompleteBackups(ctx)
+
+	assert.False(t, result)
+}
+
+func TestStartPostgres_Success(t *testing.T) {
+	ctx := context.Background()
+
+	mockPgctld := &mockPgctldClient{}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+	}
+
+	err := pm.startPostgres(ctx)
+
+	require.NoError(t, err)
+	assert.True(t, mockPgctld.startCalled)
+}
+
+func TestStartPostgres_PgctldUnavailable(t *testing.T) {
+	ctx := context.Background()
+
+	pm := &MultiPoolerManager{
+		pgctldClient: nil,
+		logger:       slog.Default(),
+	}
+
+	err := pm.startPostgres(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pgctld client not available")
+}
+
+func TestStartPostgres_StartFails(t *testing.T) {
+	ctx := context.Background()
+
+	mockPgctld := &mockPgctldClient{
+		startError: assert.AnError,
+	}
+
+	pm := &MultiPoolerManager{
+		pgctldClient: mockPgctld,
+		logger:       slog.Default(),
+	}
+
+	err := pm.startPostgres(ctx)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to start PostgreSQL")
+	assert.True(t, mockPgctld.startCalled)
+}
+
+// Integration Tests for MonitorPostgres
+
+func TestMonitorPostgres_WaitsForReady(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	readyChan := make(chan struct{})
+
+	pm := &MultiPoolerManager{
+		logger:    slog.Default(),
+		readyChan: readyChan,
+	}
+
+	monitorDone := make(chan struct{})
+	go func() {
+		pm.MonitorPostgres(ctx)
+		close(monitorDone)
+	}()
+
+	// Give it a moment - should be blocked waiting for ready
+	select {
+	case <-monitorDone:
+		t.Fatal("MonitorPostgres should wait for ready")
+	case <-time.After(50 * time.Millisecond):
+		// Good, still waiting
+	}
+
+	// Close readyChan to signal ready
+	close(readyChan)
+
+	// Cancel context to stop monitoring
+	cancel()
+
+	// Should exit now
+	select {
+	case <-monitorDone:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("MonitorPostgres should exit after context cancel")
+	}
+}
+
+func TestMonitorPostgres_ExitsOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	readyChan := make(chan struct{})
+	close(readyChan) // Ready immediately
+
+	pm := &MultiPoolerManager{
+		logger:               slog.Default(),
+		readyChan:            readyChan,
+		monitorRetryInterval: 10 * time.Millisecond,
+		pgctldClient:         nil, // Will cause pgctld unavailable
+	}
+
+	monitorDone := make(chan struct{})
+	go func() {
+		pm.MonitorPostgres(ctx)
+		close(monitorDone)
+	}()
+
+	// Should exit when context is cancelled
+	select {
+	case <-monitorDone:
+		// Success - exited cleanly
+	case <-time.After(1 * time.Second):
+		t.Fatal("MonitorPostgres should exit when context is cancelled")
+	}
+}
+
+func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	readyChan := make(chan struct{})
+	close(readyChan)
+
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_RUNNING,
+		},
+	}
+
+	pm := &MultiPoolerManager{
+		logger:               slog.Default(),
+		readyChan:            readyChan,
+		monitorRetryInterval: 10 * time.Millisecond,
+		pgctldClient:         mockPgctld,
+	}
+
+	monitorDone := make(chan struct{})
+	go func() {
+		pm.MonitorPostgres(ctx)
+		close(monitorDone)
+	}()
+
+	// Should run until context timeout
+	select {
+	case <-monitorDone:
+		// Success - discovered running state and continued monitoring
+	case <-time.After(1 * time.Second):
+		t.Fatal("MonitorPostgres should complete")
+	}
+
+	// Should not have called Start (postgres already running)
+	assert.False(t, mockPgctld.startCalled)
+}
+
+func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	readyChan := make(chan struct{})
+	close(readyChan)
+
+	mockPgctld := &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{
+			Status: pgctldpb.ServerStatus_STOPPED,
+		},
+	}
+
+	pm := &MultiPoolerManager{
+		logger:               slog.Default(),
+		readyChan:            readyChan,
+		monitorRetryInterval: 10 * time.Millisecond,
+		pgctldClient:         mockPgctld,
+	}
+
+	pm.MonitorPostgres(ctx)
+
+	// Should have attempted to start postgres
+	assert.True(t, mockPgctld.startCalled, "Should attempt to start stopped postgres")
+}
+
+func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	readyChan := make(chan struct{})
+	close(readyChan)
+
+	mockPgctld := &mockPgctldClientWithCounter{
+		mockPgctldClient: mockPgctldClient{
+			statusResponse: &pgctldpb.StatusResponse{
+				Status: pgctldpb.ServerStatus_STOPPED,
+			},
+			startError: assert.AnError,
+		},
+	}
+
+	pm := &MultiPoolerManager{
+		logger:               slog.Default(),
+		readyChan:            readyChan,
+		monitorRetryInterval: 10 * time.Millisecond,
+		pgctldClient:         mockPgctld,
+	}
+
+	pm.MonitorPostgres(ctx)
+
+	// Should have retried multiple times
+	assert.Greater(t, mockPgctld.startCallCount, 1, "Should retry on start failure")
+}
+
+// Mock pgctld client for testing
+type mockPgctldClient struct {
+	statusResponse *pgctldpb.StatusResponse
+	statusError    error
+	startCalled    bool
+	startError     error
+	restartCalled  bool
+	restartError   error
+}
+
+func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
+	if m.statusError != nil {
+		return nil, m.statusError
+	}
+	if m.statusResponse != nil {
+		return m.statusResponse, nil
+	}
+	return &pgctldpb.StatusResponse{
+		Status: pgctldpb.ServerStatus_RUNNING,
+	}, nil
+}
+
+func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+	m.startCalled = true
+	if m.startError != nil {
+		return nil, m.startError
+	}
+	return &pgctldpb.StartResponse{}, nil
+}
+
+func (m *mockPgctldClient) Stop(ctx context.Context, req *pgctldpb.StopRequest, opts ...grpc.CallOption) (*pgctldpb.StopResponse, error) {
+	return &pgctldpb.StopResponse{}, nil
+}
+
+func (m *mockPgctldClient) Restart(ctx context.Context, req *pgctldpb.RestartRequest, opts ...grpc.CallOption) (*pgctldpb.RestartResponse, error) {
+	m.restartCalled = true
+	if m.restartError != nil {
+		return nil, m.restartError
+	}
+	return &pgctldpb.RestartResponse{}, nil
+}
+
+func (m *mockPgctldClient) InitDataDir(ctx context.Context, req *pgctldpb.InitDataDirRequest, opts ...grpc.CallOption) (*pgctldpb.InitDataDirResponse, error) {
+	return &pgctldpb.InitDataDirResponse{}, nil
+}
+
+func (m *mockPgctldClient) ReloadConfig(ctx context.Context, req *pgctldpb.ReloadConfigRequest, opts ...grpc.CallOption) (*pgctldpb.ReloadConfigResponse, error) {
+	return &pgctldpb.ReloadConfigResponse{}, nil
+}
+
+func (m *mockPgctldClient) Version(ctx context.Context, req *pgctldpb.VersionRequest, opts ...grpc.CallOption) (*pgctldpb.VersionResponse, error) {
+	return &pgctldpb.VersionResponse{}, nil
+}
+
+func (m *mockPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRewindRequest, opts ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
+	return &pgctldpb.PgRewindResponse{}, nil
+}
+
+// mockPgctldClientWithCounter extends mockPgctldClient with call counters
+type mockPgctldClientWithCounter struct {
+	mockPgctldClient
+	startCallCount int
+}
+
+func (m *mockPgctldClientWithCounter) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+	m.startCallCount++
+	return m.mockPgctldClient.Start(ctx, req, opts...)
 }

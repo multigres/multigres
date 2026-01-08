@@ -630,7 +630,7 @@ func (pm *MultiPoolerManager) MonitorPostgres(ctx context.Context) {
 	var lastLoggedReason string
 
 	// Use configurable retry interval (same as auto-restore)
-	r := retry.New(pm.autoRestoreRetryInterval, pm.autoRestoreRetryInterval)
+	r := retry.New(pm.monitorRetryInterval, pm.monitorRetryInterval)
 	for attempt, err := range r.Attempts(ctx) {
 		if err != nil {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: context cancelled, exiting monitoring loop", "attempts", attempt)
