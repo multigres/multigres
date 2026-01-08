@@ -830,8 +830,9 @@ func TestConsensusStatus(t *testing.T) {
 						"pg_get_wal_replay_pause_state",
 						"pg_last_xact_replay_timestamp",
 						"current_setting",
+						"wal_receiver_status",
 					},
-					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, ""}}))
+					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, "", "streaming"}}))
 			},
 			expectedCurrentTerm: 3,
 			expectedIsHealthy:   true,

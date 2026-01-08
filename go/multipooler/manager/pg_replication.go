@@ -179,7 +179,8 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
 		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`
+		current_setting('primary_conninfo'),
+		(SELECT status FROM pg_stat_wal_receiver LIMIT 1)`
 
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -194,8 +195,9 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	var pauseState string
 	var lastXactTime *string
 	var primaryConnInfo string
+	var walReceiverStatus *string
 
-	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo)
+	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo, &walReceiverStatus)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
@@ -211,6 +213,9 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	}
 	if lastXactTime != nil {
 		status.LastXactReplayTimestamp = *lastXactTime
+	}
+	if walReceiverStatus != nil {
+		status.WalReceiverStatus = *walReceiverStatus
 	}
 
 	// Parse primary_conninfo into structured format
