@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -71,11 +72,11 @@ Examples:
 }
 
 // GetVersionWithResult gets PostgreSQL server version information and returns detailed result information
-func GetVersionWithResult(config *pgctld.PostgresCtlConfig) (*VersionResult, error) {
+func GetVersionWithResult(ctx context.Context, config *pgctld.PostgresCtlConfig) (*VersionResult, error) {
 	result := &VersionResult{}
 
 	// Get server version using the same method as the gRPC service
-	version := getServerVersionWithConfig(config)
+	version := getServerVersionWithConfig(ctx, config)
 	if version == "" {
 		return nil, fmt.Errorf("failed to get server version - ensure PostgreSQL server is running and accessible")
 	}
@@ -93,7 +94,7 @@ func (v *PgCtlVersionCmd) runVersion(cmd *cobra.Command, args []string) error {
 
 	// No local flag overrides needed - all flags are global now
 
-	result, err := GetVersionWithResult(config)
+	result, err := GetVersionWithResult(cmd.Context(), config)
 	if err != nil {
 		return err
 	}
