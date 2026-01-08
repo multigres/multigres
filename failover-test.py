@@ -512,24 +512,14 @@ def failover_loop():
             log_error("Failed to detect new primary. Manual intervention required.")
             return 1
 
-        # Wait a bit before restarting
-        time.sleep(2)
-
-        # Start the old primary
-        try:
-            start_pooler(primary_info.pooler_dir, primary_info.pg_port)
-        except subprocess.CalledProcessError as e:
-            log_error(f"Failed to start pooler: {e}")
-            return 1
-
-        # Print timeline info immediately after restart (before automation fixes it)
-        print()
-        print_timeline_info(primary_info, f"Timeline info for {primary_info.cell}/{primary_info.service_id} IMMEDIATELY after restart:")
+        # Let the system restart postgres organically (through multiorch recovery)
+        log_info("Waiting for system to restart postgres organically...")
         print()
 
-        # Wait for it to become a healthy replica (10 second timeout)
-        if not wait_for_replica_health(primary_info.cell, primary_info.service_id, max_attempts=10):
-            log_error("Replica did not become healthy within 10 seconds!")
+        # Wait for the old primary to be restarted by the system and become a healthy replica
+        # Give it up to 60 seconds for the system to detect, restart, and replicate
+        if not wait_for_replica_health(primary_info.cell, primary_info.service_id, max_attempts=60):
+            log_error("Replica did not become healthy within 60 seconds!")
             log_error("Printing final replication status for diagnostics...")
             print_replication_status()
             return 1
