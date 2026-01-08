@@ -718,7 +718,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", shardBackupLocation, "pooler_type", mp.Type.String())
+		pm.logger.InfoContext(pm.ctx, "[TIMELINE_DEBUG] Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", shardBackupLocation, "pooler_type", mp.Type.String())
 
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
@@ -1053,6 +1053,15 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 
 	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby")
 
+	// Get timeline BEFORE restart
+	timelineBefore, err := pm.getTimelineID(ctx)
+	if err != nil {
+		pm.logger.WarnContext(ctx, "[TIMELINE_DEBUG] Failed to get timeline before restart", "error", err)
+		timelineBefore = -1 // Mark as unknown
+	} else {
+		pm.logger.InfoContext(ctx, "[TIMELINE_DEBUG] Timeline BEFORE restart", "timeline", timelineBefore)
+	}
+
 	// Call pgctld to restart as standby
 	// This will create standby.signal and restart the server
 	req := &pgctldpb.RestartRequest{
@@ -1095,6 +1104,21 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	if !inRecovery {
 		pm.logger.ErrorContext(ctx, "PostgreSQL not in recovery mode after restart")
 		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
+	}
+
+	// Get timeline AFTER restart
+	timelineAfter, err := pm.getTimelineID(ctx)
+	if err != nil {
+		pm.logger.WarnContext(ctx, "[TIMELINE_DEBUG] Failed to get timeline after restart", "error", err)
+	} else {
+		pm.logger.InfoContext(ctx, "[TIMELINE_DEBUG] Timeline AFTER restart",
+			"timeline_before", timelineBefore,
+			"timeline_after", timelineAfter)
+		if timelineBefore != -1 && timelineBefore != timelineAfter {
+			pm.logger.WarnContext(ctx, "[TIMELINE_DEBUG] Timeline changed during restart!",
+				"timeline_before", timelineBefore,
+				"timeline_after", timelineAfter)
+		}
 	}
 
 	pm.logger.InfoContext(ctx, "PostgreSQL is now running as a standby")
@@ -1337,7 +1361,26 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 
 	// Wait for promotion to complete by polling pg_is_in_recovery()
 	pm.logger.InfoContext(ctx, "Waiting for promotion to complete")
-	return pm.waitForPromotionComplete(ctx)
+	if err := pm.waitForPromotionComplete(ctx); err != nil {
+		return err
+	}
+
+	// Clear primary_conninfo after promotion to prevent accidental replication on restart
+	pm.logger.InfoContext(ctx, "Clearing primary_conninfo after promotion")
+	if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to clear primary_conninfo after promotion", "error", err)
+		// Log but don't fail - promotion already succeeded
+	}
+
+	// Run checkpoint after promotion completes
+	pm.logger.InfoContext(ctx, "Running checkpoint after promotion")
+	if err := pm.exec(ctx, "CHECKPOINT"); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to run checkpoint after promotion", "error", err)
+		return mterrors.Wrap(err, "failed to checkpoint after promotion")
+	}
+	pm.logger.InfoContext(ctx, "Checkpoint after promotion completed successfully")
+
+	return nil
 }
 
 // waitForPromotionComplete polls pg_is_in_recovery() until promotion is complete

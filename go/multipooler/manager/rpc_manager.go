@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multipooler/executor"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -853,6 +854,47 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return nil, err
 	}
+
+	// Log timeline and replication state at the START of demotion
+	timelineAtStart := int64(-1)
+	if tl, err := pm.getTimelineID(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "[TIMELINE_DEBUG] Failed to get timeline at start of demotion", "error", err)
+	} else {
+		timelineAtStart = tl
+	}
+
+	// Check if postgres is in recovery (replicating)
+	inRecoveryAtStart, err := pm.isInRecovery(ctx)
+	if err != nil {
+		pm.logger.WarnContext(ctx, "[TIMELINE_DEBUG] Failed to check recovery status at start of demotion", "error", err)
+		inRecoveryAtStart = false
+	}
+
+	// Get WAL receiver status to see if actively replicating
+	walReceiverStatus := "not_replicating"
+	receivedTli := int64(-1)
+	if inRecoveryAtStart {
+		// Query pg_stat_wal_receiver to see if actively streaming
+		result, err := pm.query(ctx, "SELECT status, received_tli FROM pg_stat_wal_receiver")
+		if err == nil && result != nil {
+			var status string
+			var tli int64
+			if err := executor.ScanSingleRow(result, &status, &tli); err == nil {
+				walReceiverStatus = status
+				receivedTli = tli
+				pm.logger.InfoContext(ctx, "[TIMELINE_DEBUG] WAL receiver active",
+					"status", walReceiverStatus,
+					"received_timeline", receivedTli)
+			}
+		}
+	}
+
+	pm.logger.InfoContext(ctx, "[TIMELINE_DEBUG] Starting demotion",
+		"timeline_at_start", timelineAtStart,
+		"consensus_term", consensusTerm,
+		"in_recovery", inRecoveryAtStart,
+		"wal_receiver_status", walReceiverStatus,
+		"received_timeline", receivedTli)
 
 	// Check current demotion state
 	state, err := pm.checkDemotionState(ctx)
