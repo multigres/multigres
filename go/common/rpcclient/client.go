@@ -220,6 +220,9 @@ type MultiPoolerClient interface {
 	// UndoDemote undoes a demotion.
 	UndoDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error)
 
+	// DemoteStalePrimary demotes a stale primary that came back after failover.
+	DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error)
+
 	//
 	// Manager Service Methods - Type and Term Management
 	//

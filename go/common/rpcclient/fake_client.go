@@ -629,6 +629,22 @@ func (f *FakeClient) UndoDemote(ctx context.Context, pooler *clustermetadatapb.M
 	return &multipoolermanagerdatapb.UndoDemoteResponse{}, nil
 }
 
+func (f *FakeClient) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("DemoteStalePrimary", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	// Return success by default
+	return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
+		Success:         true,
+		RewindPerformed: false,
+		LsnPosition:     "0/0",
+	}, nil
+}
+
 //
 // Manager Service Methods - Type and Term Management
 //

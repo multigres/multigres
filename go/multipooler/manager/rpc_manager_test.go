@@ -637,6 +637,12 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
 		mock.MakeQueryResult(nil, nil))
 
+	// Mock: Clear primary_conninfo after promotion
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
+		mock.MakeQueryResult(nil, nil))
+
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
@@ -694,6 +700,12 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 
 	// Mock: pg_promote() call
 	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
+		mock.MakeQueryResult(nil, nil))
+
+	// Mock: Clear primary_conninfo after promotion
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
 		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
@@ -809,6 +821,12 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
 		mock.MakeQueryResult(nil, nil))
 
+	// Mock: Clear primary_conninfo after promotion
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
+		mock.MakeQueryResult(nil, nil))
+
 	// Mock: Get current LSN (called twice - once after first promote, once in second call)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
@@ -869,6 +887,12 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
 		mock.MakeQueryResult(nil, nil))
 
+	// Mock: Clear primary_conninfo after promotion
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
+		mock.MakeQueryResult(nil, nil))
+
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/BBBBBBB"}}))
@@ -923,6 +947,12 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 
 	// Mock: insertLeadershipHistory - required for promotion success
 	expectLeadershipHistoryInsert(mockQueryService)
+
+	// Mock: Clear primary_conninfo after promotion
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
+		mock.MakeQueryResult(nil, nil))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
@@ -987,6 +1017,12 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/9876543"}}))
+
+	// Mock: Clear primary_conninfo after promotion (executed before insertLeadershipHistory)
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
+		mock.MakeQueryResult(nil, nil))
 
 	// Mock: insertLeadershipHistory fails with database error (e.g., sync replication timeout)
 	mockQueryService.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history",

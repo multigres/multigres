@@ -718,8 +718,6 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		pm.logger.InfoContext(pm.ctx, "Loaded multipooler record from topology", "service_id", pm.serviceID.String(), "database", mp.Database, "backup_location", shardBackupLocation, "pooler_type", mp.Type.String())
-
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
 		pm.checkAndSetReady()
@@ -804,18 +802,12 @@ func (pm *MultiPoolerManager) validateTerm(ctx context.Context, requestTerm int6
 
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
-		pm.logger.ErrorContext(ctx, "Consensus term not initialized",
-			"service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"consensus term not initialized, must be explicitly set via SetTerm (use force=true to bypass)")
 	}
 
 	// Reject stale requests
 	if requestTerm < currentTerm {
-		pm.logger.ErrorContext(ctx, "Consensus term too old, rejecting request",
-			"request_term", requestTerm,
-			"current_term", currentTerm,
-			"service_id", pm.serviceID.String())
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			fmt.Sprintf("consensus term too old: request term %d is less than current term %d (use force=true to bypass)",
 				requestTerm, currentTerm))
@@ -1052,7 +1044,6 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	}
 
 	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby")
-
 	// Call pgctld to restart as standby
 	// This will create standby.signal and restart the server
 	req := &pgctldpb.RestartRequest{
@@ -1063,41 +1054,35 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		AsStandby: true, // Create standby.signal before restart
 	}
 
-	// Close the query service controller to release its stale database connection
-	if err := pm.Close(); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to close query service controller after restart", "error", err)
-		// Continue - we'll try to reconnect anyway
-	}
-
 	resp, err := pm.pgctldClient.Restart(ctx, req)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to restart PostgreSQL as standby", "error", err)
 		return mterrors.Wrap(err, "failed to restart as standby")
 	}
 
-	pm.logger.InfoContext(ctx, "PostgreSQL restarted as standby",
-		"pid", resp.Pid,
-		"message", resp.Message)
+	// Reopen connections after postgres restart without changing isOpen state or restarting monitor
+	if err := pm.reopenConnections(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to reopen connections")
+	}
 
-	// Reopen the manager
-	if err := pm.Open(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reopen query service controller after restart", "error", err)
-		return mterrors.Wrap(err, "failed to reopen query service controller")
+	// Wait for database connection to be ready after restart
+	if err := pm.waitForDatabaseConnection(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to connect to database after restart")
 	}
 
 	// Verify server is in recovery mode (standby)
 	inRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to verify recovery status", "error", err)
 		return mterrors.Wrap(err, "failed to verify standby status")
 	}
 
 	if !inRecovery {
-		pm.logger.ErrorContext(ctx, "PostgreSQL not in recovery mode after restart")
 		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
 	}
 
-	pm.logger.InfoContext(ctx, "PostgreSQL is now running as a standby")
+	pm.logger.InfoContext(ctx, "PostgreSQL is now running as a standby",
+		"pid", resp.Pid,
+		"message", resp.Message)
+
 	return nil
 }
 
@@ -1337,7 +1322,17 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 
 	// Wait for promotion to complete by polling pg_is_in_recovery()
 	pm.logger.InfoContext(ctx, "Waiting for promotion to complete")
-	return pm.waitForPromotionComplete(ctx)
+	if err := pm.waitForPromotionComplete(ctx); err != nil {
+		return err
+	}
+
+	// Clear primary_conninfo after promotion to prevent accidental replication on restart
+	if err := pm.resetPrimaryConnInfo(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to clear primary_conninfo after promotion", "error", err)
+		// Log but don't fail - promotion already succeeded
+	}
+
+	return nil
 }
 
 // waitForPromotionComplete polls pg_is_in_recovery() until promotion is complete
