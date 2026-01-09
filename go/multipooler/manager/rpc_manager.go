@@ -23,7 +23,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/multipooler/executor"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -855,47 +854,6 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 		return nil, err
 	}
 
-	// Log timeline and replication state at the START of demotion
-	timelineAtStart := int64(-1)
-	if tl, err := pm.getTimelineID(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "[TIMELINE_DEBUG] Failed to get timeline at start of demotion", "error", err)
-	} else {
-		timelineAtStart = tl
-	}
-
-	// Check if postgres is in recovery (replicating)
-	inRecoveryAtStart, err := pm.isInRecovery(ctx)
-	if err != nil {
-		pm.logger.WarnContext(ctx, "[TIMELINE_DEBUG] Failed to check recovery status at start of demotion", "error", err)
-		inRecoveryAtStart = false
-	}
-
-	// Get WAL receiver status to see if actively replicating
-	walReceiverStatus := "not_replicating"
-	receivedTli := int64(-1)
-	if inRecoveryAtStart {
-		// Query pg_stat_wal_receiver to see if actively streaming
-		result, err := pm.query(ctx, "SELECT status, received_tli FROM pg_stat_wal_receiver")
-		if err == nil && result != nil {
-			var status string
-			var tli int64
-			if err := executor.ScanSingleRow(result, &status, &tli); err == nil {
-				walReceiverStatus = status
-				receivedTli = tli
-				pm.logger.InfoContext(ctx, "[TIMELINE_DEBUG] WAL receiver active",
-					"status", walReceiverStatus,
-					"received_timeline", receivedTli)
-			}
-		}
-	}
-
-	pm.logger.InfoContext(ctx, "[TIMELINE_DEBUG] Starting demotion",
-		"timeline_at_start", timelineAtStart,
-		"consensus_term", consensusTerm,
-		"in_recovery", inRecoveryAtStart,
-		"wal_receiver_status", walReceiverStatus,
-		"received_timeline", receivedTli)
-
 	// Check current demotion state
 	state, err := pm.checkDemotionState(ctx)
 	if err != nil {
@@ -1028,17 +986,23 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Disable monitor during this operation to prevent interference
+	pm.disableMonitorInternal()
+	defer func() {
+		if err := pm.enableMonitorInternal(); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to re-enable monitor after DemoteStalePrimary", "error", err)
+		}
+	}()
+
 	// Validate the term
 	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
 
-	// Step 1: Stop postgres if running
 	if err := pm.stopPostgresIfRunning(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to stop postgres")
 	}
 
-	// Step 2: Run pg_rewind
 	port, ok := source.PortMap["postgres"]
 	if !ok {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "postgres port not found in source pooler's port map")
@@ -1049,17 +1013,14 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "pg_rewind failed")
 	}
 
-	// Step 3: Restart as standby
 	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to restart as standby")
 	}
 
-	// Step 4: Clear sync replication
 	if err := pm.resetSynchronousReplication(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
 	}
 
-	// Step 4.5: Configure replication to the source primary
 	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
 		"source", source.Id.Name,
 		"source_host", source.Hostname,
@@ -1078,7 +1039,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
 	}
 
-	// Step 5: Update topology to REPLICA
+	// Update topology to REPLICA
 	if pm.topoClient != nil {
 		updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
 			mp.Type = clustermetadatapb.PoolerType_REPLICA
@@ -1093,10 +1054,6 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		pm.multipooler.MultiPooler = updatedMultipooler
 		pm.updateCachedMultipooler()
 		pm.mu.Unlock()
-
-		// Note: heartbeat writer was already stopped when we reopened the manager
-		// in step 3 - startHeartbeat() checks isPrimary() and calls MakeNonPrimary()
-		// automatically for standbys
 	}
 
 	// Get final LSN
