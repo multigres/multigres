@@ -15,7 +15,7 @@
 
 set -ex
 
-# Kind cluster demo
+# Kind cluster demo - Infrastructure and supporting services
 # Prerequisites: docker compose, kind, kubectl
 # multigres images must be built first
 # Edit kind.yaml
@@ -88,52 +88,30 @@ kubectl wait --for=condition=ready certificate/pgbackrest-cert --timeout=120s
 # Make sure the cluster metadata job is complete before proceeding
 kubectl wait --for=condition=complete job/createclustermetadata --timeout=120s
 
-# Once the cluster metadata is ready, launch all componentes at once.
-# Once the multipoolers come up, multiorch will bootstrap the cluster
-# and elect a primary.
-kubectl apply -f k8s-multipooler-statefulset.yaml
-kubectl apply -f k8s-multiorch.yaml
-kubectl apply -f k8s-multigateway.yaml
+# Deploy multiadmin services
 kubectl apply -f k8s-multiadmin.yaml
 kubectl apply -f k8s-multiadmin-web.yaml
-kubectl wait --for=condition=ready pod -l app=multipooler --timeout=180s
-kubectl wait --for=condition=ready pod -l app=multiorch --timeout=120s
-kubectl wait --for=condition=ready pod -l app=multigateway --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multiadmin --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multiadmin-web --timeout=120s
 
 set +x
 echo ""
 echo "========================================="
-echo "Components launched successfully!"
+echo "Infrastructure Ready"
 echo "========================================="
 echo ""
-echo "Quick start - run all port-forwards at once:"
-echo "  ./port-forward.sh start"
+echo "Infrastructure components launched:"
+echo "  - Kind cluster"
+echo "  - etcd"
+echo "  - Observability stack (Prometheus, Tempo, Loki, Grafana)"
+echo "  - cert-manager"
+echo "  - Cluster metadata"
+echo "  - multiadmin and multiadmin-web"
 echo ""
-echo "Or set up port-forwards manually:"
+echo "Next step: Run ./launch-multigres-cluster.sh to deploy core multigres components"
+echo "  (multipooler, multiorch, multigateway)"
 echo ""
-echo "PostgreSQL access:"
-echo "  kubectl port-forward service/multigateway 15432:15432"
-echo "  psql --host=localhost --port=15432 -U postgres -d postgres"
-echo ""
-echo "Multiadmin Web UI:"
-echo "  kubectl port-forward service/multiadmin-web 18100:18100"
-echo "  Web UI:     http://localhost:18100"
-echo ""
-echo "Multiadmin API access:"
-echo "  kubectl port-forward service/multiadmin 18000:18000 18070:18070"
-echo "  REST API:   http://localhost:18000"
-echo "  gRPC API:   localhost:18070"
-echo ""
-echo "Observability access:"
-echo "  kubectl port-forward service/observability 3000:3000 9090:9090"
-echo "  Grafana:    http://localhost:3000/dashboards  (dashboards, traces, logs)"
-echo "  Prometheus: http://localhost:9090  (metrics UI)"
-echo ""
-echo "Direct pooler access (PostgreSQL):"
-echo "  kubectl port-forward pod/multipooler-zone1-0 15433:5432"
-echo "  kubectl port-forward pod/multipooler-zone1-1 15434:5432"
-echo "  kubectl port-forward pod/multipooler-zone1-2 15435:5432"
-echo "  psql --host=localhost --port=15433 -U postgres -d postgres"
-echo ""
+
+# Start infrastructure port-forwards
+echo "Starting infrastructure port-forwards..."
+./port-forward-infrastructure.sh start
