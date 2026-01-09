@@ -1065,7 +1065,16 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		"source_host", source.Hostname,
 		"source_port", port)
 
-	if err := pm.SetPrimaryConnInfo(ctx, source, false, false, consensusTerm, force); err != nil {
+	// Store primary pooler ID for tracking
+	pm.mu.Lock()
+	pm.primaryPoolerID = source.Id
+	pm.primaryHost = source.Hostname
+	pm.primaryPort = port
+	pm.mu.Unlock()
+
+	// Call the locked version directly since we already hold the action lock
+	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
+	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
 		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
 	}
 
