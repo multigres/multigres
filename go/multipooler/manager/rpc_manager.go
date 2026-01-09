@@ -1059,6 +1059,16 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
 	}
 
+	// Step 4.5: Configure replication to the source primary
+	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
+		"source", source.Id.Name,
+		"source_host", source.Hostname,
+		"source_port", port)
+
+	if err := pm.SetPrimaryConnInfo(ctx, source, false, false, consensusTerm, force); err != nil {
+		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
+	}
+
 	// Step 5: Update topology to REPLICA
 	if pm.topoClient != nil {
 		updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
