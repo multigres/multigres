@@ -643,10 +643,6 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
 		mock.MakeQueryResult(nil, nil))
 
-	// Mock: CHECKPOINT after promotion
-	mockQueryService.AddQueryPatternOnce("CHECKPOINT",
-		mock.MakeQueryResult(nil, nil))
-
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
@@ -710,10 +706,6 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: CHECKPOINT after promotion
-	mockQueryService.AddQueryPatternOnce("CHECKPOINT",
 		mock.MakeQueryResult(nil, nil))
 
 	// Mock: Get final LSN
@@ -835,10 +827,6 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
 		mock.MakeQueryResult(nil, nil))
 
-	// Mock: CHECKPOINT after promotion
-	mockQueryService.AddQueryPatternOnce("CHECKPOINT",
-		mock.MakeQueryResult(nil, nil))
-
 	// Mock: Get current LSN (called twice - once after first promote, once in second call)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/AAA1111"}}))
@@ -905,10 +893,6 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
 		mock.MakeQueryResult(nil, nil))
 
-	// Mock: CHECKPOINT after promotion
-	mockQueryService.AddQueryPatternOnce("CHECKPOINT",
-		mock.MakeQueryResult(nil, nil))
-
 	// Mock: Get final LSN
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/BBBBBBB"}}))
@@ -968,10 +952,6 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: CHECKPOINT after promotion
-	mockQueryService.AddQueryPatternOnce("CHECKPOINT",
 		mock.MakeQueryResult(nil, nil))
 
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
@@ -1042,10 +1022,6 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
 		mock.MakeQueryResult(nil, nil))
 	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
-		mock.MakeQueryResult(nil, nil))
-
-	// Mock: CHECKPOINT after promotion (executed before insertLeadershipHistory)
-	mockQueryService.AddQueryPatternOnce("CHECKPOINT",
 		mock.MakeQueryResult(nil, nil))
 
 	// Mock: insertLeadershipHistory fails with database error (e.g., sync replication timeout)

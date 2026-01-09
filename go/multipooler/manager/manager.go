@@ -1332,14 +1332,6 @@ func (pm *MultiPoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
-	// Run checkpoint after promotion completes
-	pm.logger.InfoContext(ctx, "Running checkpoint after promotion")
-	if err := pm.exec(ctx, "CHECKPOINT"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to run checkpoint after promotion", "error", err)
-		return mterrors.Wrap(err, "failed to checkpoint after promotion")
-	}
-	pm.logger.InfoContext(ctx, "Checkpoint after promotion completed successfully")
-
 	return nil
 }
 
