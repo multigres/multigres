@@ -1088,20 +1088,22 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		"pid", resp.Pid,
 		"message", resp.Message)
 
-	// Reopen connections without restarting the monitor
-	// (the monitor may have been intentionally disabled, so we don't want to restart it)
+	// Always close and reopen connections after postgres restart
+	// Even if manager is marked as "open", the old connections are stale after postgres restart
+	// We close and reopen WITHOUT restarting the monitor (which may have been intentionally disabled)
 	pm.mu.Lock()
-	if !pm.isOpen {
-		pm.logger.InfoContext(ctx, "Reopening manager connections after restart")
-		pm.ctx, pm.cancel = context.WithCancel(context.TODO())
-		if err := pm.openConnectionsLocked(); err != nil {
-			pm.mu.Unlock()
-			pm.logger.ErrorContext(ctx, "Failed to reopen connections after restart", "error", err)
-			return mterrors.Wrap(err, "failed to reopen connections")
-		}
-		pm.isOpen = true
-		pm.logger.InfoContext(ctx, "Manager connections reopened (monitor NOT restarted)")
+	pm.logger.InfoContext(ctx, "Closing stale connections after postgres restart")
+	pm.closeConnectionsLocked()
+
+	pm.logger.InfoContext(ctx, "Reopening manager connections after restart")
+	pm.ctx, pm.cancel = context.WithCancel(context.TODO())
+	if err := pm.openConnectionsLocked(); err != nil {
+		pm.mu.Unlock()
+		pm.logger.ErrorContext(ctx, "Failed to reopen connections after restart", "error", err)
+		return mterrors.Wrap(err, "failed to reopen connections")
 	}
+	pm.isOpen = true
+	pm.logger.InfoContext(ctx, "Manager connections reopened (monitor NOT restarted)")
 	pm.mu.Unlock()
 
 	// Wait for database connection to be ready after restart
