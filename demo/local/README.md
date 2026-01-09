@@ -33,8 +33,8 @@ Uses `go run` by default - no rebuild needed after code changes.
 
 ### 3. View telemetry
 
-- **Grafana Dashboard**: http://localhost:3000/d/multigres-overview
-- **Prometheus UI**: http://localhost:9090
+- **Grafana Dashboard**: <http://localhost:3000/d/multigres-overview>
+- **Prometheus UI**: <http://localhost:9090>
 
 ### What's Included
 
