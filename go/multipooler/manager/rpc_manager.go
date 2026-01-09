@@ -1061,20 +1061,23 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 
 	// Step 5: Update topology to REPLICA
 	if pm.topoClient != nil {
-		_, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+		updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
 			mp.Type = clustermetadatapb.PoolerType_REPLICA
 			return nil
 		})
 		if err != nil {
 			return nil, mterrors.Wrap(err, "failed to update topology")
 		}
-	}
 
-	// Step 6: Update term after successful demotion
-	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update term after demotion",
-			"error", err,
-			"consensus_term", consensusTerm)
+		// Update the cached multipooler so the manager knows its new type
+		pm.mu.Lock()
+		pm.multipooler.MultiPooler = updatedMultipooler
+		pm.updateCachedMultipooler()
+		pm.mu.Unlock()
+
+		// Note: heartbeat writer was already stopped when we reopened the manager
+		// in step 3 - startHeartbeat() checks isPrimary() and calls MakeNonPrimary()
+		// automatically for standbys
 	}
 
 	// Get final LSN
