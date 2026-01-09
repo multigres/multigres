@@ -1,89 +1,94 @@
+/* Set minimum width for nodes to prevent text wrapping */
+.react-flow__node {
+    min-width: 170px;
+}
+
 /* Animated dashed red border for disconnected nodes */
 @keyframes marching-ants {
-  0% {
-    background-position:
-      0 0,
-      100% 0,
-      0 100%,
-      0 0;
-  }
-  100% {
-    background-position:
-      10px 0,
-      100% 10px,
-      -10px 100%,
-      0 -10px;
-  }
+    0% {
+        background-position:
+            0 0,
+            100% 0,
+            0 100%,
+            0 0;
+    }
+    100% {
+        background-position:
+            10px 0,
+            100% 10px,
+            -10px 100%,
+            0 -10px;
+    }
 }
 
 .disconnected-node {
-  border: none !important;
+    border: none !important;
 }
 
 .disconnected-node::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  background:
-    repeating-linear-gradient(
-        90deg,
-        #ef4444 0,
-        #ef4444 5px,
-        transparent 5px,
-        transparent 10px
-      )
-      0 0,
-    repeating-linear-gradient(
-        0deg,
-        #ef4444 0,
-        #ef4444 5px,
-        transparent 5px,
-        transparent 10px
-      )
-      100% 0,
-    repeating-linear-gradient(
-        90deg,
-        #ef4444 0,
-        #ef4444 5px,
-        transparent 5px,
-        transparent 10px
-      )
-      0 100%,
-    repeating-linear-gradient(
-        0deg,
-        #ef4444 0,
-        #ef4444 5px,
-        transparent 5px,
-        transparent 10px
-      )
-      0 0;
-  background-size:
-    100% 2px,
-    2px 100%,
-    100% 2px,
-    2px 100%;
-  background-repeat: no-repeat;
-  animation: marching-ants 0.5s linear infinite;
-  border-radius: inherit;
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    background:
+        repeating-linear-gradient(
+                90deg,
+                #ef4444 0,
+                #ef4444 5px,
+                transparent 5px,
+                transparent 10px
+            )
+            0 0,
+        repeating-linear-gradient(
+                0deg,
+                #ef4444 0,
+                #ef4444 5px,
+                transparent 5px,
+                transparent 10px
+            )
+            100% 0,
+        repeating-linear-gradient(
+                90deg,
+                #ef4444 0,
+                #ef4444 5px,
+                transparent 5px,
+                transparent 10px
+            )
+            0 100%,
+        repeating-linear-gradient(
+                0deg,
+                #ef4444 0,
+                #ef4444 5px,
+                transparent 5px,
+                transparent 10px
+            )
+            0 0;
+    background-size:
+        100% 2px,
+        2px 100%,
+        100% 2px,
+        2px 100%;
+    background-repeat: no-repeat;
+    animation: marching-ants 0.5s linear infinite;
+    border-radius: inherit;
 }
 
 /* Animated flow for connected edges */
 @keyframes flow {
-  0% {
-    stroke-dashoffset: 10;
-  }
-  100% {
-    stroke-dashoffset: 0;
-  }
+    0% {
+        stroke-dashoffset: 10;
+    }
+    100% {
+        stroke-dashoffset: 0;
+    }
 }
 
 .connected-edge {
-  stroke: #22c55e !important;
-  stroke-width: 2 !important;
-  stroke-dasharray: 5, 5;
-  animation: flow 0.5s linear infinite;
+    stroke: #22c55e !important;
+    stroke-width: 2 !important;
+    stroke-dasharray: 5, 5;
+    animation: flow 0.5s linear infinite;
 }
