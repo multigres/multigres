@@ -7,7 +7,7 @@ import subprocess
 import requests
 import yaml
 from datetime import datetime, timezone
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict
 from dataclasses import dataclass
 
 # Configuration
@@ -180,7 +180,7 @@ def wait_for_new_primary(old_service_id: str, max_attempts: int = 60) -> bool:
                     log_success(f"New primary elected: {cell}/{service_id}")
                     return True
 
-        except Exception as e:
+        except Exception:
             pass  # Ignore transient errors during failover
 
         print(".", end="", flush=True, file=sys.stderr)
@@ -264,7 +264,7 @@ def wait_for_replica_health(cell: str, service_id: str, max_attempts: int = 60) 
                         except Exception:
                             continue  # Try next primary
 
-        except Exception as e:
+        except Exception:
             pass  # Ignore transient errors
 
         print(".", end="", flush=True, file=sys.stderr)
