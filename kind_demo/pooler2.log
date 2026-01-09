@@ -1,0 +1,83 @@
+{"time":"2026-01-08T16:11:11.535699284Z","level":"INFO","msg":"logging initialized","level":"info","format":"json","output":"stdout"}
+{"time":"2026-01-08T16:11:11.536445197Z","level":"INFO","msg":"Using fully qualified hostname for service URL","hostname":"multipooler-zone1-2.multipooler-zone1.default.svc.cluster.local"}
+{"time":"2026-01-08T16:11:11.539210225Z","level":"INFO","msg":"multipooler starting up","pgctld_addr":"localhost:16200","cell":"zone1","database":"postgres","table_group":"default","shard":"0-inf","socket_file_path":"/data/pg_sockets/.s.PGSQL.5432","pooler_dir":"/data","pg_port":5432,"http_port":16000,"grpc_port":16100}
+{"time":"2026-01-08T16:11:11.539229183Z","level":"INFO","msg":"Initializing MultiPoolerManager"}
+{"time":"2026-01-08T16:11:11.539236183Z","level":"INFO","msg":"Registering consensus for grpc, disable it with -grpc-consensus service_map parameter"}
+{"time":"2026-01-08T16:11:11.539326224Z","level":"INFO","msg":"Created pgctld gRPC client","addr":"localhost:16200"}
+{"time":"2026-01-08T16:11:11.539364557Z","level":"INFO","msg":"MultiPoolerManager: opening"}
+{"time":"2026-01-08T16:11:11.540256345Z","level":"INFO","msg":"connection pool manager opened","admin_user":"postgres","admin_capacity":5,"user_regular_capacity":10,"user_reserved_capacity":5,"max_users":0,"settings_cache_size":1024}
+{"time":"2026-01-08T16:11:11.54027722Z","level":"INFO","msg":"Connection pool manager opened"}
+{"time":"2026-01-08T16:11:11.540281511Z","level":"INFO","msg":"MultiPoolerManager: Starting database heartbeat"}
+{"time":"2026-01-08T16:11:11.54047626Z","level":"INFO","msg":"user pool created","user":"postgres","regular_capacity":10,"reserved_capacity":5}
+{"time":"2026-01-08T16:11:11.540648551Z","level":"INFO","msg":"created user pool","user":"postgres","total_users":1}
+{"time":"2026-01-08T16:11:11.540779384Z","level":"ERROR","msg":"Failed to start heartbeat","error":"failed to check if database is primary: failed to query pg_is_in_recovery: failed to create regular connection: failed to connect to Unix socket /data/pg_sockets/.s.PGSQL.5432: dial unix /data/pg_sockets/.s.PGSQL.5432: connect: no such file or directory"}
+{"time":"2026-01-08T16:11:11.540788967Z","level":"INFO","msg":"MultiPoolerManager opened database connection"}
+{"time":"2026-01-08T16:11:11.541389506Z","level":"INFO","msg":"Loaded consensus term from disk","current_term":0}
+{"time":"2026-01-08T16:11:11.543109206Z","level":"INFO","msg":"Setting listening URL","hostname":"multipooler-zone1-2.multipooler-zone1.default.svc.cluster.local","port":16000}
+{"time":"2026-01-08T16:11:11.543123872Z","level":"INFO","msg":"Setting grpc max message size","msgSize":16777216}
+{"time":"2026-01-08T16:11:11.543208372Z","level":"INFO","msg":"Building interceptors","unary":0,"stream":0}
+{"time":"2026-01-08T16:11:11.548152097Z","level":"INFO","msg":"Successfully registered component with topology"}
+{"time":"2026-01-08T16:11:11.54821043Z","level":"INFO","msg":"Waiting for manager to reach ready state before registering gRPC services"}
+{"time":"2026-01-08T16:11:11.642821418Z","level":"INFO","msg":"Loaded multipooler record from topology","service_id":"component:MULTIPOOLER cell:\"zone1\" name:\"multipooler-zone1-2\"","database":"postgres","backup_location":"/backups/postgres/default/0-inf","pooler_type":"REPLICA"}
+{"time":"2026-01-08T16:11:11.643187416Z","level":"INFO","msg":"Manager state changed","state":"ready","service_id":"component:MULTIPOOLER cell:\"zone1\" name:\"multipooler-zone1-2\""}
+{"time":"2026-01-08T16:11:11.643250957Z","level":"INFO","msg":"Manager is ready"}
+{"time":"2026-01-08T16:11:11.643276249Z","level":"INFO","msg":"Manager reached ready state, will register gRPC services"}
+{"time":"2026-01-08T16:11:11.643285999Z","level":"INFO","msg":"MultiPoolerManager started"}
+{"time":"2026-01-08T16:11:11.643354748Z","level":"INFO","msg":"MonitorPostgres: starting monitoring loop"}
+{"time":"2026-01-08T16:11:11.643789663Z","level":"INFO","msg":"Registering pooler for grpc, disable it with -grpc-pooler service_map parameter"}
+{"time":"2026-01-08T16:11:11.643844371Z","level":"INFO","msg":"Query service controller registered"}
+{"time":"2026-01-08T16:11:11.643876871Z","level":"INFO","msg":"Registering poolermanager for grpc, disable it with -grpc-poolermanager service_map parameter"}
+{"time":"2026-01-08T16:11:11.644465118Z","level":"INFO","msg":"Registering consensus for grpc, disable it with -grpc-consensus service_map parameter"}
+{"time":"2026-01-08T16:11:11.6447692Z","level":"INFO","msg":"MultiPoolerManager gRPC services registered"}
+{"time":"2026-01-08T16:11:11.645457405Z","level":"INFO","msg":"Listening for gRPC calls on port","grpcPort":16100}
+{"time":"2026-01-08T16:11:11.646593607Z","level":"INFO","msg":"Listening on socket file for gRPC","name":"/data/multipooler.sock"}
+{"time":"2026-01-08T16:11:11.646739398Z","level":"INFO","msg":"Listening for HTTP calls on port","httpPort":16000}
+{"time":"2026-01-08T16:11:11.646818481Z","level":"INFO","msg":"service successfully started","port":16000}
+{"time":"2026-01-08T16:11:11.754178197Z","level":"INFO","msg":"MonitorPostgres: directory not initialized but backups available, restoring from backup"}
+{"time":"2026-01-08T16:11:11.75954667Z","level":"INFO","msg":"MonitorPostgres: restoring from backup","backup_id":"20260108-161109F"}
+{"time":"2026-01-08T16:11:12.562287593Z","level":"INFO","msg":"Starting PostgreSQL after restore","backup_id":"20260108-161109F"}
+{"time":"2026-01-08T16:11:13.692440429Z","level":"INFO","msg":"PostgreSQL started successfully after restore"}
+{"time":"2026-01-08T16:11:13.692460137Z","level":"INFO","msg":"Reopening pooler manager after restore"}
+{"time":"2026-01-08T16:11:13.69248272Z","level":"INFO","msg":"reserved pool closed","user":"postgres"}
+{"time":"2026-01-08T16:11:13.692489054Z","level":"ERROR","msg":"failed to close pool","pool":"regular:postgres","error":"timed out while waiting for connections to be returned to the pool"}
+{"time":"2026-01-08T16:11:13.692500554Z","level":"INFO","msg":"user pool closed","user":"postgres"}
+{"time":"2026-01-08T16:11:13.69251247Z","level":"INFO","msg":"connection pool manager closed"}
+{"time":"2026-01-08T16:11:13.692651928Z","level":"INFO","msg":"connection pool manager opened","admin_user":"postgres","admin_capacity":5,"user_regular_capacity":10,"user_reserved_capacity":5,"max_users":0,"settings_cache_size":1024}
+{"time":"2026-01-08T16:11:13.692658428Z","level":"INFO","msg":"Connection pool manager opened"}
+{"time":"2026-01-08T16:11:13.692659178Z","level":"INFO","msg":"MultiPoolerManager: Starting database heartbeat"}
+{"time":"2026-01-08T16:11:13.692748052Z","level":"INFO","msg":"user pool created","user":"postgres","regular_capacity":10,"reserved_capacity":5}
+{"time":"2026-01-08T16:11:13.692750761Z","level":"INFO","msg":"created user pool","user":"postgres","total_users":1}
+{"time":"2026-01-08T16:11:13.694076254Z","level":"INFO","msg":"Not starting heartbeat writer - connected to standby database"}
+{"time":"2026-01-08T16:11:13.694105587Z","level":"INFO","msg":"Heartbeat Reader: opening"}
+{"time":"2026-01-08T16:11:13.694117046Z","level":"INFO","msg":"Pooler manager reopened successfully after restore"}
+{"time":"2026-01-08T16:11:13.69431992Z","level":"INFO","msg":"Loading consensus term that was restored from backup"}
+{"time":"2026-01-08T16:11:13.694422169Z","level":"INFO","msg":"Loaded consensus term from disk","current_term":1}
+{"time":"2026-01-08T16:11:13.694443044Z","level":"INFO","msg":"Manager state changed","state":"ready","service_id":"component:MULTIPOOLER cell:\"zone1\" name:\"multipooler-zone1-2\""}
+{"time":"2026-01-08T16:11:13.694468877Z","level":"INFO","msg":"MonitorPostgres: successfully restored from backup","backup_id":"20260108-161109F","shard":"0-inf","term":1}
+{"time":"2026-01-08T16:11:14.719609027Z","level":"INFO","msg":"Pausing WAL replay on standby","trace_id":"2b4717dba26a9b65392422d3bb71e064","span_id":"0c2646076d139be7"}
+{"time":"2026-01-08T16:11:14.719827151Z","level":"INFO","msg":"Setting primary_conninfo","conninfo":"host=multipooler-zone1-0.multipooler-zone1.default.svc.cluster.local port=5432 user=postgres application_name=zone1_multipooler-zone1-2","trace_id":"2b4717dba26a9b65392422d3bb71e064","span_id":"0c2646076d139be7"}
+{"time":"2026-01-08T16:11:14.72270772Z","level":"INFO","msg":"Reloading PostgreSQL configuration","trace_id":"2b4717dba26a9b65392422d3bb71e064","span_id":"0c2646076d139be7"}
+{"time":"2026-01-08T16:11:14.723012343Z","level":"INFO","msg":"Starting replication after setting primary_conninfo","trace_id":"2b4717dba26a9b65392422d3bb71e064","span_id":"0c2646076d139be7"}
+{"time":"2026-01-08T16:11:14.72303226Z","level":"INFO","msg":"Resuming WAL replay","trace_id":"2b4717dba26a9b65392422d3bb71e064","span_id":"0c2646076d139be7"}
+{"time":"2026-01-08T16:11:14.723095176Z","level":"INFO","msg":"SetPrimaryConnInfo completed successfully","host":"multipooler-zone1-0.multipooler-zone1.default.svc.cluster.local","port":5432,"stop_replication_before":true,"start_replication_after":true,"trace_id":"2b4717dba26a9b65392422d3bb71e064","span_id":"0c2646076d139be7"}
+{"time":"2026-01-08T16:11:17.660242355Z","level":"INFO","msg":"MonitorPostgres: PostgreSQL is running"}
+{"time":"2026-01-08T16:40:29.594958279Z","level":"INFO","msg":"Standby has no WAL receiver, proceeding with term acceptance","term":2,"trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"ebf14d678cac9ce3"}
+{"time":"2026-01-08T16:40:29.595781533Z","level":"INFO","msg":"Standby accepting new term, resetting primary_conninfo","term":2,"current_term":1,"trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"ebf14d678cac9ce3"}
+{"time":"2026-01-08T16:40:29.595820449Z","level":"INFO","msg":"Stopping WAL receiver","trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"ebf14d678cac9ce3"}
+{"time":"2026-01-08T16:40:29.595835366Z","level":"INFO","msg":"Clearing primary_conninfo","trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"ebf14d678cac9ce3"}
+{"time":"2026-01-08T16:40:29.599011048Z","level":"INFO","msg":"Reloading PostgreSQL configuration","trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"ebf14d678cac9ce3"}
+{"time":"2026-01-08T16:40:29.710727694Z","level":"INFO","msg":"Setting primary_conninfo","conninfo":"host=multipooler-zone1-1.multipooler-zone1.default.svc.cluster.local port=5432 user=postgres application_name=zone1_multipooler-zone1-2","trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"e97efaf649d1d15c"}
+{"time":"2026-01-08T16:40:29.713650541Z","level":"INFO","msg":"Reloading PostgreSQL configuration","trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"e97efaf649d1d15c"}
+{"time":"2026-01-08T16:40:29.715561133Z","level":"INFO","msg":"Starting replication after setting primary_conninfo","trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"e97efaf649d1d15c"}
+{"time":"2026-01-08T16:40:29.715578633Z","level":"INFO","msg":"Resuming WAL replay","trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"e97efaf649d1d15c"}
+{"time":"2026-01-08T16:40:29.715954843Z","level":"INFO","msg":"SetPrimaryConnInfo completed successfully","host":"multipooler-zone1-1.multipooler-zone1.default.svc.cluster.local","port":5432,"stop_replication_before":false,"start_replication_after":true,"trace_id":"62ee3975f96f43f07f10f8191cd74110","span_id":"e97efaf649d1d15c"}
+{"time":"2026-01-08T16:41:42.595261457Z","level":"INFO","msg":"Standby has no WAL receiver, proceeding with term acceptance","term":3,"trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"dfc4357c5cdb38ea"}
+{"time":"2026-01-08T16:41:42.595306707Z","level":"INFO","msg":"Standby accepting new term, resetting primary_conninfo","term":3,"current_term":2,"trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"dfc4357c5cdb38ea"}
+{"time":"2026-01-08T16:41:42.59531304Z","level":"INFO","msg":"Stopping WAL receiver","trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"dfc4357c5cdb38ea"}
+{"time":"2026-01-08T16:41:42.595317123Z","level":"INFO","msg":"Clearing primary_conninfo","trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"dfc4357c5cdb38ea"}
+{"time":"2026-01-08T16:41:42.599077778Z","level":"INFO","msg":"Reloading PostgreSQL configuration","trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"dfc4357c5cdb38ea"}
+{"time":"2026-01-08T16:41:42.706294615Z","level":"INFO","msg":"Setting primary_conninfo","conninfo":"host=multipooler-zone1-0.multipooler-zone1.default.svc.cluster.local port=5432 user=postgres application_name=zone1_multipooler-zone1-2","trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"5dea7747e0cc54aa"}
+{"time":"2026-01-08T16:41:42.708996523Z","level":"INFO","msg":"Reloading PostgreSQL configuration","trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"5dea7747e0cc54aa"}
+{"time":"2026-01-08T16:41:42.709180773Z","level":"INFO","msg":"Starting replication after setting primary_conninfo","trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"5dea7747e0cc54aa"}
+{"time":"2026-01-08T16:41:42.709195023Z","level":"INFO","msg":"Resuming WAL replay","trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"5dea7747e0cc54aa"}
+{"time":"2026-01-08T16:41:42.709279564Z","level":"INFO","msg":"SetPrimaryConnInfo completed successfully","host":"multipooler-zone1-0.multipooler-zone1.default.svc.cluster.local","port":5432,"stop_replication_before":false,"start_replication_after":true,"trace_id":"63f620aa06f2d4124ba68c64626181ac","span_id":"5dea7747e0cc54aa"}

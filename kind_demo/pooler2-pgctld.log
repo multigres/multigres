@@ -1,0 +1,27 @@
+{"time":"2026-01-08T16:11:11.635048123Z","level":"INFO","msg":"logging initialized","level":"info","format":"json","output":"stdout"}
+{"time":"2026-01-08T16:11:11.635517912Z","level":"INFO","msg":"replaced default pg_hba.conf template","path":"/etc/pgctld/pg_hba_template.conf"}
+{"time":"2026-01-08T16:11:11.635996577Z","level":"INFO","msg":"Using fully qualified hostname for service URL","hostname":"multipooler-zone1-2.multipooler-zone1.default.svc.cluster.local"}
+{"time":"2026-01-08T16:11:11.636035952Z","level":"INFO","msg":"Setting listening URL","hostname":"multipooler-zone1-2.multipooler-zone1.default.svc.cluster.local","port":0}
+{"time":"2026-01-08T16:11:11.636040868Z","level":"INFO","msg":"Setting grpc max message size","msgSize":16777216}
+{"time":"2026-01-08T16:11:11.636094785Z","level":"INFO","msg":"Building interceptors","unary":0,"stream":0}
+{"time":"2026-01-08T16:11:11.636123409Z","level":"INFO","msg":"pgctld server starting up","grpc_port":16200}
+{"time":"2026-01-08T16:11:11.636131368Z","level":"INFO","msg":"Registering pgctld for grpc, disable it with -grpc-pgctld service_map parameter"}
+{"time":"2026-01-08T16:11:11.636144326Z","level":"INFO","msg":"Listening for gRPC calls on port","grpcPort":16200}
+{"time":"2026-01-08T16:11:11.63733007Z","level":"INFO","msg":"Listening on socket file for gRPC","name":"/data/pgctld.sock"}
+{"time":"2026-01-08T16:11:11.637386486Z","level":"INFO","msg":"HTTP port was dynamically allocated","requested_port":0,"actual_port":37297}
+{"time":"2026-01-08T16:11:11.637440028Z","level":"INFO","msg":"Setting listening URL","hostname":"multipooler-zone1-2.multipooler-zone1.default.svc.cluster.local","port":37297}
+{"time":"2026-01-08T16:11:11.637494611Z","level":"INFO","msg":"Listening for HTTP calls on port","httpPort":0}
+{"time":"2026-01-08T16:11:11.637547986Z","level":"INFO","msg":"service successfully started","port":0}
+{"time":"2026-01-08T16:11:12.562851174Z","level":"INFO","msg":"gRPC Restart request","mode":"","port":0,"as_standby":true,"trace_id":"0e2fd62c12fe2deb479955f0a4938063","span_id":"3bfe22941f710f6e"}
+{"time":"2026-01-08T16:11:12.56289609Z","level":"INFO","msg":"Restarting PostgreSQL server as standby","data_dir":"/data/pg_data","mode":""}
+{"time":"2026-01-08T16:11:12.562989381Z","level":"INFO","msg":"PostgreSQL is not running, proceeding with start"}
+{"time":"2026-01-08T16:11:12.563008756Z","level":"INFO","msg":"Creating standby.signal file","path":"/data/pg_data/standby.signal"}
+{"time":"2026-01-08T16:11:12.563152381Z","level":"INFO","msg":"standby.signal created successfully","path":"/data/pg_data/standby.signal"}
+{"time":"2026-01-08T16:11:12.563162547Z","level":"INFO","msg":"Starting PostgreSQL server as standby","data_dir":"/data/pg_data","port":5432,"timeout":30}
+{"time":"2026-01-08T16:11:12.56329438Z","level":"INFO","msg":"Ensured Unix socket directory exists","socket_dir":"/data/pg_sockets"}
+{"time":"2026-01-08T16:11:12.563305838Z","level":"INFO","msg":"Starting PostgreSQL server","data_dir":"/data/pg_data"}
+{"time":"2026-01-08T16:11:12.563323338Z","level":"INFO","msg":"Starting PostgreSQL with configuration","port":5432,"dataDir":"/data/pg_data","configFile":"/data/pg_data/postgresql.conf"}
+server starting
+{"time":"2026-01-08T16:11:12.644737683Z","level":"INFO","msg":"Waiting for PostgreSQL to be ready"}
+{"time":"2026-01-08T16:11:13.692058431Z","level":"INFO","msg":"PostgreSQL server started successfully"}
+{"time":"2026-01-08T16:11:13.692103972Z","level":"INFO","msg":"PostgreSQL server restarted as standby successfully","pid":23}
