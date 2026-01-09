@@ -287,6 +287,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
 	multipooler.PortMap["pgbackrest"] = int32(mp.pgBackRestPort.Get())
 	multipooler.Database = mp.database.Get()
+	multipooler.TableGroup = mp.tableGroup.Get()
 	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	multipooler.PoolerDir = mp.poolerDir.Get()
@@ -294,15 +295,9 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 
 	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
-	poolerManager, err := manager.NewMultiPoolerManager(logger, &manager.Config{
+	poolerManager, err := manager.NewMultiPoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:      mp.socketFilePath.Get(),
-		PoolerDir:           mp.poolerDir.Get(),
-		PgPort:              mp.pgPort.Get(),
-		Database:            mp.database.Get(),
-		TableGroup:          mp.tableGroup.Get(),
-		Shard:               mp.shard.Get(),
 		TopoClient:          mp.ts,
-		ServiceID:           multipooler.Id,
 		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
 		PgctldAddr:          mp.pgctldAddr.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
@@ -315,7 +310,6 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
 	}
-	poolerManager.MultiPooler = multipooler
 
 	// Start the MultiPoolerManager
 	poolerManager.Start(mp.senv)

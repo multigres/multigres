@@ -83,17 +83,13 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	tmpDir := t.TempDir()
+	multipooler.PoolerDir = tmpDir
 	config := &Config{
 		TopoClient: ts,
-		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
 	}
-	pm, err := NewMultiPoolerManager(logger, config)
+	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	pm.MultiPooler = multipooler
 	t.Cleanup(func() { pm.Close() })
 
 	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions

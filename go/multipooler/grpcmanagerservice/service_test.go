@@ -85,13 +85,10 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 
 	config := &manager.Config{
 		TopoClient:     ts,
-		ServiceID:      serviceID,
 		PgctldAddr:     pgctldAddr,
-		TableGroup:     constants.DefaultTableGroup,
-		Shard:          constants.DefaultShard,
 		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer pm.Close()
 
@@ -156,14 +153,20 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		Name:      "test-service",
 	}
 
+	multipooler := &clustermetadata.MultiPooler{
+		Id:         serviceID,
+		Database:   "testdb",
+		Hostname:   "localhost",
+		PortMap:    map[string]int32{"grpc": 8080},
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
 	config := &manager.Config{
 		TopoClient:     ts,
-		ServiceID:      serviceID,
-		TableGroup:     constants.DefaultTableGroup,
-		Shard:          constants.DefaultShard,
 		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer pm.Close()
 

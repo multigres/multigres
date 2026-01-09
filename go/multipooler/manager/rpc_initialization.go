@@ -219,7 +219,7 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 		// This marker is created after full initialization completes (schema created, backup done).
 		// It's more reliable than checking for PG_VERSION/global because those exist after initdb
 		// but before the full initialization process completes.
-		dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+		dataDir := filepath.Join(pm.multipooler.PoolerDir, "pg_data")
 		markerFile := filepath.Join(dataDir, multigresInitMarker)
 		_, err := os.Stat(markerFile)
 		initialized = err == nil
@@ -254,20 +254,21 @@ func (pm *MultiPoolerManager) setInitialized() error {
 // initialized, because replica initialization is not done until the restore
 // from backup completes. There is no other persistent way to determine this.
 func (pm *MultiPoolerManager) writeInitializationMarker() error {
-	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+	dataDir := filepath.Join(pm.multipooler.PoolerDir, "pg_data")
 	markerFile := filepath.Join(dataDir, multigresInitMarker)
 	return os.WriteFile(markerFile, []byte("initialized\n"), 0o644)
 }
 
 // hasDataDirectory checks if the PostgreSQL data directory exists
 func (pm *MultiPoolerManager) hasDataDirectory() bool {
-	if pm.config == nil || pm.config.PoolerDir == "" {
+	poolerDir := pm.multipooler.PoolerDir
+	if poolerDir == "" {
 		return false
 	}
 
 	// Check if PG_VERSION file exists to confirm the data directory is properly initialized.
 	// This prevents treating an empty directory (e.g., left behind by a failed initdb) as initialized.
-	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+	dataDir := filepath.Join(poolerDir, "pg_data")
 	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
 	_, err := os.Stat(pgVersionFile)
 	return err == nil
@@ -317,28 +318,29 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 }
 
 // getShardID returns the shard ID for this pooler.
-// Prefers the topology value (pm.MultiPooler.Shard) but falls back to config
+// Prefers the topology value (pm.multipooler.Shard) but falls back to config
 // if topology hasn't loaded yet. These should always be identical since
 // the topology value is set from config at registration (init.go).
 func (pm *MultiPoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.MultiPooler.Shard != "" {
-		return pm.MultiPooler.Shard
+	if pm.multipooler.Shard != "" {
+		return pm.multipooler.Shard
 	}
 
-	// Fall back to config - always available and authoritative
-	return pm.config.Shard
+	// Fall back to MultiPooler - always available and authoritative
+	return pm.multipooler.Shard
 }
 
 // removeDataDirectory removes the PostgreSQL data directory
 func (pm *MultiPoolerManager) removeDataDirectory() error {
-	if pm.config == nil || pm.config.PoolerDir == "" {
+	poolerDir := pm.multipooler.PoolerDir
+	if poolerDir == "" {
 		return errors.New("pooler directory path not configured")
 	}
 
-	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
+	dataDir := filepath.Join(poolerDir, "pg_data")
 
 	// Safety check: ensure we're not deleting root or home directory
 	absDataDir, err := filepath.Abs(dataDir)
@@ -417,7 +419,7 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 // removeArchiveConfigFromAutoConf removes archive configuration lines from postgresql.auto.conf
 // This is used after restore to remove the primary's archive config before applying the standby's config
 func (pm *MultiPoolerManager) removeArchiveConfigFromAutoConf() error {
-	autoConfPath := filepath.Join(pm.config.PoolerDir, "pg_data", "postgresql.auto.conf")
+	autoConfPath := filepath.Join(pm.multipooler.PoolerDir, "pg_data", "postgresql.auto.conf")
 
 	content, err := os.ReadFile(autoConfPath)
 	if err != nil {
@@ -456,7 +458,7 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 			fmt.Sprintf("pgbackrest config file not found at %s - cannot configure archive mode", configPath))
 	}
 
-	autoConfPath := filepath.Join(pm.config.PoolerDir, "pg_data", "postgresql.auto.conf")
+	autoConfPath := filepath.Join(pm.multipooler.PoolerDir, "pg_data", "postgresql.auto.conf")
 
 	// Check if archive_mode is already configured to avoid duplicates
 	if _, err := os.Stat(autoConfPath); err == nil {

@@ -91,8 +91,10 @@ type MultiPoolerManager struct {
 	//   to match the manager's state.
 	mu sync.Mutex
 
-	isOpen          bool
-	MultiPooler     *clustermetadatapb.MultiPooler
+	isOpen bool
+	// all fields other than Type and ServingStatus never change after initialization.
+	// They can be accessed without holding the lock.
+	multipooler     *clustermetadatapb.MultiPooler
 	state           ManagerState
 	stateError      error
 	consensusState  *ConsensusState
@@ -154,22 +156,28 @@ type demotionState struct {
 }
 
 // NewMultiPoolerManager creates a new MultiPoolerManager instance
-func NewMultiPoolerManager(logger *slog.Logger, config *Config) (*MultiPoolerManager, error) {
-	return NewMultiPoolerManagerWithTimeout(logger, config, 5*time.Minute)
+func NewMultiPoolerManager(logger *slog.Logger, multiPooler *clustermetadatapb.MultiPooler, config *Config) (*MultiPoolerManager, error) {
+	return NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 5*time.Minute)
 }
 
 // NewMultiPoolerManagerWithTimeout creates a new MultiPoolerManager instance with a custom load timeout
-func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
-	// Validate required config fields
-	if config.TableGroup == "" {
+func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clustermetadatapb.MultiPooler, config *Config, loadTimeout time.Duration) (*MultiPoolerManager, error) {
+	// Validate required multiPooler fields
+	if multiPooler == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "multiPooler is required")
+	}
+	if multiPooler.TableGroup == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
 	}
-	if config.Shard == "" {
+	if multiPooler.Shard == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
+	}
+	if multiPooler.Id == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
-	if err := constants.ValidateMVPTableGroupAndShard(config.TableGroup, config.Shard); err != nil {
+	if err := constants.ValidateMVPTableGroupAndShard(multiPooler.TableGroup, multiPooler.Shard); err != nil {
 		return nil, mterrors.Wrap(err, "MVP validation failed")
 	}
 
@@ -201,7 +209,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		logger:                 logger,
 		config:                 config,
 		topoClient:             config.TopoClient,
-		serviceID:              config.ServiceID,
+		serviceID:              multiPooler.Id,
+		multipooler:            multiPooler,
 		actionLock:             NewActionLock(),
 		state:                  ManagerStateStarting,
 		loadTimeout:            loadTimeout,
@@ -353,10 +362,11 @@ func (pm *MultiPoolerManager) openConnectionsLocked() error {
 
 	// Open connection pool manager
 	if pm.connPoolMgr != nil {
+		pgPort := int(pm.multipooler.PortMap["postgres"])
 		connConfig := &connpoolmanager.ConnectionConfig{
 			SocketFile: pm.config.SocketFilePath,
-			Port:       pm.config.PgPort,
-			Database:   pm.config.Database,
+			Port:       pgPort,
+			Database:   pm.multipooler.Database,
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
@@ -420,18 +430,11 @@ func (pm *MultiPoolerManager) GetState() ManagerState {
 	return pm.state
 }
 
-// GetStateError returns the error that caused the manager to enter error state
-func (pm *MultiPoolerManager) GetStateError() error {
+// GetStateAndError returns the current manager state and error (used for testing)
+func (pm *MultiPoolerManager) GetStateAndError() (ManagerState, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	return pm.stateError
-}
-
-// GetMultiPooler returns the current multipooler record and state
-func (pm *MultiPoolerManager) GetMultiPooler() (*clustermetadatapb.MultiPooler, ManagerState, error) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.MultiPooler, pm.state, pm.stateError
+	return pm.state, pm.stateError
 }
 
 // stanzaName returns the pgbackrest stanza name
@@ -444,31 +447,11 @@ func (pm *MultiPoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// getTableGroup returns the table group from the config (static, set at startup)
-func (pm *MultiPoolerManager) getTableGroup() string {
-	return pm.config.TableGroup
-}
-
-// getShard returns the shard from the config (static, set at startup)
-func (pm *MultiPoolerManager) getShard() string {
-	return pm.config.Shard
-}
-
 // getPoolerType returns the pooler type from the multipooler record
 func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	return pm.MultiPooler.Type
-}
-
-// getMultipoolerIDString returns the multipooler ID as a string
-func (pm *MultiPoolerManager) getMultipoolerIDString() (string, error) {
-	return topoclient.MultiPoolerIDString(pm.MultiPooler.Id), nil
-}
-
-// getMultipoolerName returns just the name part of the multipooler ID (e.g., "4zrhr2mw").
-func (pm *MultiPoolerManager) getMultipoolerName() (string, error) {
-	return pm.MultiPooler.Id.Name, nil
+	return pm.multipooler.Type
 }
 
 // backupLocationPath returns the full backup location path for a given database, table group,
@@ -509,7 +492,7 @@ func (pm *MultiPoolerManager) checkReady() error {
 // checkPoolerType verifies that the pooler matches the expected type
 func (pm *MultiPoolerManager) checkPoolerType(expectedType clustermetadatapb.PoolerType, operationName string) error {
 	pm.mu.Lock()
-	poolerType := pm.MultiPooler.Type
+	poolerType := pm.multipooler.Type
 	pm.mu.Unlock()
 
 	if poolerType != expectedType {
@@ -657,7 +640,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		}
 		// Successfully loaded multipooler record
 		// Now load the backup location from the database topology
-		database := pm.MultiPooler.Database
+		database := pm.multipooler.Database
 		if database == "" {
 			pm.setStateError(errors.New("database name not set in multipooler"))
 			return
@@ -672,7 +655,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		}
 
 		// Compute full backup location: base path + database/tablegroup/shard
-		shardBackupLocation, err := pm.backupLocationPath(db.BackupLocation, database, pm.config.TableGroup, pm.config.Shard)
+		shardBackupLocation, err := pm.backupLocationPath(db.BackupLocation, database, pm.multipooler.TableGroup, pm.multipooler.Shard)
 		if err != nil {
 			pm.setStateError(fmt.Errorf("invalid backup location path: %w", err))
 			return
@@ -872,7 +855,7 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		// Initialize consensus state if not already done
 		pm.mu.Lock()
 		if pm.consensusState == nil {
-			pm.consensusState = NewConsensusState(pm.config.PoolerDir, pm.serviceID)
+			pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 		}
 		cs := pm.consensusState
 		pm.mu.Unlock()
@@ -901,8 +884,8 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 
 	// Check topology state
 	pm.mu.Lock()
-	poolerType := pm.MultiPooler.Type
-	servingStatus := pm.MultiPooler.ServingStatus
+	poolerType := pm.multipooler.Type
+	servingStatus := pm.multipooler.ServingStatus
 	pm.mu.Unlock()
 
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
@@ -953,9 +936,9 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 
 	// Update local state first
 	pm.mu.Lock()
-	pm.MultiPooler.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
+	pm.multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
 	pm.queryServingState = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
-	multiPoolerToSync := proto.Clone(pm.MultiPooler).(*clustermetadatapb.MultiPooler)
+	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
 	// Sync to topology
@@ -1059,8 +1042,8 @@ func (pm *MultiPoolerManager) updateTopologyAfterDemotion(ctx context.Context, s
 
 	// Update local state first
 	pm.mu.Lock()
-	pm.MultiPooler.Type = clustermetadatapb.PoolerType_REPLICA
-	multiPoolerToSync := proto.Clone(pm.MultiPooler).(*clustermetadatapb.MultiPooler)
+	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
 	// Sync to topology
@@ -1232,7 +1215,7 @@ func (pm *MultiPoolerManager) checkPromotionState(ctx context.Context, syncRepli
 
 	// Check topology state
 	pm.mu.Lock()
-	poolerType := pm.MultiPooler.Type
+	poolerType := pm.multipooler.Type
 	pm.mu.Unlock()
 
 	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
@@ -1340,8 +1323,8 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 
 	// Update local state first
 	pm.mu.Lock()
-	pm.MultiPooler.Type = clustermetadatapb.PoolerType_PRIMARY
-	multiPoolerToSync := proto.Clone(pm.MultiPooler).(*clustermetadatapb.MultiPooler)
+	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
+	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
 	// Sync to topology

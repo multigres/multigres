@@ -154,7 +154,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	// Format: host=<host> port=<port> user=<user> application_name=<name>
 	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
 	pm.mu.Lock()
-	database := pm.MultiPooler.Database
+	database := pm.multipooler.Database
 	pm.mu.Unlock()
 
 	// Generate application name using the shared helper
@@ -652,8 +652,8 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 
 	// Update local state first
 	pm.mu.Lock()
-	pm.MultiPooler.Type = poolerType
-	multiPoolerToSync := proto.Clone(pm.MultiPooler).(*clustermetadatapb.MultiPooler)
+	pm.multipooler.Type = poolerType
+	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
 	// Sync to topology
