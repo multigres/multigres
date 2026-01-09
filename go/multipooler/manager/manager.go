@@ -1094,6 +1094,12 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.Wrap(err, "failed to reopen query service controller")
 	}
 
+	// Wait for database connection to be ready after restart
+	if err := pm.waitForDatabaseConnection(ctx); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to connect to database after restart", "error", err)
+		return mterrors.Wrap(err, "failed to connect to database after restart")
+	}
+
 	// Verify server is in recovery mode (standby)
 	inRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
