@@ -1519,14 +1519,14 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
-	pm.logger.InfoContext(ctx, "Stopping postgres")
+	pm.logger.InfoContext(ctx, "Stopping postgres if running")
 
 	// Close manager to release connections
 	if err := pm.Close(); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to close manager", "error", err)
 	}
 
-	// Stop postgres
+	// Stop postgres (no-op if already stopped)
 	stopReq := &pgctldpb.StopRequest{Mode: "fast"}
 	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
 		return mterrors.Wrap(err, "failed to stop postgres")
