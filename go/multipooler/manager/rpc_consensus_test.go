@@ -93,6 +93,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (
 	}
 	pm, err := NewMultiPoolerManager(logger, config)
 	require.NoError(t, err)
+	pm.MultiPooler = multipooler
 	t.Cleanup(func() { pm.Close() })
 
 	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions

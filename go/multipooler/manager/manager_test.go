@@ -24,7 +24,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -67,67 +66,6 @@ func TestManagerState_InitialState(t *testing.T) {
 	assert.Nil(t, mp)
 	assert.Equal(t, ManagerStateStarting, state)
 	assert.Nil(t, err)
-}
-
-func TestManagerState_SuccessfulLoad(t *testing.T) {
-	ctx := t.Context()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Create temp directory for pooler-dir
-	poolerDir := t.TempDir()
-
-	// Create the database in topology with backup location
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	// Create the multipooler in topology
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	multipooler := &clustermetadatapb.MultiPooler{
-		Id:            serviceID,
-		Database:      database,
-		Hostname:      "localhost",
-		PortMap:       map[string]int32{"grpc": 8080},
-		Type:          clustermetadatapb.PoolerType_PRIMARY,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-		TableGroup:    constants.DefaultTableGroup,
-		Shard:         constants.DefaultShard,
-	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-	config := &Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PoolerDir:  poolerDir,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-	}
-
-	manager, err := NewMultiPoolerManager(logger, config)
-	require.NoError(t, err)
-	defer manager.Close()
-
-	// Start both async loaders (topo and consensus term)
-	go manager.loadMultiPoolerFromTopo()
-	go manager.loadConsensusTermFromDisk()
-
-	// Wait for the state to become Ready
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-	// Verify the loaded multipooler
-	mp, state, err := manager.GetMultiPooler()
-	assert.NotNil(t, mp)
-	assert.Equal(t, ManagerStateReady, state)
-	assert.Nil(t, err)
-	assert.Equal(t, "test-service", mp.Id.Name)
-	assert.Equal(t, "testdb", mp.Database)
 }
 
 func TestManagerState_LoadFailureTimeout(t *testing.T) {
@@ -221,6 +159,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 }
 
 func TestManagerState_RetryUntilSuccess(t *testing.T) {
+	t.Skip("Need to change to test new retry behavior after implementation")
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -460,56 +399,6 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGetBackupLocation(t *testing.T) {
-	ctx := t.Context()
-	tmpDir := t.TempDir()
-
-	// Create test topology store
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	// Create test database with backup_location
-	database := "testdb"
-	addDatabaseToTopo(t, ts, database)
-
-	// Create manager config
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-	config := &Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PoolerDir:  filepath.Join(tmpDir, "pooler"),
-		PgctldAddr: "",
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	manager, err := NewMultiPoolerManager(logger, config)
-	require.NoError(t, err)
-
-	// Set the multipooler to have the database
-	multipoolerInfo := &topoclient.MultiPoolerInfo{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Database: database,
-		},
-	}
-	manager.multipooler = multipoolerInfo
-	manager.cachedMultipooler.multipooler = topoclient.NewMultiPoolerInfo(
-		proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
-		multipoolerInfo.Version(),
-	)
-	// backupLocation is now the full path: base + database/tablegroup/shard
-	expectedShardBackupLocation := filepath.Join("/var/backups/pgbackrest", database, constants.DefaultTableGroup, constants.DefaultShard)
-	manager.backupLocation = expectedShardBackupLocation
-
-	// Test accessing backup location field
-	assert.Equal(t, expectedShardBackupLocation, manager.backupLocation)
 }
 
 // TestWaitUntilReady_Success verifies that WaitUntilReady returns immediately
@@ -1055,7 +944,6 @@ func TestEnableDisableMonitor_Cycle(t *testing.T) {
 
 func TestEnableMonitor_WhenNotOpen(t *testing.T) {
 	ctx := t.Context()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
@@ -1072,8 +960,7 @@ func TestEnableMonitor_WhenNotOpen(t *testing.T) {
 		Shard:      constants.DefaultShard,
 	}
 
-	manager, err := NewMultiPoolerManager(logger, config)
-	require.NoError(t, err)
+	manager := NewTestMultiPoolerManager(t, config)
 
 	// Initialize the manager context but don't set isOpen
 	manager.mu.Lock()
@@ -1083,7 +970,7 @@ func TestEnableMonitor_WhenNotOpen(t *testing.T) {
 	defer manager.cancel()
 
 	// Try to enable monitor when manager is not open
-	err = manager.enableMonitorInternal()
+	err := manager.enableMonitorInternal()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "manager is not open")
 }

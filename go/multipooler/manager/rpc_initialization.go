@@ -317,15 +317,15 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 }
 
 // getShardID returns the shard ID for this pooler.
-// Prefers the topology value (pm.multipooler.Shard) but falls back to config
+// Prefers the topology value (pm.MultiPooler.Shard) but falls back to config
 // if topology hasn't loaded yet. These should always be identical since
 // the topology value is set from config at registration (init.go).
 func (pm *MultiPoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.multipooler != nil && pm.multipooler.Shard != "" {
-		return pm.multipooler.Shard
+	if pm.MultiPooler.Shard != "" {
+		return pm.MultiPooler.Shard
 	}
 
 	// Fall back to config - always available and authoritative

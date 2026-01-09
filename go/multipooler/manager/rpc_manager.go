@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -153,7 +154,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	// Format: host=<host> port=<port> user=<user> application_name=<name>
 	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle
 	pm.mu.Lock()
-	database := pm.multipooler.Database
+	database := pm.MultiPooler.Database
 	pm.mu.Unlock()
 
 	// Generate application name using the shared helper
@@ -649,20 +650,17 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 
 	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
 
-	// Update the multipooler record in topology
-	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
-		mp.Type = poolerType
-		return nil
-	})
-	if err != nil {
+	// Update local state first
+	pm.mu.Lock()
+	pm.MultiPooler.Type = poolerType
+	multiPoolerToSync := proto.Clone(pm.MultiPooler).(*clustermetadatapb.MultiPooler)
+	pm.mu.Unlock()
+
+	// Sync to topology
+	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
 		return mterrors.Wrap(err, "failed to update pooler type in topology")
 	}
-
-	pm.mu.Lock()
-	pm.multipooler.MultiPooler = updatedMultipooler
-	pm.updateCachedMultipooler()
-	pm.mu.Unlock()
 
 	// Update heartbeat tracker based on new type
 	if pm.replTracker != nil {
@@ -1046,20 +1044,8 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 
 	// Update topology to REPLICA
-	if pm.topoClient != nil {
-		updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
-			mp.Type = clustermetadatapb.PoolerType_REPLICA
-			return nil
-		})
-		if err != nil {
-			return nil, mterrors.Wrap(err, "failed to update topology")
-		}
-
-		// Update the cached multipooler so the manager knows its new type
-		pm.mu.Lock()
-		pm.multipooler.MultiPooler = updatedMultipooler
-		pm.updateCachedMultipooler()
-		pm.mu.Unlock()
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
 	// Get final LSN

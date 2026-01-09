@@ -35,6 +35,26 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
+// NewTestMultiPoolerManager creates a MultiPoolerManager for testing with MultiPooler field populated
+func NewTestMultiPoolerManager(t *testing.T, config *Config) *MultiPoolerManager {
+	t.Helper()
+	logger := slog.Default()
+	pm, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize MultiPooler field
+	pm.MultiPooler = topoclient.NewMultiPooler(
+		config.ServiceID.Name,
+		config.ServiceID.Cell,
+		"", // hostname
+		config.TableGroup,
+	)
+	pm.MultiPooler.Shard = config.Shard
+	pm.MultiPooler.Database = config.Database
+
+	return pm
+}
+
 func TestInitializeEmptyPrimary(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -101,9 +121,7 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 				// Note: pgctldClient is nil - operations that need it will fail gracefully
 			}
 
-			logger := slog.Default()
-			pm, err := NewMultiPoolerManager(logger, config)
-			require.NoError(t, err)
+			pm := NewTestMultiPoolerManager(t, config)
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
@@ -183,7 +201,7 @@ func TestHelperMethods(t *testing.T) {
 		}
 
 		pm := &MultiPoolerManager{
-			multipooler: &topoclient.MultiPoolerInfo{MultiPooler: multipooler},
+			MultiPooler: multipooler,
 		}
 
 		assert.Equal(t, "shard-123", pm.getShardID())

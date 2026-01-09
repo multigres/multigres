@@ -27,7 +27,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -62,14 +61,12 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		Name:      "test-multipooler",
 	}
 
-	multipoolerInfo := &topoclient.MultiPoolerInfo{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         multipoolerID,
-			Type:       poolerType,
-			TableGroup: tableGroup,
-			Shard:      shard,
-			Database:   database,
-		},
+	multipoolerProto := &clustermetadatapb.MultiPooler{
+		Id:         multipoolerID,
+		Type:       poolerType,
+		TableGroup: tableGroup,
+		Shard:      shard,
+		Database:   database,
 	}
 
 	// Create a topology store with backup location (base path) if provided
@@ -104,18 +101,12 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		},
 		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
 		topoClient:     topoClient,
-		multipooler:    multipoolerInfo,
+		MultiPooler:    multipoolerProto,
 		state:          ManagerStateReady,
 		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
 		logger:         slog.Default(),
 		pgMonitor:      monitorRunner,
-		cachedMultipooler: cachedMultiPoolerInfo{
-			multipooler: topoclient.NewMultiPoolerInfo(
-				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
-				multipoolerInfo.Version(),
-			),
-		},
 	}
 	return pm
 }
