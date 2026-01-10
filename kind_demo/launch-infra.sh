@@ -113,4 +113,4 @@ echo "  (multipooler, multiorch, multigateway)"
 echo ""
 
 # Start infrastructure port-forwards
-./port-forward-infrastructure.sh
+./port-forward-infra.sh
