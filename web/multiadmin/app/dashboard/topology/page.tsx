@@ -6,7 +6,7 @@ export default function Page() {
     <PageLayout
       breadcrumbs={[
         { label: "Dashboard", href: "/dashboard" },
-        { label: "Topology" },
+        { label: "Cluster Overview" },
       ]}
     >
       <TopologyClient />
