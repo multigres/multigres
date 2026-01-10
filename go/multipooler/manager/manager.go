@@ -1462,6 +1462,7 @@ type postgresState struct {
 	dirInitialized   bool
 	postgresRunning  bool
 	backupsAvailable bool
+	isPrimary        bool
 }
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1503,6 +1504,13 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 
 	// Check if Postgres is running
 	state.postgresRunning = (statusResp.Status == pgctldpb.ServerStatus_RUNNING)
+	if state.postgresRunning {
+		var err error
+		state.isPrimary, err = pm.isPrimary(ctx)
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to determine primary status", "error", err)
+		}
+	}
 
 	// Check if backups are available (only if directory not initialized)
 	if !state.dirInitialized {
@@ -1535,6 +1543,38 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentSta
 		if pm.pgMonitorLastLoggedReason != reasonPostgresRunning {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running")
 			pm.pgMonitorLastLoggedReason = reasonPostgresRunning
+		}
+		if currentState.isPrimary {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running and primary")
+			if pm.getPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
+				func() {
+					pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to primary")
+					lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
+					if err != nil {
+						return
+					}
+					defer pm.actionLock.Release(lockCtx)
+					if err := pm.changeTypeLocked(lockCtx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+						pm.logger.ErrorContext(lockCtx, "MonitorPostgres: failed to change pooler type to primary", "error", err)
+					}
+				}()
+			}
+		} else {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running but not primary")
+			if pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
+				// Pooler type is primary, but isPrimary is false
+				func() {
+					pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to replica")
+					lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
+					if err != nil {
+						return
+					}
+					defer pm.actionLock.Release(lockCtx)
+					if err := pm.changeTypeLocked(lockCtx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+						pm.logger.ErrorContext(lockCtx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
+					}
+				}()
+			}
 		}
 		return
 	}
