@@ -48,5 +48,4 @@ echo "  - multigateway (PostgreSQL proxy)"
 echo ""
 
 # Start multigres cluster port-forwards
-echo "Starting multigres cluster port-forwards..."
-./port-forward-multigres-cluster.sh start
+./port-forward-multigres-cluster.sh

@@ -45,7 +45,6 @@ kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
 
 # Deploy observability stack (Prometheus, Tempo, Loki, Grafana)
 # The otel-config ConfigMap must exist before services that reference it.
-# We don't have to wait for the observability stack to be ready.
 kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=observability/grafana-dashboard.json --save-config
 kubectl apply -f k8s-observability.yaml
 
@@ -93,6 +92,7 @@ kubectl apply -f k8s-multiadmin.yaml
 kubectl apply -f k8s-multiadmin-web.yaml
 kubectl wait --for=condition=ready pod -l app=multiadmin --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multiadmin-web --timeout=120s
+kubectl wait --for=condition=ready pod -l app=observability --timeout=120s
 
 set +x
 echo ""
@@ -113,5 +113,4 @@ echo "  (multipooler, multiorch, multigateway)"
 echo ""
 
 # Start infrastructure port-forwards
-echo "Starting infrastructure port-forwards..."
-./port-forward-infrastructure.sh start
+./port-forward-infrastructure.sh
