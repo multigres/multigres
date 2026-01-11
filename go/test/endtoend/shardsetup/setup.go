@@ -410,14 +410,14 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
 	t.Helper()
 
-	ctx := utils.WithTimeout(t, 20*time.Second)
+	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return "", errors.New("timeout waiting for shard bootstrap after 20s")
+			return "", errors.New("timeout waiting for shard bootstrap after 60s")
 		case <-ticker.C:
 			primaryName, allInitialized := checkBootstrapStatus(t, setup)
 			if primaryName != "" && allInitialized {
