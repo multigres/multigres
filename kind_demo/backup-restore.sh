@@ -61,42 +61,6 @@ pause_for_input() {
   read -r
 }
 
-# Cleanup function to kill port forwards on exit
-cleanup() {
-  echo ""
-  echo "Cleaning up port forwards..."
-  if [[ -n "$PG_PF_PID" ]] && kill -0 "$PG_PF_PID" 2>/dev/null; then
-    kill "$PG_PF_PID"
-  fi
-  if [[ -n "$ADMIN_PF_PID" ]] && kill -0 "$ADMIN_PF_PID" 2>/dev/null; then
-    kill "$ADMIN_PF_PID"
-  fi
-  echo "Cleanup complete."
-}
-
-# Set up traps - explicitly exit on interrupt/terminate to avoid hanging
-trap 'cleanup; exit 130' INT
-trap 'cleanup; exit 143' TERM
-trap cleanup EXIT
-
-# Port forward to PostgreSQL
-echo ""
-echo "Setting up PostgreSQL port forward"
-echo "==================================="
-run_cmd_bg kubectl port-forward service/multigateway 15432:15432
-PG_PF_PID=$!
-sleep 2
-echo "PostgreSQL port forward established (PID: $PG_PF_PID)"
-
-# Port forward to MultiAdmin gRPC
-echo ""
-echo "Setting up MultiAdmin gRPC port forward"
-echo "========================================"
-run_cmd_bg kubectl port-forward service/multiadmin 18000:18000 18070:18070
-ADMIN_PF_PID=$!
-sleep 2
-echo "MultiAdmin gRPC port forward established (PID: $ADMIN_PF_PID)"
-
 # List existing backups (should show initial backup of primary)
 echo ""
 echo "Listing existing backups"
