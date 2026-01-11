@@ -25,22 +25,25 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}Starting multigres cluster port-forwards...${NC}"
+echo -e "${BLUE}Starting infrastructure port-forwards...${NC}"
 
 # Start all port-forwards in the background and capture PIDs
 # kubectl will automatically stop these when the underlying resources are deleted
 pids=()
 
-kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward service/multigateway 15432:15432 >/dev/null 2>&1 &
+kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward service/multiadmin-web 18100:18100 >/dev/null 2>&1 &
 pids+=($!)
 
-kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward pod/multipooler-zone1-0 15433:5432 >/dev/null 2>&1 &
+kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward service/multiadmin 18000:18000 >/dev/null 2>&1 &
 pids+=($!)
 
-kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward pod/multipooler-zone1-1 15434:5432 >/dev/null 2>&1 &
+kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward service/multiadmin 18070:18070 >/dev/null 2>&1 &
 pids+=($!)
 
-kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward pod/multipooler-zone1-2 15435:5432 >/dev/null 2>&1 &
+kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward service/observability 3000:3000 >/dev/null 2>&1 &
+pids+=($!)
+
+kubectl --context "$CONTEXT" -n "$NAMESPACE" port-forward service/observability 9090:9090 >/dev/null 2>&1 &
 pids+=($!)
 
 # Wait a moment for port-forwards to initialize
@@ -56,22 +59,25 @@ done
 
 echo ""
 if [ $failed -eq 0 ]; then
-  echo -e "${GREEN}Multigres cluster port-forwards started successfully!${NC}"
+  echo -e "${GREEN}Infrastructure port-forwards started successfully!${NC}"
 else
   echo -e "${YELLOW}Warning: $failed port-forward(s) failed to start${NC}"
-  echo -e "${YELLOW}This may be normal if pods are not yet ready or ports are already in use${NC}"
+  echo -e "${YELLOW}This may be normal if services are not yet ready or ports are already in use${NC}"
 fi
 
 echo ""
 echo "========================================="
-echo "Multigres Cluster Access URLs:"
+echo "Infrastructure Access URLs:"
 echo "========================================="
 echo ""
-echo "PostgreSQL (via multigateway):"
-echo "  psql --host=localhost --port=15432 -U postgres -d postgres"
+echo "Multiadmin Web UI:"
+echo "  http://localhost:18100"
 echo ""
-echo "Direct pooler access:"
-echo "  psql --host=localhost --port=15433 -U postgres -d postgres  (zone1-0)"
-echo "  psql --host=localhost --port=15434 -U postgres -d postgres  (zone1-1)"
-echo "  psql --host=localhost --port=15435 -U postgres -d postgres  (zone1-2)"
+echo "Multiadmin API:"
+echo "  REST API:   http://localhost:18000"
+echo "  gRPC API:   localhost:18070"
+echo ""
+echo "Observability:"
+echo "  Grafana:    http://localhost:3000/dashboards"
+echo "  Prometheus: http://localhost:9090"
 echo ""
