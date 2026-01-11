@@ -20,19 +20,22 @@
 #   - Multigres cluster deployed and healthy
 #   - kubectl configured to access the cluster
 #   - psql client installed
+#   - Port forwards running:
+#       ./port-forward-multigres-cluster.sh  (for PostgreSQL access)
+#       ./port-forward-infra.sh              (for MultiAdmin gRPC)
 #
 # Usage:
 #   cd kind_demo
-#   ./demo-backup-restore.sh
+#   ./backup-restore.sh
 #
 # The script will interactively demonstrate:
 #   - Listing backups via MultiAdmin gRPC API
 #   - Performing incremental backups
-#   - Creating test data (animals table with 10,000 rows)
+#   - Creating test data (animals table with 100,000 rows)
 #   - Verifying backups after data changes
 #
 # Press ENTER at each pause to continue to the next step.
-# Press Ctrl+C to exit (port forwards will be cleaned up automatically).
+# Press Ctrl+C to exit.
 
 set -e
 
