@@ -37,7 +37,7 @@ func TestWriteHeartbeat(t *testing.T) {
 	defer tw.Close()
 
 	// Write a single heartbeat
-	tw.writeHeartbeat()
+	tw.writeHeartbeat(t.Context())
 	lastWrites := tw.Writes()
 	assert.GreaterOrEqual(t, lastWrites, int64(1))
 	assert.EqualValues(t, 0, tw.WriteErrors())
@@ -51,9 +51,9 @@ func TestWriteHeartbeatOpen(t *testing.T) {
 	// Add expected heartbeat query pattern
 	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
 
-	// Writes should not happen when closed
-	tw.writeHeartbeat()
-	assert.EqualValues(t, 0, tw.Writes(), "should not write when closed")
+	// Writes should happen even when not started via Open() (direct call)
+	tw.writeHeartbeat(t.Context())
+	assert.EqualValues(t, 1, tw.Writes(), "direct call should write")
 
 	tw.Open()
 	defer tw.Close()
@@ -88,7 +88,7 @@ func TestWriteHeartbeatError(t *testing.T) {
 	defer tw.Close()
 
 	// Don't add any expected queries - this will cause an error
-	tw.writeHeartbeat()
+	tw.writeHeartbeat(t.Context())
 	assert.EqualValues(t, 0, tw.Writes())
 	assert.EqualValues(t, 1, tw.WriteErrors())
 }

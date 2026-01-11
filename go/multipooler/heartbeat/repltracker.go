@@ -17,6 +17,7 @@ package heartbeat
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/multipooler/executor"
 )
@@ -37,6 +38,14 @@ func NewReplTracker(queryService executor.InternalQueryService, logger *slog.Log
 	return &ReplTracker{
 		hw: NewWriter(queryService, logger, shardID, poolerID, intervalMs),
 		hr: NewReader(queryService, logger, shardID),
+	}
+}
+
+// newReplTrackerWithReaderInterval creates a ReplTracker with a custom reader interval for testing.
+func newReplTrackerWithReaderInterval(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int, readerInterval time.Duration) *ReplTracker {
+	return &ReplTracker{
+		hw: NewWriter(queryService, logger, shardID, poolerID, intervalMs),
+		hr: newReader(queryService, logger, shardID, readerInterval),
 	}
 }
 
