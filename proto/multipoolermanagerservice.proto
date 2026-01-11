@@ -111,6 +111,11 @@ service MultiPoolerManager {
   rpc UndoDemote(multipoolermanagerdata.UndoDemoteRequest)
     returns (multipoolermanagerdata.UndoDemoteResponse);
 
+  // DemoteStalePrimary demotes a stale primary that came back after failover
+  // by rewinding to the correct primary and restarting as standby
+  rpc DemoteStalePrimary(multipoolermanagerdata.DemoteStalePrimaryRequest)
+    returns (multipoolermanagerdata.DemoteStalePrimaryResponse);
+
   // Promote promotes a replica to leader (Multigres-level operation)
   rpc Promote(multipoolermanagerdata.PromoteRequest)
     returns (multipoolermanagerdata.PromoteResponse);

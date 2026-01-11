@@ -423,7 +423,18 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
 	})
 	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
-		"multipooler-cell1-primary": {CurrentTerm: 1},
+		"multipooler-cell1-primary": {
+			CurrentTerm: 1,
+			TimelineInfo: &consensusdatapb.TimelineInfo{
+				TimelineId: 2, // Primary on timeline 2
+			},
+		},
+		"multipooler-cell1-replica1": {
+			CurrentTerm: 1,
+			TimelineInfo: &consensusdatapb.TimelineInfo{
+				TimelineId: 1, // Replica still on timeline 1 - DIVERGED!
+			},
+		},
 	}
 	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
 		"multipooler-cell1-replica1": {},
@@ -494,17 +505,18 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	err := action.Execute(ctx, problem)
 
-	// Should fail because replication didn't start and pg_rewind marked it as DRAINED
-	// but then we still tried to reconfigure and it still fails
+	// Should fail because replication didn't start even after pg_rewind
+	// pg_rewind was not feasible so pooler was marked as DRAINED,
+	// but we still tried to configure replication and it failed
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "replication still not working after pg_rewind")
+	assert.Contains(t, err.Error(), "replication did not start after configuration")
 
-	// Verify SetPrimaryConnInfo was still called (configuration was attempted)
+	// Verify SetPrimaryConnInfo was still called (configuration was attempted after failed pg_rewind)
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
-	// Verify pg_rewind was tried as fallback
+	// Verify pg_rewind was tried as fallback when timeline divergence detected
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
 
-	// Verify the pooler was marked as DRAINED in topology
+	// Verify the pooler was marked as DRAINED in topology when pg_rewind wasn't feasible
 	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type)

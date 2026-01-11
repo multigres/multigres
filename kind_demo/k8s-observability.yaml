@@ -143,9 +143,10 @@ data:
         jsonData:
           derivedFields:
             - datasourceUid: tempo-uid
-              matcherRegex: "trace_id[=:]\\s*(\\w+)"
-              name: "TraceID"
-              url: "$${__value.raw}"
+              matcherRegex: trace_id
+              matcherType: label
+              name: TraceID
+              url: $${__value.raw}
 ---
 # ConfigMap: Grafana dashboard provisioning
 apiVersion: v1

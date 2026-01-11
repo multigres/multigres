@@ -143,8 +143,8 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 
 // fixNotReplicating handles the case where replication is not set up at all.
 // This is the most basic case: the replica has no primary_conninfo configured.
-// If normal replication setup fails (e.g., due to timeline divergence), it
-// attempts pg_rewind as a fallback.
+// It checks for timeline divergence first before starting replication to avoid
+// the race where PostgreSQL starts, connects to primary, and updates its timeline.
 func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *multiorchdatapb.PoolerHealthState,
@@ -161,6 +161,27 @@ func (a *FixReplicationAction) fixNotReplicating(
 	}
 	consensusTerm := consensusResp.CurrentTerm
 
+	// Check if timelines have diverged BEFORE starting PostgreSQL.
+	// This is critical: if we start PostgreSQL first, it will connect to the
+	// new primary and update its pg_control to match, making divergence undetectable.
+	timelinesDiverged, err := a.checkTimelineDivergence(ctx, primary, replica)
+	if err != nil {
+		a.logger.WarnContext(ctx, "failed to check timeline divergence, will try normal replication first",
+			"replica", replica.MultiPooler.Id.Name,
+			"error", err)
+		timelinesDiverged = false
+	}
+
+	if timelinesDiverged {
+		a.logger.InfoContext(ctx, "timeline divergence detected, running pg_rewind before starting replication",
+			"replica", replica.MultiPooler.Id.Name)
+
+		// Run pg_rewind first to fix timeline divergence
+		if rewindErr := a.tryPgRewind(ctx, primary, replica); rewindErr != nil {
+			return mterrors.Wrap(rewindErr, "pg_rewind failed for diverged timelines")
+		}
+	}
+
 	// Configure primary_conninfo on the replica
 	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 		Primary:               primary.MultiPooler,
@@ -175,28 +196,9 @@ func (a *FixReplicationAction) fixNotReplicating(
 		return mterrors.Wrap(err, "failed to set primary connection info")
 	}
 
-	// Try to verify replication started
+	// Verify replication started
 	if err := a.verifyReplicationStarted(ctx, replica); err != nil {
-		// Replication didn't start - might be timeline divergence
-		a.logger.WarnContext(ctx, "replication did not start, trying pg_rewind",
-			"replica", replica.MultiPooler.Id.Name,
-			"error", err)
-
-		// Try pg_rewind as fallback
-		if rewindErr := a.tryPgRewind(ctx, primary, replica); rewindErr != nil {
-			return mterrors.Wrap(rewindErr, "pg_rewind fallback failed")
-		}
-
-		// After pg_rewind, reconfigure replication
-		_, err = a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, req)
-		if err != nil {
-			return mterrors.Wrap(err, "failed to set primary connection info after pg_rewind")
-		}
-
-		// Verify again
-		if err := a.verifyReplicationStarted(ctx, replica); err != nil {
-			return mterrors.Wrap(err, "replication still not working after pg_rewind")
-		}
+		return mterrors.Wrap(err, "replication did not start after configuration")
 	}
 
 	// Add replica to the primary's synchronous standby list if it's a REPLICA type
@@ -220,6 +222,56 @@ func (a *FixReplicationAction) fixNotReplicating(
 		"primary", primary.MultiPooler.Id.Name)
 
 	return nil
+}
+
+// checkTimelineDivergence checks if the replica's checkpoint timeline differs from the primary's.
+// This indicates the replica was on a different timeline (e.g., it was a stale primary on a diverged timeline)
+// and needs pg_rewind before it can replicate from the current primary.
+func (a *FixReplicationAction) checkTimelineDivergence(
+	ctx context.Context,
+	primary *multiorchdatapb.PoolerHealthState,
+	replica *multiorchdatapb.PoolerHealthState,
+) (bool, error) {
+	// Get consensus status from both poolers to compare checkpoint timelines
+	primaryConsensus, err := a.rpcClient.ConsensusStatus(ctx, primary.MultiPooler, &consensusdatapb.StatusRequest{})
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to get primary consensus status")
+	}
+
+	replicaConsensus, err := a.rpcClient.ConsensusStatus(ctx, replica.MultiPooler, &consensusdatapb.StatusRequest{})
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to get replica consensus status")
+	}
+
+	// Check if timeline info is available for both
+	if primaryConsensus.TimelineInfo == nil || replicaConsensus.TimelineInfo == nil {
+		a.logger.WarnContext(ctx, "timeline info not available, cannot detect divergence",
+			"primary_timeline_available", primaryConsensus.TimelineInfo != nil,
+			"replica_timeline_available", replicaConsensus.TimelineInfo != nil)
+		return false, nil
+	}
+
+	primaryTimeline := primaryConsensus.TimelineInfo.TimelineId
+	replicaTimeline := replicaConsensus.TimelineInfo.TimelineId
+
+	a.logger.InfoContext(ctx, "comparing checkpoint timelines",
+		"primary", primary.MultiPooler.Id.Name,
+		"primary_timeline", primaryTimeline,
+		"replica", replica.MultiPooler.Id.Name,
+		"replica_timeline", replicaTimeline)
+
+	// If timelines differ, we have divergence
+	diverged := primaryTimeline != replicaTimeline
+	if diverged {
+		a.logger.InfoContext(ctx, "timeline divergence detected - pg_rewind required",
+			"primary_timeline", primaryTimeline,
+			"replica_timeline", replicaTimeline)
+	} else {
+		a.logger.InfoContext(ctx, "timelines match - no divergence",
+			"timeline", primaryTimeline)
+	}
+
+	return diverged, nil
 }
 
 // tryPgRewind attempts to repair a replica using pg_rewind.
