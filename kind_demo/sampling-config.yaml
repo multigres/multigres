@@ -40,11 +40,20 @@ grpc:
     # MultiPoolerService: query execution (high volume)
     "/multipoolerservice.MultiPoolerService": queries
 
+    # Consensus service: default to operations, override Status below
+    "/consensus.MultiPoolerConsensus": operations
+
+    # PgCtld service: default to operations, override Status below
+    "/pgctldservice.PgCtld": operations
+
     # Health check service
     "/grpc.health.v1.Health": monitoring
 
   methods:
-    # No method-level overrides needed - service-level defaults are sufficient
+    # Status polling methods should be sampled at lower rate
+    "/consensus.MultiPoolerConsensus/Status": monitoring
+    "/pgctldservice.PgCtld/Status": monitoring
+    "/multipoolermanager.MultiPoolerManager/Status": monitoring
 
 # HTTP span configuration
 # Exact: exact string matches for HTTP spans (format: "METHOD /path")
