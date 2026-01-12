@@ -363,8 +363,8 @@ func (s *ShardSetup) DumpServiceLogs() {
 			continue
 		}
 
-		// PostgreSQL log file is in the data directory under log/postgresql.log
-		pgLogPath := filepath.Join(inst.Pgctld.DataDir, "log", "postgresql.log")
+		// PostgreSQL log file is in the data directory under pg_data/log/postgresql.log
+		pgLogPath := filepath.Join(inst.Pgctld.DataDir, "pg_data", "log", "postgresql.log")
 		println("\n--- " + name + " PostgreSQL (" + pgLogPath + ") ---")
 		content, err := os.ReadFile(pgLogPath)
 		if err != nil {
