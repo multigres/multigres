@@ -180,10 +180,12 @@ data:
   OTEL_TRACES_EXPORTER: "otlp"
   OTEL_METRICS_EXPORTER: "otlp"
   OTEL_LOGS_EXPORTER: "otlp"
-  OTEL_TRACES_SAMPLER: "always_on"
   OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: "base2_exponential_bucket_histogram"
   OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
   OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: "http/protobuf"
+  # Custom file-based sampling configuration
+  OTEL_TRACES_SAMPLER: "multigres_custom"
+  OTEL_TRACES_SAMPLER_CONFIG: "/etc/otel/sampling-config.yaml"
 ---
 # Deployment: Observability stack (Prometheus + Tempo + Loki + Grafana in one pod)
 apiVersion: apps/v1
