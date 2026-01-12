@@ -26,12 +26,27 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "HTTP response status codes over time. Click on data points to view traces in Jaeger.",
+      "description": "HTTP successful responses (2xx) and redirects (3xx).",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "palette-classic"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -48,13 +63,12 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (job, http_response_status_code, http_request_method) (histogram_count(rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval])))",
+          "expr": "sum by (job, http_response_status_code, http_request_method) (histogram_count(rate(http_server_request_duration_seconds{job=~\"$service\", http_response_status_code=~\"2.*|3.*\"}[$__rate_interval])))",
           "legendFormat": "{{http_request_method}} [{{http_response_status_code}}]",
-          "range": true,
           "refId": "A"
         }
       ],
-      "title": "HTTP Response Codes (All Services)",
+      "title": "HTTP Success Rate (2xx, 3xx)",
       "type": "timeseries"
     },
     {
@@ -62,12 +76,28 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "HTTP request latency percentiles. Click on data points to view traces in Jaeger.",
+      "description": "HTTP 4xx client errors - indicates issues with client requests",
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "reqps"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -84,51 +114,41 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (job, http_request_method) (rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "p95 - {{http_request_method}}",
-          "range": true,
+          "expr": "sum by (job, http_response_status_code, http_request_method) (histogram_count(rate(http_server_request_duration_seconds{job=~\"$service\", http_response_status_code=~\"4.*\"}[$__rate_interval])))",
+          "legendFormat": "{{http_request_method}} [{{http_response_status_code}}]",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (job, http_request_method) (rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "p50 - {{http_request_method}}",
-          "range": true,
-          "refId": "B"
         }
       ],
-      "title": "HTTP Latency (All Services)",
+      "title": "HTTP Client Errors (4xx)",
       "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 10
-      },
-      "id": 150,
-      "panels": [],
-      "title": "gRPC Client Metrics",
-      "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Outgoing gRPC calls from services. Status code 0 = OK. Click on data points to view traces in Jaeger.",
+      "description": "HTTP 5xx server errors - indicates problems with our services",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -145,34 +165,116 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{rpc_grpc_status_code}}]",
-          "range": true,
+          "expr": "sum by (job, http_response_status_code, http_request_method) (histogram_count(rate(http_server_request_duration_seconds{job=~\"$service\", http_response_status_code=~\"5.*\"}[$__rate_interval])))",
+          "legendFormat": "{{http_request_method}} [{{http_response_status_code}}]",
           "refId": "A"
         }
       ],
-      "title": "gRPC Client Response Codes (All Services)",
+      "title": "HTTP Server Errors (5xx)",
       "type": "timeseries"
+    },
+    {
+      "type": "heatmap",
+      "title": "HTTP Latency Distribution",
+      "id": 4,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Overall HTTP latency distribution. Click on data points to view traces.",
+      "targets": [
+        {
+          "expr": "rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval])",
+          "refId": "A",
+          "exemplar": true
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Spectral"
+        },
+        "showLegend": true
+      }
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Latency for outgoing gRPC calls from services. Click on data points to view traces in Jaeger.",
+      "description": "HTTP latency percentiles by service. Click legend to filter services. Click data points to view traces.",
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*p99.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*p50.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    2,
+                    2
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 10
+        "y": 19
       },
-      "id": 4,
+      "id": 5,
       "targets": [
         {
           "datasource": {
@@ -181,8 +283,109 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (job, rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p95 - {{rpc_service}}.{{rpc_method}}",
+          "expr": "histogram_quantile(0.95, rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval]))",
+          "legendFormat": "{{job}} p95",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.50, rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval]))",
+          "legendFormat": "{{job}} p50",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval]))",
+          "legendFormat": "{{job}} p99",
+          "refId": "C"
+        }
+      ],
+      "title": "HTTP Latency Percentiles (by service)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "id": 150,
+      "panels": [],
+      "title": "gRPC Client Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "gRPC client request rate split by success (code 0) and errors (code != 0). Click on data points to view traces.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*\\(success\\)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*\\(errors\\)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "id": 151,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (job, rpc_service, rpc_method) (histogram_count(rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])))",
+          "legendFormat": "{{rpc_service}}.{{rpc_method}} (success)",
           "range": true,
           "refId": "A"
         },
@@ -193,13 +396,255 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (job, rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p50 - {{rpc_service}}.{{rpc_method}}",
+          "expr": "sum by (job, rpc_service, rpc_method) (histogram_count(rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code!=\"0\"}[$__rate_interval])))",
+          "legendFormat": "{{rpc_service}}.{{rpc_method}} (errors)",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "gRPC Client Latency (All Services)",
+      "title": "Traffic: Request Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "gRPC client errors - invalid requests from callers",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "id": 152,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=~\"3|5|6|7|9|11|16\"}[$__rate_interval]))), \"status_name\", \"INVALID_ARGUMENT\", \"rpc_grpc_status_code\", \"3\"), \"status_name\", \"NOT_FOUND\", \"rpc_grpc_status_code\", \"5\"), \"status_name\", \"ALREADY_EXISTS\", \"rpc_grpc_status_code\", \"6\"), \"status_name\", \"PERMISSION_DENIED\", \"rpc_grpc_status_code\", \"7\"), \"status_name\", \"FAILED_PRECONDITION\", \"rpc_grpc_status_code\", \"9\"), \"status_name\", \"OUT_OF_RANGE\", \"rpc_grpc_status_code\", \"11\"), \"status_name\", \"UNAUTHENTICATED\", \"rpc_grpc_status_code\", \"16\")",
+          "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{status_name}}]",
+          "refId": "A"
+        }
+      ],
+      "title": "Client Errors (Invalid Requests)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "gRPC server errors - problems with our services",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "id": 153,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "label_replace(label_replace(label_replace(label_replace(sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=~\"2|13|14|15\"}[$__rate_interval]))), \"status_name\", \"UNKNOWN\", \"rpc_grpc_status_code\", \"2\"), \"status_name\", \"INTERNAL\", \"rpc_grpc_status_code\", \"13\"), \"status_name\", \"UNAVAILABLE\", \"rpc_grpc_status_code\", \"14\"), \"status_name\", \"DATA_LOSS\", \"rpc_grpc_status_code\", \"15\")",
+          "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{status_name}}]",
+          "refId": "A"
+        }
+      ],
+      "title": "Server Errors (Service Problems)",
+      "type": "timeseries"
+    },
+    {
+      "type": "heatmap",
+      "title": "Latency Distribution (Success Only)",
+      "id": 154,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 45
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Overall gRPC client latency distribution (success only). Click on data points to view traces.",
+      "targets": [
+        {
+          "expr": "rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval]) / 1000",
+          "refId": "A",
+          "exemplar": true
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Spectral"
+        },
+        "showLegend": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "gRPC client latency percentiles by endpoint (success only). Click legend to filter. Click data points to view traces.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*p99.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*p50.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    2,
+                    2
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 45
+      },
+      "id": 155,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])) / 1000",
+          "legendFormat": "{{job}}.{{rpc_service}}.{{rpc_method}} p95",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.50, rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])) / 1000",
+          "legendFormat": "{{job}}.{{rpc_service}}.{{rpc_method}} p50",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, rate(rpc_client_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])) / 1000",
+          "legendFormat": "{{job}}.{{rpc_service}}.{{rpc_method}} p99",
+          "refId": "C"
+        }
+      ],
+      "title": "Latency Percentiles (by endpoint)",
       "type": "timeseries"
     },
     {
@@ -208,7 +653,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 62
       },
       "id": 200,
       "panels": [],
@@ -220,20 +665,51 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Incoming gRPC requests to services. Status code 0 = OK. Click on data points to view traces in Jaeger.",
+      "description": "gRPC server request rate split by success (code 0) and errors (code != 0). Click on data points to view traces.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*\\(success\\)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*\\(errors\\)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
-        "h": 9,
-        "w": 12,
+        "h": 8,
+        "w": 24,
         "x": 0,
-        "y": 20
+        "y": 63
       },
-      "id": 5,
+      "id": 201,
       "targets": [
         {
           "datasource": {
@@ -242,13 +718,25 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_server_duration_milliseconds{job=~\"$service\"}[$__rate_interval])))",
-          "legendFormat": "{{rpc_method}} [{{rpc_grpc_status_code}}]",
+          "expr": "sum by (job, rpc_service, rpc_method) (histogram_count(rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])))",
+          "legendFormat": "{{rpc_method}} (success)",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum by (job, rpc_service, rpc_method) (histogram_count(rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code!=\"0\"}[$__rate_interval])))",
+          "legendFormat": "{{rpc_method}} (errors)",
+          "range": true,
+          "refId": "B"
         }
       ],
-      "title": "gRPC Server Response Codes (All Services)",
+      "title": "Traffic: Request Rate",
       "type": "timeseries"
     },
     {
@@ -256,20 +744,36 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Latency for incoming gRPC requests to services. Click on data points to view traces in Jaeger.",
+      "description": "gRPC client errors - invalid requests from callers",
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "reqps"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
-        "h": 9,
+        "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 20
+        "x": 0,
+        "y": 71
       },
-      "id": 6,
+      "id": 202,
       "targets": [
         {
           "datasource": {
@@ -278,9 +782,177 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (job, rpc_service, rpc_method) (rate(rpc_server_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p95 - {{rpc_method}}",
-          "range": true,
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=~\"3|5|6|7|9|11|16\"}[$__rate_interval]))), \"status_name\", \"INVALID_ARGUMENT\", \"rpc_grpc_status_code\", \"3\"), \"status_name\", \"NOT_FOUND\", \"rpc_grpc_status_code\", \"5\"), \"status_name\", \"ALREADY_EXISTS\", \"rpc_grpc_status_code\", \"6\"), \"status_name\", \"PERMISSION_DENIED\", \"rpc_grpc_status_code\", \"7\"), \"status_name\", \"FAILED_PRECONDITION\", \"rpc_grpc_status_code\", \"9\"), \"status_name\", \"OUT_OF_RANGE\", \"rpc_grpc_status_code\", \"11\"), \"status_name\", \"UNAUTHENTICATED\", \"rpc_grpc_status_code\", \"16\")",
+          "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{status_name}}]",
+          "refId": "A"
+        }
+      ],
+      "title": "Client Errors (Invalid Requests)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "gRPC server errors - problems with our services",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 71
+      },
+      "id": 203,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "label_replace(label_replace(label_replace(label_replace(sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=~\"2|13|14|15\"}[$__rate_interval]))), \"status_name\", \"UNKNOWN\", \"rpc_grpc_status_code\", \"2\"), \"status_name\", \"INTERNAL\", \"rpc_grpc_status_code\", \"13\"), \"status_name\", \"UNAVAILABLE\", \"rpc_grpc_status_code\", \"14\"), \"status_name\", \"DATA_LOSS\", \"rpc_grpc_status_code\", \"15\")",
+          "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{status_name}}]",
+          "refId": "A"
+        }
+      ],
+      "title": "Server Errors (Service Problems)",
+      "type": "timeseries"
+    },
+    {
+      "type": "heatmap",
+      "title": "Latency Distribution (Success Only)",
+      "id": 204,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 70
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Overall gRPC server latency distribution (success only). Click on data points to view traces.",
+      "targets": [
+        {
+          "expr": "rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval]) / 1000",
+          "refId": "A",
+          "exemplar": true
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Spectral"
+        },
+        "showLegend": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "gRPC server latency percentiles by endpoint (success only). Click legend to filter. Click data points to view traces.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*p99.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*p50.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    2,
+                    2
+                  ],
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 70
+      },
+      "id": 205,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.95, rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])) / 1000",
+          "legendFormat": "{{job}}.{{rpc_service}}.{{rpc_method}} p95",
           "refId": "A"
         },
         {
@@ -290,13 +962,23 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (job, rpc_service, rpc_method) (rate(rpc_server_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p50 - {{rpc_method}}",
-          "range": true,
+          "expr": "histogram_quantile(0.50, rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])) / 1000",
+          "legendFormat": "{{job}}.{{rpc_service}}.{{rpc_method}} p50",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "histogram_quantile(0.99, rate(rpc_server_duration_milliseconds{job=~\"$service\", rpc_grpc_status_code=\"0\"}[$__rate_interval])) / 1000",
+          "legendFormat": "{{job}}.{{rpc_service}}.{{rpc_method}} p99",
+          "refId": "C"
         }
       ],
-      "title": "gRPC Server Latency (All Services)",
+      "title": "Latency Percentiles (by endpoint)",
       "type": "timeseries"
     },
     {
@@ -305,7 +987,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 29
+        "y": 87
       },
       "id": 250,
       "panels": [],
@@ -334,7 +1016,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 88
       },
       "id": 9,
       "targets": [
@@ -370,7 +1052,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 88
       },
       "id": 10,
       "targets": [
@@ -405,7 +1087,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 97
       },
       "id": 11,
       "targets": [
@@ -451,7 +1133,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 97
       },
       "id": 12,
       "targets": [
@@ -489,7 +1171,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 106
       },
       "id": 300,
       "panels": [],
@@ -512,7 +1194,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 66
+        "y": 107
       },
       "id": 15,
       "targets": [
@@ -548,7 +1230,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 66
+        "y": 107
       },
       "id": 16,
       "targets": [
@@ -596,7 +1278,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 116
       },
       "id": 17,
       "targets": [
@@ -631,7 +1313,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 75
+        "y": 116
       },
       "id": 18,
       "targets": [
@@ -689,7 +1371,7 @@
         "h": 9,
         "w": 6,
         "x": 0,
-        "y": 84
+        "y": 125
       },
       "id": 19,
       "options": {
@@ -739,7 +1421,7 @@
         "h": 9,
         "w": 18,
         "x": 6,
-        "y": 84
+        "y": 125
       },
       "id": 20,
       "targets": [
@@ -777,7 +1459,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 93
+        "y": 134
       },
       "id": 400,
       "panels": [],
@@ -800,7 +1482,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 94
+        "y": 135
       },
       "id": 21,
       "targets": [
@@ -853,7 +1535,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 94
+        "y": 135
       },
       "id": 22,
       "targets": [

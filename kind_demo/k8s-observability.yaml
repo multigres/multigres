@@ -1,5 +1,9 @@
 # Observability stack for kind_demo: Prometheus + Tempo + Loki + Grafana
 # All services run in a single pod for simplicity.
+#
+# NOTE: Dashboard uses v1 schema with manual gridPos coordinates.
+# TODO: Migrate to v2 schema with AutoGridLayout once Grafana supports v2 file provisioning.
+#       See: https://github.com/grafana/grafana/issues/106381
 ---
 # ConfigMap: Tempo configuration
 apiVersion: v1
@@ -249,7 +253,7 @@ spec:
             - name: prometheus-config
               mountPath: /etc/prometheus
         - name: grafana
-          image: grafana/grafana:11.4.0
+          image: grafana/grafana:12.3.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
