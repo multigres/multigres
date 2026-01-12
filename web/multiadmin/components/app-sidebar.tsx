@@ -27,7 +27,11 @@ import { Logo } from "./logo";
 
 const managementNav = [
   // { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
-  { title: "Cluster Overview", url: "/dashboard/topology", icon: IconListDetails },
+  {
+    title: "Cluster Overview",
+    url: "/dashboard/topology",
+    icon: IconListDetails,
+  },
   { title: "Databases", url: "/dashboard/databases", icon: IconDatabase },
   // { title: "Replication", url: "/dashboard/replication", icon: IconReport },
   // {
