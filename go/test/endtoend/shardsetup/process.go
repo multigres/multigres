@@ -92,6 +92,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
+		"--timeout", "60",
 		"--log-output", p.LogFile)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup

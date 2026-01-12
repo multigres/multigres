@@ -20,19 +20,22 @@
 #   - Multigres cluster deployed and healthy
 #   - kubectl configured to access the cluster
 #   - psql client installed
+#   - Port forwards running:
+#       ./port-forward-multigres-cluster.sh  (for PostgreSQL access)
+#       ./port-forward-infra.sh              (for MultiAdmin gRPC)
 #
 # Usage:
 #   cd kind_demo
-#   ./demo-backup-restore.sh
+#   ./backup-restore.sh
 #
 # The script will interactively demonstrate:
 #   - Listing backups via MultiAdmin gRPC API
 #   - Performing incremental backups
-#   - Creating test data (animals table with 10,000 rows)
+#   - Creating test data (animals table with 100,000 rows)
 #   - Verifying backups after data changes
 #
 # Press ENTER at each pause to continue to the next step.
-# Press Ctrl+C to exit (port forwards will be cleaned up automatically).
+# Press Ctrl+C to exit.
 
 set -e
 
@@ -60,42 +63,6 @@ pause_for_input() {
   echo "press ENTER to continue"
   read -r
 }
-
-# Cleanup function to kill port forwards on exit
-cleanup() {
-  echo ""
-  echo "Cleaning up port forwards..."
-  if [[ -n "$PG_PF_PID" ]] && kill -0 "$PG_PF_PID" 2>/dev/null; then
-    kill "$PG_PF_PID"
-  fi
-  if [[ -n "$ADMIN_PF_PID" ]] && kill -0 "$ADMIN_PF_PID" 2>/dev/null; then
-    kill "$ADMIN_PF_PID"
-  fi
-  echo "Cleanup complete."
-}
-
-# Set up traps - explicitly exit on interrupt/terminate to avoid hanging
-trap 'cleanup; exit 130' INT
-trap 'cleanup; exit 143' TERM
-trap cleanup EXIT
-
-# Port forward to PostgreSQL
-echo ""
-echo "Setting up PostgreSQL port forward"
-echo "==================================="
-run_cmd_bg kubectl port-forward service/multigateway 15432:15432
-PG_PF_PID=$!
-sleep 2
-echo "PostgreSQL port forward established (PID: $PG_PF_PID)"
-
-# Port forward to MultiAdmin gRPC
-echo ""
-echo "Setting up MultiAdmin gRPC port forward"
-echo "========================================"
-run_cmd_bg kubectl port-forward service/multiadmin 18000:18000 18070:18070
-ADMIN_PF_PID=$!
-sleep 2
-echo "MultiAdmin gRPC port forward established (PID: $ADMIN_PF_PID)"
 
 # List existing backups (should show initial backup of primary)
 echo ""
