@@ -35,7 +35,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup)
+	setupPoolerTest(t, setup, WithEnabledMonitor())
 
 	// Wait for primary manager to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
@@ -43,11 +43,6 @@ func TestPostgresMonitorControl(t *testing.T) {
 	// Create client to primary multipooler
 	primaryClient := setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
-
-	// Enable monitoring for this test (setupPoolerTest disables it by default)
-	ctx := utils.WithShortDeadline(t)
-	_, err := primaryClient.Manager.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
-	require.NoError(t, err, "Should enable monitoring for this test")
 
 	t.Run("1. verify postgres is initially running", func(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
