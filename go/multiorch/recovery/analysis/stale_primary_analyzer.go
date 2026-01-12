@@ -21,11 +21,21 @@ import (
 
 	"github.com/multigres/multigres/go/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/multiorch/store"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// StalePrimaryAnalyzer detects when THIS node is a stale primary that came back online
-// after failover. This happens when an old primary restarts without being properly demoted.
+// StalePrimaryAnalyzer detects stale primaries that came back online after failover.
+// This happens when an old primary restarts without being properly demoted.
 // The analyzer identifies the stale primary (lower consensus term) and triggers demotion.
+//
+// The analyzer detects stale primaries from both perspectives:
+// - When THIS node is stale (lower term): reports itself for demotion
+// - When OTHER primary is stale (this node has higher term): reports the other for demotion
+//
+// This allows the correct primary to proactively demote stale primaries, which is important
+// because the stale primary may not be running multiorch yet or may not be healthy enough
+// to detect and demote itself.
 //
 // Note: This is NOT true split-brain. True split-brain means both primaries can accept
 // writes. In this scenario, the new primary cannot accept writes because it cannot
@@ -62,27 +72,43 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 	// The one with the lower consensus term is stale and should be demoted.
 	// If terms are equal, neither node demotes - this is an unusual state that
 	// should be resolved through normal failover or manual intervention.
-	// Using strict < prevents both nodes from demoting simultaneously.
-	isThisNodeStale := poolerAnalysis.ConsensusTerm < poolerAnalysis.OtherPrimaryTerm
 
-	if !isThisNodeStale {
-		// The other node is stale, not this one.
-		// We'll let the other node's analysis handle its own demotion.
-		// This prevents both nodes trying to demote the other simultaneously.
+	if poolerAnalysis.ConsensusTerm == poolerAnalysis.OtherPrimaryTerm {
+		// Terms are equal - unusual state, skip
 		return nil, nil
 	}
 
-	// This node is the stale primary - it needs to be demoted
+	// Determine which primary is stale
+	var stalePrimaryID *clustermetadatapb.ID
+	var stalePrimaryTerm int64
+	var correctPrimaryName string
+	var correctPrimaryTerm int64
+
+	if poolerAnalysis.ConsensusTerm < poolerAnalysis.OtherPrimaryTerm {
+		// This node is stale
+		stalePrimaryID = poolerAnalysis.PoolerID
+		stalePrimaryTerm = poolerAnalysis.ConsensusTerm
+		correctPrimaryName = poolerAnalysis.OtherPrimaryInShard.Name
+		correctPrimaryTerm = poolerAnalysis.OtherPrimaryTerm
+	} else {
+		// Other node is stale
+		stalePrimaryID = poolerAnalysis.OtherPrimaryInShard
+		stalePrimaryTerm = poolerAnalysis.OtherPrimaryTerm
+		correctPrimaryName = poolerAnalysis.PoolerID.Name
+		correctPrimaryTerm = poolerAnalysis.ConsensusTerm
+	}
+
+	// Report the stale primary for demotion
 	return []types.Problem{{
 		Code:      types.ProblemStalePrimary,
 		CheckName: "StalePrimary",
-		PoolerID:  poolerAnalysis.PoolerID,
+		PoolerID:  stalePrimaryID,
 		ShardKey:  poolerAnalysis.ShardKey,
-		Description: fmt.Sprintf("Stale primary detected: %s (term %d) is stale, other primary %s has term %d",
-			poolerAnalysis.PoolerID.Name,
-			poolerAnalysis.ConsensusTerm,
-			poolerAnalysis.OtherPrimaryInShard.Name,
-			poolerAnalysis.OtherPrimaryTerm),
+		Description: fmt.Sprintf("Stale primary detected: %s (term %d) is stale, correct primary %s has term %d",
+			stalePrimaryID.Name,
+			stalePrimaryTerm,
+			correctPrimaryName,
+			correctPrimaryTerm),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),

@@ -1,3 +1,8 @@
+/* Set minimum width for nodes to prevent text wrapping */
+.react-flow__node {
+  min-width: 170px;
+}
+
 /* Animated dashed red border for disconnected nodes */
 @keyframes marching-ants {
   0% {

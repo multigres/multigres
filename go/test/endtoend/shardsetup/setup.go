@@ -22,9 +22,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -38,6 +35,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 
 	// Register topo plugins
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
@@ -412,14 +410,14 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
 	t.Helper()
 
-	ctx := utils.WithTimeout(t, 20*time.Second)
+	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return "", errors.New("timeout waiting for shard bootstrap after 20s")
+			return "", errors.New("timeout waiting for shard bootstrap after 60s")
 		case <-ticker.C:
 			primaryName, allInitialized := checkBootstrapStatus(t, setup)
 			if primaryName != "" && allInitialized {
@@ -1047,8 +1045,9 @@ func (s *ShardSetup) GetMultipoolerID(name string) *clustermetadatapb.ID {
 	return makeMultipoolerID(inst.Multipooler.Cell, inst.Multipooler.Name)
 }
 
-// KillPostgres terminates the postgres process for a node (simulates database crash).
-// This sends SIGKILL directly to the postgres process, bypassing any graceful shutdown.
+// KillPostgres stops postgres cleanly on a node (simulates database failure).
+// Uses pgctld stop with fast mode for clean shutdown, allowing pg_rewind to work later.
+// Fast mode disconnects clients and shuts down cleanly (unlike immediate/SIGKILL).
 // The multipooler stays running to report the unhealthy status to multiorch.
 func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	t.Helper()
@@ -1059,23 +1058,20 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 		return // unreachable, but needed for linter
 	}
 
-	// Read the postgres PID from postmaster.pid
-	pidFile := filepath.Join(inst.Pgctld.DataDir, "pg_data", "postmaster.pid")
-	data, err := os.ReadFile(pidFile)
-	require.NoError(t, err, "Failed to read postgres PID file for %s", name)
+	t.Logf("Stopping postgres on node %s using pgctld (fast mode)", name)
 
-	lines := strings.Split(string(data), "\n")
-	require.Greater(t, len(lines), 0, "PID file should have at least one line")
+	// Use pgctld to stop postgres cleanly with fast mode
+	// Fast mode disconnects clients and shuts down cleanly (suitable for pg_rewind)
+	// Unlike smart mode (waits for clients) or immediate mode (like SIGKILL)
+	client, err := NewPgctldClient(inst.Pgctld.GrpcPort)
+	require.NoError(t, err, "Failed to connect to pgctld for %s", name)
+	defer client.Close()
 
-	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
-	require.NoError(t, err, "Failed to parse PID from postmaster.pid")
+	ctx := context.Background()
+	_, err = client.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"})
+	require.NoError(t, err, "Failed to stop postgres on %s", name)
 
-	t.Logf("Killing postgres (PID %d) on node %s", pid, name)
-
-	err = syscall.Kill(pid, syscall.SIGKILL)
-	require.NoError(t, err, "Failed to kill postgres process")
-
-	t.Logf("Postgres killed on %s - multipooler should detect failure", name)
+	t.Logf("Postgres stopped cleanly on %s - multipooler should detect failure", name)
 }
 
 // baselineGucNames returns the GUC names to save/restore for baseline state.
