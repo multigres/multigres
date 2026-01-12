@@ -40,6 +40,7 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	}
 
 	// Setup full test cluster with all services (includes waiting for bootstrap)
+	// TODO: We should delete this in favor of the sharedsetup
 	cluster, cleanup := setupTestCluster(t)
 	t.Cleanup(cleanup)
 
@@ -190,6 +191,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	}
 
 	// Setup full test cluster with all services
+	// 	TODO: We should delete this in favor of the sharedsetup
 	cluster, cleanup := setupTestCluster(t)
 	t.Cleanup(cleanup)
 

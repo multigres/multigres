@@ -108,6 +108,7 @@ type SetupTestConfig struct {
 	NoReplication    bool     // Don't configure replication
 	PauseReplication bool     // Configure replication but pause WAL replay
 	GucsToReset      []string // GUCs to save before test and restore after
+	EnableMonitor    bool     // Enable PostgreSQL monitor during test (default: disabled)
 }
 
 // SetupTestOption is a function that configures SetupTest behavior.
@@ -134,6 +135,15 @@ func WithPausedReplication() SetupTestOption {
 func WithResetGuc(gucNames ...string) SetupTestOption {
 	return func(c *SetupTestConfig) {
 		c.GucsToReset = append(c.GucsToReset, gucNames...)
+	}
+}
+
+// WithEnabledMonitor returns an option that enables the PostgreSQL monitor during the test.
+// By default the monitor is disabled to prevent interference with test operations.
+// Use this for tests that specifically need postgres auto-restart functionality.
+func WithEnabledMonitor() SetupTestOption {
+	return func(c *SetupTestConfig) {
+		c.EnableMonitor = true
 	}
 }
 
@@ -381,6 +391,9 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 	// Wait for multiorch to bootstrap the shard (elect a primary)
 	primaryName, err := waitForShardBootstrap(t, setup)
 	if err != nil {
+		// This before we return the cleanup function, so let's dump the logs if we
+		// fail to bootstrap the shard
+		setup.DumpServiceLogs()
 		t.Fatalf("failed to bootstrap shard: %v", err)
 	}
 	setup.PrimaryName = primaryName
@@ -817,6 +830,13 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Configure PostgreSQL monitor (disabled by default, can be enabled with WithEnabledMonitor)
+	if config.EnableMonitor {
+		s.enableMonitorOnAll(t, ctx)
+	} else {
+		s.disableMonitorOnAll(t, ctx)
+	}
+
 	// If WithoutReplication is set, actively break replication
 	if config.NoReplication {
 		s.breakReplication(t, ctx)
@@ -900,11 +920,52 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			client.Close()
 		}
 
+		// Ensure monitor is disabled (in case something during test re-enabled it)
+		s.disableMonitorOnAll(t, cleanupCtx)
+
 		// Validate cleanup worked
 		require.Eventually(t, func() bool {
 			return s.ValidateCleanState() == nil
 		}, 2*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
 	})
+}
+
+// disableMonitorOnAll disables the PostgreSQL monitor on all multipooler instances.
+func (s *ShardSetup) disableMonitorOnAll(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	for name, inst := range s.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		if err != nil {
+			t.Logf("failed to connect to %s to disable monitor: %v", name, err)
+			continue
+		}
+
+		_, err = client.Manager.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
+		client.Close()
+		if err != nil {
+			t.Logf("failed to disable monitor on %s: %v", name, err)
+		}
+	}
+}
+
+// enableMonitorOnAll enables the PostgreSQL monitor on all multipooler instances.
+func (s *ShardSetup) enableMonitorOnAll(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	for name, inst := range s.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		if err != nil {
+			t.Logf("failed to connect to %s to enable monitor: %v", name, err)
+			continue
+		}
+
+		_, err = client.Manager.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
+		client.Close()
+		if err != nil {
+			t.Logf("failed to enable monitor on %s: %v", name, err)
+		}
+	}
 }
 
 // breakReplication clears replication configuration on all nodes.
