@@ -58,11 +58,11 @@ http:
 
   patterns:
     # All other HTTP endpoints are operational (admin APIs, management endpoints)
-    "GET *": operations
-    "POST *": operations
-    "PUT *": operations
-    "DELETE *": operations
-    "PATCH *": operations
+    "GET /*": operations
+    "POST /*": operations
+    "PUT /*": operations
+    "DELETE /*": operations
+    "PATCH /*": operations
 
 # Manual span configuration (for spans created with tracer.Start)
 # Exact: exact string matches
