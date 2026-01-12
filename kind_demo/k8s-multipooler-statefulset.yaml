@@ -150,6 +150,9 @@ spec:
               mountPath: /certs
             - name: backup-data
               mountPath: /backups
+            - name: sampling-config
+              mountPath: /etc/otel
+              readOnly: true
           env:
             - name: POD_NAME
               valueFrom:
@@ -261,3 +264,6 @@ spec:
         - name: pg-hba-template
           configMap:
             name: pg-hba-template
+        - name: sampling-config
+          configMap:
+            name: sampling-config

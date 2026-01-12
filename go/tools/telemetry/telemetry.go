@@ -198,7 +198,6 @@ func (t *Telemetry) initTracing(ctx context.Context, res *resource.Resource) err
 
 	// Create TracerProvider with batch span processor (or syncer for tests)
 	// Batch processing reduces overhead by grouping spans before export
-	// Sampler is automatically configured from OTEL_TRACES_SAMPLER (or COMMAND_OTEL_TRACES_SAMPLER)
 	var providerOpts []sdktrace.TracerProviderOption
 	if t.testSpanExporter != nil {
 		// Use synchronous export for tests to avoid timing issues
@@ -207,9 +206,21 @@ func (t *Telemetry) initTracing(ctx context.Context, res *resource.Resource) err
 			sdktrace.WithResource(res),
 		}
 	} else {
+		// Create sampler - either custom file-based or defer to OTEL defaults
+		sampler, err := maybeCreateCustomSampler()
+		if err != nil {
+			return fmt.Errorf("failed to create custom sampler: %w", err)
+		}
+
 		providerOpts = []sdktrace.TracerProviderOption{
 			sdktrace.WithBatcher(traceExporter),
 			sdktrace.WithResource(res),
+		}
+
+		// Only set custom sampler if one was created
+		// Otherwise OTEL will use its default sampler based on environment variables
+		if sampler != nil {
+			providerOpts = append(providerOpts, sdktrace.WithSampler(sampler))
 		}
 	}
 	t.tracerProvider = sdktrace.NewTracerProvider(providerOpts...)
