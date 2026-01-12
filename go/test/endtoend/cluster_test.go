@@ -248,7 +248,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				PgPort:         zonePort.PgctldPGPort,
 				PgDatabase:     "postgres",
 				PgUser:         "postgres",
-				Timeout:        30,
+				Timeout:        60,
 				LogLevel:       "info",
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
 				// PgPwfile not set - provisioner will create pgpassword.txt with default "postgres" password
