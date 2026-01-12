@@ -357,6 +357,27 @@ func (s *ShardSetup) DumpServiceLogs() {
 		println(string(content))
 	}
 
+	// Dump PostgreSQL logs for each multipooler instance
+	for name, inst := range s.Multipoolers {
+		if inst.Pgctld == nil || inst.Pgctld.DataDir == "" {
+			continue
+		}
+
+		// PostgreSQL log file is in the data directory under log/postgresql.log
+		pgLogPath := filepath.Join(inst.Pgctld.DataDir, "log", "postgresql.log")
+		println("\n--- " + name + " PostgreSQL (" + pgLogPath + ") ---")
+		content, err := os.ReadFile(pgLogPath)
+		if err != nil {
+			println("  [error reading log: " + err.Error() + "]")
+			continue
+		}
+		if len(content) == 0 {
+			println("  [empty log file]")
+			continue
+		}
+		println(string(content))
+	}
+
 	println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
 }
 

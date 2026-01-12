@@ -381,6 +381,9 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 	// Wait for multiorch to bootstrap the shard (elect a primary)
 	primaryName, err := waitForShardBootstrap(t, setup)
 	if err != nil {
+		// This before we return the cleanup function, so let's dump the logs if we
+		// fail to bootstrap the shard
+		setup.DumpServiceLogs()
 		t.Fatalf("failed to bootstrap shard: %v", err)
 	}
 	setup.PrimaryName = primaryName
