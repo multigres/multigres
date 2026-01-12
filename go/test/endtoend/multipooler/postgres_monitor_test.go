@@ -44,6 +44,11 @@ func TestPostgresMonitorControl(t *testing.T) {
 	primaryClient := setup.NewPrimaryClient(t)
 	defer primaryClient.Close()
 
+	// Enable monitoring for this test (setupPoolerTest disables it by default)
+	ctx := utils.WithShortDeadline(t)
+	_, err := primaryClient.Manager.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
+	require.NoError(t, err, "Should enable monitoring for this test")
+
 	t.Run("1. verify postgres is initially running", func(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
 		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})

@@ -817,6 +817,9 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Disable PostgreSQL monitor on all instances to prevent interference with test operations
+	s.disableMonitorOnAll(t, ctx)
+
 	// If WithoutReplication is set, actively break replication
 	if config.NoReplication {
 		s.breakReplication(t, ctx)
@@ -900,11 +903,34 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			client.Close()
 		}
 
+		// Ensure monitor is disabled (in case something during test re-enabled it)
+		s.disableMonitorOnAll(t, cleanupCtx)
+
 		// Validate cleanup worked
 		require.Eventually(t, func() bool {
 			return s.ValidateCleanState() == nil
 		}, 2*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
 	})
+}
+
+// disableMonitorOnAll disables the PostgreSQL monitor on all multipooler instances.
+// The monitor is kept disabled for all tests to prevent interference with test operations.
+func (s *ShardSetup) disableMonitorOnAll(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	for name, inst := range s.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		if err != nil {
+			t.Logf("failed to connect to %s to disable monitor: %v", name, err)
+			continue
+		}
+
+		_, err = client.Manager.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
+		client.Close()
+		if err != nil {
+			t.Logf("failed to disable monitor on %s: %v", name, err)
+		}
+	}
 }
 
 // breakReplication clears replication configuration on all nodes.
