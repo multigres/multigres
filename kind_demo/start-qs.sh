@@ -18,8 +18,8 @@ set -ex
 # 1. Docker image for supafirehose should be built already. Run this in supafirehose directory.
 # docker build -t supafirehose:latest .
 
-# 2. Load image into kind
-kind load docker-image supafirehose:latest --name multidemo
+# 2. Load image into kind (preloaded by start infra)
+# kind load docker-image supafirehose:latest --name multidemo
 
 # 3. Init the database (creates DB + seeds 100k users)
 kubectl apply -f k8s-supafirehose-init.yaml
