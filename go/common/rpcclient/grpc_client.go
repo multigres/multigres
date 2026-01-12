@@ -389,6 +389,19 @@ func (c *Client) UndoDemote(ctx context.Context, pooler *clustermetadatapb.Multi
 	return conn.managerClient.UndoDemote(ctx, request)
 }
 
+// DemoteStalePrimary demotes a stale primary that came back after failover.
+func (c *Client) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.DemoteStalePrimary(ctx, request)
+}
+
 //
 // Manager Service Methods - Type and Term Management
 //
@@ -520,6 +533,36 @@ func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.M
 	}()
 
 	return conn.managerClient.RewindToSource(ctx, request)
+}
+
+//
+// Manager Service Methods - PostgreSQL Monitoring Control
+//
+
+// EnableMonitor enables the PostgreSQL monitoring goroutine on a pooler.
+func (c *Client) EnableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EnableMonitorRequest) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.EnableMonitor(ctx, request)
+}
+
+// DisableMonitor disables the PostgreSQL monitoring goroutine on a pooler.
+func (c *Client) DisableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DisableMonitorRequest) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.DisableMonitor(ctx, request)
 }
 
 //

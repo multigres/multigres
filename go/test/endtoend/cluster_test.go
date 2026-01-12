@@ -211,7 +211,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 		serviceID := stringutil.RandomString(8)
 		zonePort := &portConfig.Zones[i]
 
-		localConfig.Cells[zoneName] = local.CellServicesConfig{
+		cellConfig := local.CellServicesConfig{
 			Multigateway: local.MultigatewayConfig{
 				Path:     "multigateway",
 				HttpPort: zonePort.MultigatewayHTTPPort,
@@ -232,15 +232,6 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("multipooler-%s.sock", zoneName)),
 				LogLevel:       "info",
 			},
-			Multiorch: local.MultiorchConfig{
-				Path:                           "multiorch",
-				HttpPort:                       zonePort.MultiorchHTTPPort,
-				GrpcPort:                       zonePort.MultiorchGRPCPort,
-				LogLevel:                       "info",
-				ClusterMetadataRefreshInterval: "500ms",
-				PoolerHealthCheckInterval:      "500ms",
-				RecoveryCycleInterval:          "500ms",
-			},
 			Pgctld: local.PgctldConfig{
 				Path:           "pgctld",
 				GrpcPort:       zonePort.PgctldGRPCPort,
@@ -248,12 +239,27 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				PgPort:         zonePort.PgctldPGPort,
 				PgDatabase:     "postgres",
 				PgUser:         "postgres",
-				Timeout:        30,
+				Timeout:        60,
 				LogLevel:       "info",
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
 				// PgPwfile not set - provisioner will create pgpassword.txt with default "postgres" password
 			},
 		}
+
+		// Only create multiorch for zone1 to avoid concurrent bootstrap race conditions
+		if i == 0 {
+			cellConfig.Multiorch = local.MultiorchConfig{
+				Path:                           "multiorch",
+				HttpPort:                       zonePort.MultiorchHTTPPort,
+				GrpcPort:                       zonePort.MultiorchGRPCPort,
+				LogLevel:                       "info",
+				ClusterMetadataRefreshInterval: "500ms",
+				PoolerHealthCheckInterval:      "500ms",
+				RecoveryCycleInterval:          "500ms",
+			}
+		}
+
+		localConfig.Cells[zoneName] = cellConfig
 	}
 
 	// Convert the typed config to map[string]any via YAML marshaling

@@ -25,7 +25,6 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -38,10 +37,10 @@ import (
 // 2. Kill P1's postgres to trigger failover
 // 3. Wait for multiorch to elect new primary (S1 becomes P2)
 // 4. Write data to new primary to ensure timeline has diverged
-// 5. Restart old P1's postgres (it comes back as a primary with diverged WAL)
-// 6. Multiorch should detect split-brain and demote old primary
-// 7. When configuring replication, multiorch should detect timeline divergence
-// 8. Multiorch should run pg_rewind to repair P1
+// 5. Leave P1's postgres stopped (it's still marked PRIMARY in topology with old term)
+// 6. Multiorch detects stale primary (both PRIMARY in topology, P1 has lower term)
+// 7. Multiorch calls DemoteStalePrimary which starts postgres, runs pg_rewind, restarts as standby
+// 8. Multiorch configures replication from P2
 // 9. Verify P1 rejoins as a replica of P2
 //
 // This test verifies the complete stale primary detection and timeline divergence repair flow:
@@ -74,6 +73,17 @@ func TestDemoteStalePrimary(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 	t.Logf("Initial primary: %s", oldPrimaryName)
 
+	// Disable monitoring on old primary so postgres is not restarted by pooler
+	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer oldPrimaryClient.Close()
+
+	_, err = oldPrimaryClient.Manager.DisableMonitor(t.Context(), &multipoolermanagerdatapb.DisableMonitorRequest{})
+	require.NoError(t, err)
+	defer func() {
+		_, _ = oldPrimaryClient.Manager.EnableMonitor(t.Context(), &multipoolermanagerdatapb.EnableMonitorRequest{})
+	}()
+
 	// Step 1: Kill postgres on primary to trigger failover
 	t.Log("Killing postgres on primary to trigger failover...")
 	setup.KillPostgres(t, oldPrimaryName)
@@ -88,18 +98,19 @@ func TestDemoteStalePrimary(t *testing.T) {
 	t.Log("Writing data to new primary to ensure timeline divergence...")
 	writeDataToNewPrimary(t, setup, newPrimaryName)
 
-	// Step 4: Restart old primary's postgres
-	t.Log("Restarting old primary's postgres...")
-	restartPostgres(t, oldPrimary)
+	// Step 4: Leave postgres stopped on old primary
+	// Multiorch will detect split-brain based on topology (both PRIMARY) and consensus terms,
+	// then call DemoteStalePrimary which will handle starting postgres, pg_rewind, and restart
+	t.Log("Leaving postgres stopped on old primary - multiorch will handle restart...")
 
 	// Step 5: Wait for multiorch to detect and repair divergence
 	// This may take longer because multiorch needs to:
-	// 1. Detect the split-brain (two primaries)
-	// 2. Demote the old primary
-	// 3. Detect timeline divergence when configuring replication
-	// 4. Run pg_rewind to repair
-	// 5. Configure replication and start WAL receiver
-	t.Log("Waiting for multiorch to demote stale primary and repair diverged timeline...")
+	// 1. Detect the split-brain (both PRIMARY in topology, different terms)
+	// 2. Call DemoteStalePrimary RPC on the stale primary (lower term)
+	// 3. DemoteStalePrimary starts postgres, runs pg_rewind, restarts as standby
+	// 4. Configure replication to the new primary
+	// 5. Start WAL receiver
+	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
 	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 120*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
@@ -133,49 +144,6 @@ func writeDataToNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, primaryNa
 	require.NoError(t, err, "should insert data on new primary")
 
 	t.Log("Wrote data to new primary to ensure timeline divergence")
-}
-
-// restartPostgres restarts postgres on a node via pgctld
-func restartPostgres(t *testing.T, node *shardsetup.MultipoolerInstance) {
-	t.Helper()
-
-	grpcAddr := fmt.Sprintf("localhost:%d", node.Pgctld.GrpcPort)
-	err := endtoend.StartPostgreSQL(t, grpcAddr)
-	require.NoError(t, err, "should start postgres via pgctld")
-
-	// Wait for postgres to be ready (direct connection)
-	socketDir := filepath.Join(node.Pgctld.DataDir, "pg_sockets")
-	require.Eventually(t, func() bool {
-		db := connectToPostgres(t, socketDir, node.Pgctld.PgPort)
-		if db == nil {
-			return false
-		}
-		defer db.Close()
-		var result int
-		err := db.QueryRow("SELECT 1").Scan(&result)
-		return err == nil
-	}, 30*time.Second, 1*time.Second, "postgres should start")
-
-	// Also wait for multipooler to report postgres as running
-	// This ensures multiorch will see the node as ready when it polls
-	require.Eventually(t, func() bool {
-		client, err := shardsetup.NewMultipoolerClient(node.Multipooler.GrpcPort)
-		if err != nil {
-			return false
-		}
-		defer client.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil {
-			return false
-		}
-		return resp.Status.PostgresRunning
-	}, 30*time.Second, 500*time.Millisecond, "multipooler should report postgres as running")
-
-	t.Logf("Postgres restarted successfully on %s", node.Name)
 }
 
 // waitForDivergenceRepaired waits for multiorch to repair the diverged node

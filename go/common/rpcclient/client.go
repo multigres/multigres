@@ -220,6 +220,9 @@ type MultiPoolerClient interface {
 	// UndoDemote undoes a demotion.
 	UndoDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error)
 
+	// DemoteStalePrimary demotes a stale primary that came back after failover.
+	DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error)
+
 	//
 	// Manager Service Methods - Type and Term Management
 	//
@@ -262,6 +265,16 @@ type MultiPoolerClient interface {
 
 	// RewindToSource performs pg_rewind to synchronize a replica with its source.
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
+
+	//
+	// Manager Service Methods - PostgreSQL Monitoring Control
+	//
+
+	// EnableMonitor enables the PostgreSQL monitoring goroutine on a pooler.
+	EnableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EnableMonitorRequest) (*multipoolermanagerdatapb.EnableMonitorResponse, error)
+
+	// DisableMonitor disables the PostgreSQL monitoring goroutine on a pooler.
+	DisableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DisableMonitorRequest) (*multipoolermanagerdatapb.DisableMonitorResponse, error)
 
 	//
 	// Connection Management Methods

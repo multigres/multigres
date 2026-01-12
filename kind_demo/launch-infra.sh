@@ -15,7 +15,7 @@
 
 set -ex
 
-# Kind cluster demo
+# Kind cluster demo - Infrastructure and supporting services
 # Prerequisites: docker compose, kind, kubectl
 # multigres images must be built first
 # Edit kind.yaml
@@ -43,10 +43,10 @@ kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/m
 kubectl apply -f k8s-etcd.yaml
 kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
 
-# Deploy observability stack (Prometheus, Jaeger, Grafana)
-# The otel-config ConfigMap must exist before services that reference it.
-# We don't have to wait for the observability stack to be ready.
+# Deploy observability stack (Prometheus, Tempo, Loki, Grafana)
+# The otel-config and sampling-config ConfigMaps must exist before services that reference them.
 kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=observability/grafana-dashboard.json --save-config
+kubectl create configmap sampling-config --from-file=sampling-config.yaml --save-config
 kubectl apply -f k8s-observability.yaml
 
 # We're launching this as a job. The operator will just invoke this CLI.
@@ -60,7 +60,6 @@ kubectl wait --for=condition=Available --timeout=300s \
   -n cert-manager deployment/cert-manager \
   deployment/cert-manager-webhook \
   deployment/cert-manager-cainjector
-
 
 # Verify the cert-manager webhook is ready by testing certificate validation
 echo "Testing webhook connectivity..."
@@ -89,42 +88,30 @@ kubectl wait --for=condition=ready certificate/pgbackrest-cert --timeout=120s
 # Make sure the cluster metadata job is complete before proceeding
 kubectl wait --for=condition=complete job/createclustermetadata --timeout=120s
 
-# Once the cluster metadata is ready, launch all componentes at once.
-# Once the multipoolers come up, multiorch will bootstrap the cluster
-# and elect a primary.
-kubectl apply -f k8s-multipooler-statefulset.yaml
-kubectl apply -f k8s-multiorch.yaml
-kubectl apply -f k8s-multigateway.yaml
+# Deploy multiadmin services
 kubectl apply -f k8s-multiadmin.yaml
 kubectl apply -f k8s-multiadmin-web.yaml
-kubectl wait --for=condition=ready pod -l app=multipooler --timeout=180s
-kubectl wait --for=condition=ready pod -l app=multiorch --timeout=120s
-kubectl wait --for=condition=ready pod -l app=multigateway --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multiadmin --timeout=120s
 kubectl wait --for=condition=ready pod -l app=multiadmin-web --timeout=120s
+kubectl wait --for=condition=ready pod -l app=observability --timeout=120s
 
 set +x
 echo ""
 echo "========================================="
-echo "Components launched successfully!"
+echo "Infrastructure Ready"
 echo "========================================="
 echo ""
-echo "PostgreSQL access:"
-echo "  kubectl port-forward service/multigateway 15432:15432"
-echo "  psql --host=localhost --port=15432 -U postgres -d postgres"
+echo "Infrastructure components launched:"
+echo "  - Kind cluster"
+echo "  - etcd"
+echo "  - Observability stack (Prometheus, Tempo, Loki, Grafana)"
+echo "  - cert-manager"
+echo "  - Cluster metadata"
+echo "  - multiadmin and multiadmin-web"
 echo ""
-echo "Multiadmin Web UI:"
-echo "  kubectl port-forward service/multiadmin-web 18100:18100"
-echo "  Web UI:     http://localhost:18100"
+echo "Next step: Run ./launch-multigres-cluster.sh to deploy core multigres components"
+echo "  (multipooler, multiorch, multigateway)"
 echo ""
-echo "Multiadmin API access:"
-echo "  kubectl port-forward service/multiadmin 18000:18000 18070:18070"
-echo "  REST API:   http://localhost:18000"
-echo "  gRPC API:   localhost:18070"
-echo ""
-echo "Observability access:"
-echo "  kubectl port-forward service/observability 3000:3000 9090:9090 16686:16686"
-echo "  Grafana:    http://localhost:3000/dashboards"
-echo "  Prometheus: http://localhost:9090"
-echo "  Jaeger:     http://localhost:16686"
-echo ""
+
+# Start infrastructure port-forwards
+./port-forward-infra.sh

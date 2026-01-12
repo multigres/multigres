@@ -40,6 +40,13 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 	}
 	args = append(args, extraArgs...)
 
+	logger.InfoContext(ctx, "executing pg_rewind command",
+		"command", "pg_rewind",
+		"args", args,
+		"source_server", sourceServer,
+		"target_pgdata", poolerDir+"/pg_data",
+		"dry_run", dryRun)
+
 	cmd := exec.CommandContext(ctx, "pg_rewind", args...)
 
 	// Set PGPASSWORD environment variable for pg_rewind to use
@@ -53,9 +60,14 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 	result.Output = string(output)
 	if err != nil {
 		result.Message = "Rewind failed"
+		logger.ErrorContext(ctx, "pg_rewind command failed",
+			"error", err,
+			"output", string(output))
 		return result, fmt.Errorf("pg_rewind failed: %w", err)
 	}
 
 	result.Message = "Rewind completed successfully"
+	logger.InfoContext(ctx, "pg_rewind command completed successfully",
+		"output", string(output))
 	return result, nil
 }

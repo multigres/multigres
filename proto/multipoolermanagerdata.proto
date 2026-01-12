@@ -90,7 +90,6 @@ message StartReplicationRequest {
 message StartReplicationResponse {
 }
 
-
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
   // Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
@@ -326,6 +325,35 @@ message DemoteResponse {
 
   // Number of connections that were terminated
   int32 connections_terminated = 4;
+}
+
+// DemoteStalePrimary demotes a stale primary that came back online after failover.
+// This is a complete operation that:
+// 1. Stops postgres if running
+// 2. Runs pg_rewind to sync with the correct primary
+// 3. Clears sync replication config
+// 4. Restarts as standby
+// 5. Updates topology to REPLICA
+message DemoteStalePrimaryRequest {
+  // Source multipooler (the correct primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+
+  // Consensus term from the correct primary
+  int64 consensus_term = 2;
+
+  // Force the operation even if term validation fails
+  bool force = 3;
+}
+
+message DemoteStalePrimaryResponse {
+  // True if the operation completed successfully
+  bool success = 1;
+
+  // Whether pg_rewind was performed (servers were diverged)
+  bool rewind_performed = 2;
+
+  // LSN position after becoming standby
+  string lsn_position = 3;
 }
 
 // UndoDemote undoes a demotion
@@ -673,7 +701,7 @@ message BackupMetadata {
   string shard = 2;
   Status status = 3;
   string backup_id = 4;
-  string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
+  string final_lsn = 5; // Final checkpoint LSN (stop LSN) for this backup
 
   // Job ID annotation if present (for cross-process tracking)
   string job_id = 6;
@@ -753,4 +781,30 @@ message RewindToSourceResponse {
   // True if servers had diverged and pg_rewind was performed
   // False if timelines were compatible and no rewind was needed
   bool rewind_performed = 3;
+}
+
+// =============================================================================
+// PostgreSQL Monitoring Control APIs
+// =============================================================================
+
+// EnableMonitorRequest enables the PostgreSQL monitoring goroutine
+message EnableMonitorRequest {
+  // Empty for now - could add options in the future
+}
+
+// EnableMonitorResponse confirms monitoring was enabled
+// Errors are returned via gRPC status codes, not in the response body
+message EnableMonitorResponse {
+  // Empty - success indicated by no error
+}
+
+// DisableMonitorRequest disables the PostgreSQL monitoring goroutine
+message DisableMonitorRequest {
+  // Empty for now
+}
+
+// DisableMonitorResponse confirms monitoring was disabled
+// Errors are returned via gRPC status codes, not in the response body
+message DisableMonitorResponse {
+  // Empty - success indicated by no error
 }
