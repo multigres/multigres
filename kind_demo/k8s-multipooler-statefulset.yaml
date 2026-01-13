@@ -112,6 +112,7 @@ spec:
             - --pgbackrest-key-file=/certs/pgbackrest.key
             - --pgbackrest-ca-file=/certs/ca.crt
             - --pgbackrest-port=8432
+            - --log-level=info
             - --pprof-http=true
           ports:
             - containerPort: 16000

@@ -34,6 +34,7 @@ spec:
             - --cluster-metadata-refresh-interval=500ms
             - --pooler-health-check-interval=500ms
             - --recovery-cycle-interval=500ms
+            - --log-level=info
             - --pprof-http=true
           env:
             - name: POD_IP
