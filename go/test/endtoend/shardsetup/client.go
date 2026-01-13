@@ -28,7 +28,6 @@ import (
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/test/endtoend"
 )
 
 // MultipoolerClient wraps a gRPC connection to a multipooler and provides access to
@@ -38,7 +37,7 @@ type MultipoolerClient struct {
 	conn      *grpc.ClientConn
 	Manager   multipoolermanagerpb.MultiPoolerManagerClient
 	Consensus consensuspb.MultiPoolerConsensusClient
-	Pooler    *endtoend.MultiPoolerTestClient
+	Pooler    *MultiPoolerTestClient
 }
 
 // NewMultipoolerClient creates a new MultipoolerClient connected to the given gRPC port.
@@ -56,7 +55,7 @@ func NewMultipoolerClient(grpcPort int) (*MultipoolerClient, error) {
 	}
 
 	// Create pooler test client (uses its own connection internally)
-	poolerClient, err := endtoend.NewMultiPoolerTestClient(addr)
+	poolerClient, err := NewMultiPoolerTestClient(addr)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to create pooler client: %w", err)
@@ -126,7 +125,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 // QueryStringValue executes a query and extracts the first column of the first row as a string.
 // Returns empty string and error if query fails or returns no rows.
 // Follows the pattern from multipooler/setup_test.go:queryStringValue.
-func QueryStringValue(ctx context.Context, client *endtoend.MultiPoolerTestClient, query string) (string, error) {
+func QueryStringValue(ctx context.Context, client *MultiPoolerTestClient, query string) (string, error) {
 	resp, err := client.ExecuteQuery(ctx, query, 1)
 	if err != nil {
 		return "", err

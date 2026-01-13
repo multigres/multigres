@@ -32,7 +32,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
-	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -234,7 +233,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		t.Logf("New primary LSN: %s", primaryLSN)
 
 		// Collect pooler clients for the surviving nodes and wait for replica to catch up
-		var poolers []*endtoend.MultiPoolerTestClient
+		var poolers []*shardsetup.MultiPoolerTestClient
 		poolers = append(poolers, newPrimaryClient.Pooler)
 
 		for name, inst := range setup.Multipoolers {

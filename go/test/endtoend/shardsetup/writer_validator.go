@@ -23,8 +23,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/multigres/multigres/go/test/endtoend"
 )
 
 // WriterValidator continuously writes to a test table and tracks successful/failed writes.
@@ -34,7 +32,7 @@ type WriterValidator struct {
 	workerCount   int
 	writeInterval time.Duration
 
-	pooler *endtoend.MultiPoolerTestClient
+	pooler *MultiPoolerTestClient
 
 	nextID atomic.Int64
 
@@ -67,7 +65,7 @@ func WithWriteInterval(interval time.Duration) WriterValidatorOption {
 
 // NewWriterValidator creates a new WriterValidator for the given pooler.
 // It creates the test table immediately and returns a cleanup function that drops it.
-func NewWriterValidator(t *testing.T, pooler *endtoend.MultiPoolerTestClient, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
+func NewWriterValidator(t *testing.T, pooler *MultiPoolerTestClient, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
 	t.Helper()
 	w := &WriterValidator{
 		tableName:     fmt.Sprintf("writer_validator_%d", time.Now().UnixNano()),
@@ -215,7 +213,7 @@ func (w *WriterValidator) Stats() (successful, failed int) {
 }
 
 // Verify checks that all successful writes are present in at least one of the provided poolers.
-func (w *WriterValidator) Verify(t *testing.T, poolers []*endtoend.MultiPoolerTestClient) error {
+func (w *WriterValidator) Verify(t *testing.T, poolers []*MultiPoolerTestClient) error {
 	t.Helper()
 
 	w.mu.Lock()

@@ -641,10 +641,19 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		err := os.WriteFile(pwfile, []byte(testPassword), 0o600)
 		require.NoError(t, err, "Should create password file")
 
+		// Build environment without PGPASSWORD to avoid conflicts with password file
+		cleanEnv := make([]string, 0, len(os.Environ()))
+		for _, env := range os.Environ() {
+			if !strings.HasPrefix(env, "PGPASSWORD=") {
+				cleanEnv = append(cleanEnv, env)
+			}
+		}
+		cleanEnv = append(cleanEnv, "PGCONNECT_TIMEOUT=5")
+
 		// Initialize - pgctld will find password file at conventional location
 		t.Logf("Initializing PostgreSQL with password file at conventional location")
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		initCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
+		initCmd.Env = cleanEnv
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "\"password_source\":\"password file\"", "Should use password file")

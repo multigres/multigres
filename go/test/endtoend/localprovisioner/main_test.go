@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package localprovisioner
 
 import (
 	"fmt"
@@ -20,23 +20,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/tools/pathutil"
 )
-
-// setupManager manages the shared test setup for endtoend tests.
-var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
-	return shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby
-		shardsetup.WithMultigateway(),      // enable multigateway
-	)
-})
-
-// getSharedSetup returns the shared setup for endtoend tests.
-func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
-	t.Helper()
-	return setupManager.Get(t)
-}
 
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
@@ -53,11 +38,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
 
 	// Run all tests
-	exitCode := shardsetup.RunTestMain(m)
-	if exitCode != 0 {
-		setupManager.DumpLogs()
-	}
-	setupManager.Cleanup()
+	exitCode := m.Run()
 
 	// Cleanup environment variable
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")
