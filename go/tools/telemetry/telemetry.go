@@ -448,8 +448,11 @@ type compositeHandler struct {
 }
 
 func (h *compositeHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	// Enabled if either handler is enabled
-	return h.local.Enabled(ctx, level) || h.otel.Enabled(ctx, level)
+	// Use the local handler's level configuration to determine if logs should be emitted.
+	// This ensures that the --log-level flag is respected for both local and OTLP outputs.
+	// If the local handler rejects a log level (e.g., DEBUG when configured for INFO),
+	// we don't want to send it to OTLP either, as that would bypass the configured level.
+	return h.local.Enabled(ctx, level)
 }
 
 func (h *compositeHandler) Handle(ctx context.Context, r slog.Record) error {
