@@ -1193,7 +1193,6 @@ func (s *ShardSetup) saveBaselineGucs(t *testing.T) {
 		gucs := SaveGUCs(ctx, client.Pooler, baselineGucNames)
 		s.BaselineGucs[name] = gucs
 
-		t.Logf("saveBaselineGucs: saved GUCs for %s: %v", name, gucs)
 		client.Close()
 	}
 }

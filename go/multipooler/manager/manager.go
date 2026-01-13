@@ -1750,24 +1750,10 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 
-	// Set consensus term after restore.
-	// If the cluster is at a higher term,
-	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
-	var term int64 = 0
-	if pm.consensusState != nil {
-		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
-		pm.loadConsensusTermFromDisk()
-		term = pm.consensusState.term.TermNumber
-	}
-
-	if term == 0 {
-		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
-	}
-
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"term", term)
+		"term", pm.consensusState.term.TermNumber)
 
 	return nil
 }
@@ -1823,4 +1809,32 @@ func (pm *MultiPoolerManager) disableMonitorInternal() {
 	pm.monitorCancel = nil
 
 	pm.logger.Info("MonitorPostgres disabled successfully")
+}
+
+// PausePostgresMonitor disables monitoring if it's currently enabled and returns a function
+// that will restore the original monitoring state. If monitoring was already disabled,
+// returns a no-op function. The caller is responsible for calling the returned function
+// (typically via defer) to restore the original state.
+//
+// Example usage:
+//
+//	resumeMonitor := pm.PausePostgresMonitor()
+//	defer resumeMonitor()
+//	// ... perform operations that require monitoring to be disabled ...
+func (pm *MultiPoolerManager) PausePostgresMonitor() func() {
+	pm.mu.Lock()
+	wasEnabled := pm.monitorCancel != nil
+	pm.mu.Unlock()
+
+	if wasEnabled {
+		pm.disableMonitorInternal()
+		return func() {
+			if err := pm.enableMonitorInternal(); err != nil {
+				pm.logger.Warn("Failed to re-enable monitor", "error", err)
+			}
+		}
+	}
+
+	// Monitoring was already disabled, return no-op
+	return func() {}
 }

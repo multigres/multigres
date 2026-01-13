@@ -797,6 +797,10 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during this operation to prevent interference
+	resumeMonitor := pm.PausePostgresMonitor()
+	defer resumeMonitor()
+
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
 	// not ready) updates the term, causing subsequent detection to see equal
@@ -986,13 +990,9 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Disable monitor during this operation to prevent interference
-	pm.disableMonitorInternal()
-	defer func() {
-		if err := pm.enableMonitorInternal(); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to re-enable monitor after DemoteStalePrimary", "error", err)
-		}
-	}()
+	// Pause monitoring during this operation to prevent interference
+	resumeMonitor := pm.PausePostgresMonitor()
+	defer resumeMonitor()
 
 	// Validate the term
 	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
@@ -1332,6 +1332,10 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Pause monitoring during this operation to prevent interference
+	resumeMonitor := pm.PausePostgresMonitor()
+	defer resumeMonitor()
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
