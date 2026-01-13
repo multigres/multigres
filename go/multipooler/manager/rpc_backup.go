@@ -207,6 +207,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
+	pm.logger.InfoContext(ctx, "Starting backup operation", "backup_location", pm.backupLocation, "backup_type", backupType)
+
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
@@ -268,8 +270,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
 
-	// Capture output for logging
-	output, err := cmd.CombinedOutput()
+	// Execute backup with progress logging
+	output, err := pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
@@ -292,7 +294,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		"--set="+foundBackupID,
 		"verify")
 
-	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
+	// Execute verify with progress logging
+	verifyOutput, verifyErr := pm.runLongCommand(verifyCtx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
@@ -337,6 +340,8 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+
+	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_location", pm.backupLocation, "backup_id", backupID)
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -837,4 +842,52 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // pgbackrestPath returns the path to the pgbackrest config and data directory
 func (pm *MultiPoolerManager) pgbackrestPath() string {
 	return filepath.Join(pm.config.PoolerDir, "pgbackrest")
+}
+
+// runLongCommand executes a long-running command with periodic progress logging.
+// Logs progress every 10 seconds and returns the command output and error.
+func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
+	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
+
+	// Run command in goroutine
+	done := make(chan struct{})
+	var output []byte
+	var cmdErr error
+
+	go func() {
+		defer close(done)
+		output, cmdErr = cmd.CombinedOutput()
+	}()
+
+	// Log progress periodically while command runs
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	startTime := time.Now()
+	complete := false
+
+	for !complete {
+		select {
+		case <-done:
+			elapsed := time.Since(startTime)
+			pm.logger.InfoContext(ctx, "Command completed",
+				"operation", operationName,
+				"elapsed_seconds", int(elapsed.Seconds()))
+			complete = true
+		case <-ticker.C:
+			elapsed := time.Since(startTime)
+			pm.logger.InfoContext(ctx, "Command still in progress",
+				"operation", operationName,
+				"elapsed_seconds", int(elapsed.Seconds()))
+		case <-ctx.Done():
+			elapsed := time.Since(startTime)
+			pm.logger.ErrorContext(ctx, "Command context cancelled",
+				"operation", operationName,
+				"elapsed_seconds", int(elapsed.Seconds()),
+				"error", ctx.Err())
+			return nil, ctx.Err()
+		}
+	}
+
+	return output, cmdErr
 }
