@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,6 +104,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		state:          ManagerStateReady,
 		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
+		logger:         slog.Default(),
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topoclient.NewMultiPoolerInfo(
 				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
