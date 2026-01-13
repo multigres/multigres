@@ -71,9 +71,19 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			ctx := context.Background()
 			poolerDir := t.TempDir()
 
-			// Create test config
+			// Create test config with topology store that has backup location
+			database := "postgres"
+			backupLocation := "/tmp/test-backups"
 			store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
 			defer store.Close()
+
+			// Create database in topology with backup location
+			err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+				Name:           database,
+				BackupLocation: backupLocation,
+			})
+			require.NoError(t, err)
+
 			serviceID := &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "test-cell",
@@ -83,7 +93,7 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			config := &Config{
 				PoolerDir:  poolerDir,
 				PgPort:     5432,
-				Database:   "postgres",
+				Database:   database,
 				TopoClient: store,
 				ServiceID:  serviceID,
 				TableGroup: constants.DefaultTableGroup,
@@ -99,6 +109,13 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
+
+			// Set manager to ready state with backup location so checkReady() passes
+			pm.mu.Lock()
+			pm.state = ManagerStateReady
+			pm.backupLocation = filepath.Join(backupLocation, database, constants.DefaultTableGroup, constants.DefaultShard)
+			pm.topoLoaded = true
+			pm.mu.Unlock()
 
 			// Run setup function
 			if tt.setupFunc != nil {
@@ -223,9 +240,19 @@ func TestInitializeAsStandby(t *testing.T) {
 			ctx := context.Background()
 			poolerDir := t.TempDir()
 
-			// Create test config
+			// Create test config with topology store that has backup location
+			database := "postgres"
+			backupLocation := "/tmp/test-backups"
 			store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
 			defer store.Close()
+
+			// Create database in topology with backup location
+			err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+				Name:           database,
+				BackupLocation: backupLocation,
+			})
+			require.NoError(t, err)
+
 			serviceID := &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "test-cell",
@@ -235,7 +262,7 @@ func TestInitializeAsStandby(t *testing.T) {
 			config := &Config{
 				PoolerDir:  poolerDir,
 				PgPort:     5432,
-				Database:   "postgres",
+				Database:   database,
 				TopoClient: store,
 				ServiceID:  serviceID,
 				TableGroup: constants.DefaultTableGroup,
@@ -250,6 +277,13 @@ func TestInitializeAsStandby(t *testing.T) {
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
+
+			// Set manager to ready state with backup location so checkReady() passes
+			pm.mu.Lock()
+			pm.state = ManagerStateReady
+			pm.backupLocation = filepath.Join(backupLocation, database, constants.DefaultTableGroup, constants.DefaultShard)
+			pm.topoLoaded = true
+			pm.mu.Unlock()
 
 			// Run setup function
 			if tt.setupFunc != nil {

@@ -37,6 +37,11 @@ import (
 func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
 	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 
+	// Wait for topology to be loaded (needed for backup location)
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	// Acquire action lock
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
@@ -200,6 +205,11 @@ func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *mult
 		"primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort),
 		"term", req.ConsensusTerm,
 		"force", req.Force)
+
+	// Wait for topology to be loaded (needed for backup location during restore)
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
 
 	// Acquire action lock
 	var err error
