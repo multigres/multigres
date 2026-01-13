@@ -262,6 +262,12 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 			"-D", config.PostgresDataDir,
 			"-m", "fast",
 		)
+		// Put watchdog in its own process group so SIGINT/SIGTERM to parent doesn't kill it
+		// The watchdog needs to survive the parent's death to perform cleanup
+		watchdogCmd.SysProcAttr = &syscall.SysProcAttr{
+			Setpgid: true,
+			Pgid:    0,
+		}
 		// Environment variables automatically inherit
 		if err := watchdogCmd.Start(); err != nil {
 			logger.Warn("Failed to start watchdog process", "error", err)
