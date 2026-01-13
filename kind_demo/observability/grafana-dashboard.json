@@ -18,7 +18,7 @@
       },
       "id": 100,
       "panels": [],
-      "title": "Multigateway - Client Gateway",
+      "title": "HTTP Metrics",
       "type": "row"
     },
     {
@@ -48,13 +48,13 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (http_response_status_code, http_request_method) (histogram_count(rate(http_server_request_duration_seconds{job=\"multigateway\"}[$__rate_interval])))",
+          "expr": "sum by (job, http_response_status_code, http_request_method) (histogram_count(rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval])))",
           "legendFormat": "{{http_request_method}} [{{http_response_status_code}}]",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HTTP Response Codes",
+      "title": "HTTP Response Codes (All Services)",
       "type": "timeseries"
     },
     {
@@ -84,7 +84,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (http_request_method) (rate(http_server_request_duration_seconds{job=\"multigateway\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (job, http_request_method) (rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval])))",
           "legendFormat": "p95 - {{http_request_method}}",
           "range": true,
           "refId": "A"
@@ -96,21 +96,34 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (http_request_method) (rate(http_server_request_duration_seconds{job=\"multigateway\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (job, http_request_method) (rate(http_server_request_duration_seconds{job=~\"$service\"}[$__rate_interval])))",
           "legendFormat": "p50 - {{http_request_method}}",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "HTTP Latency",
+      "title": "HTTP Latency (All Services)",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 150,
+      "panels": [],
+      "title": "gRPC Client Metrics",
+      "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Outgoing gRPC calls from multigateway to multipooler. Status code 0 = OK. Click on data points to view traces in Jaeger.",
+      "description": "Outgoing gRPC calls from services. Status code 0 = OK. Click on data points to view traces in Jaeger.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -132,13 +145,13 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=\"multigateway\"}[$__rate_interval])))",
+          "expr": "sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=~\"$service\"}[$__rate_interval])))",
           "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{rpc_grpc_status_code}}]",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "gRPC Client Response Codes",
+      "title": "gRPC Client Response Codes (All Services)",
       "type": "timeseries"
     },
     {
@@ -146,7 +159,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Latency for multigateway -> multipooler gRPC calls. Click on data points to view traces in Jaeger.",
+      "description": "Latency for outgoing gRPC calls from services. Click on data points to view traces in Jaeger.",
       "fieldConfig": {
         "defaults": {
           "unit": "s"
@@ -168,7 +181,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=\"multigateway\"}[$__rate_interval]))) / 1000",
+          "expr": "histogram_quantile(0.95, sum by (job, rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
           "legendFormat": "p95 - {{rpc_service}}.{{rpc_method}}",
           "range": true,
           "refId": "A"
@@ -180,13 +193,13 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=\"multigateway\"}[$__rate_interval]))) / 1000",
+          "expr": "histogram_quantile(0.50, sum by (job, rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
           "legendFormat": "p50 - {{rpc_service}}.{{rpc_method}}",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "gRPC Client Latency",
+      "title": "gRPC Client Latency (All Services)",
       "type": "timeseries"
     },
     {
@@ -199,7 +212,7 @@
       },
       "id": 200,
       "panels": [],
-      "title": "Multipooler - Connection Pooling",
+      "title": "gRPC Server Metrics",
       "type": "row"
     },
     {
@@ -207,7 +220,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Incoming gRPC requests to multipooler. Status code 0 = OK. Click on data points to view traces in Jaeger.",
+      "description": "Incoming gRPC requests to services. Status code 0 = OK. Click on data points to view traces in Jaeger.",
       "fieldConfig": {
         "defaults": {
           "unit": "reqps"
@@ -229,13 +242,13 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "sum by (rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_server_duration_milliseconds{job=\"multipooler\"}[$__rate_interval])))",
+          "expr": "sum by (job, rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_server_duration_milliseconds{job=~\"$service\"}[$__rate_interval])))",
           "legendFormat": "{{rpc_method}} [{{rpc_grpc_status_code}}]",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "gRPC Server Response Codes",
+      "title": "gRPC Server Response Codes (All Services)",
       "type": "timeseries"
     },
     {
@@ -243,7 +256,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Latency for incoming multipooler gRPC requests. Click on data points to view traces in Jaeger.",
+      "description": "Latency for incoming gRPC requests to services. Click on data points to view traces in Jaeger.",
       "fieldConfig": {
         "defaults": {
           "unit": "s"
@@ -265,7 +278,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (rpc_method) (rate(rpc_server_duration_milliseconds{job=\"multipooler\"}[$__rate_interval]))) / 1000",
+          "expr": "histogram_quantile(0.95, sum by (job, rpc_service, rpc_method) (rate(rpc_server_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
           "legendFormat": "p95 - {{rpc_method}}",
           "range": true,
           "refId": "A"
@@ -277,98 +290,27 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (rpc_method) (rate(rpc_server_duration_milliseconds{job=\"multipooler\"}[$__rate_interval]))) / 1000",
+          "expr": "histogram_quantile(0.50, sum by (job, rpc_service, rpc_method) (rate(rpc_server_duration_milliseconds{job=~\"$service\"}[$__rate_interval]))) / 1000",
           "legendFormat": "p50 - {{rpc_method}}",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "gRPC Server Latency",
+      "title": "gRPC Server Latency (All Services)",
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "Outgoing gRPC calls from multipooler to pgctld. Status code 0 = OK. Click on data points to view traces in Jaeger.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
+      "collapsed": false,
       "gridPos": {
-        "h": 9,
-        "w": 12,
+        "h": 1,
+        "w": 24,
         "x": 0,
         "y": 29
       },
-      "id": 7,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=\"multipooler\"}[$__rate_interval])))",
-          "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{rpc_grpc_status_code}}]",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "gRPC Client Response Codes (to pgctld)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "Latency for multipooler -> pgctld gRPC calls. Click on data points to view traces in Jaeger.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 29
-      },
-      "id": 8,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=\"multipooler\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p95 - {{rpc_service}}.{{rpc_method}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=\"multipooler\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p50 - {{rpc_service}}.{{rpc_method}}",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "gRPC Client Latency (to pgctld)",
-      "type": "timeseries"
+      "id": 250,
+      "panels": [],
+      "title": "Multipooler - Connection Pooling",
+      "type": "row"
     },
     {
       "datasource": {
@@ -553,90 +495,6 @@
       "panels": [],
       "title": "Multiorch - Orchestration & Recovery",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "Outgoing gRPC calls from multiorch to multipooler. Status code 0 = OK. Click on data points to view traces in Jaeger.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 57
-      },
-      "id": 13,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "sum by (rpc_service, rpc_method, rpc_grpc_status_code) (histogram_count(rate(rpc_client_duration_milliseconds{job=\"multiorch\"}[$__rate_interval])))",
-          "legendFormat": "{{rpc_service}}.{{rpc_method}} [{{rpc_grpc_status_code}}]",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "gRPC Client Response Codes (to multipooler)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "Latency for multiorch -> multipooler gRPC calls. Click on data points to view traces in Jaeger.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 57
-      },
-      "id": 14,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=\"multiorch\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p95 - {{rpc_service}}.{{rpc_method}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum by (rpc_service, rpc_method) (rate(rpc_client_duration_milliseconds{job=\"multiorch\"}[$__rate_interval]))) / 1000",
-          "legendFormat": "p50 - {{rpc_service}}.{{rpc_method}}",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "gRPC Client Latency (to multipooler)",
-      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1048,7 +906,7 @@
         "multi": true,
         "name": "service",
         "options": [],
-        "query": "label_values(up, job)",
+        "query": "label_values({__name__=~\"http_server_request_duration_seconds|rpc_server_duration_milliseconds\"}, job)",
         "queryValue": "",
         "refresh": 1,
         "regex": "",
