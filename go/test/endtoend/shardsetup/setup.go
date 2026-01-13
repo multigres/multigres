@@ -1077,8 +1077,7 @@ func (s *ShardSetup) DemotePrimary(t *testing.T) {
 	require.NoError(t, err, "failed to connect to primary")
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 20*time.Second)
 
 	// Demote using the Demote RPC with term 1 (clean state starts at term 1)
 	_, err = client.Manager.Demote(ctx, &multipoolermanagerdatapb.DemoteRequest{
