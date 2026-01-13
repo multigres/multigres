@@ -57,7 +57,6 @@ const (
 	MultiPoolerManager_State_FullMethodName                           = "/multipoolermanager.MultiPoolerManager/State"
 	MultiPoolerManager_SetTerm_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/SetTerm"
 	MultiPoolerManager_InitializeEmptyPrimary_FullMethodName          = "/multipoolermanager.MultiPoolerManager/InitializeEmptyPrimary"
-	MultiPoolerManager_InitializeAsStandby_FullMethodName             = "/multipoolermanager.MultiPoolerManager/InitializeAsStandby"
 	MultiPoolerManager_Backup_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Backup"
 	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
 	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
@@ -130,9 +129,6 @@ type MultiPoolerManagerClient interface {
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(ctx context.Context, in *multipoolermanagerdata.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
-	// InitializeAsStandby initializes this pooler as a standby from a primary backup
-	// Used during bootstrap initialization of a new shard or when adding a new standby
-	InitializeAsStandby(ctx context.Context, in *multipoolermanagerdata.InitializeAsStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
 	// Backup performs a backup
 	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -390,16 +386,6 @@ func (c *multiPoolerManagerClient) InitializeEmptyPrimary(ctx context.Context, i
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) InitializeAsStandby(ctx context.Context, in *multipoolermanagerdata.InitializeAsStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeAsStandbyResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.InitializeAsStandbyResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_InitializeAsStandby_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiPoolerManagerClient) Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.BackupResponse)
@@ -533,9 +519,6 @@ type MultiPoolerManagerServer interface {
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
-	// InitializeAsStandby initializes this pooler as a standby from a primary backup
-	// Used during bootstrap initialization of a new shard or when adding a new standby
-	InitializeAsStandby(context.Context, *multipoolermanagerdata.InitializeAsStandbyRequest) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
 	// Backup performs a backup
 	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -631,9 +614,6 @@ func (UnimplementedMultiPoolerManagerServer) SetTerm(context.Context, *multipool
 }
 func (UnimplementedMultiPoolerManagerServer) InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitializeEmptyPrimary not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) InitializeAsStandby(context.Context, *multipoolermanagerdata.InitializeAsStandbyRequest) (*multipoolermanagerdata.InitializeAsStandbyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method InitializeAsStandby not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
@@ -1091,24 +1071,6 @@ func _MultiPoolerManager_InitializeEmptyPrimary_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_InitializeAsStandby_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.InitializeAsStandbyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).InitializeAsStandby(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_InitializeAsStandby_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).InitializeAsStandby(ctx, req.(*multipoolermanagerdata.InitializeAsStandbyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerManager_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.BackupRequest)
 	if err := dec(in); err != nil {
@@ -1333,10 +1295,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitializeEmptyPrimary",
 			Handler:    _MultiPoolerManager_InitializeEmptyPrimary_Handler,
-		},
-		{
-			MethodName: "InitializeAsStandby",
-			Handler:    _MultiPoolerManager_InitializeAsStandby_Handler,
 		},
 		{
 			MethodName: "Backup",

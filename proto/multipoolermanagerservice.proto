@@ -138,11 +138,6 @@ service MultiPoolerManager {
   rpc InitializeEmptyPrimary(multipoolermanagerdata.InitializeEmptyPrimaryRequest)
     returns (multipoolermanagerdata.InitializeEmptyPrimaryResponse);
 
-  // InitializeAsStandby initializes this pooler as a standby from a primary backup
-  // Used during bootstrap initialization of a new shard or when adding a new standby
-  rpc InitializeAsStandby(multipoolermanagerdata.InitializeAsStandbyRequest)
-    returns (multipoolermanagerdata.InitializeAsStandbyResponse);
-
   //
   // Backup and Restore
   // All of these RPCs perform backups and restores in the context

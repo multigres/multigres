@@ -605,34 +605,6 @@ message InitializeEmptyPrimaryResponse {
   string backup_id = 3;
 }
 
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-message InitializeAsStandbyRequest {
-  // Primary pooler to replicate from
-  clustermetadata.MultiPooler primary = 1;
-
-  // Consensus term to set for this standby
-  int64 consensus_term = 2;
-
-  // Whether to force reinitialization (removes existing data directory)
-  bool force = 3;
-
-  // Optional: Specific backup ID to restore from
-  // If empty, restore from the latest backup
-  string backup_id = 4;
-}
-
-message InitializeAsStandbyResponse {
-  // Whether the initialization succeeded
-  bool success = 1;
-
-  // Error message if initialization failed
-  string error_message = 2;
-
-  // Final LSN position after backup completed
-  string final_lsn = 3;
-}
-
 // Backup operations
 // All of these RPCs perform backups and restores in the context
 // of the database, table group, and shard this multipooler serves.

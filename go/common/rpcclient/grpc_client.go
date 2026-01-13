@@ -134,19 +134,6 @@ func (c *Client) InitializeEmptyPrimary(ctx context.Context, pooler *clustermeta
 	return conn.managerClient.InitializeEmptyPrimary(ctx, request)
 }
 
-// InitializeAsStandby initializes the multipooler as a standby from a primary.
-func (c *Client) InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.InitializeAsStandby(ctx, request)
-}
-
 //
 // Manager Service Methods - Status and Monitoring
 //
