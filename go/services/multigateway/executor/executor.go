@@ -22,10 +22,10 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/multigateway/engine"
-	"github.com/multigres/multigres/go/multigateway/handler"
-	"github.com/multigres/multigres/go/multigateway/planner"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/planner"
 )
 
 const (

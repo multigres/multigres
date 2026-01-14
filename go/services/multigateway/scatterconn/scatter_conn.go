@@ -30,11 +30,11 @@ import (
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/multigateway/engine"
-	"github.com/multigres/multigres/go/multigateway/handler"
-	"github.com/multigres/multigres/go/multigateway/poolergateway"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 )
 
 // ScatterConn coordinates query execution across multiple multipooler instances.

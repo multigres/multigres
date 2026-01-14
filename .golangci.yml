@@ -132,17 +132,16 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/services/pgctld"
               desc: "pgctld can only be imported by its own package and cmd"
-        # TODO: Move go/multigateway to go/services/multigateway and update paths below
         multigateway-isolation:
           files:
-            - "!**/go/multigateway/*.go"
-            - "!**/go/multigateway/**/*.go"
+            - "!**/go/services/multigateway/*.go"
+            - "!**/go/services/multigateway/**/*.go"
             - "!**/go/cmd/multigateway/*.go"
             - "!**/go/cmd/multigateway/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multigateway"
+            - pkg: "github.com/multigres/multigres/go/services/multigateway"
               desc: "multigateway can only be imported by its own package and cmd"
         multiorch-isolation:
           files:

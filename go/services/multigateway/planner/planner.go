@@ -21,7 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
-	"github.com/multigres/multigres/go/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
 // Planner is responsible for creating query execution plans.
