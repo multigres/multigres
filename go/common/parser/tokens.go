@@ -33,7 +33,7 @@
  *
  * IMPORTANT: These token constants are TEMPORARY scaffolding for Phase 2A development.
  * In Phase 3 (Grammar & Parsing), these will be REPLACED by goyacc-generated constants
- * from go/parser/grammar/postgres.y. The generated postgres.go file will contain the
+ * from go/common/parser/grammar/postgres.y. The generated postgres.go file will contain the
  * authoritative token definitions that the lexer will import and use.
  *
  * This approach follows the Vitess pattern where the lexer uses token constants

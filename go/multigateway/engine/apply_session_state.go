@@ -18,10 +18,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multigateway/handler"
-	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // ApplySessionState updates local session state after a SET/RESET command

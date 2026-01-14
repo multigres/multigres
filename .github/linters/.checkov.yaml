@@ -2,7 +2,7 @@
 # Don't report passed checks in output
 quiet: true
 skip-path:
-  - go/parser/testdata/postgres/password.json
+  - go/common/parser/testdata/postgres/password.json
   - dist
   - demo/k8s
   - web/multiadmin
