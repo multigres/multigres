@@ -87,8 +87,6 @@ type FakeClient struct {
 	GetBackupsResponses                      map[string]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses                map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 	RewindToSourceResponses                  map[string]*multipoolermanagerdatapb.RewindToSourceResponse
-	EnableMonitorResponses                   map[string]*multipoolermanagerdatapb.EnableMonitorResponse
-	DisableMonitorResponses                  map[string]*multipoolermanagerdatapb.DisableMonitorResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
@@ -134,8 +132,6 @@ func NewFakeClient() *FakeClient {
 		GetBackupsResponses:                      make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:                make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		RewindToSourceResponses:                  make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
-		EnableMonitorResponses:                   make(map[string]*multipoolermanagerdatapb.EnableMonitorResponse),
-		DisableMonitorResponses:                  make(map[string]*multipoolermanagerdatapb.DisableMonitorResponse),
 		Errors:                                   make(map[string]error),
 		CallLog:                                  make([]string, 0),
 		PromoteRequests:                          make(map[string]*multipoolermanagerdatapb.PromoteRequest),
@@ -204,19 +200,6 @@ func (f *FakeClient) SetStatusResponseWithDelay(poolerID string, resp *multipool
 }
 
 // SetEnableMonitorResponse sets an EnableMonitor response for a pooler.
-func (f *FakeClient) SetEnableMonitorResponse(poolerID string, resp *multipoolermanagerdatapb.EnableMonitorResponse) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.EnableMonitorResponses[poolerID] = resp
-}
-
-// SetDisableMonitorResponse sets a DisableMonitor response for a pooler.
-func (f *FakeClient) SetDisableMonitorResponse(poolerID string, resp *multipoolermanagerdatapb.DisableMonitorResponse) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.DisableMonitorResponses[poolerID] = resp
-}
-
 //
 // Consensus Service Methods
 //
@@ -790,42 +773,6 @@ func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadata
 
 //
 // Manager Service Methods - PostgreSQL Monitoring Control
-//
-
-// EnableMonitor enables the PostgreSQL monitoring goroutine on a pooler.
-func (f *FakeClient) EnableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.EnableMonitorRequest) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("EnableMonitor", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.EnableMonitorResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.EnableMonitorResponse{}, nil
-}
-
-// DisableMonitor disables the PostgreSQL monitoring goroutine on a pooler.
-func (f *FakeClient) DisableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.DisableMonitorRequest) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("DisableMonitor", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.DisableMonitorResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.DisableMonitorResponse{}, nil
-}
-
 //
 // Connection Management Methods
 //

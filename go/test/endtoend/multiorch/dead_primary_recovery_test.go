@@ -95,11 +95,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
 
-	_, err = primaryClient.Manager.DisableMonitor(t.Context(), &multipoolermanagerdatapb.DisableMonitorRequest{})
-	require.NoError(t, err)
-	defer func() {
-		_, _ = primaryClient.Manager.EnableMonitor(t.Context(), &multipoolermanagerdatapb.EnableMonitorRequest{})
-	}()
+	// Note: Monitor disable/enable removed - monitor no longer auto-restarts postgres
 
 	t.Logf("Starting continuous writes to primary...")
 	validator.Start(t)

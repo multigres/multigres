@@ -1541,6 +1541,12 @@ func (pm *MultiPoolerManager) MonitorPostgres(ctx context.Context) {
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: starting monitoring loop")
 
+	// Exit if pooler is already initialized - monitoring only needed for bootstrap
+	if pm.isInitialized(ctx) {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: pooler already initialized, exiting")
+		return
+	}
+
 	// Track last logged reason to avoid duplicate logs
 	var lastLoggedReason string
 
@@ -1597,7 +1603,6 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentSta
 	const (
 		reasonPgctldUnavailable   = "pgctld_unavailable"
 		reasonPostgresRunning     = "postgres_running"
-		reasonStartingPostgres    = "starting_postgres"
 		reasonRestoringFromBackup = "restoring_from_backup"
 		reasonWaitingForBackup    = "waiting_for_backup"
 	)
@@ -1615,20 +1620,6 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentSta
 		if *lastLoggedReason != reasonPostgresRunning {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running")
 			*lastLoggedReason = reasonPostgresRunning
-		}
-		return
-	}
-
-	// Directory initialized and Postgres is not running: Start postgres
-	// Note: We only reach here if postgres is not running
-	if currentState.dirInitialized {
-		// Log only on reason change
-		if *lastLoggedReason != reasonStartingPostgres {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
-			*lastLoggedReason = reasonStartingPostgres
-		}
-		if err := pm.startPostgres(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
 		}
 		return
 	}
@@ -1770,57 +1761,4 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"term", term)
 
 	return nil
-}
-
-// enableMonitorInternal starts the PostgreSQL monitoring goroutine if it's not already running.
-// This method is idempotent - calling it multiple times has no effect if monitoring is already enabled.
-func (pm *MultiPoolerManager) enableMonitorInternal() error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	// Check if monitor is already running
-	if pm.monitorCancel != nil {
-		pm.logger.Info("MonitorPostgres already enabled, skipping")
-		return nil
-	}
-
-	// Check if the manager is open
-	if !pm.isOpen {
-		return errors.New("manager is not open, cannot enable monitor")
-	}
-
-	pm.logger.Info("Enabling MonitorPostgres")
-
-	// Create a new cancelable context for the monitor
-	monitorCtx, monitorCancel := context.WithCancel(pm.ctx)
-	pm.monitorCancel = monitorCancel
-
-	// Start the monitoring goroutine
-	go pm.MonitorPostgres(monitorCtx)
-
-	pm.logger.Info("MonitorPostgres enabled successfully")
-	return nil
-}
-
-// disableMonitorInternal stops the PostgreSQL monitoring goroutine.
-// This method is idempotent - calling it multiple times has no effect if monitoring is already disabled.
-func (pm *MultiPoolerManager) disableMonitorInternal() {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	// Check if monitor is already stopped
-	if pm.monitorCancel == nil {
-		pm.logger.Info("MonitorPostgres already disabled, skipping")
-		return
-	}
-
-	pm.logger.Info("Disabling MonitorPostgres")
-
-	// Cancel the monitor context
-	pm.monitorCancel()
-
-	// Set to nil to indicate it's been canceled
-	pm.monitorCancel = nil
-
-	pm.logger.Info("MonitorPostgres disabled successfully")
 }

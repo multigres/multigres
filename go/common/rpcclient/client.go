@@ -266,14 +266,6 @@ type MultiPoolerClient interface {
 	//
 	// Manager Service Methods - PostgreSQL Monitoring Control
 	//
-
-	// EnableMonitor enables the PostgreSQL monitoring goroutine on a pooler.
-	EnableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EnableMonitorRequest) (*multipoolermanagerdatapb.EnableMonitorResponse, error)
-
-	// DisableMonitor disables the PostgreSQL monitoring goroutine on a pooler.
-	DisableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DisableMonitorRequest) (*multipoolermanagerdatapb.DisableMonitorResponse, error)
-
-	//
 	// Connection Management Methods
 	//
 

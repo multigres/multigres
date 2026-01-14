@@ -97,26 +97,6 @@ service MultiAdminService {
   }
 
   //
-  // PostgreSQL Monitoring Control (proxy methods)
-  //
-
-  // EnablePostgresMonitor enables PostgreSQL monitoring on a pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.EnableMonitor RPC.
-  rpc EnablePostgresMonitor(EnablePostgresMonitorRequest) returns (EnablePostgresMonitorResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/enable-postgres-monitor"
-      body: "*"
-    };
-  }
-
-  // DisablePostgresMonitor disables PostgreSQL monitoring on a pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.DisableMonitor RPC.
-  rpc DisablePostgresMonitor(DisablePostgresMonitorRequest) returns (DisablePostgresMonitorResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/disable-postgres-monitor"
-      body: "*"
-    };
-  }
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -370,28 +350,3 @@ message GetPoolerStatusResponse {
   multipoolermanagerdata.Status status = 1;
 }
 
-// PostgreSQL Monitoring Control operation messages
-
-// EnablePostgresMonitorRequest requests to enable PostgreSQL monitoring on a pooler
-message EnablePostgresMonitorRequest {
-  // pooler_id identifies which pooler to enable monitoring on (required)
-  clustermetadata.ID pooler_id = 1;
-}
-
-// EnablePostgresMonitorResponse confirms that monitoring was enabled
-// Errors are returned via gRPC status codes, not in the response body
-message EnablePostgresMonitorResponse {
-  // Empty - success indicated by no error
-}
-
-// DisablePostgresMonitorRequest requests to disable PostgreSQL monitoring on a pooler
-message DisablePostgresMonitorRequest {
-  // pooler_id identifies which pooler to disable monitoring on (required)
-  clustermetadata.ID pooler_id = 1;
-}
-
-// DisablePostgresMonitorResponse confirms that monitoring was disabled
-// Errors are returned via gRPC status codes, not in the response body
-message DisablePostgresMonitorResponse {
-  // Empty - success indicated by no error
-}
