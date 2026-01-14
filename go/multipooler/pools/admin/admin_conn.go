@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.

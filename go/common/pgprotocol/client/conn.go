@@ -26,7 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/multigres/multigres/go/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
 
 const (

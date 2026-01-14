@@ -17,8 +17,8 @@ package client
 import (
 	"fmt"
 
-	"github.com/multigres/multigres/go/pgprotocol/protocol"
-	"github.com/multigres/multigres/go/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
 
 // scramClient handles the SCRAM-SHA-256 authentication flow over a connection.

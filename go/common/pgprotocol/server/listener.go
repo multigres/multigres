@@ -25,7 +25,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/multigres/multigres/go/pgprotocol/bufpool"
+	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
 )
 
 // Listener listens for incoming PostgreSQL client connections.

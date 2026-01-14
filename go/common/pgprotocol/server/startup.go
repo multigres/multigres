@@ -17,7 +17,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/multigres/multigres/go/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
 
 // StartupMessage represents a parsed startup message from the client.

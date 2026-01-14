@@ -118,13 +118,13 @@ All components are thoroughly tested with testify assertions:
 
 ```bash
 # Run all tests
-go test ./go/pgprotocol/...
+go test ./go/common/pgprotocol/...
 
 # Run with coverage
-go test -cover ./go/pgprotocol/...
+go test -cover ./go/common/pgprotocol/...
 
 # Run benchmarks
-go test -bench=. ./go/pgprotocol/bufpool/
+go test -bench=. ./go/common/pgprotocol/bufpool/
 ```
 
 ## Design Principles

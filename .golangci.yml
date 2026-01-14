@@ -291,7 +291,7 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/(parser|pgprotocol|tools/ruleguard)
+        path: ^go/(parser|common/pgprotocol|tools/ruleguard)
       # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec
