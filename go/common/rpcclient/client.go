@@ -144,9 +144,6 @@ type MultiPoolerClient interface {
 	// InitializeEmptyPrimary initializes the multipooler as an empty primary.
 	InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error)
 
-	// InitializeAsStandby initializes the multipooler as a standby from a primary.
-	InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error)
-
 	//
 	// Manager Service Methods - Status and Monitoring
 	//

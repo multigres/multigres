@@ -328,18 +328,6 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	mockClient.ChangeTypeResponses[standby1ID] = &multipoolermanagerdatapb.ChangeTypeResponse{}
 	mockClient.ChangeTypeResponses[standby2ID] = &multipoolermanagerdatapb.ChangeTypeResponse{}
 
-	// InitializeAsStandby responses - set for all poolers since any can become a standby
-	// (primary selection order is non-deterministic due to map iteration)
-	mockClient.InitializeAsStandbyResponses[poolerID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-		Success: true,
-	}
-	mockClient.InitializeAsStandbyResponses[standby1ID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-		Success: true,
-	}
-	mockClient.InitializeAsStandbyResponses[standby2ID] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-		Success: true,
-	}
-
 	// ConfigureSynchronousReplication response - set for all poolers since selection order is non-deterministic
 	mockClient.ConfigureSynchronousReplicationResponses[poolerID] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
 	mockClient.ConfigureSynchronousReplicationResponses[standby1ID] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
@@ -531,12 +519,6 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	}
 	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
 	fakeClient.ChangeTypeResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ChangeTypeResponse{}
-	fakeClient.InitializeAsStandbyResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-		Success: true,
-	}
-	fakeClient.InitializeAsStandbyResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-		Success: true,
-	}
 	// Add ConfigureSynchronousReplication responses for both (since selection order is non-deterministic)
 	fakeClient.ConfigureSynchronousReplicationResponses["multipooler-cell1-pooler1"] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
 	fakeClient.ConfigureSynchronousReplicationResponses["multipooler-cell1-pooler2"] = &multipoolermanagerdatapb.ConfigureSynchronousReplicationResponse{}
@@ -595,7 +577,6 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	// Standbys rely on auto-restore from the backup created by the primary
 	callCounts := countCallsByMethod(fakeClient.CallLog)
 	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
-	assert.Equal(t, 0, callCounts["InitializeAsStandby"], "standbys should auto-restore, not be explicitly initialized")
 }
 
 // TestBootstrapShardAction_FullBootstrapFlow tests the complete bootstrap flow
@@ -621,9 +602,6 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 			},
 		})
 		fakeClient.ChangeTypeResponses[key] = &multipoolermanagerdatapb.ChangeTypeResponse{}
-		fakeClient.InitializeAsStandbyResponses[key] = &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-			Success: true,
-		}
 		// Any pooler could be selected as primary (store iteration order is non-deterministic)
 		fakeClient.InitializeEmptyPrimaryResponses[key] = &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
 			Success:  true,
@@ -668,12 +646,11 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Count RPC calls by method name
-	// We expect: 1 InitializeEmptyPrimary, 0 InitializeAsStandby
+	// We expect: 1 InitializeEmptyPrimary, 0
 	// Standbys rely on auto-restore from the backup created by the primary
 	callCounts := countCallsByMethod(fakeClient.CallLog)
 
 	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
-	assert.Equal(t, 0, callCounts["InitializeAsStandby"], "standbys should auto-restore, not be explicitly initialized")
 }
 
 // countCallsByMethod counts RPC calls by method name from the FakeClient call log.

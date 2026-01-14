@@ -15,7 +15,6 @@
 package endtoend
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -39,13 +38,15 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
 	}
 
-	// Setup full test cluster with all services (includes waiting for bootstrap)
-	cluster, cleanup := setupTestCluster(t)
-	t.Cleanup(cleanup)
+	// Use shared test cluster with multigateway
+	setup := getSharedSetup(t)
 
-	// Connect to the multigateway that has the PRIMARY pooler
+	// Setup test cleanup - this will ensure clean state after test completes
+	setup.SetupTest(t)
+
+	// Connect to the multigateway
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		cluster.ReadyPGPort)
+		setup.MultigatewayPgPort)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -189,16 +190,17 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
 	}
 
-	// Setup full test cluster with all services
-	cluster, cleanup := setupTestCluster(t)
-	t.Cleanup(cleanup)
+	// Use shared test cluster with multigateway
+	setup := getSharedSetup(t)
+
+	// Setup test cleanup - this will ensure clean state after test completes
+	setup.SetupTest(t)
 
 	// Connect using pgx (which uses Extended Query Protocol by default)
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable",
-		cluster.ReadyPGPort)
+		setup.MultigatewayPgPort)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err, "failed to connect with pgx")

@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/test/endtoend"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -361,7 +360,7 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	require.Greater(t, successful, 0, "should have some successful writes")
 
 	// Collect all pooler clients for verification
-	var poolers []*endtoend.MultiPoolerTestClient
+	var poolers []*MultiPoolerTestClient
 	poolers = append(poolers, primaryClient.Pooler)
 	for _, standby := range setup.GetStandbys() {
 		standbyClient := setup.NewClient(t, standby.Name)
