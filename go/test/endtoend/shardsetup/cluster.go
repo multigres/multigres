@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/pgpass"
 )
 
 // MultipoolerInstance represents a multipooler instance, which is a pair of pgctld + multipooler processes.
@@ -195,6 +196,10 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
 	require.NoError(t, err)
 
+	// Create .pgpass file in the data directory for PostgreSQL authentication
+	err = pgpass.CreatePgpassFile(dataDir, TestPostgresPassword)
+	require.NoError(t, err, "failed to create .pgpass file for test")
+
 	return &ProcessInstance{
 		Name:        name,
 		DataDir:     dataDir,
@@ -202,7 +207,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
 		Binary:      "pgctld",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8"),
 	}
 }
 

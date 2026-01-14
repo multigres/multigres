@@ -815,7 +815,7 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	t.Logf("Zone %s PostgreSQL (port %d) is responding correctly", zone, port)
 
 	// Also test TCP connection with password to validate password was set correctly
-	// The default password is "postgres" (set by the local provisioner at pgpassword.txt)
+	// The default password is "postgres" (set by the local provisioner in .pgpass files)
 	testPostgreSQLTCPConnection(t, port, zone)
 }
 
@@ -826,9 +826,13 @@ func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
 
 	t.Logf("Testing PostgreSQL TCP connection with password on port %d (Zone %s)...", port, zone)
 
-	// Connect via TCP using the default password "postgres" (from pgpassword.txt)
+	// Create temporary .pgpass file for psql to use
+	// The default password is "postgres" (set by the local provisioner in .pgpass files)
+	tmpDir := t.TempDir()
+	pgpassFile := utils.CreateTestPgpassFile(t, tmpDir, "postgres")
+
 	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
-	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
+	cmd.Env = append(os.Environ(), "PGPASSFILE="+pgpassFile)
 
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "PostgreSQL TCP connection with password failed on port %d (Zone %s): %s", port, zone, string(output))

@@ -38,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/pathutil"
+	"github.com/multigres/multigres/go/tools/pgpass"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -71,30 +72,27 @@ func (p *localProvisioner) Name() string {
 	return "local"
 }
 
-// createPoolerDirectoryWithPassword creates the pooler directory structure and password file
-// at the conventional location (poolerDir/pgpassword.txt).
-// If sourcePasswordFile is provided and exists, its content is copied; otherwise "postgres" is used.
+// createPoolerDirectoryWithPassword creates the pooler directory structure and .pgpass file
+// at the PostgreSQL standard location (poolerDir/.pgpass).
+// If sourcePasswordFile is provided and exists, its content is used; otherwise "postgres" is used.
 func createPoolerDirectoryWithPassword(poolerDir, sourcePasswordFile string) error {
 	// Create the pooler directory structure
 	if err := os.MkdirAll(poolerDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create pooler directory %s: %w", poolerDir, err)
 	}
 
-	// Conventional password file location
-	conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
-
-	// Determine password content
-	password := []byte("postgres")
+	// Determine password (from source file or default)
+	password := "postgres" // default
 	if sourcePasswordFile != "" {
 		if content, err := os.ReadFile(sourcePasswordFile); err == nil {
-			password = content
+			password = strings.TrimSpace(string(content))
 		}
 		// If source file doesn't exist, fall back to default "postgres"
 	}
 
-	// Create the password file at the conventional location
-	if err := os.WriteFile(conventionalPwfile, password, 0o600); err != nil {
-		return fmt.Errorf("failed to create password file %s: %w", conventionalPwfile, err)
+	// Create .pgpass file using standard PostgreSQL format
+	if err := pgpass.CreatePgpassFile(poolerDir, password); err != nil {
+		return fmt.Errorf("failed to create .pgpass file: %w", err)
 	}
 
 	return nil

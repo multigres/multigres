@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/pgpass"
 
 	"github.com/spf13/cobra"
 
@@ -180,6 +181,15 @@ type PgCtldService struct {
 
 // NewPgCtldService creates a new PgCtldService with validation
 func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string, listenAddresses string) (*PgCtldService, error) {
+	// Detect PGPASSWORD in environment and refuse to start
+	// For security, multigres requires passwords in .pgpass files, not environment variables
+	if os.Getenv("PGPASSWORD") != "" {
+		return nil, fmt.Errorf("PGPASSWORD environment variable is set but not supported. "+
+			"For security, multigres requires passwords in .pgpass files. "+
+			"Please create a .pgpass file at %s with format: *:*:*:postgres:<password>",
+			pgpass.PgpassFilePath(poolerDir))
+	}
+
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
@@ -409,18 +419,13 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		"source_port", req.GetSourcePort(),
 		"dry_run", req.GetDryRun())
 
-	// Resolve password using existing function
-	password, err := resolvePassword(s.poolerDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve password: %w", err)
-	}
-
-	// Construct source server connection string (without password - will use PGPASSWORD env var)
+	// Construct source server connection string
+	// Password authentication will be handled via PGPASSFILE environment variable in pg_rewind
 	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
 		req.GetSourceHost(), req.GetSourcePort())
 
-	// Use the shared rewind function with detailed result, passing password separately
-	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
+	// Call pg_rewind - it will use .pgpass file for authentication via PGPASSFILE env var
+	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, req.GetDryRun(), req.GetExtraArgs())
 	if err != nil {
 		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
 		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)

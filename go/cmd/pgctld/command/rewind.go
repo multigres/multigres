@@ -28,8 +28,14 @@ type PgRewindResult struct {
 	Output  string
 }
 
-func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sourceServer, password string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
+func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sourceServer string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
 	result := &PgRewindResult{}
+
+	// Get .pgpass file path from resolvePassword
+	_, pgpassFile, err := resolvePassword(poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve .pgpass file: %w", err)
+	}
 
 	args := []string{
 		"--source-server", sourceServer,
@@ -45,15 +51,14 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 		"args", args,
 		"source_server", sourceServer,
 		"target_pgdata", poolerDir+"/pg_data",
+		"pgpass_file", pgpassFile,
 		"dry_run", dryRun)
 
 	cmd := exec.CommandContext(ctx, "pg_rewind", args...)
 
-	// Set PGPASSWORD environment variable for pg_rewind to use
-	// pg_rewind doesn't reliably use passwords from connection strings
-	if password != "" {
-		cmd.Env = append(os.Environ(), "PGPASSWORD="+password)
-	}
+	// Set PGPASSFILE environment variable for pg_rewind to use
+	// pg_rewind uses libpq which supports PGPASSFILE
+	cmd.Env = append(os.Environ(), "PGPASSFILE="+pgpassFile)
 
 	// Capture both Stdout and Stderr
 	output, err := cmd.CombinedOutput()

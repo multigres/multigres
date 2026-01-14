@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -423,6 +424,10 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
+
+		// Create .pgpass file for the test
+		utils.CreateTestPgpassFile(t, poolerDir, "testpassword")
+
 		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost")
 		require.NoError(t, err)
 

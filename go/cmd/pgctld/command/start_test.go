@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 func TestRunStart(t *testing.T) {
@@ -208,6 +209,9 @@ func TestInitializeDataDir(t *testing.T) {
 		os.Setenv("PATH", binDir+":"+originalPath)
 		defer os.Setenv("PATH", originalPath)
 
+		// Create .pgpass file for the test
+		utils.CreateTestPgpassFile(t, poolerDir, "testpassword")
+
 		logger := slog.New(slog.DiscardHandler)
 		err := initializeDataDir(logger, poolerDir, "postgres")
 		require.NoError(t, err)
@@ -220,14 +224,14 @@ func TestInitializeDataDir(t *testing.T) {
 		assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"))
 	})
 
-	t.Run("fails with invalid directory permissions", func(t *testing.T) {
-		// Try to create data dir in a read-only location
+	t.Run("fails with missing pgpass file", func(t *testing.T) {
+		// Try to initialize without a .pgpass file
 		poolerDir := "/root/impossible_dir"
 
 		logger := slog.New(slog.DiscardHandler)
 		err := initializeDataDir(logger, poolerDir, "postgres")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "initdb failed")
+		assert.Contains(t, err.Error(), "no .pgpass file found")
 	})
 }
 

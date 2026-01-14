@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/pgpass"
 )
 
 // StartResult contains the result of starting PostgreSQL
@@ -55,34 +56,24 @@ func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddr
 	return config, nil
 }
 
-// resolvePassword handles password resolution from file or environment variable.
-// It checks for a password file at the conventional location (poolerDir/pgpassword.txt).
-// If the file exists, it reads the password from it. Otherwise, it falls back to PGPASSWORD env var.
-// Returns error if both password file and PGPASSWORD are set.
-func resolvePassword(poolerDir string) (string, error) {
-	envPassword := os.Getenv("PGPASSWORD")
-	var filePassword string
-	var fileExists bool
+// resolvePassword handles password resolution from .pgpass files.
+// It reads the password from a PostgreSQL standard .pgpass file at <poolerDir>/.pgpass.
+// Returns the password, the .pgpass file path, and an error if the file doesn't exist or is invalid.
+func resolvePassword(poolerDir string) (string, string, error) {
+	pgpassFile := pgpass.PgpassFilePath(poolerDir)
 
-	// Check for password file at conventional location
-	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
-	if filePasswordBytes, readErr := os.ReadFile(pwfile); readErr == nil {
-		// Remove trailing newline if present
-		filePassword = strings.TrimRight(string(filePasswordBytes), "\n\r")
-		fileExists = true
+	// Check if .pgpass file exists
+	if _, err := os.Stat(pgpassFile); err != nil {
+		return "", "", fmt.Errorf("no .pgpass file found at %s. Please create a .pgpass file with format: *:*:*:postgres:<password>", pgpassFile)
 	}
 
-	// Check if both file and environment variable are set
-	if fileExists && envPassword != "" {
-		return "", fmt.Errorf("both password file (%s) and PGPASSWORD environment variable are set, please use only one", pwfile)
+	// Read and validate password from .pgpass file
+	password, err := pgpass.ReadPasswordFromPgpass(pgpassFile)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read password from .pgpass file at %s: %w", pgpassFile, err)
 	}
 
-	// Use file password if set, otherwise use environment variable
-	if fileExists {
-		return filePassword, nil
-	}
-
-	return envPassword, nil
+	return password, pgpassFile, nil
 }
 
 // AddStartCommand adds the start subcommand to the root command

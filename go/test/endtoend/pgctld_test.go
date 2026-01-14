@@ -470,7 +470,7 @@ timeout: 30
 	require.NoError(t, err)
 }
 
-// TestPostgreSQLAuthentication tests PostgreSQL authentication with PGPASSWORD
+// TestPostgreSQLAuthentication tests PostgreSQL authentication with .pgpass files
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping authentication tests in short mode")
@@ -481,7 +481,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		t.Fatal("PostgreSQL binaries not found, skipping authentication test")
 	}
 
-	t.Run("pgpassword_authentication", func(t *testing.T) {
+	t.Run("pgpass_file_authentication", func(t *testing.T) {
 		// Set up temporary directory
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_auth_test")
 		defer cleanup()
@@ -498,25 +498,25 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Test password
 		testPassword := "secure_test_password_123"
 
-		// Initialize with PGPASSWORD
-		t.Logf("Initializing PostgreSQL with PGPASSWORD")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
+		// Create .pgpass file with PostgreSQL standard format
+		t.Logf("Creating .pgpass file for authentication")
+		pgpassFile := filepath.Join(baseDir, ".pgpass")
+		pgpassContent := fmt.Sprintf("*:*:*:postgres:%s\n", testPassword)
+		err := os.WriteFile(pgpassFile, []byte(pgpassContent), 0o600)
+		require.NoError(t, err, "Should create .pgpass file")
 
-		initCmd.Env = append(os.Environ(),
-			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
-		)
+		// Initialize with .pgpass file
+		t.Logf("Initializing PostgreSQL with .pgpass file")
+		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
+		initCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"PGPASSWORD environment variable\"", "Should use PGPASSWORD")
+		assert.Contains(t, string(output), ".pgpass", "Should reference .pgpass file")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		startCmd.Env = append(os.Environ(),
-			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
-		)
+		startCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
 
@@ -547,22 +547,28 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		require.NoError(t, err, "pgctld status should succeed")
 		t.Logf("Status output: %s", string(statusOutput))
 
-		// Test TCP connection with correct password
-		t.Logf("Testing TCP connection with correct password")
+		// Test TCP connection with correct password (psql will use .pgpass file)
+		t.Logf("Testing TCP connection with password from .pgpass file")
 		tcpCmd := exec.Command("psql",
 			"-h", "localhost",
-			"-p", strconv.Itoa(port), // Use the same port that was configured
+			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
 			"-c", "SELECT current_user, current_database();",
 		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		// Point psql to our .pgpass file
+		tcpCmd.Env = append(os.Environ(), "PGPASSFILE="+pgpassFile)
 		output, err = tcpCmd.CombinedOutput()
-		require.NoError(t, err, "TCP connection with correct password should succeed, output: %s", string(output))
+		require.NoError(t, err, "TCP connection with .pgpass file should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "Should connect as postgres user")
 
-		// Test TCP connection with wrong password (should fail)
+		// Test TCP connection with wrong password (create wrong .pgpass file)
 		t.Logf("Testing TCP connection with wrong password")
+		wrongPgpassFile := filepath.Join(baseDir, ".pgpass_wrong")
+		wrongPgpassContent := "*:*:*:postgres:wrong_password\n" // #nosec G101 -- test password
+		err = os.WriteFile(wrongPgpassFile, []byte(wrongPgpassContent), 0o600)
+		require.NoError(t, err, "Should create wrong .pgpass file")
+
 		wrongPasswordCmd := exec.Command("psql",
 			"-h", "localhost",
 			"-p", strconv.Itoa(port),
@@ -570,7 +576,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT 1;",
 		)
-		wrongPasswordCmd.Env = append(os.Environ(), "PGPASSWORD=wrong_password")
+		wrongPasswordCmd.Env = append(os.Environ(), "PGPASSFILE="+wrongPgpassFile)
 		output, err = wrongPasswordCmd.CombinedOutput()
 		assert.Error(t, err, "TCP connection with wrong password should fail")
 		assert.Contains(t, string(output), "password authentication failed", "Should fail with authentication error")
@@ -622,7 +628,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		require.NoError(t, err, "pgctld stop should succeed")
 	})
 
-	t.Run("password_file_authentication", func(t *testing.T) {
+	t.Run("pgpass_file_with_comments", func(t *testing.T) {
 		// Set up temporary directory
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_pwfile_test")
 		defer cleanup()
@@ -636,40 +642,37 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Test password
 		testPassword := "file_password_secure_456"
 
-		// Create password file at conventional location (poolerDir/pgpassword.txt)
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte(testPassword), 0o600)
-		require.NoError(t, err, "Should create password file")
+		// Create .pgpass file with comments and multiple entries to test parsing
+		pgpassFile := filepath.Join(baseDir, ".pgpass")
+		pgpassContent := fmt.Sprintf(`# This is a comment
+# Another comment line
+localhost:5432:testdb:testuser:notthisone
+*:*:*:postgres:%s
+# Final comment
+`, testPassword)
+		err := os.WriteFile(pgpassFile, []byte(pgpassContent), 0o600)
+		require.NoError(t, err, "Should create .pgpass file")
 
-		// Build environment without PGPASSWORD to avoid conflicts with password file
-		cleanEnv := make([]string, 0, len(os.Environ()))
-		for _, env := range os.Environ() {
-			if !strings.HasPrefix(env, "PGPASSWORD=") {
-				cleanEnv = append(cleanEnv, env)
-			}
-		}
-		cleanEnv = append(cleanEnv, "PGCONNECT_TIMEOUT=5")
-
-		// Initialize - pgctld will find password file at conventional location
-		t.Logf("Initializing PostgreSQL with password file at conventional location")
+		// Initialize - pgctld will find .pgpass file
+		t.Logf("Initializing PostgreSQL with .pgpass file containing comments")
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		initCmd.Env = cleanEnv
+		initCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"password file\"", "Should use password file")
+		assert.Contains(t, string(output), ".pgpass", "Should reference .pgpass file")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		startCmd.Env = cleanEnv
+		startCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
 
 		// Give the server a moment to be fully ready
 		time.Sleep(2 * time.Second)
 
-		// Test TCP connection with password from file
-		t.Logf("Testing TCP connection with password from file")
+		// Test TCP connection with password from .pgpass file
+		t.Logf("Testing TCP connection with password from .pgpass file")
 		tcpCmd := exec.Command("psql",
 			"-h", "localhost",
 			"-p", strconv.Itoa(port),
@@ -677,41 +680,42 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-c", "SELECT 'Password file authentication works!' as result;",
 		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
+		tcpCmd.Env = append(os.Environ(), "PGPASSFILE="+pgpassFile)
 		output, err = tcpCmd.CombinedOutput()
-		require.NoError(t, err, "TCP connection with password from file should succeed, output: %s", string(output))
+		require.NoError(t, err, "TCP connection with password from .pgpass file should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "Password file authentication works!", "Should connect successfully")
 
 		// Clean shutdown
 		t.Logf("Shutting down PostgreSQL")
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
-		stopCmd.Env = cleanEnv
+		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")
 	})
 
-	t.Run("password_source_conflict", func(t *testing.T) {
+	t.Run("pgpassword_env_var_rejected", func(t *testing.T) {
 		// Set up temporary directory
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_conflict_test")
 		defer cleanup()
 
 		// Use cached pgctld binary for testing
 
-		// Create password file at conventional location
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte("file_password"), 0o600)
-		require.NoError(t, err, "Should create password file")
+		// Create valid .pgpass file
+		pgpassFile := filepath.Join(baseDir, ".pgpass")
+		err := os.WriteFile(pgpassFile, []byte("*:*:*:postgres:testpass\n"), 0o600)
+		require.NoError(t, err, "Should create .pgpass file")
 
-		// Try to initialize with both PGPASSWORD and password file at conventional location (should fail)
-		t.Logf("Testing conflict between PGPASSWORD and password file")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir)
-		initCmd.Env = append(os.Environ(),
+		// Try to start server with PGPASSWORD set (should be rejected)
+		t.Logf("Testing PGPASSWORD environment variable rejection")
+		serverCmd := exec.Command("pgctld", "server", "--pooler-dir", baseDir)
+		serverCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
 			"PGPASSWORD=env_password",
 		)
-		output, err := initCmd.CombinedOutput()
-		assert.Error(t, err, "pgctld init should fail with both password sources")
-		assert.Contains(t, string(output), "both password file", "Should show conflict error")
+		output, err := serverCmd.CombinedOutput()
+		assert.Error(t, err, "pgctld server should refuse to start with PGPASSWORD set")
+		assert.Contains(t, string(output), "PGPASSWORD environment variable is set but not supported", "Should show PGPASSWORD rejection error")
+		assert.Contains(t, string(output), ".pgpass", "Should suggest using .pgpass file")
 	})
 }
 

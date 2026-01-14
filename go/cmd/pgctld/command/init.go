@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -58,8 +57,8 @@ start the PostgreSQL server. Configuration can be provided via config file,
 environment variables, or CLI flags. CLI flags take precedence over config
 file and environment variable settings.
 
-Password can be set via PGPASSWORD environment variable or by placing a
-password file at <pooler-dir>/pgpassword.txt.
+Password must be provided in a .pgpass file at <pooler-dir>/.pgpass
+using PostgreSQL standard format: *:*:*:postgres:<password>
 
 Examples:
   # Initialize data directory
@@ -132,20 +131,13 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 	// Note: initdb will create the data directory itself if it doesn't exist.
 	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
 
-	// Get the effective password and validate it
-	effectivePassword, err := resolvePassword(poolerDir)
+	// Get the effective password from .pgpass file
+	effectivePassword, pgpassFile, err := resolvePassword(poolerDir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve password: %w", err)
 	}
 
-	// Determine password source for logging
-	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
-	passwordSource := "default"
-	if _, err := os.Stat(pwfile); err == nil {
-		passwordSource = "password file"
-	} else if os.Getenv("PGPASSWORD") != "" {
-		passwordSource = "PGPASSWORD environment variable"
-	}
+	logger.Info("Using password from .pgpass file", "user", pgUser, "pgpass_file", pgpassFile)
 
 	// Build initdb command
 	// It's generally a good idea to enable page data checksums. Furthermore,
@@ -175,7 +167,7 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 
 		// Add pwfile argument to initdb
 		args = append(args, "--pwfile="+tempPwFile)
-		logger.Info("Setting password during initdb", "user", pgUser, "password_source", passwordSource)
+		logger.Info("Setting password during initdb", "user", pgUser)
 	} else {
 		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
 	}
@@ -190,7 +182,7 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 	logger.Info("initdb completed successfully", "output", string(output))
 
 	if effectivePassword != "" {
-		logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
+		logger.Info("User password set successfully", "user", pgUser)
 	}
 
 	return nil
