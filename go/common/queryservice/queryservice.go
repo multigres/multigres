@@ -116,5 +116,5 @@ type QueryService interface {
 
 	// Close closes the query service and releases resources.
 	// After Close is called, no other methods should be called.
-	Close(ctx context.Context) error
+	Close() error
 }
