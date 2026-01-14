@@ -41,7 +41,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // Lexer represents the main lexer instance

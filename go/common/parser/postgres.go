@@ -34,7 +34,7 @@ import (
 	__yyfmt__ "fmt"
 	"strings"
 
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 //line postgres.y:28

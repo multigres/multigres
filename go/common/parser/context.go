@@ -44,7 +44,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // LexerState represents the current state of the lexer state machine

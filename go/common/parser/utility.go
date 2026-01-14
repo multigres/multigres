@@ -29,7 +29,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // linitial returns the first element of a NodeList, equivalent to PostgreSQL's linitial()
