@@ -333,7 +333,10 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	defer pm.actionLock.Release(ctx)
 
 	// Pause monitoring during restore to prevent interference
-	resumeMonitor := pm.PausePostgresMonitor()
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return err
+	}
 	defer resumeMonitor()
 
 	return pm.restoreFromBackupLocked(ctx, backupID)

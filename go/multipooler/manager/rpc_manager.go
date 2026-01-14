@@ -798,7 +798,10 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	defer pm.actionLock.Release(ctx)
 
 	// Pause monitoring during this operation to prevent interference
-	resumeMonitor := pm.PausePostgresMonitor()
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	defer resumeMonitor()
 
 	// Validate the term but DON'T update yet. We only update the term AFTER
@@ -991,7 +994,10 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	defer pm.actionLock.Release(ctx)
 
 	// Pause monitoring during this operation to prevent interference
-	resumeMonitor := pm.PausePostgresMonitor()
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	defer resumeMonitor()
 
 	// Validate the term
@@ -1334,7 +1340,10 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	defer pm.actionLock.Release(ctx)
 
 	// Pause monitoring during this operation to prevent interference
-	resumeMonitor := pm.PausePostgresMonitor()
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	defer resumeMonitor()
 
 	// Check if pgctld client is available

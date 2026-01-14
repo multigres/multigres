@@ -1107,3 +1107,56 @@ func TestEnableMonitor_WhenNotOpen(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "manager is not open")
 }
+
+func TestPausePostgresMonitor_RequiresActionLock(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	manager.isOpen = true
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	t.Run("WithoutActionLock", func(t *testing.T) {
+		// Try to call PausePostgresMonitor without holding the action lock
+		resumeMonitor, err := manager.PausePostgresMonitor(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "action lock")
+		assert.Nil(t, resumeMonitor)
+	})
+
+	t.Run("WithActionLock", func(t *testing.T) {
+		// Acquire the action lock
+		lockCtx, err := manager.actionLock.Acquire(ctx, "test")
+		require.NoError(t, err)
+		defer manager.actionLock.Release(lockCtx)
+
+		// Should succeed with action lock held
+		resumeMonitor, err := manager.PausePostgresMonitor(lockCtx)
+		require.NoError(t, err)
+		assert.NotNil(t, resumeMonitor)
+
+		// Clean up
+		resumeMonitor()
+	})
+}
