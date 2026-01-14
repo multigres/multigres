@@ -337,7 +337,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	if err != nil {
 		return err
 	}
-	defer resumeMonitor()
+	defer resumeMonitor(ctx)
 
 	return pm.restoreFromBackupLocked(ctx, backupID)
 }

@@ -802,7 +802,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	if err != nil {
 		return nil, err
 	}
-	defer resumeMonitor()
+	defer resumeMonitor(ctx)
 
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
@@ -998,7 +998,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	if err != nil {
 		return nil, err
 	}
-	defer resumeMonitor()
+	defer resumeMonitor(ctx)
 
 	// Validate the term
 	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
@@ -1344,7 +1344,7 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	if err != nil {
 		return nil, err
 	}
-	defer resumeMonitor()
+	defer resumeMonitor(ctx)
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {

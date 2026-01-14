@@ -1156,7 +1156,25 @@ func TestPausePostgresMonitor_RequiresActionLock(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, resumeMonitor)
 
-		// Clean up
-		resumeMonitor()
+		// Clean up - resume also requires action lock
+		resumeMonitor(lockCtx)
+	})
+
+	t.Run("ResumeWithoutActionLock", func(t *testing.T) {
+		// Acquire the action lock
+		lockCtx, err := manager.actionLock.Acquire(ctx, "test")
+		require.NoError(t, err)
+
+		// Should succeed with action lock held
+		resumeMonitor, err := manager.PausePostgresMonitor(lockCtx)
+		require.NoError(t, err)
+		assert.NotNil(t, resumeMonitor)
+
+		// Release the lock before calling resume
+		manager.actionLock.Release(lockCtx)
+
+		// Resume should detect missing action lock and log error (but not panic)
+		// This is a graceful degradation - logs error but doesn't crash
+		resumeMonitor(ctx)
 	})
 }

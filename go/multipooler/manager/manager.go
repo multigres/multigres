@@ -1817,7 +1817,8 @@ func (pm *MultiPoolerManager) disableMonitorInternal() {
 // (typically via defer) to restore the original state.
 //
 // This method requires the action lock to be held by the caller to prevent race conditions
-// with concurrent operations that might enable or disable monitoring.
+// with concurrent operations that might enable or disable monitoring. The returned resume
+// function also requires the action lock to be held when called.
 //
 // Example usage:
 //
@@ -1825,9 +1826,9 @@ func (pm *MultiPoolerManager) disableMonitorInternal() {
 //	if err != nil {
 //	    return err
 //	}
-//	defer resumeMonitor()
+//	defer resumeMonitor(ctx)
 //	// ... perform operations that require monitoring to be disabled ...
-func (pm *MultiPoolerManager) PausePostgresMonitor(ctx context.Context) (func(), error) {
+func (pm *MultiPoolerManager) PausePostgresMonitor(ctx context.Context) (func(context.Context), error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, fmt.Errorf("PausePostgresMonitor requires action lock to be held: %w", err)
 	}
@@ -1838,7 +1839,11 @@ func (pm *MultiPoolerManager) PausePostgresMonitor(ctx context.Context) (func(),
 
 	if wasEnabled {
 		pm.disableMonitorInternal()
-		return func() {
+		return func(ctx context.Context) {
+			if err := AssertActionLockHeld(ctx); err != nil {
+				pm.logger.ErrorContext(ctx, "Resume monitor called without action lock", "error", err)
+				return
+			}
 			if err := pm.enableMonitorInternal(); err != nil {
 				pm.logger.WarnContext(ctx, "Failed to re-enable monitor", "error", err)
 			}
@@ -1846,5 +1851,5 @@ func (pm *MultiPoolerManager) PausePostgresMonitor(ctx context.Context) (func(),
 	}
 
 	// Monitoring was already disabled, return no-op
-	return func() {}, nil
+	return func(context.Context) {}, nil
 }
