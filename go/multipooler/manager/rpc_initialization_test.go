@@ -331,7 +331,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	// Should log error and take no action
 	pm.takeRemedialAction(ctx, state)
 
-	assert.Equal(t, "pgctld_unavailable", pm.monitorLastLoggedReason)
+	assert.Equal(t, "pgctld_unavailable", pm.pgMonitorLastLoggedReason)
 }
 
 func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
@@ -350,7 +350,7 @@ func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
 	// Should log info and take no action
 	pm.takeRemedialAction(ctx, state)
 
-	assert.Equal(t, "postgres_running", pm.monitorLastLoggedReason)
+	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
 }
 
 func TestTakeRemedialAction_StartPostgres(t *testing.T) {
@@ -372,7 +372,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	// Should attempt to start postgres
 	pm.takeRemedialAction(ctx, state)
 
-	assert.Equal(t, "starting_postgres", pm.monitorLastLoggedReason)
+	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
 }
 
@@ -394,7 +394,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		postgresRunning: false,
 	}
 
-	pm.monitorLastLoggedReason = "starting_postgres"
+	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Should handle error gracefully
 	pm.takeRemedialAction(ctx, state)
@@ -420,7 +420,7 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	// Should log info and wait
 	pm.takeRemedialAction(ctx, state)
 
-	assert.Equal(t, "waiting_for_backup", pm.monitorLastLoggedReason)
+	assert.Equal(t, "waiting_for_backup", pm.pgMonitorLastLoggedReason)
 }
 
 func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
@@ -436,7 +436,7 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 		postgresRunning: true,
 	}
 
-	pm.monitorLastLoggedReason = "postgres_running"
+	pm.pgMonitorLastLoggedReason = "postgres_running"
 
 	// Call multiple times with same reason
 	pm.takeRemedialAction(ctx, state)
@@ -444,14 +444,14 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	pm.takeRemedialAction(ctx, state)
 
 	// Reason should stay the same (log deduplication working)
-	assert.Equal(t, "postgres_running", pm.monitorLastLoggedReason)
+	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
 
 	// Change state
 	state.pgctldAvailable = false
 	pm.takeRemedialAction(ctx, state)
 
 	// Reason should change
-	assert.Equal(t, "pgctld_unavailable", pm.monitorLastLoggedReason)
+	assert.Equal(t, "pgctld_unavailable", pm.pgMonitorLastLoggedReason)
 }
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {

@@ -109,7 +109,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
 		logger:         slog.Default(),
-		monitorRunner:  monitorRunner,
+		pgMonitor:      monitorRunner,
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topoclient.NewMultiPoolerInfo(
 				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
