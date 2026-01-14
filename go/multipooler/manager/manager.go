@@ -1684,13 +1684,14 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 
 // startPostgres starts PostgreSQL via pgctld
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgresSQL")
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}
 
 	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
 	if err != nil {
-		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
