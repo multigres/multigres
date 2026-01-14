@@ -522,6 +522,33 @@ func local_request_MultiPoolerManager_UndoDemote_0(ctx context.Context, marshale
 	return msg, metadata, err
 }
 
+func request_MultiPoolerManager_DemoteStalePrimary_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq multipoolermanagerdata.DemoteStalePrimaryRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.DemoteStalePrimary(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiPoolerManager_DemoteStalePrimary_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq multipoolermanagerdata.DemoteStalePrimaryRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.DemoteStalePrimary(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_MultiPoolerManager_Promote_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.PromoteRequest
@@ -627,33 +654,6 @@ func local_request_MultiPoolerManager_InitializeEmptyPrimary_0(ctx context.Conte
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.InitializeEmptyPrimary(ctx, &protoReq)
-	return msg, metadata, err
-}
-
-func request_MultiPoolerManager_InitializeAsStandby_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var (
-		protoReq multipoolermanagerdata.InitializeAsStandbyRequest
-		metadata runtime.ServerMetadata
-	)
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if req.Body != nil {
-		_, _ = io.Copy(io.Discard, req.Body)
-	}
-	msg, err := client.InitializeAsStandby(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
-	return msg, metadata, err
-}
-
-func local_request_MultiPoolerManager_InitializeAsStandby_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var (
-		protoReq multipoolermanagerdata.InitializeAsStandbyRequest
-		metadata runtime.ServerMetadata
-	)
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	msg, err := server.InitializeAsStandby(ctx, &protoReq)
 	return msg, metadata, err
 }
 
@@ -1212,6 +1212,26 @@ func RegisterMultiPoolerManagerHandlerServer(ctx context.Context, mux *runtime.S
 		}
 		forward_MultiPoolerManager_UndoDemote_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_DemoteStalePrimary_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/DemoteStalePrimary", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/DemoteStalePrimary"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiPoolerManager_DemoteStalePrimary_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiPoolerManager_DemoteStalePrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Promote_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1291,26 +1311,6 @@ func RegisterMultiPoolerManagerHandlerServer(ctx context.Context, mux *runtime.S
 			return
 		}
 		forward_MultiPoolerManager_InitializeEmptyPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_InitializeAsStandby_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/InitializeAsStandby", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/InitializeAsStandby"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_MultiPoolerManager_InitializeAsStandby_0(annotatedContext, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		forward_MultiPoolerManager_InitializeAsStandby_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -1798,6 +1798,23 @@ func RegisterMultiPoolerManagerHandlerClient(ctx context.Context, mux *runtime.S
 		}
 		forward_MultiPoolerManager_UndoDemote_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_DemoteStalePrimary_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/DemoteStalePrimary", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/DemoteStalePrimary"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiPoolerManager_DemoteStalePrimary_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiPoolerManager_DemoteStalePrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Promote_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1865,23 +1882,6 @@ func RegisterMultiPoolerManagerHandlerClient(ctx context.Context, mux *runtime.S
 			return
 		}
 		forward_MultiPoolerManager_InitializeEmptyPrimary_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_InitializeAsStandby_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/InitializeAsStandby", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/InitializeAsStandby"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := request_MultiPoolerManager_InitializeAsStandby_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		forward_MultiPoolerManager_InitializeAsStandby_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -2024,11 +2024,11 @@ var (
 	pattern_MultiPoolerManager_GetFollowers_0                    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "GetFollowers"}, ""))
 	pattern_MultiPoolerManager_Demote_0                          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "Demote"}, ""))
 	pattern_MultiPoolerManager_UndoDemote_0                      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "UndoDemote"}, ""))
+	pattern_MultiPoolerManager_DemoteStalePrimary_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "DemoteStalePrimary"}, ""))
 	pattern_MultiPoolerManager_Promote_0                         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "Promote"}, ""))
 	pattern_MultiPoolerManager_State_0                           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "State"}, ""))
 	pattern_MultiPoolerManager_SetTerm_0                         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "SetTerm"}, ""))
 	pattern_MultiPoolerManager_InitializeEmptyPrimary_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "InitializeEmptyPrimary"}, ""))
-	pattern_MultiPoolerManager_InitializeAsStandby_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "InitializeAsStandby"}, ""))
 	pattern_MultiPoolerManager_Backup_0                          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "Backup"}, ""))
 	pattern_MultiPoolerManager_RestoreFromBackup_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "RestoreFromBackup"}, ""))
 	pattern_MultiPoolerManager_GetBackups_0                      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "GetBackups"}, ""))
@@ -2057,11 +2057,11 @@ var (
 	forward_MultiPoolerManager_GetFollowers_0                    = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_Demote_0                          = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_UndoDemote_0                      = runtime.ForwardResponseMessage
+	forward_MultiPoolerManager_DemoteStalePrimary_0              = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_Promote_0                         = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_State_0                           = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_SetTerm_0                         = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_InitializeEmptyPrimary_0          = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_InitializeAsStandby_0             = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_Backup_0                          = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_RestoreFromBackup_0               = runtime.ForwardResponseMessage
 	forward_MultiPoolerManager_GetBackups_0                      = runtime.ForwardResponseMessage

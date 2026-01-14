@@ -39,7 +39,7 @@ var File_multipoolermanagerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xac\x1b\n" +
+	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xa9\x1b\n" +
 	"\x12MultiPoolerManager\x12c\n" +
 	"\n" +
 	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12{\n" +
@@ -61,12 +61,12 @@ const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\fGetFollowers\x12+.multipoolermanagerdata.GetFollowersRequest\x1a,.multipoolermanagerdata.GetFollowersResponse\x12W\n" +
 	"\x06Demote\x12%.multipoolermanagerdata.DemoteRequest\x1a&.multipoolermanagerdata.DemoteResponse\x12c\n" +
 	"\n" +
-	"UndoDemote\x12).multipoolermanagerdata.UndoDemoteRequest\x1a*.multipoolermanagerdata.UndoDemoteResponse\x12Z\n" +
+	"UndoDemote\x12).multipoolermanagerdata.UndoDemoteRequest\x1a*.multipoolermanagerdata.UndoDemoteResponse\x12{\n" +
+	"\x12DemoteStalePrimary\x121.multipoolermanagerdata.DemoteStalePrimaryRequest\x1a2.multipoolermanagerdata.DemoteStalePrimaryResponse\x12Z\n" +
 	"\aPromote\x12&.multipoolermanagerdata.PromoteRequest\x1a'.multipoolermanagerdata.PromoteResponse\x12T\n" +
 	"\x05State\x12$.multipoolermanagerdata.StateRequest\x1a%.multipoolermanagerdata.StateResponse\x12Z\n" +
 	"\aSetTerm\x12&.multipoolermanagerdata.SetTermRequest\x1a'.multipoolermanagerdata.SetTermResponse\x12\x87\x01\n" +
-	"\x16InitializeEmptyPrimary\x125.multipoolermanagerdata.InitializeEmptyPrimaryRequest\x1a6.multipoolermanagerdata.InitializeEmptyPrimaryResponse\x12~\n" +
-	"\x13InitializeAsStandby\x122.multipoolermanagerdata.InitializeAsStandbyRequest\x1a3.multipoolermanagerdata.InitializeAsStandbyResponse\x12W\n" +
+	"\x16InitializeEmptyPrimary\x125.multipoolermanagerdata.InitializeEmptyPrimaryRequest\x1a6.multipoolermanagerdata.InitializeEmptyPrimaryResponse\x12W\n" +
 	"\x06Backup\x12%.multipoolermanagerdata.BackupRequest\x1a&.multipoolermanagerdata.BackupResponse\x12x\n" +
 	"\x11RestoreFromBackup\x120.multipoolermanagerdata.RestoreFromBackupRequest\x1a1.multipoolermanagerdata.RestoreFromBackupResponse\x12c\n" +
 	"\n" +
@@ -95,11 +95,11 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.GetFollowersRequest)(nil),                     // 15: multipoolermanagerdata.GetFollowersRequest
 	(*multipoolermanagerdata.DemoteRequest)(nil),                           // 16: multipoolermanagerdata.DemoteRequest
 	(*multipoolermanagerdata.UndoDemoteRequest)(nil),                       // 17: multipoolermanagerdata.UndoDemoteRequest
-	(*multipoolermanagerdata.PromoteRequest)(nil),                          // 18: multipoolermanagerdata.PromoteRequest
-	(*multipoolermanagerdata.StateRequest)(nil),                            // 19: multipoolermanagerdata.StateRequest
-	(*multipoolermanagerdata.SetTermRequest)(nil),                          // 20: multipoolermanagerdata.SetTermRequest
-	(*multipoolermanagerdata.InitializeEmptyPrimaryRequest)(nil),           // 21: multipoolermanagerdata.InitializeEmptyPrimaryRequest
-	(*multipoolermanagerdata.InitializeAsStandbyRequest)(nil),              // 22: multipoolermanagerdata.InitializeAsStandbyRequest
+	(*multipoolermanagerdata.DemoteStalePrimaryRequest)(nil),               // 18: multipoolermanagerdata.DemoteStalePrimaryRequest
+	(*multipoolermanagerdata.PromoteRequest)(nil),                          // 19: multipoolermanagerdata.PromoteRequest
+	(*multipoolermanagerdata.StateRequest)(nil),                            // 20: multipoolermanagerdata.StateRequest
+	(*multipoolermanagerdata.SetTermRequest)(nil),                          // 21: multipoolermanagerdata.SetTermRequest
+	(*multipoolermanagerdata.InitializeEmptyPrimaryRequest)(nil),           // 22: multipoolermanagerdata.InitializeEmptyPrimaryRequest
 	(*multipoolermanagerdata.BackupRequest)(nil),                           // 23: multipoolermanagerdata.BackupRequest
 	(*multipoolermanagerdata.RestoreFromBackupRequest)(nil),                // 24: multipoolermanagerdata.RestoreFromBackupRequest
 	(*multipoolermanagerdata.GetBackupsRequest)(nil),                       // 25: multipoolermanagerdata.GetBackupsRequest
@@ -125,11 +125,11 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.GetFollowersResponse)(nil),                    // 45: multipoolermanagerdata.GetFollowersResponse
 	(*multipoolermanagerdata.DemoteResponse)(nil),                          // 46: multipoolermanagerdata.DemoteResponse
 	(*multipoolermanagerdata.UndoDemoteResponse)(nil),                      // 47: multipoolermanagerdata.UndoDemoteResponse
-	(*multipoolermanagerdata.PromoteResponse)(nil),                         // 48: multipoolermanagerdata.PromoteResponse
-	(*multipoolermanagerdata.StateResponse)(nil),                           // 49: multipoolermanagerdata.StateResponse
-	(*multipoolermanagerdata.SetTermResponse)(nil),                         // 50: multipoolermanagerdata.SetTermResponse
-	(*multipoolermanagerdata.InitializeEmptyPrimaryResponse)(nil),          // 51: multipoolermanagerdata.InitializeEmptyPrimaryResponse
-	(*multipoolermanagerdata.InitializeAsStandbyResponse)(nil),             // 52: multipoolermanagerdata.InitializeAsStandbyResponse
+	(*multipoolermanagerdata.DemoteStalePrimaryResponse)(nil),              // 48: multipoolermanagerdata.DemoteStalePrimaryResponse
+	(*multipoolermanagerdata.PromoteResponse)(nil),                         // 49: multipoolermanagerdata.PromoteResponse
+	(*multipoolermanagerdata.StateResponse)(nil),                           // 50: multipoolermanagerdata.StateResponse
+	(*multipoolermanagerdata.SetTermResponse)(nil),                         // 51: multipoolermanagerdata.SetTermResponse
+	(*multipoolermanagerdata.InitializeEmptyPrimaryResponse)(nil),          // 52: multipoolermanagerdata.InitializeEmptyPrimaryResponse
 	(*multipoolermanagerdata.BackupResponse)(nil),                          // 53: multipoolermanagerdata.BackupResponse
 	(*multipoolermanagerdata.RestoreFromBackupResponse)(nil),               // 54: multipoolermanagerdata.RestoreFromBackupResponse
 	(*multipoolermanagerdata.GetBackupsResponse)(nil),                      // 55: multipoolermanagerdata.GetBackupsResponse
@@ -157,11 +157,11 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	15, // 15: multipoolermanager.MultiPoolerManager.GetFollowers:input_type -> multipoolermanagerdata.GetFollowersRequest
 	16, // 16: multipoolermanager.MultiPoolerManager.Demote:input_type -> multipoolermanagerdata.DemoteRequest
 	17, // 17: multipoolermanager.MultiPoolerManager.UndoDemote:input_type -> multipoolermanagerdata.UndoDemoteRequest
-	18, // 18: multipoolermanager.MultiPoolerManager.Promote:input_type -> multipoolermanagerdata.PromoteRequest
-	19, // 19: multipoolermanager.MultiPoolerManager.State:input_type -> multipoolermanagerdata.StateRequest
-	20, // 20: multipoolermanager.MultiPoolerManager.SetTerm:input_type -> multipoolermanagerdata.SetTermRequest
-	21, // 21: multipoolermanager.MultiPoolerManager.InitializeEmptyPrimary:input_type -> multipoolermanagerdata.InitializeEmptyPrimaryRequest
-	22, // 22: multipoolermanager.MultiPoolerManager.InitializeAsStandby:input_type -> multipoolermanagerdata.InitializeAsStandbyRequest
+	18, // 18: multipoolermanager.MultiPoolerManager.DemoteStalePrimary:input_type -> multipoolermanagerdata.DemoteStalePrimaryRequest
+	19, // 19: multipoolermanager.MultiPoolerManager.Promote:input_type -> multipoolermanagerdata.PromoteRequest
+	20, // 20: multipoolermanager.MultiPoolerManager.State:input_type -> multipoolermanagerdata.StateRequest
+	21, // 21: multipoolermanager.MultiPoolerManager.SetTerm:input_type -> multipoolermanagerdata.SetTermRequest
+	22, // 22: multipoolermanager.MultiPoolerManager.InitializeEmptyPrimary:input_type -> multipoolermanagerdata.InitializeEmptyPrimaryRequest
 	23, // 23: multipoolermanager.MultiPoolerManager.Backup:input_type -> multipoolermanagerdata.BackupRequest
 	24, // 24: multipoolermanager.MultiPoolerManager.RestoreFromBackup:input_type -> multipoolermanagerdata.RestoreFromBackupRequest
 	25, // 25: multipoolermanager.MultiPoolerManager.GetBackups:input_type -> multipoolermanagerdata.GetBackupsRequest
@@ -187,11 +187,11 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	45, // 45: multipoolermanager.MultiPoolerManager.GetFollowers:output_type -> multipoolermanagerdata.GetFollowersResponse
 	46, // 46: multipoolermanager.MultiPoolerManager.Demote:output_type -> multipoolermanagerdata.DemoteResponse
 	47, // 47: multipoolermanager.MultiPoolerManager.UndoDemote:output_type -> multipoolermanagerdata.UndoDemoteResponse
-	48, // 48: multipoolermanager.MultiPoolerManager.Promote:output_type -> multipoolermanagerdata.PromoteResponse
-	49, // 49: multipoolermanager.MultiPoolerManager.State:output_type -> multipoolermanagerdata.StateResponse
-	50, // 50: multipoolermanager.MultiPoolerManager.SetTerm:output_type -> multipoolermanagerdata.SetTermResponse
-	51, // 51: multipoolermanager.MultiPoolerManager.InitializeEmptyPrimary:output_type -> multipoolermanagerdata.InitializeEmptyPrimaryResponse
-	52, // 52: multipoolermanager.MultiPoolerManager.InitializeAsStandby:output_type -> multipoolermanagerdata.InitializeAsStandbyResponse
+	48, // 48: multipoolermanager.MultiPoolerManager.DemoteStalePrimary:output_type -> multipoolermanagerdata.DemoteStalePrimaryResponse
+	49, // 49: multipoolermanager.MultiPoolerManager.Promote:output_type -> multipoolermanagerdata.PromoteResponse
+	50, // 50: multipoolermanager.MultiPoolerManager.State:output_type -> multipoolermanagerdata.StateResponse
+	51, // 51: multipoolermanager.MultiPoolerManager.SetTerm:output_type -> multipoolermanagerdata.SetTermResponse
+	52, // 52: multipoolermanager.MultiPoolerManager.InitializeEmptyPrimary:output_type -> multipoolermanagerdata.InitializeEmptyPrimaryResponse
 	53, // 53: multipoolermanager.MultiPoolerManager.Backup:output_type -> multipoolermanagerdata.BackupResponse
 	54, // 54: multipoolermanager.MultiPoolerManager.RestoreFromBackup:output_type -> multipoolermanagerdata.RestoreFromBackupResponse
 	55, // 55: multipoolermanager.MultiPoolerManager.GetBackups:output_type -> multipoolermanagerdata.GetBackupsResponse

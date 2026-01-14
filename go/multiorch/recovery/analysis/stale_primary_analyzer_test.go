@@ -60,7 +60,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		assert.Contains(t, problems[0].Description, "term 5")
 	})
 
-	t.Run("ignores when this node has higher term (other is stale)", func(t *testing.T) {
+	t.Run("detects other primary as stale when this node has higher term", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
 		analysis := &store.ReplicationAnalysis{
 			PoolerID: &clustermetadatapb.ID{
@@ -83,7 +83,11 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 0, "should not flag this node when it has higher term")
+		require.Len(t, problems, 1, "should detect other primary as stale")
+		assert.Equal(t, types.ProblemStalePrimary, problems[0].Code)
+		assert.Equal(t, "stale-primary", problems[0].PoolerID.Name, "should report the stale primary")
+		assert.Contains(t, problems[0].Description, "stale-primary (term 5) is stale")
+		assert.Contains(t, problems[0].Description, "new-primary has term 6")
 	})
 
 	t.Run("does not demote when terms are equal (prevents double demotion)", func(t *testing.T) {

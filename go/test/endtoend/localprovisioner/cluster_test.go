@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package localprovisioner
 
 import (
 	"context"
@@ -46,6 +46,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
@@ -211,7 +212,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 		serviceID := stringutil.RandomString(8)
 		zonePort := &portConfig.Zones[i]
 
-		localConfig.Cells[zoneName] = local.CellServicesConfig{
+		cellConfig := local.CellServicesConfig{
 			Multigateway: local.MultigatewayConfig{
 				Path:     "multigateway",
 				HttpPort: zonePort.MultigatewayHTTPPort,
@@ -232,15 +233,6 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("multipooler-%s.sock", zoneName)),
 				LogLevel:       "info",
 			},
-			Multiorch: local.MultiorchConfig{
-				Path:                           "multiorch",
-				HttpPort:                       zonePort.MultiorchHTTPPort,
-				GrpcPort:                       zonePort.MultiorchGRPCPort,
-				LogLevel:                       "info",
-				ClusterMetadataRefreshInterval: "500ms",
-				PoolerHealthCheckInterval:      "500ms",
-				RecoveryCycleInterval:          "500ms",
-			},
 			Pgctld: local.PgctldConfig{
 				Path:           "pgctld",
 				GrpcPort:       zonePort.PgctldGRPCPort,
@@ -248,12 +240,27 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				PgPort:         zonePort.PgctldPGPort,
 				PgDatabase:     "postgres",
 				PgUser:         "postgres",
-				Timeout:        30,
+				Timeout:        60,
 				LogLevel:       "info",
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
 				// PgPwfile not set - provisioner will create pgpassword.txt with default "postgres" password
 			},
 		}
+
+		// Only create multiorch for zone1 to avoid concurrent bootstrap race conditions
+		if i == 0 {
+			cellConfig.Multiorch = local.MultiorchConfig{
+				Path:                           "multiorch",
+				HttpPort:                       zonePort.MultiorchHTTPPort,
+				GrpcPort:                       zonePort.MultiorchGRPCPort,
+				LogLevel:                       "info",
+				ClusterMetadataRefreshInterval: "500ms",
+				PoolerHealthCheckInterval:      "500ms",
+				RecoveryCycleInterval:          "500ms",
+			}
+		}
+
+		localConfig.Cells[zoneName] = cellConfig
 	}
 
 	// Convert the typed config to map[string]any via YAML marshaling
@@ -493,7 +500,7 @@ func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) err
 // the multipooler gRPC service
 func queryHeartbeatCount(addr string) (int, error) {
 	// Create gRPC client
-	client, err := NewMultiPoolerTestClient(addr)
+	client, err := shardsetup.NewMultiPoolerTestClient(addr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to connect to multipooler gRPC at %s: %w", addr, err)
 	}
@@ -953,9 +960,9 @@ func TestClusterLifecycle(t *testing.T) {
 		zone1Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
 		zone2Addr := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
 		t.Log("Waiting for pooler types to be assigned...")
-		zone1Type, err := WaitForPoolerTypeAssigned(t, zone1Addr, 30*time.Second)
+		zone1Type, err := shardsetup.WaitForPoolerTypeAssigned(t, zone1Addr, 30*time.Second)
 		require.NoError(t, err, "zone1 pooler type should be assigned")
-		zone2Type, err := WaitForPoolerTypeAssigned(t, zone2Addr, 30*time.Second)
+		zone2Type, err := shardsetup.WaitForPoolerTypeAssigned(t, zone2Addr, 30*time.Second)
 		require.NoError(t, err, "zone2 pooler type should be assigned")
 
 		// Verify exactly one PRIMARY and one REPLICA
@@ -1122,11 +1129,11 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Wait for both zones to be ready after restart (same as initial bootstrap)
 		t.Log("Waiting for zone1 to be ready after restart...")
-		require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, expectedDatabase),
+		require.NoError(t, shardsetup.WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, expectedDatabase),
 			"zone1 should be ready after restart")
 		t.Log("Waiting for zone2 to be ready after restart...")
 		multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
-		require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, expectedDatabase),
+		require.NoError(t, shardsetup.WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, expectedDatabase),
 			"zone2 should be ready after restart")
 
 		// Verify PostgreSQL connectivity for both zones after restart
@@ -1137,7 +1144,7 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Verify primary/replica roles are preserved after restart
 		t.Log("Verifying primary/replica roles are preserved after restart...")
-		zone1IsPrimaryAfterRestart, err := IsPrimary(zone1Addr)
+		zone1IsPrimaryAfterRestart, err := shardsetup.IsPrimary(zone1Addr)
 		require.NoError(t, err, "should be able to check zone1 primary status after restart")
 		require.Equal(t, zone1IsPrimary, zone1IsPrimaryAfterRestart,
 			"primary/replica roles must be preserved after restart")
@@ -1342,42 +1349,42 @@ func testMultipoolerGRPC(t *testing.T, addr string) {
 	t.Helper()
 
 	// Connect to multipooler gRPC service
-	client, err := NewMultiPoolerTestClient(addr)
+	client, err := shardsetup.NewMultiPoolerTestClient(addr)
 	require.NoError(t, err, "Failed to connect to multipooler gRPC at %s", addr)
 	defer client.Close()
 
 	// Test basic SELECT query
-	TestBasicSelect(t, client)
+	shardsetup.TestBasicSelect(t, client)
 
 	// Test data types
-	TestDataTypes(t, client)
+	shardsetup.TestDataTypes(t, client)
 
 	// Test a simple table lifecycle (without affecting other tests)
 	// Use a simple hash of the address to create unique table names
 	tableName := fmt.Sprintf("test_table_%d", stringHash(addr))
-	TestCreateTable(t, client, tableName)
+	shardsetup.TestCreateTable(t, client, tableName)
 
 	// Insert some test data
 	testData := []map[string]any{
 		{"name": "test1", "value": 100},
 		{"name": "test2", "value": 200},
 	}
-	TestInsertData(t, client, tableName, testData)
+	shardsetup.TestInsertData(t, client, tableName, testData)
 
 	// Verify the data
-	TestSelectData(t, client, tableName, len(testData))
+	shardsetup.TestSelectData(t, client, tableName, len(testData))
 
 	// Clean up
-	TestDropTable(t, client, tableName)
+	shardsetup.TestDropTable(t, client, tableName)
 
 	// Test that the multigres schema exists
-	TestMultigresSchemaExists(t, client)
+	shardsetup.TestMultigresSchemaExists(t, client)
 
 	// Test that the heartbeat table exists with expected columns
-	TestHeartbeatTableExists(t, client)
+	shardsetup.TestHeartbeatTableExists(t, client)
 
 	// Test primary detection
-	TestPrimaryDetection(t, client)
+	shardsetup.TestPrimaryDetection(t, client)
 
 	t.Logf("Multipooler gRPC test completed successfully for %s", addr)
 }
@@ -1387,21 +1394,21 @@ func testMultipoolerGRPCReadOnly(t *testing.T, addr string) {
 	t.Helper()
 
 	// Connect to multipooler gRPC service
-	client, err := NewMultiPoolerTestClient(addr)
+	client, err := shardsetup.NewMultiPoolerTestClient(addr)
 	require.NoError(t, err, "Failed to connect to multipooler gRPC at %s", addr)
 	defer client.Close()
 
 	// Test basic SELECT query
-	TestBasicSelect(t, client)
+	shardsetup.TestBasicSelect(t, client)
 
 	// Test data types
-	TestDataTypes(t, client)
+	shardsetup.TestDataTypes(t, client)
 
 	// Test that the multigres schema exists (replicated from primary)
-	TestMultigresSchemaExists(t, client)
+	shardsetup.TestMultigresSchemaExists(t, client)
 
 	// Test that the heartbeat table exists with expected columns
-	TestHeartbeatTableExists(t, client)
+	shardsetup.TestHeartbeatTableExists(t, client)
 
 	t.Logf("Multipooler gRPC read-only test completed successfully for %s", addr)
 }
@@ -1564,12 +1571,12 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 	database := "postgres" // Matches DefaultDbName in createTestConfigWithPorts
 	t.Log("Waiting for multiorch to bootstrap zone1...")
 	multipoolerAddr := fmt.Sprintf("localhost:%d", testPorts.Zones[0].MultipoolerGRPCPort)
-	require.NoError(t, WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, database),
+	require.NoError(t, shardsetup.WaitForBootstrap(t, multipoolerAddr, 60*time.Second, tempDir, database),
 		"multiorch should bootstrap zone1 within timeout")
 
 	t.Log("Waiting for multiorch to bootstrap zone2...")
 	multipoolerAddr2 := fmt.Sprintf("localhost:%d", testPorts.Zones[1].MultipoolerGRPCPort)
-	require.NoError(t, WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, database),
+	require.NoError(t, shardsetup.WaitForBootstrap(t, multipoolerAddr2, 60*time.Second, tempDir, database),
 		"multiorch should bootstrap zone2 within timeout")
 
 	t.Log("Test cluster setup completed successfully")

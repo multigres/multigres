@@ -20,8 +20,6 @@ import (
 	"log/slog"
 	"time"
 
-	"google.golang.org/protobuf/types/known/durationpb"
-
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -30,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -109,47 +106,41 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 	// Demote requires postgres to be healthy. If postgres is not running yet,
 	// we should skip this attempt and let the next recovery cycle retry once
 	// postgres is ready. This avoids wasting time on RPCs that will fail.
-	if !stalePrimary.IsPostgresRunning {
-		return mterrors.New(mtrpcpb.Code_UNAVAILABLE,
-			fmt.Sprintf("postgres not running on stale primary %s, skipping demote attempt", poolerIDStr))
-	}
+	// if !stalePrimary.IsPostgresRunning {
+	// 	return mterrors.New(mtrpcpb.Code_UNAVAILABLE,
+	// 		fmt.Sprintf("postgres not running on stale primary %s, skipping demote attempt", poolerIDStr))
+	// }
 
-	// Find the correct primary (the one with higher term) to get its term
-	correctPrimaryTerm, err := a.findCorrectPrimaryTerm(problem.ShardKey, poolerIDStr)
+	// Find the correct primary to use as rewind source
+	correctPrimary, correctPrimaryTerm, err := a.findCorrectPrimary(problem.ShardKey, poolerIDStr)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to find correct primary term")
+		return mterrors.Wrap(err, "failed to find correct primary")
 	}
 
-	a.logger.InfoContext(ctx, "demoting stale primary with correct primary's term",
+	a.logger.InfoContext(ctx, "demoting stale primary using DemoteStalePrimary RPC",
 		"stale_primary", poolerIDStr,
+		"correct_primary", correctPrimary.MultiPooler.Id.Name,
 		"correct_primary_term", correctPrimaryTerm)
 
-	// Call Demote RPC with the correct primary's term
-	// The Demote RPC accepts term >= currentTerm and performs the demotion
-	// Use a shorter drain timeout for stale primaries since they typically have no active connections
-	demoteResp, err := a.rpcClient.Demote(ctx, stalePrimary.MultiPooler, &multipoolermanagerdatapb.DemoteRequest{
+	// Call DemoteStalePrimary RPC - this will:
+	// 1. Stop postgres
+	// 2. Run pg_rewind to sync with correct primary
+	// 3. Restart as standby
+	// 4. Clear sync replication config
+	// 5. Update topology to REPLICA
+	demoteResp, err := a.rpcClient.DemoteStalePrimary(ctx, stalePrimary.MultiPooler, &multipoolermanagerdatapb.DemoteStalePrimaryRequest{
+		Source:        correctPrimary.MultiPooler,
 		ConsensusTerm: correctPrimaryTerm,
-		DrainTimeout:  durationpb.New(StalePrimaryDrainTimeout),
-		Force:         false, // Respect term validation
+		Force:         false,
 	})
 	if err != nil {
-		return mterrors.Wrap(err, "Demote RPC failed")
+		return mterrors.Wrap(err, "DemoteStalePrimary RPC failed")
 	}
 
 	a.logger.InfoContext(ctx, "stale primary demoted successfully",
 		"stale_primary", poolerIDStr,
+		"rewind_performed", demoteResp.RewindPerformed,
 		"lsn_position", demoteResp.LsnPosition)
-
-	// Verify the demotion by checking status
-	statusResp, err := a.rpcClient.Status(ctx, stalePrimary.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil {
-		a.logger.WarnContext(ctx, "failed to verify demotion status",
-			"stale_primary", poolerIDStr,
-			"error", err)
-	} else if statusResp.Status != nil && statusResp.Status.PostgresRole == "standby" {
-		a.logger.InfoContext(ctx, "verified: stale primary is now in recovery mode (standby)",
-			"stale_primary", poolerIDStr)
-	}
 
 	a.logger.InfoContext(ctx, "demote stale primary action completed",
 		"shard_key", problem.ShardKey.String(),
@@ -158,11 +149,11 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 	return nil
 }
 
-// findCorrectPrimaryTerm finds the correct primary in the shard and returns its term.
+// findCorrectPrimary finds the correct primary in the shard and returns it along with its term.
 // The correct primary is the one with the higher consensus term.
-func (a *DemoteStalePrimaryAction) findCorrectPrimaryTerm(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (int64, error) {
+func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
+	var correctPrimary *multiorchdatapb.PoolerHealthState
 	var maxTerm int64
-	var foundCorrectPrimary bool
 
 	// Iterate through all poolers to find the correct primary
 	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
@@ -194,16 +185,16 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimaryTerm(shardKey commontypes.S
 			// Get its term
 			if pooler.ConsensusStatus != nil && pooler.ConsensusStatus.CurrentTerm > maxTerm {
 				maxTerm = pooler.ConsensusStatus.CurrentTerm
-				foundCorrectPrimary = true
+				correctPrimary = pooler
 			}
 		}
 
 		return true // continue
 	})
 
-	if !foundCorrectPrimary {
-		return 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
+	if correctPrimary == nil {
+		return nil, 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
 	}
 
-	return maxTerm, nil
+	return correctPrimary, maxTerm, nil
 }

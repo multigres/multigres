@@ -327,6 +327,35 @@ message DemoteResponse {
   int32 connections_terminated = 4;
 }
 
+// DemoteStalePrimary demotes a stale primary that came back online after failover.
+// This is a complete operation that:
+// 1. Stops postgres if running
+// 2. Runs pg_rewind to sync with the correct primary
+// 3. Clears sync replication config
+// 4. Restarts as standby
+// 5. Updates topology to REPLICA
+message DemoteStalePrimaryRequest {
+  // Source multipooler (the correct primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+
+  // Consensus term from the correct primary
+  int64 consensus_term = 2;
+
+  // Force the operation even if term validation fails
+  bool force = 3;
+}
+
+message DemoteStalePrimaryResponse {
+  // True if the operation completed successfully
+  bool success = 1;
+
+  // Whether pg_rewind was performed (servers were diverged)
+  bool rewind_performed = 2;
+
+  // LSN position after becoming standby
+  string lsn_position = 3;
+}
+
 // UndoDemote undoes a demotion
 message UndoDemoteRequest {
 }
@@ -574,34 +603,6 @@ message InitializeEmptyPrimaryResponse {
   // Backup ID of the initial backup created during initialization
   // This can be used by standbys to restore from the same backup
   string backup_id = 3;
-}
-
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-message InitializeAsStandbyRequest {
-  // Primary pooler to replicate from
-  clustermetadata.MultiPooler primary = 1;
-
-  // Consensus term to set for this standby
-  int64 consensus_term = 2;
-
-  // Whether to force reinitialization (removes existing data directory)
-  bool force = 3;
-
-  // Optional: Specific backup ID to restore from
-  // If empty, restore from the latest backup
-  string backup_id = 4;
-}
-
-message InitializeAsStandbyResponse {
-  // Whether the initialization succeeded
-  bool success = 1;
-
-  // Error message if initialization failed
-  string error_message = 2;
-
-  // Final LSN position after backup completed
-  string final_lsn = 3;
 }
 
 // Backup operations

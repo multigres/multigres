@@ -222,6 +222,15 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 	return &multipoolermanagerdatapb.UndoDemoteResponse{}, nil
 }
 
+// DemoteStalePrimary demotes a stale primary that came back after failover
+func (s *managerService) DemoteStalePrimary(ctx context.Context, req *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
+	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.ConsensusTerm, req.Force)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // Promote promotes a replica to leader (Multigres-level operation)
 func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	resp, err := s.manager.Promote(ctx,
@@ -301,15 +310,6 @@ func (s *managerService) GetBackupByJobId(ctx context.Context, req *multipoolerm
 // InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
 func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
 	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
-// InitializeAsStandby initializes an empty PostgreSQL instance as a standby
-func (s *managerService) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	resp, err := s.manager.InitializeAsStandby(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

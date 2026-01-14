@@ -19,8 +19,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/multigres/multigres/go/test/endtoend"
-
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -131,7 +129,7 @@ func RestorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerp
 
 // SaveGUCs queries multiple GUC values and saves them to a map.
 // Returns a map of gucName -> value. Empty values are preserved.
-func SaveGUCs(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucNames []string) map[string]string {
+func SaveGUCs(ctx context.Context, client *MultiPoolerTestClient, gucNames []string) map[string]string {
 	saved := make(map[string]string)
 	for _, gucName := range gucNames {
 		value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
@@ -144,7 +142,7 @@ func SaveGUCs(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucNa
 
 // RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM.
 // Empty values are treated as RESET (restore to default).
-func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
+func RestoreGUCs(ctx context.Context, t *testing.T, client *MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
 	t.Helper()
 	for gucName, gucValue := range savedGucs {
 		var query string
@@ -168,7 +166,7 @@ func RestoreGUCs(ctx context.Context, t *testing.T, client *endtoend.MultiPooler
 
 // ValidateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
 // Follows the pattern from multipooler/setup_test.go:validateGUCValue.
-func ValidateGUCValue(ctx context.Context, client *endtoend.MultiPoolerTestClient, gucName, expected, instanceName string) error {
+func ValidateGUCValue(ctx context.Context, client *MultiPoolerTestClient, gucName, expected, instanceName string) error {
 	value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
 	if err != nil {
 		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)

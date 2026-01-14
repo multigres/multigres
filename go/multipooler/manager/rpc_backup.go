@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -93,6 +94,11 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		if err := os.MkdirAll(lockPath, 0o755); err != nil {
 			return "", fmt.Errorf("failed to create lock directory %s: %w", lockPath, err)
 		}
+	}
+
+	// Validate backup location is set (requires topology to be loaded)
+	if pm.backupLocation == "" {
+		return "", errors.New("backup location not set; topology may not be loaded yet")
 	}
 
 	// Generate pgbackrest config file from template
