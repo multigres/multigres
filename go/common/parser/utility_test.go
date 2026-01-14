@@ -30,7 +30,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 func TestMakeRangeVarFromAnyName(t *testing.T) {
