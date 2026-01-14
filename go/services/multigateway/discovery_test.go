@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 // Test configuration constants
@@ -480,62 +479,6 @@ func TestGlobalPoolerDiscovery_MultiCell(t *testing.T) {
 	assert.Equal(t, 2, gd.PoolerCount())
 }
 
-func TestGlobalPoolerDiscovery_CellAffinityForReplicas(t *testing.T) {
-	ctx := context.Background()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
-	defer store.Close()
-	logger := slog.Default()
-
-	// Create replicas in both cells
-	localReplica := createTestPooler("local-replica", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_REPLICA)
-	remoteReplica := createTestPooler("remote-replica", "zone2", "host2", "db1", "shard1", clustermetadatapb.PoolerType_REPLICA)
-	require.NoError(t, store.CreateMultiPooler(ctx, localReplica))
-	require.NoError(t, store.CreateMultiPooler(ctx, remoteReplica))
-
-	// Start global discovery with zone1 as local cell
-	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
-	gd.Start()
-	defer gd.Stop()
-
-	waitForGlobalPoolerCount(t, gd, 2)
-
-	// Request a replica - should prefer local cell
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_REPLICA,
-	}
-	pooler := gd.GetPooler(target)
-	require.NotNil(t, pooler)
-	assert.Equal(t, "local-replica", pooler.Id.Name, "Should prefer local cell for replicas")
-}
-
-func TestGlobalPoolerDiscovery_CrossCellPrimary(t *testing.T) {
-	ctx := context.Background()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
-	defer store.Close()
-	logger := slog.Default()
-
-	// Create primary only in zone2 (not in local cell zone1)
-	remotePrimary := createTestPooler("remote-primary", "zone2", "host2", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, store.CreateMultiPooler(ctx, remotePrimary))
-
-	// Start global discovery with zone1 as local cell
-	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
-	gd.Start()
-	defer gd.Stop()
-
-	waitForGlobalPoolerCount(t, gd, 1)
-
-	// Request a primary - should find it in zone2
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-	pooler := gd.GetPooler(target)
-	require.NotNil(t, pooler, "Should find primary in remote cell")
-	assert.Equal(t, "remote-primary", pooler.Id.Name)
-}
-
 func TestGlobalPoolerDiscovery_GetCellStatusesForAdmin(t *testing.T) {
 	ctx := context.Background()
 	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
@@ -779,4 +722,89 @@ func TestCellPoolerDiscovery_ExtractPoolerIDFromPath(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// mockPoolerListener records pooler change events for testing.
+type mockPoolerListener struct {
+	changedPoolers []string
+	removedPoolers []string
+}
+
+func (m *mockPoolerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
+	m.changedPoolers = append(m.changedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
+}
+
+func (m *mockPoolerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
+	m.removedPoolers = append(m.removedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
+}
+
+func TestGlobalPoolerDiscovery_RegisterListener_ReplaysExistingPoolers(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create poolers in different cells BEFORE starting discovery
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	pooler2 := createTestPooler("pooler2", "zone2", "host2", "db2", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	// Start global discovery
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
+	gd.Start()
+	defer gd.Stop()
+
+	// Wait for poolers to be discovered
+	waitForGlobalPoolerCount(t, gd, 2)
+
+	// Now register a listener AFTER poolers are already discovered
+	listener := &mockPoolerListener{}
+	gd.RegisterListener(listener)
+
+	// The listener should immediately receive OnPoolerChanged for all existing poolers
+	require.Len(t, listener.changedPoolers, 2, "Listener should receive replay of existing poolers")
+
+	// Verify both poolers were replayed (order may vary)
+	assert.Contains(t, listener.changedPoolers, topoclient.MultiPoolerIDString(pooler1.Id))
+	assert.Contains(t, listener.changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
+
+	// No poolers should have been removed
+	assert.Empty(t, listener.removedPoolers)
+}
+
+func TestGlobalPoolerDiscovery_RegisterListener_ReceivesSubsequentChanges(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Start with one pooler
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
+
+	// Start global discovery
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
+	gd.Start()
+	defer gd.Stop()
+
+	waitForGlobalPoolerCount(t, gd, 1)
+
+	// Register listener
+	listener := &mockPoolerListener{}
+	gd.RegisterListener(listener)
+
+	// Should have replayed pooler1
+	require.Len(t, listener.changedPoolers, 1)
+
+	// Now add another pooler
+	pooler2 := createTestPooler("pooler2", "zone1", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	// Wait for listener to receive the new pooler
+	waitForCondition(t, func() bool {
+		return len(listener.changedPoolers) == 2
+	}, "Listener should receive new pooler after registration")
+
+	assert.Contains(t, listener.changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
 }

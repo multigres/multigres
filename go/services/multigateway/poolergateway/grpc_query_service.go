@@ -258,8 +258,8 @@ func (g *grpcQueryService) Describe(
 }
 
 // Close closes the gRPC connection.
-func (g *grpcQueryService) Close(ctx context.Context) error {
-	g.logger.DebugContext(ctx, "closing gRPC query service", "pooler_id", g.poolerID)
+func (g *grpcQueryService) Close() error {
+	g.logger.Debug("closing gRPC query service", "pooler_id", g.poolerID)
 	if g.conn != nil {
 		return g.conn.Close()
 	}

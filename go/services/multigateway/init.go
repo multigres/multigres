@@ -175,8 +175,13 @@ func (mg *MultiGateway) Init() error {
 	mg.poolerDiscovery.Start()
 	logger.Info("Global pooler discovery started", "local_cell", mg.cell.Get())
 
+	// Create LoadBalancer and register with discovery for real-time updates
+	loadBalancer := poolergateway.NewLoadBalancer(mg.cell.Get(), logger)
+	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
+	logger.Info("LoadBalancer registered with pooler discovery")
+
 	// Initialize PoolerGateway for managing pooler connections
-	mg.poolerGateway = poolergateway.NewPoolerGateway(mg.poolerDiscovery, logger)
+	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, logger)
 
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
@@ -265,7 +270,7 @@ func (mg *MultiGateway) Shutdown() {
 
 	// Close pooler gateway connections
 	if mg.poolerGateway != nil {
-		if err := mg.poolerGateway.Close(context.TODO()); err != nil {
+		if err := mg.poolerGateway.Close(); err != nil {
 			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("Pooler gateway closed")
