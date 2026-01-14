@@ -27,7 +27,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	"github.com/multigres/multigres/go/test/endtoend"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -36,7 +36,7 @@ import (
 
 // createTestUser creates a PostgreSQL user with the given password and registers
 // cleanup to drop the user when the test completes. Returns the generated username.
-func createTestUser(t *testing.T, client *endtoend.MultiPoolerTestClient, password string) string {
+func createTestUser(t *testing.T, client *shardsetup.MultiPoolerTestClient, password string) string {
 	t.Helper()
 
 	username := fmt.Sprintf("testuser_%d", time.Now().UnixNano())
@@ -76,7 +76,7 @@ func TestGetAuthCredentials_ExistingUser(t *testing.T) {
 	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
 
 	// Create a test user with a password via SQL
-	poolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	poolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	defer poolerClient.Close()
 

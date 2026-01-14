@@ -45,6 +45,7 @@ import (
 type SetupConfig struct {
 	MultipoolerCount   int
 	MultiOrchCount     int
+	EnableMultigateway bool // Enable multigateway (opt-in, default: false)
 	Database           string
 	TableGroup         string
 	Shard              string
@@ -100,6 +101,14 @@ func WithDurabilityPolicy(policy string) SetupOption {
 func WithoutInitialization() SetupOption {
 	return func(c *SetupConfig) {
 		c.SkipInitialization = true
+	}
+}
+
+// WithMultigateway enables multigateway in the test setup (default: disabled).
+// Multigateway will start after shard bootstrap completes.
+func WithMultigateway() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
 	}
 }
 
@@ -298,10 +307,28 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	}
 
 	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
-	startProcessesWithoutInit(t, setup, multipoolerInstances, config)
+	startMultipoolerInstances(t, multipoolerInstances)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
+
+	// Start multigateway (if enabled) - MUST be after bootstrap so poolers are in topology
+	if config.EnableMultigateway {
+		// Allocate ports for multigateway
+		pgPort := utils.GetFreePort(t)
+		httpPort := utils.GetFreePort(t)
+		grpcPort := utils.GetFreePort(t)
+
+		// Create multigateway instance (doesn't start it)
+		mgw := setup.CreateMultigatewayInstance(t, "multigateway", pgPort, httpPort, grpcPort)
+		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
+
+		// Start multigateway (waits for Status RPC ready)
+		if err := mgw.Start(t); err != nil {
+			t.Fatalf("failed to start multigateway: %v", err)
+		}
+		t.Logf("Started multigateway")
+	}
 
 	// For uninitialized mode (bootstrap tests), we're done - leave nodes uninitialized
 	if config.SkipInitialization {
@@ -313,12 +340,17 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	// Use multiorch to bootstrap the shard organically
 	initializeWithMultiOrch(t, setup, config)
 
+	// Verify multigateway can execute queries (if enabled)
+	if config.EnableMultigateway {
+		setup.WaitForMultigatewayQueryServing(t)
+	}
+
 	// Start pgBackRest servers after initialization completes
 	// (multipooler generates config files during initialization)
 	setup.startPgBackRestServers(t)
 
-	t.Logf("Shard setup complete: %d multipoolers, %d multiorchs",
-		config.MultipoolerCount, config.MultiOrchCount)
+	t.Logf("Shard setup complete: %d multipoolers, %d multiorchs, multigateway: %v",
+		config.MultipoolerCount, config.MultiOrchCount, config.EnableMultigateway)
 
 	return setup
 }
@@ -531,13 +563,13 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 	return primaryName, allInitialized
 }
 
-// startProcessesWithoutInit starts pgctld and multipooler processes without initializing postgres.
+// startMultipoolerInstances starts pgctld and multipooler processes without initializing postgres.
 // Use this for bootstrap tests where multiorch will initialize the shard.
 // pgBackRest servers are started later via startPgBackRestServers() after initialization.
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startProcessesWithoutInit(t *testing.T, setup *ShardSetup, instances []*MultipoolerInstance, config *SetupConfig) {
+func startMultipoolerInstances(t *testing.T, instances []*MultipoolerInstance) {
 	t.Helper()
 
 	for _, inst := range instances {
@@ -1045,8 +1077,7 @@ func (s *ShardSetup) DemotePrimary(t *testing.T) {
 	require.NoError(t, err, "failed to connect to primary")
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := utils.WithTimeout(t, 20*time.Second)
 
 	// Demote using the Demote RPC with term 1 (clean state starts at term 1)
 	_, err = client.Manager.Demote(ctx, &multipoolermanagerdatapb.DemoteRequest{
