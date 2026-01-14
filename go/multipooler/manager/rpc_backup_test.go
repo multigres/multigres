@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,13 +37,13 @@ import (
 )
 
 // createTestManager creates a minimal MultiPoolerManager for testing
-func createTestManager(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
-	return createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard, poolerType, "/tmp/backups")
+func createTestManager(poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
+	return createTestManagerWithBackupLocation(poolerDir, tableGroup, shard, poolerType, "/tmp/backups")
 }
 
 // createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location.
 // backupLocation is the base path; the full path (with database/tablegroup/shard) is computed internally.
-func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
+func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
 	database := "test-database"
 
 	// Use defaults if not provided
@@ -103,6 +104,7 @@ func createTestManagerWithBackupLocation(poolerDir, stanzaName, tableGroup, shar
 		state:          ManagerStateReady,
 		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
+		logger:         slog.Default(),
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topoclient.NewMultiPoolerInfo(
 				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
@@ -240,7 +242,7 @@ exit 1
 
 			// Use separate directory for pooler data
 			poolerDir := t.TempDir()
-			pm := createTestManagerWithBackupLocation(poolerDir, "test-stanza", "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, poolerDir)
+			pm := createTestManagerWithBackupLocation(poolerDir, "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, poolerDir)
 
 			ctx := context.Background()
 			backupID, err := pm.findBackupByJobID(ctx, tt.jobID)
@@ -264,7 +266,6 @@ func TestBackup_Validation(t *testing.T) {
 	tests := []struct {
 		name         string
 		poolerDir    string
-		stanzaName   string
 		backupType   string
 		poolerType   clustermetadatapb.PoolerType
 		forcePrimary bool
@@ -274,7 +275,6 @@ func TestBackup_Validation(t *testing.T) {
 		{
 			name:        "Missing type",
 			poolerDir:   "/tmp/test",
-			stanzaName:  "test-stanza",
 			backupType:  "",
 			poolerType:  clustermetadatapb.PoolerType_REPLICA,
 			expectError: true,
@@ -283,7 +283,6 @@ func TestBackup_Validation(t *testing.T) {
 		{
 			name:        "Invalid backup type",
 			poolerDir:   "/tmp/test",
-			stanzaName:  "test-stanza",
 			backupType:  "invalid",
 			poolerType:  clustermetadatapb.PoolerType_REPLICA,
 			expectError: true,
@@ -292,7 +291,6 @@ func TestBackup_Validation(t *testing.T) {
 		{
 			name:         "Primary without force flag",
 			poolerDir:    "/tmp/test",
-			stanzaName:   "test-stanza",
 			backupType:   "full",
 			poolerType:   clustermetadatapb.PoolerType_PRIMARY,
 			forcePrimary: false,
@@ -302,7 +300,6 @@ func TestBackup_Validation(t *testing.T) {
 		{
 			name:         "Primary with force flag",
 			poolerDir:    "/tmp/test",
-			stanzaName:   "test-stanza",
 			backupType:   "full",
 			poolerType:   clustermetadatapb.PoolerType_PRIMARY,
 			forcePrimary: true,
@@ -312,7 +309,6 @@ func TestBackup_Validation(t *testing.T) {
 		{
 			name:         "Replica backup",
 			poolerDir:    "/tmp/test",
-			stanzaName:   "test-stanza",
 			backupType:   "full",
 			poolerType:   clustermetadatapb.PoolerType_REPLICA,
 			forcePrimary: false,
@@ -325,7 +321,7 @@ func TestBackup_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Provide backup location for tests that need to reach pgbackrest execution or validation
 			backupLocation := "/tmp/test-backups"
-			pm := createTestManagerWithBackupLocation(tt.poolerDir, tt.stanzaName, "", "", tt.poolerType, backupLocation)
+			pm := createTestManagerWithBackupLocation(tt.poolerDir, "", "", tt.poolerType, backupLocation)
 
 			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType, "")
 
@@ -351,7 +347,6 @@ func TestGetBackups_Validation(t *testing.T) {
 	tests := []struct {
 		name        string
 		poolerDir   string
-		stanzaName  string
 		limit       uint32
 		expectError bool
 		errorMsg    string
@@ -359,14 +354,12 @@ func TestGetBackups_Validation(t *testing.T) {
 		{
 			name:        "Valid request",
 			poolerDir:   t.TempDir(),
-			stanzaName:  "test-stanza",
 			limit:       0,
 			expectError: false, // Should return empty list for non-existent stanza
 		},
 		{
 			name:        "With limit",
 			poolerDir:   t.TempDir(),
-			stanzaName:  "test-stanza",
 			limit:       10,
 			expectError: false,
 		},
@@ -374,7 +367,7 @@ func TestGetBackups_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm := createTestManager(tt.poolerDir, tt.stanzaName, "", "", clustermetadatapb.PoolerType_REPLICA)
+			pm := createTestManager(tt.poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
 
 			result, err := pm.GetBackups(ctx, tt.limit)
 
@@ -797,7 +790,7 @@ func TestBackup_ActionLock(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Hold the lock in another goroutine
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
@@ -820,7 +813,7 @@ func TestGetBackups_ActionLock(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Hold the lock in another goroutine
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
@@ -843,7 +836,7 @@ func TestRestoreFromBackup_ActionLock(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Hold the lock in another goroutine
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
@@ -866,7 +859,7 @@ func TestBackup_ActionLockReleased(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Call Backup - it will fail (no pgbackrest), but should release the lock
 	_, _ = pm.Backup(ctx, false, "full", "")
@@ -884,7 +877,7 @@ func TestGetBackups_ActionLockReleased(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Call GetBackups - it may fail or succeed, but should release the lock
 	_, _ = pm.GetBackups(ctx, 10)
@@ -902,7 +895,7 @@ func TestRestoreFromBackup_ActionLockReleased(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "test-stanza", "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Call RestoreFromBackup - it will fail (precondition), but should release the lock
 	_ = pm.RestoreFromBackup(ctx, "test-backup-id")
@@ -991,7 +984,6 @@ func TestInitPgBackRest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pm := createTestManagerWithBackupLocation(
 				tt.poolerDir,
-				"test-stanza",
 				"test-tg",
 				"0",
 				clustermetadatapb.PoolerType_REPLICA,
@@ -1069,7 +1061,6 @@ func TestInitPgBackRest_Idempotent(t *testing.T) {
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA,
@@ -1101,7 +1092,6 @@ func TestInitPgBackRest_EarlyReturnWhenConfigExists(t *testing.T) {
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA,
@@ -1155,7 +1145,6 @@ func TestInitPgBackRest_DirectoryCreation(t *testing.T) {
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA,
@@ -1194,7 +1183,6 @@ func TestInitPgBackRest_TemplateExecution(t *testing.T) {
 
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA,
@@ -1239,7 +1227,6 @@ func TestInitPgBackRest_ConfigFileFormat(t *testing.T) {
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA,
@@ -1278,7 +1265,6 @@ func TestInitPgBackRest_ForBackupCreatesBackupConfig(t *testing.T) {
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA,
@@ -1350,7 +1336,6 @@ func TestInitPgBackRest_ForBackupFalseSkipsPg2(t *testing.T) {
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA, // This is a standby
@@ -1396,7 +1381,6 @@ func TestInitPgBackRest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
 	poolerDir := t.TempDir()
 	pm := createTestManagerWithBackupLocation(
 		poolerDir,
-		"test-stanza",
 		"test-tg",
 		"0",
 		clustermetadatapb.PoolerType_REPLICA, // This is a standby
