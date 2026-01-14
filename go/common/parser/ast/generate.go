@@ -14,4 +14,4 @@
 
 package ast
 
-//go:generate go run ../../tools/asthelpergen/main --in . --iface github.com/multigres/multigres/go/parser/ast.Node
+//go:generate go run ../../../tools/asthelpergen/main --in . --iface github.com/multigres/multigres/go/common/parser/ast.Node

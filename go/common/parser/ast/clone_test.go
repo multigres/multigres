@@ -17,8 +17,8 @@ package ast_test
 import (
 	"testing"
 
-	"github.com/multigres/multigres/go/parser"
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

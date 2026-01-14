@@ -30,7 +30,7 @@ package parser
 import (
 	"fmt"
 	"strings"
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // SelectLimit - Private struct for the result of opt_select_limit production
