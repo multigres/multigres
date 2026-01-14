@@ -351,3 +351,71 @@ func TestPeriodicRunnerOnStartNotCalledWhenAlreadyRunning(t *testing.T) {
 
 	assert.Equal(t, int32(1), onStartCount.Load(), "onStart should only be called once")
 }
+
+// TestPeriodicRunnerConcurrentStartStop tests that Start() called during Stop() waits correctly.
+// This test exercises the race condition where Start() might be called while Stop() is waiting
+// for in-flight callbacks, which could cause WaitGroup violations if not handled correctly.
+func TestPeriodicRunnerConcurrentStartStop(t *testing.T) {
+	callbackStarted := make(chan struct{})
+	callbackCanProceed := make(chan struct{})
+
+	runner := NewPeriodicRunner(t.Context(), 1*time.Millisecond)
+
+	// Start runner with a callback that blocks
+	runner.Start(func(_ context.Context) {
+		select {
+		case <-callbackStarted:
+		default:
+			close(callbackStarted)
+		}
+		<-callbackCanProceed
+	}, nil)
+
+	// Wait for callback to start
+	<-callbackStarted
+
+	// Start Stop() in background - it will block on wg.Wait()
+	stopDone := make(chan struct{})
+	go func() {
+		runner.Stop()
+		close(stopDone)
+	}()
+
+	// Give Stop() time to enter wg.Wait()
+	time.Sleep(10 * time.Millisecond)
+
+	// Try to Start() while Stop() is waiting - this should block until Stop() completes
+	startDone := make(chan struct{})
+	secondCallbackCalled := make(chan struct{}, 1)
+	go func() {
+		runner.Start(func(_ context.Context) {
+			select {
+			case secondCallbackCalled <- struct{}{}:
+			default:
+			}
+		}, nil)
+		close(startDone)
+	}()
+
+	// Verify Start() is blocked (Stop() hasn't completed yet)
+	select {
+	case <-startDone:
+		t.Fatal("Start should be blocked while Stop is in progress")
+	case <-time.After(10 * time.Millisecond):
+		// Good - Start is waiting
+	}
+
+	// Let first callback complete
+	close(callbackCanProceed)
+
+	// Wait for Stop to complete
+	<-stopDone
+
+	// Now Start should complete
+	<-startDone
+
+	// Verify the second callback runs
+	<-secondCallbackCalled
+
+	runner.Stop()
+}

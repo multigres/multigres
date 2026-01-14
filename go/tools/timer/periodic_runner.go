@@ -21,6 +21,15 @@ import (
 	"time"
 )
 
+// state represents the lifecycle state of the PeriodicRunner.
+type state int
+
+const (
+	stopped  state = iota // not running, can be started
+	running               // actively running, callbacks may be scheduled
+	stopping              // Stop() called, waiting for in-flight callbacks to complete
+)
+
 // PeriodicRunner runs a callback at regular intervals with lifecycle management.
 //
 // Key behaviors:
@@ -42,7 +51,8 @@ type PeriodicRunner struct {
 	interval  time.Duration
 
 	mu       sync.Mutex
-	running  bool
+	cond     *sync.Cond      // for waiting on state transitions
+	state    state           // current lifecycle state
 	ctx      context.Context // child context, created on Start, cancelled on Stop
 	cancel   context.CancelFunc
 	timer    *time.Timer
@@ -55,10 +65,13 @@ type PeriodicRunner struct {
 // Callers should typically pass a detached context (e.g., ctxutil.Detach()) to avoid
 // the runner being cancelled when request contexts complete.
 func NewPeriodicRunner(ctx context.Context, interval time.Duration) *PeriodicRunner {
-	return &PeriodicRunner{
+	pr := &PeriodicRunner{
 		parentCtx: ctx,
 		interval:  interval,
+		state:     stopped,
 	}
+	pr.cond = sync.NewCond(&pr.mu)
+	return pr
 }
 
 // Start begins running the callback at regular intervals.
@@ -70,11 +83,16 @@ func (r *PeriodicRunner) Start(callback func(ctx context.Context), onStart func(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.running {
+	// Wait for any in-progress Stop() to complete
+	for r.state == stopping {
+		r.cond.Wait()
+	}
+
+	if r.state == running {
 		return false
 	}
 
-	r.running = true
+	r.state = running
 	r.callback = callback
 	r.ctx, r.cancel = context.WithCancel(r.parentCtx)
 
@@ -92,12 +110,14 @@ func (r *PeriodicRunner) Start(callback func(ctx context.Context), onStart func(
 func (r *PeriodicRunner) Stop() {
 	r.mu.Lock()
 
-	if !r.running {
+	if r.state != running {
+		// Already stopped or another Stop() is in progress
 		r.mu.Unlock()
 		return
 	}
 
-	r.running = false
+	// Transition to stopping - from this point, this thread owns the stopping->stopped transition
+	r.state = stopping
 
 	// Cancel context to unblock any in-flight callback
 	if r.cancel != nil {
@@ -116,15 +136,27 @@ func (r *PeriodicRunner) Stop() {
 
 	r.mu.Unlock()
 
-	// Wait for any in-flight callback to complete
+	// Wait for any in-flight callback to complete (outside lock to avoid deadlock)
 	r.wg.Wait()
+
+	// Transition to stopped and wake any waiting Start() calls
+	r.mu.Lock()
+	// Because this goroutine owns the transition from stopping -> stopped,
+	// nothing should have changed with that while we released the lock to Wait().
+	if r.state != stopping {
+		panic("PeriodicRunner reached an impossible state")
+	}
+	r.state = stopped
+	r.cond.Broadcast()
+	r.mu.Unlock()
 }
 
 // Running returns true if the runner is currently running.
+// This includes the stopping state (while waiting for in-flight callbacks).
 func (r *PeriodicRunner) Running() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.running
+	return r.state != stopped
 }
 
 // scheduleNext schedules the next callback execution.
@@ -137,7 +169,7 @@ func (r *PeriodicRunner) scheduleNext() {
 func (r *PeriodicRunner) execute() {
 	r.mu.Lock()
 
-	if !r.running || r.ctx == nil {
+	if r.state != running || r.ctx == nil {
 		r.mu.Unlock()
 		return
 	}
@@ -159,7 +191,7 @@ func (r *PeriodicRunner) execute() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if !r.running {
+	if r.state != running {
 		return
 	}
 
