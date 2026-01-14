@@ -876,7 +876,6 @@ func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd,
 	// Run command in main goroutine
 	output, err := cmd.CombinedOutput()
 
-	// Cancel logging goroutine immediately to prevent race with completion log
 	cancelLog()
 
 	// Log completion
