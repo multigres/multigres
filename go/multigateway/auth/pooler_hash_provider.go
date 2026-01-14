@@ -22,8 +22,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pgprotocol/scram"
 )
 
 // PoolerClient is the interface for calling multipooler's GetAuthCredentials.

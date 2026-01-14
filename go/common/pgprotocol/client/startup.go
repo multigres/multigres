@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/multigres/multigres/go/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
 
 // startup performs the connection startup handshake.

@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/client"
-	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
 
 // Conn wraps a client.Conn with session state management.
