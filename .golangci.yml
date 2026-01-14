@@ -146,17 +146,16 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/multiorch"
               desc: "multiorch can only be imported by its own package and cmd"
-        # TODO: Move go/multipooler to go/services/multipooler and update paths below
         multipooler-isolation:
           files:
-            - "!**/go/multipooler/*.go"
-            - "!**/go/multipooler/**/*.go"
+            - "!**/go/services/multipooler/*.go"
+            - "!**/go/services/multipooler/**/*.go"
             - "!**/go/cmd/multipooler/*.go"
             - "!**/go/cmd/multipooler/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multipooler"
+            - pkg: "github.com/multigres/multigres/go/services/multipooler"
               desc: "multipooler can only be imported by its own package and cmd"
         use_modern_packages:
           list-mode: lax
