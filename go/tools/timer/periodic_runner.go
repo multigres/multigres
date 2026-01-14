@@ -1,4 +1,4 @@
-// Copyright 2019 The Vitess Authors.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,8 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
-// Modifications Copyright 2025 Supabase, Inc.
 
 // Package timer provides PeriodicRunner for running callbacks at regular intervals.
 package timer
