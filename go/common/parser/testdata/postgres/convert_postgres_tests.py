@@ -4,7 +4,7 @@ Script to convert PostgreSQL test files to JSON format for the parser tests.
 
 IMPORTANT: Before running this script, you need to copy PostgreSQL test files:
 1. Copy test files from PostgreSQL source: src/test/regress/sql/*.sql
-2. Place them in: ./go/parser/testdata/postgres-tests/
+2. Place them in: ./go/common/parser/testdata/postgres-tests/
 3. Run this script from the postgres directory: python3 convert_postgres_tests.py
 
 This script:
@@ -14,7 +14,7 @@ This script:
 - Filters out psql-specific commands that aren't valid SQL
 
 Usage:
-    cd <home>/multigres/go/parser/testdata/postgres
+    cd <home>/multigres/go/common/parser/testdata/postgres
     python3 convert_postgres_tests.py
 """
 

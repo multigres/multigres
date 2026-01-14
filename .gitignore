@@ -60,7 +60,7 @@ super-linter-output/
 CLAUDE.local.md
 
 # expected results of a test
-go/parser/testdata/expected
+go/common/parser/testdata/expected
 
 # files copied from external sources
 go/common/web/templates/css/pico.*
