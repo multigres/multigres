@@ -174,6 +174,13 @@ func (r *PeriodicRunner) execute() {
 		return
 	}
 
+	// Opportunistically stop if parent context is cancelled
+	if r.ctx.Err() != nil {
+		r.mu.Unlock()
+		r.Stop()
+		return
+	}
+
 	// Track this execution so Stop() can wait for it to complete
 	r.wg.Add(1)
 	defer r.wg.Done()

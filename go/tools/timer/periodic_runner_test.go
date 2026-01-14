@@ -419,3 +419,61 @@ func TestPeriodicRunnerConcurrentStartStop(t *testing.T) {
 
 	runner.Stop()
 }
+
+// TestPeriodicRunnerStopsOnParentContextCancellation verifies that the runner
+// automatically stops when the parent context is cancelled.
+func TestPeriodicRunnerStopsOnParentContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	firstCallbackStarted := make(chan struct{})
+	firstCallbackCanFinish := make(chan struct{})
+	firstCallbackDone := make(chan struct{})
+	secondCallbackStarted := make(chan struct{})
+
+	var callCount atomic.Int32
+
+	runner := NewPeriodicRunner(ctx, 1*time.Millisecond)
+	runner.Start(func(_ context.Context) {
+		count := callCount.Add(1)
+		if count == 1 {
+			// First callback - signal that we've started
+			close(firstCallbackStarted)
+			// Cancel the parent context while callback is running
+			cancel()
+			// Wait for test to let us proceed
+			<-firstCallbackCanFinish
+			close(firstCallbackDone)
+		} else {
+			// Second or later callback - should not happen
+			select {
+			case secondCallbackStarted <- struct{}{}:
+			default:
+			}
+		}
+	}, nil)
+
+	// Wait for first callback to start
+	<-firstCallbackStarted
+	require.True(t, runner.Running())
+
+	// Let first callback complete
+	close(firstCallbackCanFinish)
+	<-firstCallbackDone
+
+	// Runner should stop automatically after first callback completes
+	require.Eventually(t, func() bool {
+		return !runner.Running()
+	}, 100*time.Millisecond, 1*time.Millisecond, "runner should stop when parent context is cancelled")
+
+	// Verify only one callback ran
+	assert.Equal(t, int32(1), callCount.Load(), "only the first callback should have run")
+
+	// Verify no second callback was scheduled
+	select {
+	case <-secondCallbackStarted:
+		t.Fatal("second callback should not have been scheduled after context cancellation")
+	case <-time.After(20 * time.Millisecond):
+		// Good - no second callback
+	}
+}
