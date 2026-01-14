@@ -1018,7 +1018,7 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		}
 	}
 
-	// Clear primary_conninfo on standbys
+	// Clear primary_conninfo on standbys and wait for WAL receiver to stop
 	for name, inst := range s.Multipoolers {
 		if name == s.PrimaryName {
 			continue
@@ -1032,6 +1032,19 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 
 		_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
 		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+
+		// Wait for primary_conninfo to be cleared and WAL receiver to stop
+		// pg_reload_conf() is async, so we need to wait for changes to take effect
+		require.Eventually(t, func() bool {
+			connInfo, err := QueryStringValue(ctx, client.Pooler, "SHOW primary_conninfo")
+			if err != nil || connInfo != "" {
+				return false
+			}
+			// Also verify WAL receiver has stopped
+			resp, err := client.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
+			return err == nil && len(resp.Rows) == 0
+		}, 10*time.Second, 100*time.Millisecond, "%s primary_conninfo should be cleared and WAL receiver stopped", name)
+
 		client.Close()
 		t.Logf("SetupTest: Cleared primary_conninfo on standby %s", name)
 	}
