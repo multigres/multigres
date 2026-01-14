@@ -1453,11 +1453,8 @@ func (pm *MultiPoolerManager) EnableMonitor(
 	ctx context.Context,
 	req *multipoolermanagerdatapb.EnableMonitorRequest,
 ) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
-	pm.logger.InfoContext(ctx, "EnableMonitor RPC called")
-
 	// Call the internal enable method
 	if err := pm.enableMonitorInternal(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to enable monitor", "error", err)
 		return nil, mterrors.Wrap(err, "failed to enable PostgreSQL monitoring")
 	}
 
@@ -1470,8 +1467,6 @@ func (pm *MultiPoolerManager) DisableMonitor(
 	ctx context.Context,
 	req *multipoolermanagerdatapb.DisableMonitorRequest,
 ) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
-	pm.logger.InfoContext(ctx, "DisableMonitor RPC called")
-
 	// Call the internal disable method
 	pm.disableMonitorInternal()
 

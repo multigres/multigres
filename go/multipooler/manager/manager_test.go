@@ -859,18 +859,14 @@ func TestEnableMonitor(t *testing.T) {
 	defer manager.cancel()
 
 	// Verify monitor is not running initially
-	manager.mu.Lock()
-	assert.Nil(t, manager.monitorCancel, "Monitor should not be running initially")
-	manager.mu.Unlock()
+	assert.False(t, manager.monitorRunner.Running(), "Monitor should not be running initially")
 
 	// Enable the monitor
 	err = manager.enableMonitorInternal()
 	require.NoError(t, err)
 
 	// Verify monitor is enabled
-	manager.mu.Lock()
-	assert.NotNil(t, manager.monitorCancel, "Monitor should be enabled")
-	manager.mu.Unlock()
+	assert.True(t, manager.monitorRunner.Running(), "Monitor should be enabled")
 
 	// Clean up: disable the monitor
 	manager.disableMonitorInternal()
@@ -910,18 +906,14 @@ func TestEnableMonitor_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify monitor is enabled
-	manager.mu.Lock()
-	assert.NotNil(t, manager.monitorCancel, "Monitor should be enabled")
-	manager.mu.Unlock()
+	assert.True(t, manager.monitorRunner.Running(), "Monitor should be enabled")
 
 	// Enable again - should be idempotent (no error, monitor still enabled)
 	err = manager.enableMonitorInternal()
 	require.NoError(t, err)
 
 	// Verify monitor is still enabled (idempotency means calling again has no effect)
-	manager.mu.Lock()
-	assert.NotNil(t, manager.monitorCancel, "Monitor should still be enabled after second call")
-	manager.mu.Unlock()
+	assert.True(t, manager.monitorRunner.Running(), "Monitor should still be enabled after second call")
 
 	// Clean up: disable the monitor
 	manager.disableMonitorInternal()
@@ -961,17 +953,13 @@ func TestDisableMonitor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify monitor is running
-	manager.mu.Lock()
-	assert.NotNil(t, manager.monitorCancel, "Monitor should be running after enableMonitorInternal")
-	manager.mu.Unlock()
+	assert.True(t, manager.monitorRunner.Running(), "Monitor should be running after enableMonitorInternal")
 
 	// Disable the monitor
 	manager.disableMonitorInternal()
 
 	// Verify monitor is disabled
-	manager.mu.Lock()
-	assert.Nil(t, manager.monitorCancel, "Monitor should be disabled")
-	manager.mu.Unlock()
+	assert.False(t, manager.monitorRunner.Running(), "Monitor should be disabled")
 }
 
 func TestDisableMonitor_Idempotent(t *testing.T) {
@@ -1011,17 +999,13 @@ func TestDisableMonitor_Idempotent(t *testing.T) {
 	manager.disableMonitorInternal()
 
 	// Verify monitor is disabled
-	manager.mu.Lock()
-	assert.Nil(t, manager.monitorCancel, "Monitor should be disabled")
-	manager.mu.Unlock()
+	assert.False(t, manager.monitorRunner.Running(), "Monitor should be disabled")
 
 	// Disable again - should be idempotent (no panic)
 	manager.disableMonitorInternal()
 
 	// Verify monitor is still disabled
-	manager.mu.Lock()
-	assert.Nil(t, manager.monitorCancel, "Monitor should still be disabled")
-	manager.mu.Unlock()
+	assert.False(t, manager.monitorRunner.Running(), "Monitor should still be disabled")
 }
 
 func TestEnableDisableMonitor_Cycle(t *testing.T) {
@@ -1058,18 +1042,14 @@ func TestEnableDisableMonitor_Cycle(t *testing.T) {
 		// Enable
 		err = manager.enableMonitorInternal()
 		require.NoError(t, err)
-		manager.mu.Lock()
-		assert.NotNil(t, manager.monitorCancel, "Monitor should be enabled at iteration %d", i)
-		manager.mu.Unlock()
+		assert.True(t, manager.monitorRunner.Running(), "Monitor should be enabled at iteration %d", i)
 
 		// Give the goroutine a moment to start
 		time.Sleep(10 * time.Millisecond)
 
 		// Disable
 		manager.disableMonitorInternal()
-		manager.mu.Lock()
-		assert.Nil(t, manager.monitorCancel, "Monitor should be disabled at iteration %d", i)
-		manager.mu.Unlock()
+		assert.False(t, manager.monitorRunner.Running(), "Monitor should be disabled at iteration %d", i)
 	}
 }
 

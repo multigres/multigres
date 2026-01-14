@@ -1556,13 +1556,13 @@ func TestEnableMonitorRPC(t *testing.T) {
 
 		// Disable monitor first
 		pm.disableMonitorInternal()
-		require.Nil(t, pm.monitorCancel, "Monitor should be disabled")
+		require.False(t, pm.monitorRunner.Running(), "Monitor should be disabled")
 
 		// Enable monitor via RPC
 		resp, err := pm.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.NotNil(t, pm.monitorCancel, "Monitor should be enabled")
+		require.True(t, pm.monitorRunner.Running(), "Monitor should be enabled")
 	})
 
 	t.Run("EnableMonitor_Idempotent", func(t *testing.T) {
@@ -1619,13 +1619,13 @@ func TestEnableMonitorRPC(t *testing.T) {
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 		// Monitor should already be running after Start
-		require.NotNil(t, pm.monitorCancel, "Monitor should be running after Start")
+		require.True(t, pm.monitorRunner.Running(), "Monitor should be running after Start")
 
 		// Enable monitor again - should be idempotent (no error, monitor still running)
 		resp, err := pm.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.NotNil(t, pm.monitorCancel, "Monitor should still be enabled")
+		require.True(t, pm.monitorRunner.Running(), "Monitor should still be enabled")
 	})
 
 	t.Run("EnableMonitor_WhenNotOpen", func(t *testing.T) {
@@ -1739,13 +1739,13 @@ func TestDisableMonitorRPC(t *testing.T) {
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 		// Monitor should be running after Start
-		require.NotNil(t, pm.monitorCancel, "Monitor should be running")
+		require.True(t, pm.monitorRunner.Running(), "Monitor should be running")
 
 		// Disable monitor via RPC
 		resp, err := pm.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Nil(t, pm.monitorCancel, "Monitor should be disabled")
+		require.False(t, pm.monitorRunner.Running(), "Monitor should be disabled")
 	})
 
 	t.Run("DisableMonitor_Idempotent", func(t *testing.T) {
@@ -1803,12 +1803,12 @@ func TestDisableMonitorRPC(t *testing.T) {
 
 		// Disable monitor
 		pm.disableMonitorInternal()
-		require.Nil(t, pm.monitorCancel, "Monitor should be disabled")
+		require.False(t, pm.monitorRunner.Running(), "Monitor should be disabled")
 
 		// Disable monitor again via RPC - should be idempotent
 		resp, err := pm.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Nil(t, pm.monitorCancel, "Monitor should still be disabled")
+		require.False(t, pm.monitorRunner.Running(), "Monitor should still be disabled")
 	})
 }
