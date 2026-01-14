@@ -19,8 +19,8 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/pgprotocol/server"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // Plan represents a query execution plan.
