@@ -43,7 +43,7 @@ type LoadBalancer struct {
 	logger *slog.Logger
 
 	// mu protects the connections map
-	mu sync.RWMutex
+	mu sync.Mutex
 
 	// connections maps pooler ID to PoolerConnection
 	connections map[string]*PoolerConnection
@@ -120,8 +120,8 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 		return nil, errors.New("target cannot be nil")
 	}
 
-	lb.mu.RLock()
-	defer lb.mu.RUnlock()
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
 
 	excludeSet := makeExcludeSet(opts)
 
@@ -226,8 +226,8 @@ func poolerIDString(id *clustermetadatapb.ID) string {
 
 // ConnectionCount returns the number of active connections.
 func (lb *LoadBalancer) ConnectionCount() int {
-	lb.mu.RLock()
-	defer lb.mu.RUnlock()
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
 	return len(lb.connections)
 }
 
