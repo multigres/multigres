@@ -134,17 +134,16 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/multigateway"
               desc: "multigateway can only be imported by its own package and cmd"
-        # TODO: Move go/multiorch to go/services/multiorch and update paths below
         multiorch-isolation:
           files:
-            - "!**/go/multiorch/*.go"
-            - "!**/go/multiorch/**/*.go"
+            - "!**/go/services/multiorch/*.go"
+            - "!**/go/services/multiorch/**/*.go"
             - "!**/go/cmd/multiorch/*.go"
             - "!**/go/cmd/multiorch/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multiorch"
+            - pkg: "github.com/multigres/multigres/go/services/multiorch"
               desc: "multiorch can only be imported by its own package and cmd"
         # TODO: Move go/multipooler to go/services/multipooler and update paths below
         multipooler-isolation:
