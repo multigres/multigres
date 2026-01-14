@@ -845,49 +845,52 @@ func (pm *MultiPoolerManager) pgbackrestPath() string {
 }
 
 // runLongCommand executes a long-running command with periodic progress logging.
-// Logs progress every 10 seconds and returns the command output and error.
+// Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
+// to ensure proper cleanup on context cancellation.
 func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
 	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
 
-	// Run command in goroutine
-	done := make(chan struct{})
-	var output []byte
-	var cmdErr error
+	startTime := time.Now()
 
+	// Create a context for the logging goroutine
+	logCtx, cancelLog := context.WithCancel(ctx)
+
+	// Log progress periodically in background
 	go func() {
-		defer close(done)
-		output, cmdErr = cmd.CombinedOutput()
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-logCtx.Done():
+				return
+			case <-ticker.C:
+				elapsed := time.Since(startTime)
+				pm.logger.InfoContext(ctx, "Command still in progress",
+					"operation", operationName,
+					"elapsed_seconds", int(elapsed.Seconds()))
+			}
+		}
 	}()
 
-	// Log progress periodically while command runs
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+	// Run command in main goroutine
+	output, err := cmd.CombinedOutput()
 
-	startTime := time.Now()
-	complete := false
+	// Cancel logging goroutine immediately to prevent race with completion log
+	cancelLog()
 
-	for !complete {
-		select {
-		case <-done:
-			elapsed := time.Since(startTime)
-			pm.logger.InfoContext(ctx, "Command completed",
-				"operation", operationName,
-				"elapsed_seconds", int(elapsed.Seconds()))
-			complete = true
-		case <-ticker.C:
-			elapsed := time.Since(startTime)
-			pm.logger.InfoContext(ctx, "Command still in progress",
-				"operation", operationName,
-				"elapsed_seconds", int(elapsed.Seconds()))
-		case <-ctx.Done():
-			elapsed := time.Since(startTime)
-			pm.logger.ErrorContext(ctx, "Command context cancelled",
-				"operation", operationName,
-				"elapsed_seconds", int(elapsed.Seconds()),
-				"error", ctx.Err())
-			return nil, ctx.Err()
-		}
+	// Log completion
+	elapsed := time.Since(startTime)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Command failed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()),
+			"error", err)
+	} else {
+		pm.logger.InfoContext(ctx, "Command completed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()))
 	}
 
-	return output, cmdErr
+	return output, err
 }
