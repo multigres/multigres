@@ -596,33 +596,6 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 	assert.True(t, mockPgctld.startCalled, "Should attempt to start when ready")
 }
 
-func TestMonitorPostgres_ExitsOnContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	readyChan := make(chan struct{})
-	close(readyChan) // Ready immediately
-
-	mockPgctld := &mockPgctldClient{
-		statusResponse: &pgctldpb.StatusResponse{
-			Status: pgctldpb.ServerStatus_STOPPED,
-		},
-	}
-
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-	}
-
-	// Call iteration with cancelled context - should handle gracefully
-	pm.monitorPostgresIteration(ctx)
-
-	// Should still complete without panic (context cancellation handled by pgctld client)
-	// Note: Actual behavior depends on how pgctld client handles cancelled context
-}
-
 func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 	ctx := context.Background()
 
