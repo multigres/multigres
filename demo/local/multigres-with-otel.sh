@@ -33,10 +33,12 @@ export OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE="cumulative"
 export OTEL_TRACES_EXPORTER="otlp"
 export OTEL_METRICS_EXPORTER="otlp"
 export OTEL_LOGS_EXPORTER="otlp"
-export OTEL_TRACES_SAMPLER="always_on"
 export OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION="base2_exponential_bucket_histogram"
+# Custom file-based sampling configuration
+export OTEL_TRACES_SAMPLER="multigres_custom"
+export OTEL_TRACES_SAMPLER_CONFIG="$SCRIPT_DIR/../observability/sampling-config.yaml"
 
-echo "=== Starting Multigres with Observability ==="
+echo "=== Multigres with Observability ==="
 echo ""
 echo "OTEL Configuration:"
 echo "  Unified Endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -48,4 +50,4 @@ echo ""
 # Use "go run" by default to run multigres cluster command
 # This allows development without needing to rebuild
 cd "$REPO_ROOT"
-exec go run ./go/cmd/multigres cluster "$@"
+exec go run ./go/cmd/multigres "$@"

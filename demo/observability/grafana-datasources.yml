@@ -55,6 +55,7 @@ datasources:
       # Link logs back to traces via trace_id
       derivedFields:
         - datasourceUid: tempo
-          matcherRegex: "trace_id[=:]\\s*(\\w+)"
-          name: "TraceID"
+          matcherRegex: trace_id
+          matcherType: label
+          name: TraceID
           url: "$${__value.raw}"

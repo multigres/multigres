@@ -34,16 +34,3 @@ Uses `go run` by default - no rebuild needed after code changes.
 ### 3. View telemetry
 
 - **Grafana Dashboard**: <http://localhost:3000/d/multigres-overview>
-- **Prometheus UI**: <http://localhost:9090>
-
-### What's Included
-
-The observability stack (`grafana/otel-lgtm:0.13.0`) provides:
-
-- Grafana dashboards with full trace/log/metric correlation
-- Tempo (distributed tracing)
-- Loki (log aggregation)
-- Mimir/Prometheus (metrics)
-- OpenTelemetry Collector (OTLP ingestion)
-
-Dashboard is shared with the k8s demo at `demo/observability/grafana-dashboard.json`.

@@ -89,7 +89,7 @@ docker run \
   -e GF_SERVER_HTTP_PORT=3000 \
   -e GF_SERVER_DOMAIN=localhost \
   -e GF_FEATURE_TOGGLES_ENABLE=traceqlEditor,traceQLStreaming,correlations \
-  -v "$SCRIPT_DIR/config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/multigres.yaml:ro" \
+  -v "$SCRIPT_DIR/../observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/multigres.yaml:ro" \
   -v "$DASHBOARDS_DIR/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/grafana-dashboards.yaml:ro" \
   -v "$DASHBOARDS_DIR/multigres.json:/otel-lgtm/multigres-dashboard.json:ro" \
   grafana/otel-lgtm:0.13.0
