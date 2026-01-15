@@ -267,6 +267,14 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	primaryLSN := primaryPosResp.LsnPosition
 	t.Logf("Primary LSN after insert: %s", primaryLSN)
 
+	// Wait for replica PostgreSQL to be ready after pg_rewind and restart
+	t.Logf("Waiting for replica %s PostgreSQL to be ready...", replicaName)
+	require.Eventually(t, func() bool {
+		statusResp, err := replicaClient.Manager.StandbyReplicationStatus(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+		return err == nil && statusResp.Status != nil && statusResp.Status.PrimaryConnInfo != nil
+	}, 10*time.Second, 500*time.Millisecond, "replica should be ready after pg_rewind")
+	t.Logf("Replica PostgreSQL is ready")
+
 	// Wait for replica to catch up to primary's LSN
 	t.Logf("Waiting for replica %s to catch up to primary LSN %s...", replicaName, primaryLSN)
 	_, err = replicaClient.Manager.WaitForLSN(utils.WithTimeout(t, 10*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{

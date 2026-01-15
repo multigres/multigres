@@ -19,8 +19,8 @@ package planner
 import (
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/multigateway/engine"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // Planner is responsible for creating query execution plans.

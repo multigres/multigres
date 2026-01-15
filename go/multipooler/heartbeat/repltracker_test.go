@@ -140,12 +140,8 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	shardID := []byte("test-shard")
 	poolerID := "test-pooler"
 
-	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
+	rt := newReplTrackerWithReaderInterval(queryService, logger, shardID, poolerID, 250, 250*time.Millisecond)
 	defer rt.Close()
-
-	// Use shorter intervals for testing
-	rt.hr.interval = 250 * time.Millisecond
-	rt.hr.ticks.SetInterval(250 * time.Millisecond)
 
 	// Start as primary
 	rt.MakePrimary()

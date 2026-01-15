@@ -30,8 +30,8 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pgprotocol/scram"
 )
 
 // createTestUser creates a PostgreSQL user with the given password and registers

@@ -18,8 +18,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // TODO: We might want to make this a configuration. For now its a constant.

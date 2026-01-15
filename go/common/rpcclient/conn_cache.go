@@ -28,7 +28,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -295,8 +294,7 @@ func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *cluster
 		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	}
 	if poolerID != nil {
-		poolerIDStr := topoclient.MultiPoolerIDString(poolerID)
-		clientOpts = append(clientOpts, grpccommon.WithMultipoolerTarget(poolerIDStr))
+		clientOpts = append(clientOpts, grpccommon.WithAttributes(PoolerSpanAttributes(poolerID)...))
 	}
 
 	// TODO: Add proper TLS configuration for production

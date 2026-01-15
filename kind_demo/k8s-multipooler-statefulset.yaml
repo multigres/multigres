@@ -115,7 +115,7 @@ spec:
             - --database=postgres
             - --table-group=default
             - --shard=0-inf
-            - --service-id=multipooler-$(MT_CELL)-$(POD_INDEX)
+            - --service-id=$(POD_INDEX)
             - --pooler-dir=/data
             - --pgctld-addr=localhost:16200
             - --pg-port=5432
