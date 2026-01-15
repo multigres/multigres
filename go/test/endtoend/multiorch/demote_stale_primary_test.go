@@ -78,10 +78,10 @@ func TestDemoteStalePrimary(t *testing.T) {
 	require.NoError(t, err)
 	defer oldPrimaryClient.Close()
 
-	_, err = oldPrimaryClient.Manager.DisableMonitor(t.Context(), &multipoolermanagerdatapb.DisableMonitorRequest{})
+	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
 	require.NoError(t, err)
 	defer func() {
-		_, _ = oldPrimaryClient.Manager.EnableMonitor(t.Context(), &multipoolermanagerdatapb.EnableMonitorRequest{})
+		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 	}()
 
 	// Step 1: Kill postgres on primary to trigger failover

@@ -1448,30 +1448,22 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}, nil
 }
 
-// EnableMonitor enables the PostgreSQL monitoring goroutine (RPC handler)
-func (pm *MultiPoolerManager) EnableMonitor(
+// SetMonitor enables or disables the PostgreSQL monitoring goroutine (RPC handler)
+func (pm *MultiPoolerManager) SetMonitor(
 	ctx context.Context,
-	req *multipoolermanagerdatapb.EnableMonitorRequest,
-) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
-	// Call the internal enable method
-	if err := pm.enableMonitorInternal(); err != nil {
-		return nil, mterrors.Wrap(err, "failed to enable PostgreSQL monitoring")
+	req *multipoolermanagerdatapb.SetMonitorRequest,
+) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
+	if req.Enabled {
+		if err := pm.enableMonitorInternal(); err != nil {
+			return nil, mterrors.Wrap(err, "failed to enable PostgreSQL monitoring")
+		}
+		pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", true)
+		return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
 	}
 
-	pm.logger.InfoContext(ctx, "EnableMonitor RPC completed successfully")
-	return &multipoolermanagerdatapb.EnableMonitorResponse{}, nil
-}
-
-// DisableMonitor disables the PostgreSQL monitoring goroutine (RPC handler)
-func (pm *MultiPoolerManager) DisableMonitor(
-	ctx context.Context,
-	req *multipoolermanagerdatapb.DisableMonitorRequest,
-) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
-	// Call the internal disable method
 	pm.disableMonitorInternal()
-
-	pm.logger.InfoContext(ctx, "DisableMonitor RPC completed successfully")
-	return &multipoolermanagerdatapb.DisableMonitorResponse{}, nil
+	pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", false)
+	return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
 }
 
 // ====================================================================================
