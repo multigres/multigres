@@ -132,7 +132,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	db := connectToPostgres(t, primarySocketDir, setup.PrimaryPgctld.PgPort)
 	defer db.Close()
 
-	t.Log("Step 1: Creating test table and inserting initial data...")
+	t.Log("Creating test table and inserting initial data...")
 
 	// Create a test table (WithDropTables ensures it doesn't exist from previous runs)
 	_, err = db.Exec(`
@@ -159,7 +159,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 	t.Logf("Inserted %d initial rows", countBefore)
 
 	t.Run("CreateFullBackup", func(t *testing.T) {
-		t.Log("Step 2: Creating full backup...")
+		t.Log("Creating full backup...")
 
 		req := &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: true, // Required for backups from primary
@@ -185,7 +185,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		t.Logf("Full backup created successfully with ID: %s", fullBackupID)
 
 		t.Run("GetBackups_VerifyFullBackup", func(t *testing.T) {
-			t.Log("Step 3: Listing backups to verify full backup...")
+			t.Log("Listing backups to verify full backup...")
 
 			listReq := &multipoolermanagerdata.GetBackupsRequest{
 				Limit: 10,
@@ -221,8 +221,6 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 		})
 
 		t.Run("RestoreAndVerify", func(t *testing.T) {
-			t.Log("Step 4: Inserting additional rows after backup...")
-
 			// Insert additional rows (these should NOT persist after restore)
 			additionalRows := []string{"row4_after_backup", "row5_after_backup"}
 			for _, data := range additionalRows {
@@ -237,9 +235,6 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			expectedCountBeforeRestore := len(initialRows) + len(additionalRows)
 			assert.Equal(t, expectedCountBeforeRestore, countAfterInsert,
 				"Count should include both initial and additional rows")
-			t.Logf("Row count after additional inserts: %d", countAfterInsert)
-
-			t.Log("Step 5: Verifying backup exists in standby's list...")
 
 			listReq := &multipoolermanagerdata.GetBackupsRequest{
 				Limit: 20,
@@ -266,8 +261,34 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			t.Logf("Backup verified in standby's list: ID=%s, Status=%s, FinalLSN=%s",
 				foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
 
-			t.Log("Step 6: Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
+			// Update term to a higher value by doing a dummy SetPrimaryConnInfo
+			higherTerm := int64(100)
+			primary := &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "test-cell",
+					Name:      setup.PrimaryMultipooler.Name,
+				},
+				Hostname: "localhost",
+				PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
+			}
+			updateTermReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+				Primary:               primary,
+				StartReplicationAfter: false, // Don't restart replication
+				StopReplicationBefore: false,
+				CurrentTerm:           higherTerm,
+				Force:                 false,
+			}
+			updateTermCtx := utils.WithTimeout(t, 30*time.Second)
+			_, err = standbyBackupClient.SetPrimaryConnInfo(updateTermCtx, updateTermReq)
+			require.NoError(t, err, "Should be able to update term")
 
+			// Verify term was updated
+			statusCtx := utils.WithShortDeadline(t)
+			statusResp, err := standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
+			require.NoError(t, err, "Should be able to get status after term update")
+			assert.Equal(t, higherTerm, statusResp.Status.ConsensusTerm, "Term should be updated to higher value")
+			t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
 			// Connect to standby's pgctld to stop PostgreSQL
 			standbyPgctldConn, err := grpc.NewClient(
 				fmt.Sprintf("localhost:%d", setup.StandbyPgctld.GrpcPort),
@@ -281,109 +302,81 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			stopCtx := utils.WithTimeout(t, 2*time.Minute)
 			_, err = standbyPgctldClient.Stop(stopCtx, &pgctldservice.StopRequest{Mode: "fast"})
 			require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
-			t.Log("PostgreSQL stopped on standby")
 
 			// Remove pg_data directory
 			removeDataDirectory(t, setup.StandbyPgctld.DataDir)
-
-			t.Log("Step 7: Restoring from backup to standby...")
 
 			restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
 				BackupId: fullBackupID,
 			}
 
-			restoreCtx := utils.WithTimeout(t, 10*time.Minute)
+			restoreCtx := utils.WithTimeout(t, 1*time.Minute)
 
 			_, err = standbyBackupClient.RestoreFromBackup(restoreCtx, restoreReq)
 			require.NoError(t, err, "Restore to standby should succeed")
-			t.Log("Restore to standby completed successfully")
 
-			// Wait a bit for PostgreSQL to be ready after restore
-			time.Sleep(5 * time.Second)
+			// Wait for PostgreSQL to be ready after restore and verify term
+			var restoredTerm int64
+			require.Eventually(t, func() bool {
+				statusCtx = utils.WithShortDeadline(t)
+				statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
+				if err != nil {
+					return false
+				}
+				restoredTerm = statusResp.Status.ConsensusTerm
+				return statusResp.Status.PostgresRunning
+			}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
+			t.Logf("Term after restore: %d (expected: 1)", restoredTerm)
+			assert.Equal(t, int64(1), restoredTerm, "Term should be restored to backup's original value (1)")
 
 			// Configure replication after restore
-			t.Log("Configuring replication after restore...")
-			primary := &clustermetadatapb.MultiPooler{
-				Id: &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "test-cell",
-					Name:      setup.PrimaryMultipooler.Name,
-				},
-				Hostname: "localhost",
-				PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
-			}
 			setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 				Primary:               primary,
 				StartReplicationAfter: true,
 				StopReplicationBefore: false,
-				CurrentTerm:           1,
-				Force:                 true, // Force reconfiguration after restore
+				CurrentTerm:           restoredTerm, // Use the term we just verified from backup
+				Force:                 true,         // Force reconfiguration after restore
 			}
 			setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 			_, err = standbyBackupClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 			require.NoError(t, err, "Should be able to configure replication after restore")
-			t.Log("Replication configured successfully after restore")
 
 			// Connect to the standby database after restore
 			standbySocketDir := filepath.Join(setup.StandbyPgctld.DataDir, "pg_sockets")
 			standbyDB := connectToPostgres(t, standbySocketDir, setup.StandbyPgctld.PgPort)
 			defer standbyDB.Close()
 
-			t.Log("Step 8: Verifying standby database is accessible after restore...")
+			t.Log("Verifying standby database is accessible after restore...")
 
 			// Verify standby database is accessible and we can query data
 			var countAfterRestore int
 			err = standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore)
 			require.NoError(t, err)
 			t.Logf("Row count on standby after restore: %d", countAfterRestore)
-
-			t.Logf("✓ Restore completed and standby database is accessible")
 			t.Logf("✓ Found %d rows in restored standby database", countAfterRestore)
-
-			t.Log("Step 9: Verifying replication from primary to standby still works...")
 
 			// Insert a new row on primary after restore to test replication
 			testData := "row_after_restore"
 			_, err = db.Exec("INSERT INTO backup_restore_test (data) VALUES ($1)", testData)
 			require.NoError(t, err, "Should be able to insert data on primary after restore")
 
-			// Wait for replication to standby (with retry logic)
-			var newRowExists bool
-			maxAttempts := 10
-			found := false
-			for i := range maxAttempts {
-				time.Sleep(1 * time.Second)
-				err = standbyDB.QueryRow("SELECT EXISTS(SELECT 1 FROM backup_restore_test WHERE data = $1)", testData).Scan(&newRowExists)
-				if err == nil && newRowExists {
-					found = true
-					t.Logf("Replication working: new row appeared on standby after %d seconds", i+1)
-					break
-				}
-			}
-			require.NoError(t, err)
-			assert.True(t, found, "New row should exist on standby after restore (waited %d seconds)", maxAttempts)
+			// Wait for replication to standby
+			require.Eventually(t, func() bool {
+				var newRowExists bool
+				err := standbyDB.QueryRow("SELECT EXISTS(SELECT 1 FROM backup_restore_test WHERE data = $1)", testData).Scan(&newRowExists)
+				return err == nil && newRowExists
+			}, 10*time.Second, 100*time.Millisecond, "New row should replicate to standby after restore")
 
-			t.Log("Step 10: Verifying standby is still in recovery mode...")
+			// Check if standby.signal exists
+			standbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
+			_, statErr := os.Stat(standbySignalPath)
+			assert.Nil(t, statErr, "standby signal should exist")
 
 			// Verify that the standby is still acting as a replica (in recovery mode)
 			var isInRecovery bool
 			err = standbyDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 			require.NoError(t, err, "Should be able to query recovery status")
-			t.Logf("pg_is_in_recovery() returned: %v", isInRecovery)
-
-			// Check if standby.signal exists
-			standbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
-			_, statErr := os.Stat(standbySignalPath)
-			t.Logf("standby.signal exists: %v (path: %s)", statErr == nil, standbySignalPath)
-
 			assert.True(t, isInRecovery, "Standby should still be in recovery mode after restore")
-
-			t.Logf("✓ Full backup created: %s", fullBackupID)
-			t.Logf("✓ Backup verified in both primary and standby lists")
-			t.Logf("✓ Restore to standby completed successfully")
-			t.Logf("✓ Standby database accessible after restore")
-			t.Logf("✓ Replication from primary to standby working after restore")
-			t.Logf("✓ Standby still in recovery mode (pg_is_in_recovery() = %t)", isInRecovery)
 		})
 
 		t.Run("GetBackups_WithoutLimit", func(t *testing.T) {
@@ -802,11 +795,6 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 		require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, restoreStatus.Status, "Restore should complete")
 		t.Log("Restore completed successfully")
 
-		// Wait for PostgreSQL to be ready
-		time.Sleep(5 * time.Second)
-
-		t.Log("Step 6: Configuring replication after restore...")
-
 		// Configure replication after restore
 		standbyConn, err := grpc.NewClient(
 			fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -816,6 +804,15 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 		defer standbyConn.Close()
 
 		standbyClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+		// Wait for PostgreSQL to be ready after restore
+		require.Eventually(t, func() bool {
+			statusCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			statusResp, err := standbyClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
+			return err == nil && statusResp.Status.PostgresRunning
+		}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
+
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
