@@ -27,37 +27,40 @@ import (
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
-// AddEnablePostgresMonitorCommand adds the enablepostgresmonitor subcommand
-func AddEnablePostgresMonitorCommand() *cobra.Command {
+// AddSetPostgresMonitorCommand adds the setpostgresmonitor subcommand
+func AddSetPostgresMonitorCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "enablepostgresmonitor",
-		Short: "Enable PostgreSQL monitoring on a pooler",
-		Long: `Enable the PostgreSQL monitoring goroutine on a specific pooler.
+		Use:   "setpostgresmonitor",
+		Short: "Set PostgreSQL monitoring on a pooler",
+		Long: `Enable or disable the PostgreSQL monitoring goroutine on a specific pooler.
 
 The monitoring goroutine checks the health of the PostgreSQL process and
 can automatically restart it if it becomes unresponsive. This command is
 idempotent - calling it multiple times has no effect if monitoring is
-already enabled.
+already in the requested state.
 
 The --pooler flag should be the fully-qualified pooler name in the format:
   multipooler-{cell}-{name}
 
 Example:
-  multigres enablepostgresmonitor --pooler multipooler-zone1-abc123`,
-		RunE: runEnablePostgresMonitor,
+  multigres setpostgresmonitor --pooler multipooler-zone1-abc123 --enabled=true`,
+		RunE: runSetPostgresMonitor,
 	}
 
 	cmd.Flags().String("pooler", "", "Fully qualified pooler name (e.g., multipooler-zone1-abc123)")
+	cmd.Flags().Bool("enabled", false, "Whether to enable (true) or disable (false) monitoring")
 	cmd.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:18070)")
 
 	_ = cmd.MarkFlagRequired("pooler")
+	_ = cmd.MarkFlagRequired("enabled")
 
 	return cmd
 }
 
-// runEnablePostgresMonitor executes the enablepostgresmonitor command
-func runEnablePostgresMonitor(cmd *cobra.Command, args []string) error {
+// runSetPostgresMonitor executes the setpostgresmonitor command
+func runSetPostgresMonitor(cmd *cobra.Command, args []string) error {
 	poolerName, _ := cmd.Flags().GetString("pooler")
+	enabled, _ := cmd.Flags().GetBool("enabled")
 
 	// Parse the fully-qualified pooler name to extract cell and name
 	// Format: multipooler-{cell}-{name}
@@ -76,20 +79,25 @@ func runEnablePostgresMonitor(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	// Create context with timeout and call EnablePostgresMonitor RPC
+	// Create context with timeout and call SetPostgresMonitor RPC
 	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
 	defer cancel()
 
-	_, err = client.EnablePostgresMonitor(ctx, &multiadminpb.EnablePostgresMonitorRequest{
+	_, err = client.SetPostgresMonitor(ctx, &multiadminpb.SetPostgresMonitorRequest{
 		PoolerId: &clustermetadatapb.ID{
 			Cell: cell,
 			Name: serviceID,
 		},
+		Enabled: enabled,
 	})
 	if err != nil {
-		return fmt.Errorf("EnablePostgresMonitor RPC failed: %w", err)
+		return fmt.Errorf("SetPostgresMonitor RPC failed: %w", err)
 	}
 
-	cmd.Printf("Successfully enabled PostgreSQL monitoring on pooler %s\n", poolerName)
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+	cmd.Printf("Successfully %s PostgreSQL monitoring on pooler %s\n", state, poolerName)
 	return nil
 }

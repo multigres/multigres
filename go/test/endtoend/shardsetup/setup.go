@@ -973,7 +973,7 @@ func (s *ShardSetup) disableMonitorOnAll(t *testing.T, ctx context.Context) {
 			continue
 		}
 
-		_, err = client.Manager.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
+		_, err = client.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
 		client.Close()
 		if err != nil {
 			t.Logf("failed to disable monitor on %s: %v", name, err)
@@ -992,7 +992,7 @@ func (s *ShardSetup) enableMonitorOnAll(t *testing.T, ctx context.Context) {
 			continue
 		}
 
-		_, err = client.Manager.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
+		_, err = client.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 		client.Close()
 		if err != nil {
 			t.Logf("failed to enable monitor on %s: %v", name, err)

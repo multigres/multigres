@@ -24,6 +24,5 @@ import (
 func AddPoolerCommands(root *cobra.Command, mc *MultigresCommand) {
 	// Register pooler commands with root
 	root.AddCommand(pooler.AddGetPoolerStatusCommand())
-	root.AddCommand(pooler.AddEnablePostgresMonitorCommand())
-	root.AddCommand(pooler.AddDisablePostgresMonitorCommand())
+	root.AddCommand(pooler.AddSetPostgresMonitorCommand())
 }
