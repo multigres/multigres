@@ -17,10 +17,10 @@ set -ex
 
 # Kind cluster demo teardown - removes everything including data
 
-# Ensure we're in the kind_demo directory.
+# Ensure we're in the k8s directory.
 # This is because we use a relative path name to the data files.
-if [[ $(basename "$PWD") != "kind_demo" ]]; then
-  echo "Error: This script must be run from the kind_demo directory"
+if [[ $(basename "$PWD") != "k8s" ]]; then
+  echo "Error: This script must be run from the demo/k8s directory"
   exit 1
 fi
 

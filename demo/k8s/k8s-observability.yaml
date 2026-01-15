@@ -1,4 +1,4 @@
-# Observability stack for kind_demo using grafana/otel-lgtm all-in-one
+# Observability stack for demo/k8s using grafana/otel-lgtm all-in-one
 # Note: grafana-datasources ConfigMap is created from file in launch-infra.sh
 ---
 # ConfigMap: Grafana dashboard provisioning
