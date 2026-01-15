@@ -27,6 +27,7 @@ package ast
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -656,7 +657,7 @@ func (oci *CreateOpClassItem) String() string {
 	}
 
 	if oci.Number > 0 {
-		parts = append(parts, fmt.Sprintf("%d", oci.Number))
+		parts = append(parts, strconv.Itoa(oci.Number))
 	}
 
 	if oci.Name != nil {
@@ -684,7 +685,7 @@ func (oci *CreateOpClassItem) SqlString() string {
 	}
 
 	if oci.Number >= 0 && oci.ItemType != OPCLASS_ITEM_STORAGETYPE {
-		parts = append(parts, fmt.Sprintf("%d", oci.Number))
+		parts = append(parts, strconv.Itoa(oci.Number))
 	}
 
 	// For functions, add ClassArgs before the function name
@@ -1747,7 +1748,7 @@ func (fs *FetchStmt) SqlString() string {
 		case FETCH_ALL:
 			parts = append(parts, "ALL")
 		default:
-			parts = append(parts, fmt.Sprintf("%d", fs.HowMany))
+			parts = append(parts, strconv.FormatInt(fs.HowMany, 10))
 		}
 	case FETCH_BACKWARD:
 		switch fs.HowMany {
@@ -1756,7 +1757,7 @@ func (fs *FetchStmt) SqlString() string {
 		case FETCH_ALL:
 			parts = append(parts, "BACKWARD", "ALL")
 		default:
-			parts = append(parts, "BACKWARD", fmt.Sprintf("%d", fs.HowMany))
+			parts = append(parts, "BACKWARD", strconv.FormatInt(fs.HowMany, 10))
 		}
 	case FETCH_ABSOLUTE:
 		switch fs.HowMany {
@@ -1765,10 +1766,10 @@ func (fs *FetchStmt) SqlString() string {
 		case -1:
 			parts = append(parts, "LAST")
 		default:
-			parts = append(parts, "ABSOLUTE", fmt.Sprintf("%d", fs.HowMany))
+			parts = append(parts, "ABSOLUTE", strconv.FormatInt(fs.HowMany, 10))
 		}
 	case FETCH_RELATIVE:
-		parts = append(parts, "RELATIVE", fmt.Sprintf("%d", fs.HowMany))
+		parts = append(parts, "RELATIVE", strconv.FormatInt(fs.HowMany, 10))
 	}
 
 	parts = append(parts, "FROM", fs.PortalName)
@@ -1817,7 +1818,7 @@ func (cps *ClosePortalStmt) SqlString() string {
 	if cps.PortalName == "" {
 		return "CLOSE ALL"
 	}
-	return fmt.Sprintf("CLOSE %s", cps.PortalName)
+	return "CLOSE " + cps.PortalName
 }
 
 // NewClosePortalStmt creates a new ClosePortalStmt node

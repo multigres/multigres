@@ -16,12 +16,12 @@ package local
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
-
-	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -37,7 +37,7 @@ func (p *localProvisioner) startPostgreSQLViaPgctld(ctx context.Context, address
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpccommon.NewClient(address, grpccommon.WithDialOptions(grpccommon.LocalClientDialOptions()...))
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -95,7 +95,7 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(address, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpccommon.NewClient(address, grpccommon.WithDialOptions(grpccommon.LocalClientDialOptions()...))
 	if err != nil {
 		return fmt.Errorf("failed to connect to pgctld gRPC server: %w", err)
 	}
@@ -144,7 +144,7 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address 
 // provisionPgctld provisions a pgctld instance for a multipooler with the new directory structure
 func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGroup, serviceID, cell string) (*PgctldProvisionResult, error) {
 	// Create unique pgctld service ID using multipooler's service ID
-	pgctldServiceID := fmt.Sprintf("pgctld-%s", serviceID)
+	pgctldServiceID := "pgctld-" + serviceID
 
 	// Check if pgctld is already running for this service combination
 	existingService, err := p.findRunningDbService("pgctld", dbName, cell)
@@ -219,7 +219,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	poolerDir := ""
 	dir, ok := pgctldConfig["pooler_dir"].(string)
 	if !ok {
-		return nil, fmt.Errorf("pooler_dir not found in config")
+		return nil, errors.New("pooler_dir not found in config")
 	}
 	poolerDir = dir
 
@@ -249,11 +249,11 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	serverArgs := []string{
 		"server",
 		"--pooler-dir", poolerDir,
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
-		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
+		"--pg-port", strconv.Itoa(pgPort),
 		"--pg-database", pgDatabase,
 		"--pg-user", pgUser,
-		"--timeout", fmt.Sprintf("%d", timeout),
+		"--timeout", strconv.Itoa(timeout),
 		"--log-level", logLevel,
 		"--log-output", pgctldLogFile,
 	}

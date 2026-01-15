@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/semconv/v1.37.0/dbconv"
+
 	"github.com/multigres/multigres/go/multipooler/connstate"
 )
 
@@ -69,6 +71,10 @@ type RefreshCheck func() (bool, error)
 
 // Config holds configuration for the connection pool.
 type Config struct {
+	// Name is the pool name for logging and metrics (defaults to "" if not set).
+	// The name is used in metrics to distinguish between different pools.
+	Name string
+
 	Capacity        int64
 	MaxIdleCount    int64
 	IdleTimeout     time.Duration
@@ -76,6 +82,10 @@ type Config struct {
 	RefreshInterval time.Duration
 	LogWait         func(time.Time)
 	Logger          *slog.Logger
+
+	// OTel metrics instruments (optional, noop if not set).
+	// These are shared across all pools and created by the owner (e.g., connpoolmanager).
+	ConnectionCount ConnectionCount
 }
 
 // stackMask is the number of connection state stacks minus one;
@@ -139,12 +149,19 @@ type Pool[C Connection] struct {
 	Metrics Metrics
 	Name    string
 	logger  *slog.Logger
+
+	// otelConnectionCount tracks connection state counts (idle/used).
+	// Optional, noop if not set. Provided via Config.ConnectionCount.
+	otelConnectionCount ConnectionCount
 }
 
 // NewPool creates a new connection pool with the given Config.
 // The pool must be Pool.Open before it can start giving out connections.
-func NewPool[C Connection](config *Config) *Pool[C] {
+// The context is used for background pool operations and OTel tracking.
+func NewPool[C Connection](ctx context.Context, config *Config) *Pool[C] {
 	pool := &Pool[C]{}
+	pool.ctx = ctx
+	pool.Name = config.Name
 	pool.config.maxCapacity = config.Capacity
 	pool.config.maxIdleCount = config.MaxIdleCount
 	pool.config.maxLifetime.Store(config.MaxLifetime.Nanoseconds())
@@ -155,7 +172,18 @@ func NewPool[C Connection](config *Config) *Pool[C] {
 	if pool.logger == nil {
 		pool.logger = slog.Default()
 	}
+	pool.otelConnectionCount = config.ConnectionCount
 	pool.wait.init()
+
+	// Set up OTel idle tracking callbacks on all idle stacks.
+	onPush := func() { pool.otelConnectionCount.Add(pool.ctx, 1, pool.Name, dbconv.ClientConnectionStateIdle) }
+	onPop := func() { pool.otelConnectionCount.Add(pool.ctx, -1, pool.Name, dbconv.ClientConnectionStateIdle) }
+	pool.clean.onPush = onPush
+	pool.clean.onPop = onPop
+	for i := range pool.states {
+		pool.states[i].onPush = onPush
+		pool.states[i].onPop = onPop
+	}
 
 	return pool
 }
@@ -179,13 +207,12 @@ func (pool *Pool[C]) runWorker(close <-chan struct{}, interval time.Duration, wo
 	})
 }
 
-func (pool *Pool[C]) open(ctx context.Context) {
+func (pool *Pool[C]) open() {
 	closeChan := make(chan struct{})
 	if !pool.close.CompareAndSwap(nil, &closeChan) {
 		// already open
 		return
 	}
-	pool.ctx = ctx
 	pool.capacity.Store(pool.config.maxCapacity)
 	pool.setIdleCount()
 
@@ -230,12 +257,11 @@ func (pool *Pool[C]) open(ctx context.Context) {
 }
 
 // Open starts the background workers that manage the pool and gets it ready
-// to start serving out connections. The provided context is used for all
-// background pool operations.
-func (pool *Pool[C]) Open(ctx context.Context, connect Connector[C], refresh RefreshCheck) *Pool[C] {
+// to start serving out connections.
+func (pool *Pool[C]) Open(connect Connector[C], refresh RefreshCheck) *Pool[C] {
 	pool.config.connect = connect
 	pool.config.refresh = refresh
-	pool.open(ctx)
+	pool.open()
 	return pool
 }
 
@@ -402,6 +428,7 @@ func (pool *Pool[C]) GetWithSettings(ctx context.Context, settings *connstate.Se
 // Return connections to the pool by calling Pooled.Recycle.
 func (pool *Pool[C]) put(conn *Pooled[C]) {
 	pool.borrowed.Add(-1)
+	pool.otelConnectionCount.Add(pool.ctx, -1, pool.Name, dbconv.ClientConnectionStateUsed)
 
 	if conn == nil {
 		var err error
@@ -429,11 +456,13 @@ func (pool *Pool[C]) put(conn *Pooled[C]) {
 
 func (pool *Pool[C]) tryReturnConn(conn *Pooled[C]) bool {
 	if pool.wait.tryReturnConn(conn) {
+		// Direct handoff to waiter: used→used, waiter will do otel used +1
 		return true
 	}
 	if pool.closeOnIdleLimitReached(conn) {
 		return false
 	}
+	// Connection goes to idle stack
 	connSettings := conn.Conn.Settings()
 	if connSettings == nil || connSettings.IsEmpty() {
 		pool.clean.Push(conn)
@@ -580,6 +609,7 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	// best case: if there's a connection in the clean stack, return it right away
 	if conn := pool.pop(&pool.clean); conn != nil {
 		pool.borrowed.Add(1)
+		pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 		return conn, nil
 	}
 
@@ -628,6 +658,7 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	}
 
 	pool.borrowed.Add(1)
+	pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 	return conn, nil
 }
 
@@ -703,6 +734,7 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	}
 
 	pool.borrowed.Add(1)
+	pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 	return conn, nil
 }
 

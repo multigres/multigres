@@ -17,6 +17,7 @@
 package servenv
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -84,6 +85,16 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 
 	slog.Info("shutting down gracefully")
 	sv.fireOnCloseHooks(sv.onCloseTimeout.Get())
+
+	// Shutdown telemetry last to ensure all spans from cleanup are captured.
+	// TODO(dweitzman): Propagate the cobra.Command() context into ServEnv instead of using context.Background()
+	//nolint:gocritic // shutdown requires fresh context; see TODO above
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sv.telemetry.ShutdownTelemetry(ctx); err != nil {
+		slog.Error("failed to shutdown telemetry", "error", err)
+	}
+
 	sv.SetListeningURL(url.URL{})
 	return nil
 }

@@ -31,7 +31,6 @@ package multipooler
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -124,6 +123,7 @@ type cleanupConfig struct {
 	pauseReplication bool
 	tablesToDrop     []string
 	gucsToReset      []string
+	enableMonitor    bool
 }
 
 // WithoutReplication returns a cleanup option that explicitly disables replication setup.
@@ -154,6 +154,13 @@ func WithResetGuc(gucs ...string) cleanupOption {
 	}
 }
 
+// WithEnabledMonitor returns a cleanup option that enables the PostgreSQL monitor.
+func WithEnabledMonitor() cleanupOption {
+	return func(c *cleanupConfig) {
+		c.enableMonitor = true
+	}
+}
+
 // setupPoolerTest provides test isolation by validating clean state, optionally configuring
 // replication, and automatically restoring any state changes at test cleanup.
 //
@@ -178,6 +185,9 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 	if len(config.gucsToReset) > 0 {
 		shardOpts = append(shardOpts, shardsetup.WithResetGuc(config.gucsToReset...))
 	}
+	if config.enableMonitor {
+		shardOpts = append(shardOpts, shardsetup.WithEnabledMonitor())
+	}
 
 	// Register table cleanup BEFORE SetupTest so it runs AFTER GUC restoration (LIFO order).
 	// This is important because if a test breaks replication but sync replication is still
@@ -193,7 +203,7 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 			defer primaryClient.Close()
 
 			for _, table := range config.tablesToDrop {
-				_, err := primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table), 0)
+				_, err := primaryClient.Pooler.ExecuteQuery(ctx, "DROP TABLE IF EXISTS "+table, 0)
 				if err != nil {
 					t.Logf("Warning: Failed to drop table %s in cleanup: %v", table, err)
 				}

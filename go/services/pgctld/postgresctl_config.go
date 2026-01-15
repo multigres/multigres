@@ -15,7 +15,7 @@
 package pgctld
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -38,18 +38,18 @@ type PostgresCtlConfig struct {
 // NewPostgresCtlConfig creates a PostgresCtlConfig with the given parameters
 func NewPostgresCtlConfig(port int, user string, database string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string, listenAddresses string, unixSocketDirectories string) (*PostgresCtlConfig, error) {
 	if postgresDataDir == "" {
-		return nil, fmt.Errorf("postgres-data-dir needs to be set")
+		return nil, errors.New("postgres-data-dir needs to be set")
 	}
 
 	if poolerDir == "" {
-		return nil, fmt.Errorf("pooler-dir needs to be set")
+		return nil, errors.New("pooler-dir needs to be set")
 	}
 
 	if port == 0 {
-		return nil, fmt.Errorf("port needs to be set")
+		return nil, errors.New("port needs to be set")
 	}
 	if postgresConfigFile == "" {
-		return nil, fmt.Errorf("postgres-config-file needs to be set")
+		return nil, errors.New("postgres-config-file needs to be set")
 	}
 
 	return &PostgresCtlConfig{

@@ -93,6 +93,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"testing"
 
@@ -136,7 +137,7 @@ func RunTestMain(m *testing.M) int {
 	}
 
 	// Set orphan detection environment variable as baseline protection
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
 
 	// Set PGPASSWORD to a known value so tests can authenticate
 	os.Setenv("PGPASSWORD", TestPostgresPassword)

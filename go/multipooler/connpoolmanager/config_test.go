@@ -15,6 +15,7 @@
 package connpoolmanager
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -134,7 +135,7 @@ func TestConfig_NewManager(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 
-	manager := config.NewManager()
+	manager := config.NewManager(slog.Default())
 
 	require.NotNil(t, manager)
 	assert.Equal(t, config, manager.config)

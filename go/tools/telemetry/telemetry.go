@@ -54,14 +54,18 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -82,11 +86,13 @@ type Telemetry struct {
 	mu             sync.Mutex
 	tracerProvider *sdktrace.TracerProvider
 	meterProvider  *sdkmetric.MeterProvider
+	loggerProvider *sdklog.LoggerProvider
 	initialized    bool
 
 	// Test overrides (only used in tests)
 	testSpanExporter sdktrace.SpanExporter
 	testMetricReader sdkmetric.Reader
+	testLogProcessor sdklog.Processor
 }
 
 // NewTelemetry creates a new Telemetry instance
@@ -97,16 +103,19 @@ func NewTelemetry() *Telemetry {
 // WithTestExporters configures the telemetry instance to use test exporters instead of autoexport.
 // This allows tests to capture and verify telemetry data while still going through normal initialization.
 // Must be called before InitTelemetry().
-func (t *Telemetry) WithTestExporters(spanExporter sdktrace.SpanExporter, metricReader sdkmetric.Reader) *Telemetry {
+func (t *Telemetry) WithTestExporters(spanExporter sdktrace.SpanExporter, metricReader sdkmetric.Reader, logProcessor sdklog.Processor) *Telemetry {
 	t.testSpanExporter = spanExporter
 	t.testMetricReader = metricReader
+	t.testLogProcessor = logProcessor
 	return t
 }
 
-// InitTelemetry initializes OpenTelemetry providers and exporters
+// InitTelemetry initializes OpenTelemetry providers and exporters.
+// The serviceName parameter sets the service.name resource attribute (can be overridden by OTEL_SERVICE_NAME env var).
+// Additional OTel resource attributes can be passed via the attrs variadic parameter.
 //
-// Configuration is done via standard OpenTelemetry environment variables
-func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string) error {
+// Configuration is done via standard OpenTelemetry environment variables.
+func (t *Telemetry) InitTelemetry(ctx context.Context, serviceName string, attrs ...attribute.KeyValue) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -114,18 +123,18 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string
 		return nil
 	}
 
-	// Determine service name (env var > default)
-	serviceName := os.Getenv("OTEL_SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = defaultServiceName
+	// Determine service name (env var > parameter)
+	if envServiceName := os.Getenv("OTEL_SERVICE_NAME"); envServiceName != "" {
+		serviceName = envServiceName
 	}
 
-	// Create resource with service name and standard attributes
+	// Create resource with service name and any additional attributes
 	// Note: We don't merge with resource.Default() to avoid schema version conflicts
-	res := resource.NewWithAttributes(
-		semconv.SchemaURL,
+	resourceAttrs := []attribute.KeyValue{
 		semconv.ServiceName(serviceName),
-	)
+	}
+	resourceAttrs = append(resourceAttrs, attrs...)
+	res := resource.NewWithAttributes(semconv.SchemaURL, resourceAttrs...)
 
 	if err := t.initTracing(ctx, res); err != nil {
 		return fmt.Errorf("failed to initialize tracing: %w", err)
@@ -133,6 +142,10 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, defaultServiceName string
 
 	if err := t.initMetrics(ctx, res); err != nil {
 		return fmt.Errorf("failed to initialize metrics: %w", err)
+	}
+
+	if err := t.initLogs(ctx, res); err != nil {
+		return fmt.Errorf("failed to initialize logs: %w", err)
 	}
 
 	// Instrument the default HTTP client for automatic tracing and metrics of outgoing HTTP requests
@@ -185,7 +198,6 @@ func (t *Telemetry) initTracing(ctx context.Context, res *resource.Resource) err
 
 	// Create TracerProvider with batch span processor (or syncer for tests)
 	// Batch processing reduces overhead by grouping spans before export
-	// Sampler is automatically configured from OTEL_TRACES_SAMPLER (or COMMAND_OTEL_TRACES_SAMPLER)
 	var providerOpts []sdktrace.TracerProviderOption
 	if t.testSpanExporter != nil {
 		// Use synchronous export for tests to avoid timing issues
@@ -194,9 +206,21 @@ func (t *Telemetry) initTracing(ctx context.Context, res *resource.Resource) err
 			sdktrace.WithResource(res),
 		}
 	} else {
+		// Create sampler - either custom file-based or defer to OTEL defaults
+		sampler, err := maybeCreateCustomSampler()
+		if err != nil {
+			return fmt.Errorf("failed to create custom sampler: %w", err)
+		}
+
 		providerOpts = []sdktrace.TracerProviderOption{
 			sdktrace.WithBatcher(traceExporter),
 			sdktrace.WithResource(res),
+		}
+
+		// Only set custom sampler if one was created
+		// Otherwise OTEL will use its default sampler based on environment variables
+		if sampler != nil {
+			providerOpts = append(providerOpts, sdktrace.WithSampler(sampler))
 		}
 	}
 	t.tracerProvider = sdktrace.NewTracerProvider(providerOpts...)
@@ -239,6 +263,50 @@ func (t *Telemetry) initMetrics(ctx context.Context, res *resource.Resource) err
 	return nil
 }
 
+// initLogs initializes the LoggerProvider using autoexport.
+// The exporter is automatically configured based on OTEL_LOGS_EXPORTER and OTEL_EXPORTER_OTLP_PROTOCOL.
+func (t *Telemetry) initLogs(ctx context.Context, res *resource.Resource) error {
+	var logExporter sdklog.Exporter
+	var err error
+
+	// Use test processor if provided, otherwise use autoexport
+	if t.testLogProcessor != nil {
+		// For tests, use simple processor with sync export
+		t.loggerProvider = sdklog.NewLoggerProvider(
+			sdklog.WithResource(res),
+			sdklog.WithProcessor(t.testLogProcessor),
+		)
+		return nil
+	}
+
+	// Default to "none" if OTEL_LOGS_EXPORTER is not explicitly set
+	// This prevents unwanted data export when telemetry is not explicitly configured
+	if os.Getenv("OTEL_LOGS_EXPORTER") == "" {
+		os.Setenv("OTEL_LOGS_EXPORTER", "none")
+	}
+
+	logExporter, err = autoexport.NewLogExporter(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create log exporter: %w", err)
+	}
+
+	// Check if exporter is "none" (no-op)
+	if autoexport.IsNoneLogExporter(logExporter) {
+		// Skip LoggerProvider creation for none exporter
+		// This avoids overhead when logs export is disabled
+		return nil
+	}
+
+	// Create LoggerProvider with batch processor
+	// Batch processing reduces overhead by grouping log records before export
+	t.loggerProvider = sdklog.NewLoggerProvider(
+		sdklog.WithResource(res),
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+	)
+
+	return nil
+}
+
 // WithEnvTraceparent parses the TRACEPARENT env variable and returns a context within that
 // parent
 func (t *Telemetry) WithEnvTraceparent(ctx context.Context) context.Context {
@@ -258,8 +326,10 @@ func (t *Telemetry) WithEnvTraceparent(ctx context.Context) context.Context {
 	return propagator.Extract(ctx, carrier)
 }
 
-func (t *Telemetry) InitForCommand(cmd *cobra.Command, defaultServiceName string, startSpan bool) (trace.Span, error) {
-	if err := t.InitTelemetry(cmd.Context(), defaultServiceName); err != nil {
+// InitForCommand initializes telemetry for CLI commands with just a service name.
+// Use this for one-shot commands that don't need additional resource attributes.
+func (t *Telemetry) InitForCommand(cmd *cobra.Command, serviceName string, startSpan bool) (trace.Span, error) {
+	if err := t.InitTelemetry(cmd.Context(), serviceName); err != nil {
 		return nil, fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 	}
 
@@ -272,7 +342,7 @@ func (t *Telemetry) InitForCommand(cmd *cobra.Command, defaultServiceName string
 	return span, nil
 }
 
-// GetTracerProvider returns the configured TracerProvider
+// GetTracerProvider returns the configured TracerProvider.
 func (t *Telemetry) GetTracerProvider() trace.TracerProvider {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -281,6 +351,17 @@ func (t *Telemetry) GetTracerProvider() trace.TracerProvider {
 		return otel.GetTracerProvider()
 	}
 	return t.tracerProvider
+}
+
+// GetMeterProvider returns the configured MeterProvider.
+func (t *Telemetry) GetMeterProvider() metric.MeterProvider {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.meterProvider == nil {
+		return otel.GetMeterProvider()
+	}
+	return t.meterProvider
 }
 
 // ShutdownTelemetry gracefully shuts down all telemetry providers
@@ -311,6 +392,16 @@ func (t *Telemetry) ShutdownTelemetry(ctx context.Context) error {
 		}
 	}
 
+	// Shutdown logger provider
+	if t.loggerProvider != nil {
+		if err := t.loggerProvider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to shutdown logger provider: %w", err))
+		}
+	}
+
+	// Mark as not initialized so subsequent calls are no-ops
+	t.initialized = false
+
 	if len(errs) > 0 {
 		return fmt.Errorf("errors during telemetry shutdown: %v", errs)
 	}
@@ -319,9 +410,79 @@ func (t *Telemetry) ShutdownTelemetry(ctx context.Context) error {
 	return nil
 }
 
-// WrapSlogHandler wraps an slog.Handler to inject trace context
+// WrapSlogHandler wraps an slog.Handler to:
+// 1. Inject trace context (trace_id, span_id) into log records
+// 2. Bridge to OpenTelemetry logs SDK for OTLP export (if configured)
+//
+// The resulting handler maintains dual output:
+// - Local logging via the wrapped handler (stdout/stderr/file)
+// - OTLP export via OpenTelemetry LoggerProvider (if configured)
 func (t *Telemetry) WrapSlogHandler(handler slog.Handler) slog.Handler {
-	return &traceHandler{wrapped: handler}
+	// First, wrap with trace context injection
+	handlerWithTrace := &traceHandler{wrapped: handler}
+
+	// Then, if LoggerProvider is configured, add OTel bridge
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.loggerProvider != nil {
+		// Create otelslog handler for OTLP export
+		// This bridges slog records to OpenTelemetry log records
+		otelHandler := otelslog.NewHandler(tracingServiceName, otelslog.WithLoggerProvider(t.loggerProvider))
+
+		// Compose: local logging + trace context + OTLP export
+		return &compositeHandler{
+			local: handlerWithTrace,
+			otel:  otelHandler,
+		}
+	}
+
+	// If no LoggerProvider, just return trace context injection
+	return handlerWithTrace
+}
+
+// compositeHandler sends log records to both local and OTel handlers
+type compositeHandler struct {
+	local slog.Handler // Local logging (stdout/stderr/file)
+	otel  slog.Handler // OpenTelemetry bridge for OTLP export
+}
+
+func (h *compositeHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	// Enabled if either handler is enabled
+	return h.local.Enabled(ctx, level) || h.otel.Enabled(ctx, level)
+}
+
+func (h *compositeHandler) Handle(ctx context.Context, r slog.Record) error {
+	// Send to both handlers
+	// Don't short-circuit on error - try to log to both destinations
+	var errs []error
+
+	if err := h.local.Handle(ctx, r); err != nil {
+		errs = append(errs, fmt.Errorf("local handler: %w", err))
+	}
+
+	if err := h.otel.Handle(ctx, r); err != nil {
+		errs = append(errs, fmt.Errorf("otel handler: %w", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("composite handler errors: %v", errs)
+	}
+	return nil
+}
+
+func (h *compositeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &compositeHandler{
+		local: h.local.WithAttrs(attrs),
+		otel:  h.otel.WithAttrs(attrs),
+	}
+}
+
+func (h *compositeHandler) WithGroup(name string) slog.Handler {
+	return &compositeHandler{
+		local: h.local.WithGroup(name),
+		otel:  h.otel.WithGroup(name),
+	}
 }
 
 // traceHandler wraps an slog.Handler to inject trace_id and span_id from context

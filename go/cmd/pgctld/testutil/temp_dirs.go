@@ -15,7 +15,6 @@
 package testutil
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,7 +111,7 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
-		fmt.Sprintf("%d", realPID),
+		strconv.Itoa(realPID),
 		dataDir,
 		"1234567890",
 		"5432",
@@ -135,6 +134,30 @@ func RemovePIDFile(t *testing.T, dataDir string) {
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
 		t.Fatalf("Failed to remove PID file: %v", err)
+	}
+}
+
+// CreateDeadPIDFile creates a postmaster.pid file with a PID that does not exist,
+// simulating a crashed PostgreSQL process
+func CreateDeadPIDFile(t *testing.T, dataDir string, deadPID int) {
+	t.Helper()
+
+	pidFile := filepath.Join(dataDir, "postmaster.pid")
+
+	content := []string{
+		strconv.Itoa(deadPID),
+		dataDir,
+		"1234567890",
+		"5432",
+		"/tmp",
+		"localhost",
+		"*",
+		"ready",
+	}
+
+	pidContent := strings.Join(content, "\n") + "\n"
+	if err := os.WriteFile(pidFile, []byte(pidContent), 0o644); err != nil {
+		t.Fatalf("Failed to create dead PID file: %v", err)
 	}
 }
 

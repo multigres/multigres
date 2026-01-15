@@ -17,10 +17,26 @@ package endtoend
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/tools/pathutil"
 )
+
+// setupManager manages the shared test setup for endtoend tests.
+var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2), // primary + standby
+		shardsetup.WithMultigateway(),      // enable multigateway
+	)
+})
+
+// getSharedSetup returns the shared setup for endtoend tests.
+func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+	t.Helper()
+	return setupManager.Get(t)
+}
 
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
@@ -34,10 +50,14 @@ func TestMain(m *testing.M) {
 	// Set orphan detection environment variable so postgres processes
 	// started by in-process services will have watchdogs that monitor
 	// the test process and kill postgres if the test crashes
-	os.Setenv("MULTIGRES_TEST_PARENT_PID", fmt.Sprintf("%d", os.Getpid()))
+	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
 
 	// Run all tests
-	exitCode := m.Run()
+	exitCode := shardsetup.RunTestMain(m)
+	if exitCode != 0 {
+		setupManager.DumpLogs()
+	}
+	setupManager.Cleanup()
 
 	// Cleanup environment variable
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")

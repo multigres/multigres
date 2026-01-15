@@ -28,14 +28,14 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
-          go-version: "1.25.1"
+          go-version-file: go.mod
 
       - name: Set up test environment
         run: .github/scripts/setup-test-environment.sh
@@ -44,29 +44,37 @@ jobs:
         run: make build
 
       - name: Run tests with direct coverage
-        run: go test -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./...
+        run: go test -json -v -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./... | tee coverage-direct-test-results.jsonl | go tool tparse -follow
 
       - name: Upload direct coverage artifact
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: coverage-direct
           path: coverage-direct.txt
           retention-days: 7
 
+      - name: Test Report
+        uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
+        if: ${{ !cancelled() }}
+        with:
+          name: Direct Coverage Tests
+          path: coverage-direct-test-results.jsonl
+          reporter: golang-json
+
   coverage-subprocess:
     name: Subprocess coverage
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
-          go-version: "1.25.1"
+          go-version-file: go.mod
 
       - name: Set up test environment
         run: .github/scripts/setup-test-environment.sh
@@ -78,18 +86,26 @@ jobs:
         run: |
           mkdir -p coverage-subprocess-raw
           export GOCOVERDIR="$PWD/coverage-subprocess-raw"
-          go test ./...
+          go test -json -v ./... | tee coverage-subprocess-test-results.jsonl | go tool tparse -follow
 
       - name: Convert subprocess coverage to text format
         run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt
 
       - name: Upload subprocess coverage artifact
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: coverage-subprocess
           path: coverage-subprocess.txt
           retention-days: 7
+
+      - name: Test Report
+        uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
+        if: ${{ !cancelled() }}
+        with:
+          name: Subprocess Coverage Tests
+          path: coverage-subprocess-test-results.jsonl
+          reporter: golang-json
 
   merge-and-upload:
     name: Merge coverage and upload
@@ -98,23 +114,23 @@ jobs:
     if: always()
 
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
-          go-version: "1.25.1"
+          go-version-file: go.mod
 
       - name: Download direct coverage artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: coverage-direct
           path: ./coverage-artifacts/direct
 
       - name: Download subprocess coverage artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: coverage-subprocess
           path: ./coverage-artifacts/subprocess
@@ -131,7 +147,7 @@ jobs:
           go tool cover -func=coverage-merged.txt | tail -1
 
       - name: Upload merged coverage artifact
-        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: coverage-merged
@@ -140,7 +156,7 @@ jobs:
 
       - name: Upload coverage to Coveralls
         if: success() || failure()
-        uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63 # v2.3.0
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
         with:
           file: ./coverage-merged.txt
           format: golang

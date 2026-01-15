@@ -15,19 +15,20 @@
 package executor
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
 // ScanRow scans values from a query result row into the provided destinations.
 // Each destination should be a pointer to a supported type (bool, string, int, int32, int64, float64, time.Time).
-func ScanRow(row *query.Row, dests ...any) error {
+func ScanRow(row *sqltypes.Row, dests ...any) error {
 	if row == nil {
-		return fmt.Errorf("row is nil")
+		return errors.New("row is nil")
 	}
 	if len(row.Values) < len(dests) {
 		return fmt.Errorf("not enough columns: got %d, want %d", len(row.Values), len(dests))
@@ -44,9 +45,9 @@ func ScanRow(row *query.Row, dests ...any) error {
 
 // ScanSingleRow is a convenience function that scans the first row of a result.
 // Returns an error if the result has no rows.
-func ScanSingleRow(result *query.QueryResult, dests ...any) error {
+func ScanSingleRow(result *sqltypes.Result, dests ...any) error {
 	if result == nil || len(result.Rows) == 0 {
-		return fmt.Errorf("no rows in result")
+		return errors.New("no rows in result")
 	}
 	return ScanRow(result.Rows[0], dests...)
 }
@@ -205,10 +206,10 @@ func scanValue(val []byte, dest any) error {
 }
 
 // getValue is a helper that validates the row and column, then scans the value into dest.
-func getValue[T any](row *query.Row, col int) (T, error) {
+func getValue[T any](row *sqltypes.Row, col int) (T, error) {
 	var result T
 	if row == nil {
-		return result, fmt.Errorf("row is nil")
+		return result, errors.New("row is nil")
 	}
 	if col >= len(row.Values) {
 		return result, fmt.Errorf("column index %d out of range", col)
@@ -220,27 +221,27 @@ func getValue[T any](row *query.Row, col int) (T, error) {
 }
 
 // GetString extracts a string value from a row at the given column index.
-func GetString(row *query.Row, col int) (string, error) {
+func GetString(row *sqltypes.Row, col int) (string, error) {
 	return getValue[string](row, col)
 }
 
 // GetBool extracts a boolean value from a row at the given column index.
-func GetBool(row *query.Row, col int) (bool, error) {
+func GetBool(row *sqltypes.Row, col int) (bool, error) {
 	return getValue[bool](row, col)
 }
 
 // GetInt extracts an integer value from a row at the given column index.
-func GetInt(row *query.Row, col int) (int, error) {
+func GetInt(row *sqltypes.Row, col int) (int, error) {
 	return getValue[int](row, col)
 }
 
 // GetInt32 extracts an int32 value from a row at the given column index.
-func GetInt32(row *query.Row, col int) (int32, error) {
+func GetInt32(row *sqltypes.Row, col int) (int32, error) {
 	return getValue[int32](row, col)
 }
 
 // GetInt64 extracts an int64 value from a row at the given column index.
-func GetInt64(row *query.Row, col int) (int64, error) {
+func GetInt64(row *sqltypes.Row, col int) (int64, error) {
 	return getValue[int64](row, col)
 }
 

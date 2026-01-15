@@ -21,37 +21,38 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // mockExecutor is a mock implementation of the Executor interface for testing.
 type mockExecutor struct{}
 
-func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	// Return a simple test result
-	return callback(ctx, &query.QueryResult{
+	return callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
 			{Name: "column1", Type: "int4"},
 		},
-		Rows: []*query.Row{
-			{Values: [][]byte{[]byte("1")}},
+		Rows: []*sqltypes.Row{
+			{Values: []sqltypes.Value{[]byte("1")}},
 		},
 		CommandTag:   "SELECT 1",
 		RowsAffected: 1,
 	})
 }
 
-func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	// Return a simple test result
-	return callback(ctx, &query.QueryResult{
+	return callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
 			{Name: "column1", Type: "int4"},
 		},
-		Rows: []*query.Row{
-			{Values: [][]byte{[]byte("1")}},
+		Rows: []*sqltypes.Row{
+			{Values: []sqltypes.Value{[]byte("1")}},
 		},
 		CommandTag:   "SELECT 1",
 		RowsAffected: 1,
@@ -117,9 +118,9 @@ func TestHandleQueryEmptyQuery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			callbackCalled := false
-			var receivedResult *query.QueryResult
+			var receivedResult *sqltypes.Result
 
-			err := handler.HandleQuery(context.Background(), conn, tt.query, func(ctx context.Context, result *query.QueryResult) error {
+			err := handler.HandleQuery(context.Background(), conn, tt.query, func(ctx context.Context, result *sqltypes.Result) error {
 				callbackCalled = true
 				receivedResult = result
 				return nil
@@ -150,9 +151,9 @@ func TestHandleQueryNonEmpty(t *testing.T) {
 	conn := &server.Conn{}
 
 	callbackCalled := false
-	var receivedResult *query.QueryResult
+	var receivedResult *sqltypes.Result
 
-	err := handler.HandleQuery(context.Background(), conn, "SELECT 1", func(ctx context.Context, result *query.QueryResult) error {
+	err := handler.HandleQuery(context.Background(), conn, "SELECT 1", func(ctx context.Context, result *sqltypes.Result) error {
 		callbackCalled = true
 		receivedResult = result
 		return nil
@@ -244,8 +245,8 @@ func TestPortalHandling(t *testing.T) {
 	require.NotNil(t, desc)
 
 	// 4. Execute works with valid portal
-	var result *query.QueryResult
-	err = handler.HandleExecute(ctx, conn, "portal1", 0, func(ctx context.Context, r *query.QueryResult) error {
+	var result *sqltypes.Result
+	err = handler.HandleExecute(ctx, conn, "portal1", 0, func(ctx context.Context, r *sqltypes.Result) error {
 		result = r
 		return nil
 	})
@@ -253,7 +254,7 @@ func TestPortalHandling(t *testing.T) {
 	require.NotNil(t, result)
 
 	// 5. Execute fails for non-existent portal
-	err = handler.HandleExecute(ctx, conn, "nonexistent", 0, func(ctx context.Context, r *query.QueryResult) error {
+	err = handler.HandleExecute(ctx, conn, "nonexistent", 0, func(ctx context.Context, r *sqltypes.Result) error {
 		return nil
 	})
 	require.Error(t, err)

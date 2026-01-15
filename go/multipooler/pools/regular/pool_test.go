@@ -22,13 +22,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 func newTestPool(_ *testing.T, server *fakepgserver.Server) *Pool {
-	pool := NewPool(&PoolConfig{
+	pool := NewPool(context.Background(), &PoolConfig{
 		ClientConfig: server.ClientConfig(),
 		ConnPoolConfig: &connpool.Config{
 			Capacity:     2,
@@ -36,7 +36,7 @@ func newTestPool(_ *testing.T, server *fakepgserver.Server) *Pool {
 		},
 		AdminPool: nil, // Not needed for basic tests
 	})
-	pool.Open(context.Background())
+	pool.Open()
 	return pool
 }
 
@@ -72,8 +72,8 @@ func TestPool_GetWithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept any SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &query.QueryResult{})
-	server.AddQueryPattern(`RESET .+`, &query.QueryResult{})
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -162,7 +162,7 @@ func TestPool_InnerPool(t *testing.T) {
 
 	inner := pool.InnerPool()
 	require.NotNil(t, inner)
-	assert.Equal(t, "regular", inner.Name)
+	assert.Equal(t, "unnamed", inner.Name)
 }
 
 func TestConn_State(t *testing.T) {
@@ -207,8 +207,8 @@ func TestConn_ResetSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &query.QueryResult{})
-	server.AddQueryPattern(`RESET .+`, &query.QueryResult{})
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()

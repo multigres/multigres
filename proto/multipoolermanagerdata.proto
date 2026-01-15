@@ -64,6 +64,11 @@ message StandbyReplicationStatus {
 
   // Primary connection info parsed from primary_conninfo setting
   PrimaryConnInfo primary_conn_info = 7;
+
+  // WAL receiver status from pg_stat_wal_receiver.status
+  // Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
+  // Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
+  string wal_receiver_status = 8;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -84,7 +89,6 @@ message StartReplicationRequest {
 
 message StartReplicationResponse {
 }
-
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
@@ -323,6 +327,35 @@ message DemoteResponse {
   int32 connections_terminated = 4;
 }
 
+// DemoteStalePrimary demotes a stale primary that came back online after failover.
+// This is a complete operation that:
+// 1. Stops postgres if running
+// 2. Runs pg_rewind to sync with the correct primary
+// 3. Clears sync replication config
+// 4. Restarts as standby
+// 5. Updates topology to REPLICA
+message DemoteStalePrimaryRequest {
+  // Source multipooler (the correct primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+
+  // Consensus term from the correct primary
+  int64 consensus_term = 2;
+
+  // Force the operation even if term validation fails
+  bool force = 3;
+}
+
+message DemoteStalePrimaryResponse {
+  // True if the operation completed successfully
+  bool success = 1;
+
+  // Whether pg_rewind was performed (servers were diverged)
+  bool rewind_performed = 2;
+
+  // LSN position after becoming standby
+  string lsn_position = 3;
+}
+
 // UndoDemote undoes a demotion
 message UndoDemoteRequest {
 }
@@ -378,6 +411,18 @@ message PromoteRequest {
   // Force the operation even if term validation fails
   // Should only be used in recovery scenarios
   bool force = 4;
+
+  // Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
+  string reason = 5;
+
+  // Coordinator ID that ran this election
+  string coordinator_id = 6;
+
+  // List of pooler names that were in the cohort
+  repeated string cohort_members = 7;
+
+  // List of pooler names that accepted the term during BeginTerm
+  repeated string accepted_members = 8;
 }
 
 message PromoteResponse {
@@ -543,6 +588,9 @@ message InitializeEmptyPrimaryRequest {
   // Optional: Create durability policy after initialization
   string durability_policy_name = 2;
   clustermetadata.QuorumRule durability_quorum_rule = 3;
+
+  // ID of the multiorch coordinator performing the bootstrap
+  string coordinator_id = 4;
 }
 
 message InitializeEmptyPrimaryResponse {
@@ -555,34 +603,6 @@ message InitializeEmptyPrimaryResponse {
   // Backup ID of the initial backup created during initialization
   // This can be used by standbys to restore from the same backup
   string backup_id = 3;
-}
-
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-message InitializeAsStandbyRequest {
-  // Primary pooler to replicate from
-  clustermetadata.MultiPooler primary = 1;
-
-  // Consensus term to set for this standby
-  int64 consensus_term = 2;
-
-  // Whether to force reinitialization (removes existing data directory)
-  bool force = 3;
-
-  // Optional: Specific backup ID to restore from
-  // If empty, restore from the latest backup
-  string backup_id = 4;
-}
-
-message InitializeAsStandbyResponse {
-  // Whether the initialization succeeded
-  bool success = 1;
-
-  // Error message if initialization failed
-  string error_message = 2;
-
-  // Final LSN position after backup completed
-  string final_lsn = 3;
 }
 
 // Backup operations
@@ -653,7 +673,7 @@ message BackupMetadata {
   string shard = 2;
   Status status = 3;
   string backup_id = 4;
-  string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
+  string final_lsn = 5; // Final checkpoint LSN (stop LSN) for this backup
 
   // Job ID annotation if present (for cross-process tracking)
   string job_id = 6;
@@ -706,4 +726,57 @@ message CreateDurabilityPolicyRequest {
 // CreateDurabilityPolicyResponse confirms policy creation
 // Errors are returned via gRPC status codes, not in the response body
 message CreateDurabilityPolicyResponse {
+}
+
+// =============================================================================
+// PgRewind APIs
+// =============================================================================
+
+// RewindToSourceRequest requests pg_rewind to synchronize with a source server.
+// This operation:
+// 1. Stops PostgreSQL
+// 2. Runs pg_rewind --dry-run to check if rewind is needed
+// 3. If needed, runs actual pg_rewind
+// 4. Starts PostgreSQL
+message RewindToSourceRequest {
+  // Source multipooler (the primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+}
+
+message RewindToSourceResponse {
+  // True if the operation completed successfully
+  bool success = 1;
+
+  // Error message if operation failed
+  string error_message = 2;
+
+  // True if servers had diverged and pg_rewind was performed
+  // False if timelines were compatible and no rewind was needed
+  bool rewind_performed = 3;
+}
+
+// =============================================================================
+// PostgreSQL Monitoring Control APIs
+// =============================================================================
+
+// EnableMonitorRequest enables the PostgreSQL monitoring goroutine
+message EnableMonitorRequest {
+  // Empty for now - could add options in the future
+}
+
+// EnableMonitorResponse confirms monitoring was enabled
+// Errors are returned via gRPC status codes, not in the response body
+message EnableMonitorResponse {
+  // Empty - success indicated by no error
+}
+
+// DisableMonitorRequest disables the PostgreSQL monitoring goroutine
+message DisableMonitorRequest {
+  // Empty for now
+}
+
+// DisableMonitorResponse confirms monitoring was disabled
+// Errors are returned via gRPC status codes, not in the response body
+message DisableMonitorResponse {
+  // Empty - success indicated by no error
 }

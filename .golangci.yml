@@ -14,13 +14,13 @@
 
 version: "2"
 run:
-  go: "1.25"
   build-tags:
     - ruleguard
 linters:
   default: none
   enable:
     - bodyclose
+    - copyloopvar # Go 1.22+ loop variable capture bug prevention
     - depguard
     - errcheck
     - errorlint
@@ -34,15 +34,21 @@ linters:
     - gosec
     - govet
     - ineffassign
+    - mirror # Prevents incorrect array/slice copying patterns
     - misspell
     - modernize
     - nilerr
     # TODO: Enable noctx - requires fixing ~170 issues where context should be passed
     # - noctx
+    - nolintlint # Ensures //nolint directives are documented
+    - nosprintfhostport # Prevents fmt.Sprintf with host:port pattern bugs
+    - perfsprint # Avoids unnecessary sprintf calls for performance
     - sloglint
+    - sqlclosecheck # Prevents database connection leaks
     - staticcheck
     - unconvert
     - unused
+    - whitespace # Detects trailing whitespace and extra blank lines
   settings:
     # goconst:
     #   # Minimum length of string to trigger (shorter strings are often not worth extracting)
@@ -128,17 +134,16 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/multigateway"
               desc: "multigateway can only be imported by its own package and cmd"
-        # TODO: Move go/multiorch to go/services/multiorch and update paths below
         multiorch-isolation:
           files:
-            - "!**/go/multiorch/*.go"
-            - "!**/go/multiorch/**/*.go"
+            - "!**/go/services/multiorch/*.go"
+            - "!**/go/services/multiorch/**/*.go"
             - "!**/go/cmd/multiorch/*.go"
             - "!**/go/cmd/multiorch/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multiorch"
+            - pkg: "github.com/multigres/multigres/go/services/multiorch"
               desc: "multiorch can only be imported by its own package and cmd"
         # TODO: Move go/multipooler to go/services/multipooler and update paths below
         multipooler-isolation:
@@ -285,7 +290,7 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/(parser|pgprotocol|tools/ruleguard)
+        path: ^go/(parser|common/pgprotocol|tools/ruleguard)
       # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec

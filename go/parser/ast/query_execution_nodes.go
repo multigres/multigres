@@ -416,10 +416,10 @@ func NewOrderedWindowClause(name string, orderClause *NodeList) *WindowClause {
 func (wc *WindowClause) String() string {
 	parts := []string{}
 	if wc.Name != "" {
-		parts = append(parts, fmt.Sprintf("name=%s", wc.Name))
+		parts = append(parts, "name="+wc.Name)
 	}
 	if wc.Refname != "" {
-		parts = append(parts, fmt.Sprintf("ref=%s", wc.Refname))
+		parts = append(parts, "ref="+wc.Refname)
 	}
 	partitionCount := 0
 	if wc.PartitionClause != nil {
@@ -441,7 +441,7 @@ func (wc *WindowClause) String() string {
 		detail = fmt.Sprintf(" (%s)", fmt.Sprintf("%v", parts))
 	}
 
-	return fmt.Sprintf("WindowClause%s", detail)
+	return "WindowClause" + detail
 }
 
 // SortGroupClause represents ORDER BY and GROUP BY clauses.

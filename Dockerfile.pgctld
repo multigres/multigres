@@ -1,0 +1,62 @@
+# =========================================================================
+# Stage 1: Build pgctld
+# =========================================================================
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /src
+
+RUN apk add --no-cache git=2.52.0-r0 make=4.4.1-r3 bash=5.3.3-r1
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN make build-release
+
+# =========================================================================
+# Stage 2: Final PostgreSQL + pgctld
+# =========================================================================
+FROM postgres:17.7
+
+# Install pgBackRest from PostgreSQL APT repository and procps
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release && \
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
+    apt-get update && \
+    apt-cache policy pgbackrest && \
+    apt-get install -y --no-install-recommends \
+    pgbackrest \
+    procps && \
+    pgbackrest version && \
+    apt-get remove -y ca-certificates curl gnupg lsb-release && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy pgctld binary
+COPY --from=builder /src/bin/pgctld /usr/local/bin/
+
+# Ensure pgctld is executable
+RUN chmod +x /usr/local/bin/pgctld
+
+# PostgreSQL data directory (default)
+ENV PGDATA=/var/lib/postgresql/data
+
+# Expose PostgreSQL port
+EXPOSE 5432
+
+# Health check - verify pgctld is available (PostgreSQL may not always be running)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD pgctld --version || exit 1
+
+# Use postgres user (default in postgres image)
+USER postgres
+
+# Override the default PostgreSQL entrypoint
+# Keep container running without launching anything - allows external control
+ENTRYPOINT ["tail"]
+CMD ["-f", "/dev/null"]

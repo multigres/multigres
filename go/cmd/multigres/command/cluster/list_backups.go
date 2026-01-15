@@ -39,6 +39,7 @@ func AddListBackupsCommand(clusterCmd *cobra.Command) {
 
 	cmd.Flags().String("database", "postgres", "Database name to list backups for")
 	cmd.Flags().Uint32("limit", 0, "Maximum number of backups to return (0 = no limit)")
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
 
 	clusterCmd.AddCommand(cmd)
 }
@@ -55,8 +56,7 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 	defer client.Close()
 
 	// Create context with timeout
-	//nolint:gocritic // CLI entry point - no parent context available
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 	defer cancel()
 
 	// Note: TableGroup and Shard are currently hardcoded to defaults because

@@ -15,6 +15,7 @@
 package preparedstatement
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -43,6 +44,28 @@ type Consolidator struct {
 	lastUsedID int
 }
 
+// ConsolidatorStats contains statistics about the prepared statement consolidator.
+type ConsolidatorStats struct {
+	// UniqueStatements is the number of unique prepared statements being tracked.
+	UniqueStatements int `json:"unique_statements"`
+	// TotalReferences is the total number of references across all connections.
+	TotalReferences int `json:"total_references"`
+	// ConnectionCount is the number of connections that have prepared statements.
+	ConnectionCount int `json:"connection_count"`
+	// Statements contains details about each unique prepared statement.
+	Statements []StatementStats `json:"statements"`
+}
+
+// StatementStats contains statistics for a single prepared statement.
+type StatementStats struct {
+	// Name is the canonical name of the prepared statement.
+	Name string `json:"name"`
+	// Query is the SQL query of the prepared statement.
+	Query string `json:"query"`
+	// UsageCount is the number of connections using this prepared statement.
+	UsageCount int `json:"usage_count"`
+}
+
 type PortalInfo struct {
 	*querypb.Portal
 	*PreparedStatementInfo
@@ -61,7 +84,7 @@ func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatement
 		return nil, err
 	}
 	if len(asts) != 1 {
-		return nil, fmt.Errorf("more than 1 query in prepare statement")
+		return nil, errors.New("more than 1 query in prepare statement")
 	}
 	return &PreparedStatementInfo{
 		PreparedStatement: ps,
@@ -101,7 +124,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 
 	// If the name is non-empty, and a prepared statement for this name already exists on the connection, we throw an error.
 	if _, exists := psc.incoming[connId][name]; exists && name != "" {
-		return nil, fmt.Errorf("Prepared statement with this name exists")
+		return nil, errors.New("Prepared statement with this name exists")
 	}
 
 	// Let's check if a prepared statement with this statement already exists.
@@ -150,4 +173,29 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 		}
 		delete(psc.incoming[connId], name)
 	}
+}
+
+// Stats returns statistics about the consolidator's current state.
+func (psc *Consolidator) Stats() ConsolidatorStats {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+
+	stats := ConsolidatorStats{
+		UniqueStatements: len(psc.stmts),
+		TotalReferences:  0,
+		ConnectionCount:  len(psc.incoming),
+		Statements:       make([]StatementStats, 0, len(psc.stmts)),
+	}
+
+	for _, psi := range psc.stmts {
+		usageCount := psc.usageCount[psi]
+		stats.TotalReferences += usageCount
+		stats.Statements = append(stats.Statements, StatementStats{
+			Name:       psi.Name,
+			Query:      psi.Query,
+			UsageCount: usageCount,
+		})
+	}
+
+	return stats
 }

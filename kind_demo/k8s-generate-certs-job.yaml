@@ -1,0 +1,93 @@
+# Job to generate TLS certificates for pgBackRest
+# Creates a Root CA and pgBackRest certificate signed by the CA
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generate-pgbackrest-certs
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: cert-generator
+          image: alpine/openssl:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              cd /certs
+
+              echo "Generating Root CA certificate..."
+              openssl req -x509 -newkey rsa:4096 -nodes -days 3650 \
+                -keyout ca.key \
+                -out ca.crt \
+                -subj "/CN=Multigres Root CA"
+
+              echo "Creating OpenSSL config with wildcard SAN..."
+              cat > /tmp/pgbackrest-san.cnf <<EOF
+              [req]
+              distinguished_name = req_distinguished_name
+              req_extensions = v3_req
+              prompt = no
+
+              [req_distinguished_name]
+              CN = pgbackrest
+
+              [v3_req]
+              keyUsage = critical, digitalSignature, keyEncipherment
+              extendedKeyUsage = serverAuth, clientAuth
+              subjectAltName = @alt_names
+
+              [alt_names]
+              DNS.1 = *.multipooler-zone1.default.svc.cluster.local
+              DNS.2 = pgbackrest
+              DNS.3 = localhost
+              IP.1 = 127.0.0.1
+              EOF
+
+              echo "Generating pgBackRest certificate signing request..."
+              openssl req -newkey rsa:2048 -nodes \
+                -keyout pgbackrest.key \
+                -out /tmp/pgbackrest.csr \
+                -config /tmp/pgbackrest-san.cnf
+
+              echo "Signing pgBackRest certificate with Root CA..."
+              openssl x509 -req -days 3650 \
+                -in /tmp/pgbackrest.csr \
+                -CA ca.crt \
+                -CAkey ca.key \
+                -CAcreateserial \
+                -out pgbackrest.crt \
+                -extensions v3_req \
+                -extfile /tmp/pgbackrest-san.cnf
+
+              echo "Cleaning up temporary files..."
+              rm -f /tmp/pgbackrest.csr /tmp/pgbackrest-san.cnf ca.srl
+
+              # Remove CA private key - we don't need it after signing the certificate
+              # Keep only ca.crt for verification, pgbackrest.crt and pgbackrest.key for TLS
+              echo "Removing CA private key (no longer needed)..."
+              rm -f ca.key
+
+              echo "Setting file permissions..."
+              chmod 600 *.key
+              chmod 644 *.crt
+
+              echo "Certificate generation complete!"
+              echo "Generated files:"
+              ls -lh /certs/
+
+              echo ""
+              echo "Verifying certificate chain..."
+              openssl verify -CAfile ca.crt pgbackrest.crt
+
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+      volumes:
+        # Using hostPath to persist certificates on the Kind node
+        # For production, use a PersistentVolumeClaim or create Kubernetes Secrets
+        - name: certs
+          hostPath:
+            path: /data/certs
+            type: DirectoryOrCreate

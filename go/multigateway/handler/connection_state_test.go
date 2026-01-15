@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
 func TestNewMultiGatewayConnectionState(t *testing.T) {
@@ -190,5 +191,7 @@ func TestMultiGatewayConnectionState_PortalInfoIntegrity(t *testing.T) {
 	require.Equal(t, "stmt1", retrieved.PreparedStatementName)
 	require.Equal(t, "SELECT $1, $2", retrieved.Query)
 	require.Equal(t, paramTypes, retrieved.ParamTypes)
-	require.Equal(t, params, retrieved.Params)
+	// Reconstruct params from the proto encoding
+	retrievedParams := sqltypes.ParamsFromProto(retrieved.ParamLengths, retrieved.ParamValues)
+	require.Equal(t, params, retrievedParams)
 }

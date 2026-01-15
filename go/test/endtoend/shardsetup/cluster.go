@@ -15,15 +15,20 @@
 package shardsetup
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -33,6 +38,7 @@ type MultipoolerInstance struct {
 	Name        string
 	Pgctld      *ProcessInstance
 	Multipooler *ProcessInstance
+	PgBackRest  *PgBackRestInstance
 }
 
 // ShardSetup holds shared test infrastructure for a single shard.
@@ -54,6 +60,13 @@ type ShardSetup struct {
 
 	// Multiorch instances (can have multiple)
 	MultiOrchInstances map[string]*ProcessInstance
+
+	// Multigateway instance (optional, enabled via WithMultigateway)
+	Multigateway       *ProcessInstance
+	MultigatewayPgPort int // PostgreSQL protocol port for multigateway
+
+	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
+	PgBackRestCertPaths *local.PgBackRestCertPaths
 
 	// BaselineGucs stores the GUC values captured after bootstrap completes.
 	// These are the "clean state" values that ValidateCleanState checks against
@@ -136,20 +149,29 @@ func (s *ShardSetup) PrimaryPgctld(t *testing.T) *ProcessInstance {
 // CreateMultipoolerInstance creates a new multipooler instance (pgctld + multipooler pair) with the given name.
 // The instance is added to the setup's Multipoolers map.
 // Follows the patterns from multipooler/setup_test.go.
-func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPort, pgPort, multipoolerPort int, stanzaName string) *MultipoolerInstance {
+func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPort, pgPort, multipoolerPort int) *MultipoolerInstance {
 	t.Helper()
 
 	if s.Multipoolers == nil {
 		s.Multipoolers = make(map[string]*MultipoolerInstance)
 	}
 
+	// Generate pgBackRest certificates once for the entire setup (shared across all multipoolers)
+	if s.PgBackRestCertPaths == nil {
+		s.PgBackRestCertPaths = s.generatePgBackRestCerts(t)
+	}
+
+	// Allocate a port for pgBackRest server (one per multipooler)
+	pgbackrestPort := utils.GetFreePort(t)
+
 	// Create pgctld instance
 	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort)
 
-	// Create multipooler instance
+	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
 	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
-		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, stanzaName, s.CellName)
+		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, s.CellName,
+		s.PgBackRestCertPaths, pgbackrestPort)
 
 	inst := &MultipoolerInstance{
 		Name:        name,
@@ -180,13 +202,13 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
 		Binary:      "pgctld",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8"),
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
 	}
 }
 
 // CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
-func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, stanzaName string, cell string) *ProcessInstance {
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgBackRestCertPaths, pgbackrestPort int) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -194,7 +216,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
 	require.NoError(t, err)
 
-	return &ProcessInstance{
+	inst := &ProcessInstance{
 		Name:        name,
 		Cell:        cell,
 		LogFile:     logFile,
@@ -203,10 +225,15 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		PgctldAddr:  pgctldAddr,
 		DataDir:     pgctldDataDir,
 		EtcdAddr:    etcdAddr,
-		StanzaName:  stanzaName,
 		Binary:      "multipooler",
 		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
 	}
+
+	// Store pgBackRest cert paths struct and port for later use when starting multipooler
+	inst.PgBackRestCertPaths = certPaths
+	inst.PgBackRestPort = pgbackrestPort
+
+	return inst
 }
 
 // CreateMultiOrchInstance creates a new multiorch instance and adds it to the setup.
@@ -238,6 +265,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, wa
 		Cell:         cell,
 		EtcdAddr:     s.EtcdClientAddr,
 		WatchTargets: watchTargets,
+		ServiceID:    name, // Use the instance name as the service ID
 		Binary:       "multiorch",
 		Environment:  os.Environ(),
 	}
@@ -247,6 +275,67 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, wa
 	return instance, instance.CleanupFunc(t)
 }
 
+// CreateMultigatewayInstance creates a multigateway process instance.
+// Returns the created ProcessInstance. Does not start the process.
+// Call Start() on the returned instance to start it, and waitForMultigatewayQueryServing() after bootstrap.
+func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPort, httpPort, grpcPort int) *ProcessInstance {
+	t.Helper()
+
+	inst := &ProcessInstance{
+		Name:        name,
+		Binary:      "multigateway",
+		Cell:        s.CellName,
+		ServiceID:   fmt.Sprintf("%s-%s", name, s.CellName),
+		PgPort:      pgPort,
+		HttpPort:    httpPort,
+		GrpcPort:    grpcPort,
+		EtcdAddr:    s.EtcdClientAddr,
+		GlobalRoot:  "/multigres/global",
+		LogFile:     filepath.Join(s.TempDir, name+".log"),
+		Environment: os.Environ(),
+	}
+
+	s.Multigateway = inst
+	s.MultigatewayPgPort = pgPort
+
+	return inst
+}
+
+// WaitForMultigatewayQueryServing waits for multigateway to be able to execute queries.
+// This verifies that multigateway has discovered poolers from topology and can route queries.
+// Should be called AFTER bootstrap completes.
+func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
+	t.Helper()
+
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=2",
+		s.MultigatewayPgPort)
+
+	ctx := utils.WithTimeout(t, 5*time.Second)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("timeout waiting for multigateway to execute queries (may not have discovered poolers)")
+		case <-ticker.C:
+			db, err := sql.Open("postgres", connStr)
+			if err != nil {
+				continue
+			}
+
+			var result int
+			err = db.QueryRowContext(ctx, "SELECT 1").Scan(&result)
+			db.Close()
+
+			if err == nil && result == 1 {
+				t.Log("Multigateway can execute queries")
+				return
+			}
+		}
+	}
+}
+
 // Cleanup cleans up the shared test infrastructure.
 // Follows the pattern from multipooler/setup_test.go:cleanupSharedTestSetup.
 func (s *ShardSetup) Cleanup() {
@@ -254,15 +343,23 @@ func (s *ShardSetup) Cleanup() {
 		return
 	}
 
-	// Stop multiorch instances first (they orchestrate the shard)
+	// Stop multigateway first (before multipoolers it routes to)
+	if s.Multigateway != nil {
+		s.Multigateway.Stop()
+	}
+
+	// Stop multiorch instances (they orchestrate the shard)
 	for _, mo := range s.MultiOrchInstances {
 		if mo != nil {
 			mo.Stop()
 		}
 	}
 
-	// Stop multipooler instances (multipooler first, then pgctld)
+	// Stop multipooler instances (pgbackrest, multipooler, then pgctld)
 	for _, inst := range s.Multipoolers {
+		if inst.PgBackRest != nil {
+			inst.PgBackRest.Stop()
+		}
 		if inst.Multipooler != nil {
 			inst.Multipooler.Stop()
 		}
@@ -284,7 +381,9 @@ func (s *ShardSetup) Cleanup() {
 
 	// Clean up temp directory
 	if s.TempDirCleanup != nil {
-		s.TempDirCleanup()
+		if os.Getenv("KEEP_TEMP_DIRS") == "" {
+			s.TempDirCleanup()
+		}
 	}
 }
 
@@ -300,6 +399,11 @@ func (s *ShardSetup) DumpServiceLogs() {
 
 	// Collect all instances
 	var instances []*ProcessInstance
+
+	// Add multigateway if present
+	if s.Multigateway != nil {
+		instances = append(instances, s.Multigateway)
+	}
 
 	for _, inst := range s.Multipoolers {
 		if inst.Pgctld != nil {
@@ -332,6 +436,27 @@ func (s *ShardSetup) DumpServiceLogs() {
 		println(string(content))
 	}
 
+	// Dump PostgreSQL logs for each multipooler instance
+	for name, inst := range s.Multipoolers {
+		if inst.Pgctld == nil || inst.Pgctld.DataDir == "" {
+			continue
+		}
+
+		// PostgreSQL log file is in the data directory under pg_data/postgresql.log
+		pgLogPath := filepath.Join(inst.Pgctld.DataDir, "pg_data", "postgresql.log")
+		println("\n--- " + name + " PostgreSQL (" + pgLogPath + ") ---")
+		content, err := os.ReadFile(pgLogPath)
+		if err != nil {
+			println("  [error reading log: " + err.Error() + "]")
+			continue
+		}
+		if len(content) == 0 {
+			println("  [empty log file]")
+			continue
+		}
+		println(string(content))
+	}
+
 	println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
 }
 
@@ -347,6 +472,11 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 
 	var dead []string
 
+	// Check multigateway
+	if s.Multigateway != nil && !s.Multigateway.IsRunning() {
+		dead = append(dead, "multigateway")
+	}
+
 	// Check multipooler instances
 	for name, inst := range s.Multipoolers {
 		if inst.Pgctld != nil && !inst.Pgctld.IsRunning() {
@@ -354,6 +484,9 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 		}
 		if inst.Multipooler != nil && !inst.Multipooler.IsRunning() {
 			dead = append(dead, name+"-multipooler")
+		}
+		if inst.PgBackRest != nil && !inst.PgBackRest.IsRunning() {
+			dead = append(dead, name+"-pgbackrest")
 		}
 	}
 

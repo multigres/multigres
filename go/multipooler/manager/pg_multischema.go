@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -55,6 +56,10 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 	}
 
 	if err := pm.createDurabilityPolicyTable(ctx); err != nil {
+		return err
+	}
+
+	if err := pm.createLeadershipHistoryTable(ctx); err != nil {
 		return err
 	}
 
@@ -168,6 +173,34 @@ func (pm *MultiPoolerManager) createDurabilityPolicyTable(ctx context.Context) e
 		ON multigres.durability_policy(is_active)
 		WHERE is_active = true`); err != nil {
 		return mterrors.Wrap(err, "failed to create durability_policy index")
+	}
+
+	return nil
+}
+
+// createLeadershipHistoryTable creates the leadership_history table and its indexes
+func (pm *MultiPoolerManager) createLeadershipHistoryTable(ctx context.Context) error {
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.leadership_history (
+		id BIGSERIAL PRIMARY KEY,
+		term_number BIGINT NOT NULL,
+		leader_id TEXT NOT NULL,
+		coordinator_id TEXT NOT NULL,
+		wal_position TEXT NOT NULL,
+		reason TEXT NOT NULL,
+		cohort_members JSONB NOT NULL,
+		accepted_members JSONB NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`); err != nil {
+		return mterrors.Wrap(err, "failed to create leadership_history table")
+	}
+
+	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_leadership_history_term
+		ON multigres.leadership_history(term_number DESC)`); err != nil {
+		return mterrors.Wrap(err, "failed to create leadership_history index")
 	}
 
 	return nil
@@ -290,5 +323,41 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully inserted durability policy", "policy_name", policyName)
+	return nil
+}
+
+// insertLeadershipHistory inserts a leadership history record into the leadership_history table.
+// This operation uses the remote-operation-timeout and will fail if it cannot complete within
+// that time. A timeout typically indicates that synchronous replication is not functioning
+// (no standbys are connected to acknowledge the write).
+func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termNumber int64, leaderID, coordinatorID, walPosition, reason string, cohortMembers, acceptedMembers []string) error {
+	pm.logger.InfoContext(ctx, "Inserting leadership history",
+		"term", termNumber,
+		"leader", leaderID,
+		"coordinator", coordinatorID,
+		"reason", reason)
+
+	cohortJSON, err := json.Marshal(cohortMembers)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to marshal cohort_members")
+	}
+
+	acceptedJSON, err := json.Marshal(acceptedMembers)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to marshal accepted_members")
+	}
+
+	timeout := pm.topoClient.GetRemoteOperationTimeout()
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
+		(term_number, leader_id, coordinator_id, wal_position, reason, cohort_members, accepted_members)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)`,
+		termNumber, leaderID, coordinatorID, walPosition, reason, cohortJSON, acceptedJSON)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to insert leadership history")
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully inserted leadership history", "term", termNumber)
 	return nil
 }

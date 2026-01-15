@@ -1,0 +1,78 @@
+# For a single-cell cluster, we need only one multiadmin.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multiadmin
+  labels:
+    app: multiadmin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: multiadmin
+  template:
+    metadata:
+      labels:
+        app: multiadmin
+    spec:
+      containers:
+        - name: multiadmin
+          image: docker.io/multigres/multigres:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/multigres/bin/multiadmin"]
+          args:
+            - --http-port=18000
+            - --grpc-port=18070
+            - --topo-global-server-addresses=etcd:2379
+            - --topo-global-root=/multigres/test/global
+            - --service-map=grpc-multiadmin
+            - --pprof-http=true
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "multiadmin"
+          envFrom:
+            - configMapRef:
+                name: otel-config
+          ports:
+            - containerPort: 18000
+              name: http
+              protocol: TCP
+            - containerPort: 18070
+              name: grpc
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 18000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 18000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: sampling-config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: sampling-config
+          configMap:
+            name: sampling-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: multiadmin
+spec:
+  selector:
+    app: multiadmin
+  ports:
+    - port: 18000
+      targetPort: 18000
+      name: http
+    - port: 18070
+      targetPort: 18070
+      name: grpc
+  type: ClusterIP

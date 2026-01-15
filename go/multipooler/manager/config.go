@@ -34,7 +34,11 @@ type Config struct {
 	ServiceID           *clustermetadatapb.ID
 	HeartbeatIntervalMs int
 	PgctldAddr          string                  // Address of pgctld gRPC service
-	PgBackRestStanza    string                  // pgBackRest stanza name (defaults to service ID if empty)
 	ConsensusEnabled    bool                    // Whether consensus gRPC service is enabled
 	ConnPoolConfig      *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
+	// pgBackRest TLS certificate paths (used for both server and client authentication)
+	PgBackRestCertFile string
+	PgBackRestKeyFile  string
+	PgBackRestCAFile   string
+	PgBackRestPort     int // pgBackRest TLS server port
 }

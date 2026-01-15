@@ -23,10 +23,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 // newTestUserPool creates a UserPool configured for testing with the given fake server.
@@ -94,8 +94,8 @@ func TestUserPool_GetRegularConnWithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &query.QueryResult{})
-	server.AddQueryPattern(`RESET .+`, &query.QueryResult{})
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	pool := newTestUserPool(t, server)
 	defer pool.Close()
@@ -150,7 +150,7 @@ func TestUserPool_NewReservedConn_WithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &query.QueryResult{})
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
 
 	pool := newTestUserPool(t, server)
 	defer pool.Close()

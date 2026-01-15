@@ -24,8 +24,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pgprotocol/scram"
 )
 
 // mockPoolerClient is a mock implementation of PoolerClient for testing.

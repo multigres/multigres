@@ -1,0 +1,133 @@
+# Observability stack for kind_demo using grafana/otel-lgtm all-in-one
+# Note: grafana-datasources ConfigMap is created from file in launch-infra.sh
+---
+# ConfigMap: Grafana dashboard provisioning
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-config
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: "Multigres"
+        orgId: 1
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /otel-lgtm/multigres-dashboard.json
+          foldersFromFilesStructure: false
+---
+# ConfigMap: OTEL environment variables for multigres services
+# Using unified OTLP endpoint - all signals go to the same place
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-config
+data:
+  OTEL_METRIC_EXPORT_INTERVAL: "5000"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://observability:4318"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_LOGS_EXPORTER: "otlp"
+  OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: "base2_exponential_bucket_histogram"
+  # Custom file-based sampling configuration
+  OTEL_TRACES_SAMPLER: "multigres_custom"
+  OTEL_TRACES_SAMPLER_CONFIG: "/etc/otel/sampling-config.yaml"
+---
+# Deployment: Observability stack (single otel-lgtm container)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observability
+  labels:
+    app: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observability
+  template:
+    metadata:
+      labels:
+        app: observability
+    spec:
+      containers:
+        - name: otel-lgtm
+          image: grafana/otel-lgtm:0.13.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: grafana
+            - containerPort: 4318
+              name: otlp-http
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 9090
+              name: prometheus
+            - containerPort: 3100
+              name: loki
+            - containerPort: 3200
+              name: tempo
+          env:
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Admin"
+            - name: GF_AUTH_DISABLE_LOGIN_FORM
+              value: "true"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "admin"
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: "traceqlEditor,traceQLStreaming,correlations"
+          volumeMounts:
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-config
+              mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards
+            - name: grafana-dashboard-multigres
+              mountPath: /otel-lgtm/multigres-dashboard.json
+              subPath: multigres.json
+              readOnly: true
+      volumes:
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+        - name: grafana-dashboards-config
+          configMap:
+            name: grafana-dashboards-config
+        - name: grafana-dashboard-multigres
+          configMap:
+            name: grafana-dashboard-multigres
+---
+# Service: Observability endpoints
+apiVersion: v1
+kind: Service
+metadata:
+  name: observability
+spec:
+  selector:
+    app: observability
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: grafana
+    - port: 4318
+      targetPort: 4318
+      name: otlp-http
+    - port: 4317
+      targetPort: 4317
+      name: otlp-grpc
+    - port: 9090
+      targetPort: 9090
+      name: prometheus
+    - port: 3100
+      targetPort: 3100
+      name: loki
+    - port: 3200
+      targetPort: 3200
+      name: tempo
+  type: ClusterIP

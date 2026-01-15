@@ -17,6 +17,7 @@ package manager
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,6 +37,11 @@ import (
 func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
 	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 
+	// Wait for topology to be loaded (needed for backup location)
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	// Acquire action lock
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
@@ -43,6 +49,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Pause monitoring during initialization to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer resumeMonitor(ctx)
 
 	// Validate consensus term must be 1 for new primary
 	if req.ConsensusTerm != 1 {
@@ -138,6 +151,27 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		pm.logger.InfoContext(ctx, "Created durability policy", "policy_name", req.DurabilityPolicyName)
 	}
 
+	// Get final LSN position for leadership history
+	finalLSN, err := pm.getPrimaryLSN(ctx)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
+		return nil, err
+	}
+
+	// Write leadership history record for bootstrap
+	leaderID := generateApplicationName(pm.serviceID)
+	coordinatorID := req.CoordinatorId
+	reason := "ShardNeedsBootstrap"
+	cohortMembers := []string{leaderID} // Only the initial primary during bootstrap
+	acceptedMembers := []string{leaderID}
+
+	if err := pm.insertLeadershipHistory(ctx, req.ConsensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
+		// Log but don't fail - history is for audit, not correctness
+		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
+			"term", req.ConsensusTerm,
+			"error", err)
+	}
+
 	// Mark as initialized after successful primary initialization.
 	// This sets the cached boolean and writes the marker file.
 	if err := pm.setInitialized(); err != nil {
@@ -148,122 +182,6 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
 		Success:  true,
 		BackupId: backupID,
-	}, nil
-}
-
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	// Validate primary is provided
-	if req.Primary == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary is required")
-	}
-
-	// Extract primary connection info
-	primaryHost := req.Primary.Hostname
-	primaryPort, ok := req.Primary.PortMap["postgres"]
-	if !ok {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary MultiPooler has no postgres port configured")
-	}
-
-	// Store primary pooler ID so we can track which primary we're replicating from
-	pm.mu.Lock()
-	pm.primaryPoolerID = req.Primary.Id
-	pm.mu.Unlock()
-
-	pm.logger.InfoContext(ctx, "InitializeAsStandby called",
-		"shard", pm.getShardID(),
-		"primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort),
-		"term", req.ConsensusTerm,
-		"force", req.Force)
-
-	// Acquire action lock
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "InitializeAsStandby")
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to acquire action lock")
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// 1. Check for existing data directory
-	if pm.hasDataDirectory() {
-		if !req.Force {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "data directory already exists, use force=true to reinitialize")
-		}
-		// Remove data directory if force
-		pm.logger.InfoContext(ctx, "Force reinit: removing data directory", "shard", pm.getShardID())
-		if err := pm.removeDataDirectory(); err != nil {
-			return nil, mterrors.Wrap(err, "failed to remove data directory")
-		}
-	}
-
-	// 2. Restore from the specified backup (or latest if not specified)
-	if req.BackupId != "" {
-		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
-	} else {
-		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
-	}
-
-	// Restore from backup (empty string means latest)
-	// restoreFromBackupLocked will check that this is a standby and start PostgreSQL in standby mode
-	err = pm.restoreFromBackupLocked(ctx, req.BackupId)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to restore from backup")
-	}
-
-	if req.BackupId != "" {
-		pm.logger.InfoContext(ctx, "Successfully restored from specified backup", "backup_id", req.BackupId)
-	} else {
-		pm.logger.InfoContext(ctx, "Successfully restored from latest backup")
-	}
-
-	// Note: RestoreFromBackup already restarted PostgreSQL as standby, so we skip
-	// the explicit restart here. The standby.signal is already in place.
-
-	// Extract final LSN from backup metadata
-	backups, err := pm.getBackupsLocked(ctx, 1) // Get latest backup
-	if err != nil {
-		pm.logger.WarnContext(ctx, "Failed to get backup metadata for LSN", "error", err)
-		// Non-fatal: we can continue without LSN
-	}
-
-	finalLSN := ""
-	if len(backups) > 0 && backups[0].FinalLsn != "" {
-		finalLSN = backups[0].FinalLsn
-		pm.logger.InfoContext(ctx, "Backup LSN captured", "backup_id", backups[0].BackupId, "final_lsn", finalLSN)
-	} else {
-		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
-	}
-
-	// 3. Wait for database connection
-	if err := pm.waitForDatabaseConnection(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to connect to database")
-	}
-
-	// 4. Configure primary_conninfo now that PostgreSQL is running
-	// Use the locked version since we're already holding the action lock
-	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", primaryHost, "primary_port", primaryPort)
-	if err := pm.setPrimaryConnInfoLocked(ctx, primaryHost, primaryPort, false, true); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
-	}
-
-	// 5. Set consensus term
-	if pm.consensusState != nil {
-		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
-			return nil, mterrors.Wrap(err, "failed to set consensus term")
-		}
-	}
-
-	// Mark as initialized after successful standby initialization.
-	// This sets the cached boolean and writes the marker file.
-	if err := pm.setInitialized(); err != nil {
-		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby", "shard", pm.getShardID(), "term", req.ConsensusTerm)
-	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-		Success:  true,
-		FinalLsn: finalLSN,
 	}, nil
 }
 
@@ -416,7 +334,7 @@ func (pm *MultiPoolerManager) getShardID() string {
 // removeDataDirectory removes the PostgreSQL data directory
 func (pm *MultiPoolerManager) removeDataDirectory() error {
 	if pm.config == nil || pm.config.PoolerDir == "" {
-		return fmt.Errorf("pooler directory path not configured")
+		return errors.New("pooler directory path not configured")
 	}
 
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
@@ -498,15 +416,9 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 // configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
 // This must be called after InitDataDir but BEFORE starting PostgreSQL
 func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
-
-	// Validate required configuration
-	if configPath == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config path not configured")
-	}
-	if stanzaName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup stanza name not configured")
+	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
 	// Check if pgbackrest config file exists before configuring archive mode
@@ -515,8 +427,7 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 			fmt.Sprintf("pgbackrest config file not found at %s - cannot configure archive mode", configPath))
 	}
 
-	pgDataDir := filepath.Join(pm.config.PoolerDir, "pg_data")
-	autoConfPath := filepath.Join(pgDataDir, "postgresql.auto.conf")
+	autoConfPath := filepath.Join(pm.config.PoolerDir, "pg_data", "postgresql.auto.conf")
 
 	// Check if archive_mode is already configured to avoid duplicates
 	if _, err := os.Stat(autoConfPath); err == nil {
@@ -532,8 +443,8 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 	archiveConfig := fmt.Sprintf(`
 # Archive mode for pgbackrest backups
 archive_mode = on
-archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-push %%p'
-`, stanzaName, configPath, pm.backupLocation)
+archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
+`, pm.stanzaName(), configPath)
 
 	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -545,28 +456,16 @@ archive_command = 'pgbackrest --stanza=%s --config=%s --repo1-path=%s archive-pu
 		return mterrors.Wrap(err, "failed to write archive config")
 	}
 
-	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "repo_path", pm.backupLocation)
+	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", pm.stanzaName(), "repo_path", pm.backupLocation)
 	return nil
 }
 
 // initializePgBackRestStanza initializes the pgbackrest stanza
 // This must be called after PostgreSQL is initialized and running
 func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
-
-	// Validate required configuration
-	if configPath == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config path not configured")
-	}
-	if stanzaName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup stanza name not configured")
-	}
-
-	// Check if config file exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("pgbackrest config file not found at %s", configPath))
+	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
 	// Execute pgbackrest stanza-create command
@@ -574,17 +473,16 @@ func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) er
 	defer cancel()
 
 	cmd := exec.CommandContext(stanzaCtx, "pgbackrest",
-		"--stanza="+stanzaName,
+		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
-		"--repo1-path="+pm.backupLocation,
 		"stanza-create")
 
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", stanzaName, err, output))
+			fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", pm.stanzaName(), err, output))
 	}
 
-	pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", stanzaName, "config", configPath)
+	pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", pm.stanzaName(), "config", configPath)
 	return nil
 }

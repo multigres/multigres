@@ -16,13 +16,14 @@ package manager
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
@@ -56,9 +57,14 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mockQueryService := mock.NewQueryService()
 
+	// Create a memorytopo store for tests that need topoClient (e.g., GetRemoteOperationTimeout)
+	ctx := context.Background()
+	topoStore := memorytopo.NewServer(ctx, "test-cell")
+
 	pm := &MultiPoolerManager{
-		logger: logger,
-		qsc:    &mockPoolerController{queryService: mockQueryService},
+		logger:     logger,
+		qsc:        &mockPoolerController{queryService: mockQueryService},
+		topoClient: topoStore,
 		config: &Config{
 			TableGroup: tableGroup,
 			Shard:      shard,
@@ -84,6 +90,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_leadership_history_term", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.tablegroup", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.tablegroup_table", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.shard", mock.MakeQueryResult(nil, nil))
@@ -94,7 +102,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			name:       "schema creation fails",
 			tableGroup: constants.DefaultTableGroup,
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("CREATE SCHEMA IF NOT EXISTS multigres", fmt.Errorf("permission denied"))
+				m.AddQueryPatternOnceWithError("CREATE SCHEMA IF NOT EXISTS multigres", errors.New("permission denied"))
 			},
 			expectError:   true,
 			errorContains: "failed to create multigres schema",
@@ -104,7 +112,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			tableGroup: constants.DefaultTableGroup,
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.heartbeat", fmt.Errorf("table creation failed"))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.heartbeat", errors.New("table creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create heartbeat table",
@@ -115,7 +123,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.durability_policy", fmt.Errorf("table creation failed"))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.durability_policy", errors.New("table creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create durability_policy table",
@@ -127,10 +135,37 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", fmt.Errorf("index creation failed"))
+				m.AddQueryPatternOnceWithError("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", errors.New("index creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create durability_policy index",
+		},
+		{
+			name:       "leadership_history table creation fails",
+			tableGroup: constants.DefaultTableGroup,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.leadership_history", errors.New("table creation failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to create leadership_history table",
+		},
+		{
+			name:       "leadership_history index creation fails",
+			tableGroup: constants.DefaultTableGroup,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA IF NOT EXISTS multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE INDEX IF NOT EXISTS idx_leadership_history_term", errors.New("index creation failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to create leadership_history index",
 		},
 		{
 			name:       "tablegroup table creation fails",
@@ -140,7 +175,9 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.tablegroup", fmt.Errorf("table creation failed"))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_leadership_history_term", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.tablegroup", errors.New("table creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create tablegroup table",
@@ -202,7 +239,7 @@ func TestInsertDurabilityPolicy(t *testing.T) {
 			policyName: "test-policy",
 			quorumRule: []byte(`{"required_count": 1}`),
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("INSERT INTO multigres.durability_policy", fmt.Errorf("connection refused"))
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.durability_policy", errors.New("connection refused"))
 			},
 			expectError:   true,
 			errorContains: "failed to insert durability policy",
@@ -281,7 +318,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 			tableGroup: constants.DefaultTableGroup,
 			shard:      constants.DefaultShard,
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("INSERT INTO multigres.tablegroup", fmt.Errorf("insert failed"))
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.tablegroup", errors.New("insert failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to insert tablegroup",
@@ -293,7 +330,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("INSERT INTO multigres.tablegroup", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT oid FROM multigres.tablegroup", mock.MakeQueryResult([]string{"oid"}, [][]any{{int64(1)}}))
-				m.AddQueryPatternOnceWithError("INSERT INTO multigres.shard", fmt.Errorf("insert failed"))
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.shard", errors.New("insert failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to insert shard",
@@ -320,6 +357,88 @@ func TestInitializeMultischemaData(t *testing.T) {
 
 			ctx := context.Background()
 			err := pm.initializeMultischemaData(ctx)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestInsertLeadershipHistory(t *testing.T) {
+	tests := []struct {
+		name            string
+		termNumber      int64
+		leaderID        string
+		coordinatorID   string
+		walPosition     string
+		reason          string
+		cohortMembers   []string
+		acceptedMembers []string
+		setupMock       func(m *mock.QueryService)
+		expectError     bool
+		errorContains   string
+	}{
+		{
+			name:            "successful insert",
+			termNumber:      1,
+			leaderID:        "leader-1",
+			coordinatorID:   "coordinator-1",
+			walPosition:     "0/1234567",
+			reason:          "promotion",
+			cohortMembers:   []string{"member-1", "member-2", "member-3"},
+			acceptedMembers: []string{"member-1", "member-2"},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
+		},
+		{
+			name:            "insert fails with database error",
+			termNumber:      2,
+			leaderID:        "leader-2",
+			coordinatorID:   "coordinator-2",
+			walPosition:     "0/2345678",
+			reason:          "failover",
+			cohortMembers:   []string{"member-1", "member-2"},
+			acceptedMembers: []string{"member-1"},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", errors.New("connection refused"))
+			},
+			expectError:   true,
+			errorContains: "failed to insert leadership history",
+		},
+		{
+			name:            "insert with empty cohort and accepted members arrays",
+			termNumber:      3,
+			leaderID:        "leader-3",
+			coordinatorID:   "coordinator-3",
+			walPosition:     "0/3456789",
+			reason:          "bootstrap",
+			cohortMembers:   []string{},
+			acceptedMembers: []string{},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+			tt.setupMock(mockQueryService)
+
+			ctx := context.Background()
+			err := pm.insertLeadershipHistory(ctx, tt.termNumber, tt.leaderID, tt.coordinatorID,
+				tt.walPosition, tt.reason, tt.cohortMembers, tt.acceptedMembers)
 
 			if tt.expectError {
 				assert.Error(t, err)

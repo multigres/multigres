@@ -39,6 +39,13 @@ type connStack[C Connection] struct {
 	mu    sync.Mutex
 	top   *Pooled[C]
 	count int
+
+	// onPush is called after each successful Push operation.
+	// Used for metrics tracking (e.g., OTel idle count +1).
+	onPush func()
+	// onPop is called after each successful Pop operation.
+	// Used for metrics tracking (e.g., OTel idle count -1).
+	onPop func()
 }
 
 // Push adds a connection to the top of the stack.
@@ -48,6 +55,9 @@ func (s *connStack[C]) Push(conn *Pooled[C]) {
 	s.top = conn
 	s.count++
 	s.mu.Unlock()
+	if s.onPush != nil {
+		s.onPush()
+	}
 }
 
 // Pop removes and returns the connection from the top of the stack.
@@ -63,6 +73,9 @@ func (s *connStack[C]) Pop() (*Pooled[C], bool) {
 	s.count--
 	s.mu.Unlock()
 	conn.next = nil
+	if s.onPop != nil {
+		s.onPop()
+	}
 	return conn, true
 }
 

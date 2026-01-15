@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -133,37 +132,10 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 	// Note: initdb will create the data directory itself if it doesn't exist.
 	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
 
-	// Run initdb
-	//
-	// It's generally a good idea to enable page data checksums. Furthermore,
-	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
-	// However, pgBackRest merely logs checksum validation errors but does not fail
-	// the backup.
-	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
-
-	// Capture both stdout and stderr to include in error messages
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
-	}
-	logger.Info("initdb completed", "output", string(output))
-
 	// Get the effective password and validate it
 	effectivePassword, err := resolvePassword(poolerDir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve password: %w", err)
-	}
-
-	// Skip password setup if password is empty and warn user
-	if effectivePassword == "" {
-		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
-		logger.Info("PostgreSQL data directory initialized successfully")
-		return nil
-	}
-
-	// Set up user password for authentication
-	if err := setPostgresPassword(poolerDir, pgUser); err != nil {
-		return fmt.Errorf("failed to set user password: %w", err)
 	}
 
 	// Determine password source for logging
@@ -175,31 +147,50 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 		passwordSource = "PGPASSWORD environment variable"
 	}
 
-	logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
+	// Build initdb command
+	// It's generally a good idea to enable page data checksums. Furthermore,
+	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
+	// However, pgBackRest merely logs checksum validation errors but does not fail
+	// the backup.
+	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", pgUser}
 
-	return nil
-}
+	// If password is provided, create a temporary password file for initdb
+	var tempPwFile string
+	if effectivePassword != "" {
+		// Create temporary password file
+		tmpFile, err := os.CreateTemp("", "pgpassword-*.txt")
+		if err != nil {
+			return fmt.Errorf("failed to create temporary password file: %w", err)
+		}
+		tempPwFile = tmpFile.Name()
+		defer os.Remove(tempPwFile)
 
-func setPostgresPassword(poolerDir string, pgUser string) error {
-	// Derive dataDir from poolerDir using the standard convention
-	dataDir := pgctld.PostgresDataDir(poolerDir)
+		if _, err := tmpFile.WriteString(effectivePassword); err != nil {
+			tmpFile.Close()
+			return fmt.Errorf("failed to write password to temporary file: %w", err)
+		}
+		if err := tmpFile.Close(); err != nil {
+			return fmt.Errorf("failed to close temporary password file: %w", err)
+		}
 
-	// Get the effective password
-	effectivePassword, err := resolvePassword(poolerDir)
-	if err != nil {
-		return fmt.Errorf("failed to resolve password: %w", err)
+		// Add pwfile argument to initdb
+		args = append(args, "--pwfile="+tempPwFile)
+		logger.Info("Setting password during initdb", "user", pgUser, "password_source", passwordSource)
+	} else {
+		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
 	}
-	// Start PostgreSQL temporarily in single-user mode to set password
-	// Use the configured user in single-user mode with trust auth to set the password
-	// Set password_encryption to scram-sha-256 to ensure SCRAM encoding
-	cmd := exec.Command("postgres", "--single", "-D", dataDir, pgUser)
-	sqlCommands := fmt.Sprintf("SET password_encryption = 'scram-sha-256';\nALTER USER %s WITH PASSWORD '%s';\n", pgUser, effectivePassword)
-	cmd.Stdin = strings.NewReader(sqlCommands)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to set %s password: %w", pgUser, err)
+	cmd := exec.Command("initdb", args...)
+
+	// Capture both stdout and stderr to include in error messages
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
+	}
+	logger.Info("initdb completed successfully", "output", string(output))
+
+	if effectivePassword != "" {
+		logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
 	}
 
 	return nil

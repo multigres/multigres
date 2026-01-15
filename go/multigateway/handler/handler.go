@@ -16,24 +16,26 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/parser"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // Executor defines the interface for query execution.
 type Executor interface {
 	// StreamExecute is used to run the provided query in streaming mode.
-	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *query.QueryResult) error) error
+	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) error
 
 	// PortalStreamExecute is used to execute a Portal that was previously created.
-	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error
+	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
@@ -57,9 +59,14 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger) *MultiGatewa
 	}
 }
 
+// Consolidator returns the prepared statement consolidator.
+func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
+	return h.psc
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
-func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 
 	asts, err := parser.ParseSQL(queryStr)
@@ -103,7 +110,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 
 	// Basic validation: query must not be empty.
 	if queryStr == "" {
-		return fmt.Errorf("query string cannot be empty")
+		return errors.New("query string cannot be empty")
 	}
 
 	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)
@@ -133,7 +140,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 
 // HandleExecute processes an Execute message ('E') for the extended query protocol.
 // Executes the specified portal's query with bound parameters and streams results via callback.
-func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *query.QueryResult) error) error {
+func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	h.logger.DebugContext(ctx, "execute", "portal", portalName, "max_rows", maxRows)
 
 	// Get the connection state.

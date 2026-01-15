@@ -18,13 +18,14 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multigateway/engine"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/planner"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 const (
@@ -67,7 +68,7 @@ func (e *Executor) StreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	queryStr string,
 	astStmt ast.Stmt,
-	callback func(ctx context.Context, res *query.QueryResult) error,
+	callback func(ctx context.Context, res *sqltypes.Result) error,
 ) error {
 	e.logger.DebugContext(ctx, "executing query",
 		"query", queryStr,
@@ -113,7 +114,7 @@ func (e *Executor) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
-	callback func(ctx context.Context, res *query.QueryResult) error,
+	callback func(ctx context.Context, res *sqltypes.Result) error,
 ) error {
 	e.logger.DebugContext(ctx, "executing portal",
 		"portal", portalInfo.Portal.Name,

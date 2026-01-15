@@ -30,9 +30,12 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -41,13 +44,13 @@ import (
 // PoolerDiscovery is the interface for discovering multipooler instances.
 // This abstracts the PoolerDiscovery implementation for easier testing.
 type PoolerDiscovery interface {
-	// GetPoolers returns all discovered poolers
-	GetPoolers() []*clustermetadatapb.MultiPooler
-
 	// GetPooler returns a pooler matching the target specification.
 	// Target specifies the tablegroup, shard, and pooler type to route to.
 	// Returns nil if no matching pooler is found.
 	GetPooler(target *query.Target) *clustermetadatapb.MultiPooler
+
+	// PoolerCount returns the total number of discovered poolers.
+	PoolerCount() int
 }
 
 // A Gateway is the query processing module for each shard,
@@ -124,7 +127,7 @@ func (pg *PoolerGateway) StreamExecute(
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)
@@ -164,7 +167,7 @@ func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *q
 // It routes the query to the appropriate multipooler instance based on the target.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
-func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*query.QueryResult, error) {
+func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)
 	if err != nil {
@@ -210,8 +213,9 @@ func (pg *PoolerGateway) getOrCreateConnection(
 		"addr", addr)
 
 	// Create gRPC connection (non-blocking in newer gRPC)
-	conn, err := grpc.NewClient(addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	conn, err := grpccommon.NewClient(addr,
+		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
+		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for pooler %s at %s: %w", poolerID, addr, err)
@@ -243,7 +247,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	preparedStatement *query.PreparedStatement,
 	portal *query.Portal,
 	options *query.ExecuteOptions,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
 	// Get a pooler matching the target
 	queryService, err := pg.getQueryServiceForTarget(ctx, target)
@@ -309,6 +313,6 @@ func (pg *PoolerGateway) Stats() map[string]any {
 
 	return map[string]any{
 		"active_connections": len(pg.connections),
-		"poolers_discovered": len(pg.discovery.GetPoolers()),
+		"poolers_discovered": pg.discovery.PoolerCount(),
 	}
 }

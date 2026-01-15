@@ -61,7 +61,6 @@ type FakeClient struct {
 
 	// Manager service responses - keyed by pooler ID
 	InitializeEmptyPrimaryResponses          map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
-	InitializeAsStandbyResponses             map[string]*multipoolermanagerdatapb.InitializeAsStandbyResponse
 	StateResponses                           map[string]*multipoolermanagerdatapb.StateResponse
 	WaitForLSNResponses                      map[string]*multipoolermanagerdatapb.WaitForLSNResponse
 	SetPrimaryConnInfoResponses              map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse
@@ -87,12 +86,18 @@ type FakeClient struct {
 	RestoreFromBackupResponses               map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse
 	GetBackupsResponses                      map[string]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses                map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse
+	RewindToSourceResponses                  map[string]*multipoolermanagerdatapb.RewindToSourceResponse
+	EnableMonitorResponses                   map[string]*multipoolermanagerdatapb.EnableMonitorResponse
+	DisableMonitorResponses                  map[string]*multipoolermanagerdatapb.DisableMonitorResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[string]error
 
 	// CallLog tracks which methods were called for verification in tests
 	CallLog []string
+
+	// Request tracking for verification in tests
+	PromoteRequests map[string]*multipoolermanagerdatapb.PromoteRequest
 }
 
 // NewFakeClient creates a new FakeClient with empty response maps.
@@ -103,7 +108,6 @@ func NewFakeClient() *FakeClient {
 		LeadershipViewResponses:                  make(map[string]*consensusdatapb.LeadershipViewResponse),
 		CanReachPrimaryResponses:                 make(map[string]*consensusdatapb.CanReachPrimaryResponse),
 		InitializeEmptyPrimaryResponses:          make(map[string]*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse),
-		InitializeAsStandbyResponses:             make(map[string]*multipoolermanagerdatapb.InitializeAsStandbyResponse),
 		StateResponses:                           make(map[string]*multipoolermanagerdatapb.StateResponse),
 		WaitForLSNResponses:                      make(map[string]*multipoolermanagerdatapb.WaitForLSNResponse),
 		SetPrimaryConnInfoResponses:              make(map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse),
@@ -129,8 +133,12 @@ func NewFakeClient() *FakeClient {
 		RestoreFromBackupResponses:               make(map[string]*multipoolermanagerdatapb.RestoreFromBackupResponse),
 		GetBackupsResponses:                      make(map[string]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:                make(map[string]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
+		RewindToSourceResponses:                  make(map[string]*multipoolermanagerdatapb.RewindToSourceResponse),
+		EnableMonitorResponses:                   make(map[string]*multipoolermanagerdatapb.EnableMonitorResponse),
+		DisableMonitorResponses:                  make(map[string]*multipoolermanagerdatapb.DisableMonitorResponse),
 		Errors:                                   make(map[string]error),
 		CallLog:                                  make([]string, 0),
+		PromoteRequests:                          make(map[string]*multipoolermanagerdatapb.PromoteRequest),
 	}
 }
 
@@ -193,6 +201,20 @@ func (f *FakeClient) SetStatusResponseWithDelay(poolerID string, resp *multipool
 		Response: resp,
 		Delay:    delay,
 	}
+}
+
+// SetEnableMonitorResponse sets an EnableMonitor response for a pooler.
+func (f *FakeClient) SetEnableMonitorResponse(poolerID string, resp *multipoolermanagerdatapb.EnableMonitorResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.EnableMonitorResponses[poolerID] = resp
+}
+
+// SetDisableMonitorResponse sets a DisableMonitor response for a pooler.
+func (f *FakeClient) SetDisableMonitorResponse(poolerID string, resp *multipoolermanagerdatapb.DisableMonitorResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.DisableMonitorResponses[poolerID] = resp
 }
 
 //
@@ -281,22 +303,6 @@ func (f *FakeClient) InitializeEmptyPrimary(ctx context.Context, pooler *cluster
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{}, nil
-}
-
-func (f *FakeClient) InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("InitializeAsStandby", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.InitializeAsStandbyResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{}, nil
 }
 
 //
@@ -556,6 +562,11 @@ func (f *FakeClient) Promote(ctx context.Context, pooler *clustermetadatapb.Mult
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("Promote", poolerID)
 
+	// Record the request for test verification
+	f.mu.Lock()
+	f.PromoteRequests[poolerID] = request
+	f.mu.Unlock()
+
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
 	}
@@ -598,6 +609,22 @@ func (f *FakeClient) UndoDemote(ctx context.Context, pooler *clustermetadatapb.M
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.UndoDemoteResponse{}, nil
+}
+
+func (f *FakeClient) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("DemoteStalePrimary", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	// Return success by default
+	return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
+		Success:         true,
+		RewindPerformed: false,
+		LsnPosition:     "0/0",
+	}, nil
 }
 
 //
@@ -738,6 +765,65 @@ func (f *FakeClient) GetBackupByJobId(ctx context.Context, pooler *clustermetada
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.GetBackupByJobIdResponse{}, nil
+}
+
+//
+// Manager Service Methods - Timeline Repair
+//
+
+// RewindToSource performs pg_rewind to synchronize a replica with its source.
+func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("RewindToSource", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.RewindToSourceResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.RewindToSourceResponse{}, nil
+}
+
+//
+// Manager Service Methods - PostgreSQL Monitoring Control
+//
+
+// EnableMonitor enables the PostgreSQL monitoring goroutine on a pooler.
+func (f *FakeClient) EnableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.EnableMonitorRequest) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("EnableMonitor", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.EnableMonitorResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.EnableMonitorResponse{}, nil
+}
+
+// DisableMonitor disables the PostgreSQL monitoring goroutine on a pooler.
+func (f *FakeClient) DisableMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, req *multipoolermanagerdatapb.DisableMonitorRequest) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("DisableMonitor", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.DisableMonitorResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.DisableMonitorResponse{}, nil
 }
 
 //

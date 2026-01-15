@@ -100,6 +100,9 @@ message StatusResponse {
 
   // Current role (primary/replica)
   string role = 9;
+
+  // Timeline information for divergence detection
+  TimelineInfo timeline_info = 10;
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table
@@ -134,4 +137,10 @@ message CanReachPrimaryResponse {
 
   // Error message if not reachable
   string error_message = 2;
+}
+
+// Timeline information from PostgreSQL
+message TimelineInfo {
+  // Current timeline ID (from pg_control_checkpoint())
+  int64 timeline_id = 1;
 }

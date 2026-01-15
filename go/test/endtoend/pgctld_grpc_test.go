@@ -16,7 +16,6 @@ package endtoend
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -308,7 +307,7 @@ func TestGRPCWithDifferentConfigurations(t *testing.T) {
 		stopModes := []string{"smart", "fast", "immediate"}
 
 		for _, mode := range stopModes {
-			t.Run(fmt.Sprintf("stop_mode_%s", mode), func(t *testing.T) {
+			t.Run("stop_mode_"+mode, func(t *testing.T) {
 				// Initialize and start
 				err := InitAndStartPostgreSQL(t, lis.Addr().String())
 				require.NoError(t, err)

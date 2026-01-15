@@ -22,6 +22,7 @@ package multiorch
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,13 +87,14 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
 	t.Log("Waiting for multiorch to detect and bootstrap the shard...")
-	primaryName := waitForShardPrimary(t, setup, 60*time.Second)
+	primaryName := waitForShardPrimary(t, setup, 30*time.Second)
 	require.NotEmpty(t, primaryName, "Expected multiorch to bootstrap shard automatically")
 	setup.PrimaryName = primaryName
 
-	// Wait for at least 1 standby to initialize
+	// Wait for both standbys to initialize and sync replication to be configured
+	// (waitForStandbysInitialized includes sync replication check)
 	t.Log("Waiting for standbys to complete initialization...")
-	waitForStandbysInitialized(t, setup, 1, 60*time.Second)
+	waitForStandbysInitialized(t, setup, 2, 30*time.Second)
 
 	// Get primary instance for verification tests
 	primary := setup.GetMultipoolerInstance(setup.PrimaryName)
@@ -195,20 +197,103 @@ func TestBootstrapInitialization(t *testing.T) {
 	})
 
 	t.Run("verify consensus term", func(t *testing.T) {
-		// All initialized nodes should have consensus term = 1
-		for name, inst := range setup.Multipoolers {
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			require.NoError(t, err)
+		// All nodes should eventually be initialized with consensus term = 1
+		require.Eventually(t, func() bool {
+			allInitialized := true
+			allHaveCorrectTerm := true
 
-			ctx := utils.WithTimeout(t, 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
+			for name, inst := range setup.Multipoolers {
+				client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+				if err != nil {
+					t.Logf("Node %s: failed to connect: %v", name, err)
+					allInitialized = false
+					continue
+				}
 
-			require.NoError(t, err)
-			if status.Status.IsInitialized {
-				assert.Equal(t, int64(1), status.Status.ConsensusTerm, "Node %s should have consensus term 1", name)
+				ctx := utils.WithTimeout(t, 5*time.Second)
+				status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+				client.Close()
+
+				if err != nil {
+					t.Logf("Node %s: failed to get status: %v", name, err)
+					allInitialized = false
+					continue
+				}
+
+				if !status.Status.IsInitialized {
+					t.Logf("Node %s: not yet initialized", name)
+					allInitialized = false
+					continue
+				}
+
+				if status.Status.ConsensusTerm != 1 {
+					t.Logf("Node %s: consensus term is %d, expected 1", name, status.Status.ConsensusTerm)
+					allHaveCorrectTerm = false
+				}
 			}
-		}
+
+			return allInitialized && allHaveCorrectTerm
+		}, 30*time.Second, 1*time.Second, "All nodes should be initialized with consensus term 1")
+	})
+
+	t.Run("verify leadership history", func(t *testing.T) {
+		primaryClient := setup.NewPrimaryClient(t)
+		defer primaryClient.Close()
+
+		ctx := t.Context()
+
+		// Query leadership_history table
+		resp, err := primaryClient.Pooler.ExecuteQuery(ctx, `
+			SELECT term_number, leader_id, coordinator_id, wal_position, reason,
+			       cohort_members, accepted_members
+			FROM multigres.leadership_history
+			ORDER BY term_number DESC
+			LIMIT 1
+		`, 7)
+		require.NoError(t, err, "should query leadership_history")
+		require.Len(t, resp.Rows, 1, "should have exactly one leadership history record")
+
+		row := resp.Rows[0]
+		termNumber := string(row.Values[0])
+		leaderID := string(row.Values[1])
+		coordinatorID := string(row.Values[2])
+		walPosition := string(row.Values[3])
+		reason := string(row.Values[4])
+		cohortMembersJSON := string(row.Values[5])
+		acceptedMembersJSON := string(row.Values[6])
+
+		// Verify term_number is 1
+		assert.Equal(t, "1", termNumber, "term_number should be 1 for initial bootstrap")
+
+		// Verify leader_id matches primary name (format: cell_name)
+		expectedLeaderID := fmt.Sprintf("%s_%s", setup.CellName, setup.PrimaryName)
+		assert.Equal(t, expectedLeaderID, leaderID, "leader_id should match primary")
+
+		// Verify coordinator_id matches the multiorch's cell_name format
+		// The coordinator ID uses ClusterIDString which returns cell_name format
+		expectedCoordinatorID := setup.CellName + "_test-multiorch"
+		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
+
+		// Verify WAL position is non-empty
+		assert.NotEmpty(t, walPosition, "wal_position should be non-empty")
+
+		// Verify reason is ShardNeedsBootstrap
+		assert.Equal(t, "ShardNeedsBootstrap", reason, "reason should be 'ShardNeedsBootstrap'")
+
+		// Parse and verify cohort_members is a valid JSON array
+		var cohortMembers []string
+		err = json.Unmarshal([]byte(cohortMembersJSON), &cohortMembers)
+		require.NoError(t, err, "cohort_members should be valid JSON array")
+		assert.Contains(t, cohortMembers, expectedLeaderID, "cohort_members should contain leader")
+
+		// Parse and verify accepted_members is a valid JSON array
+		var acceptedMembers []string
+		err = json.Unmarshal([]byte(acceptedMembersJSON), &acceptedMembers)
+		require.NoError(t, err, "accepted_members should be valid JSON array")
+		assert.Contains(t, acceptedMembers, expectedLeaderID, "accepted_members should contain leader")
+
+		t.Logf("Leadership history verified: term=%s, leader=%s, coordinator=%s, reason=%s",
+			termNumber, leaderID, coordinatorID, reason)
 	})
 
 	t.Run("verify sync replication configured", func(t *testing.T) {
@@ -285,7 +370,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return status.Status.IsInitialized && status.Status.PostgresRunning
+			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm > 0
 		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
 
 		// Verify final state

@@ -79,6 +79,7 @@ func AddBackupCommand(clusterCmd *cobra.Command) {
 	cmd.Flags().String("type", bcmd.backupType.Default(), "Backup type: full, differential, or incremental")
 	cmd.Flags().Bool("primary", bcmd.primary.Default(), "Force backup on primary instead of replica (use with caution)")
 	cmd.Flags().Duration("timeout", bcmd.timeout.Default(), "Timeout for initial backup call")
+	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config)")
 
 	viperutil.BindFlags(cmd.Flags(), bcmd.database, bcmd.backupType, bcmd.primary, bcmd.timeout)
 
@@ -106,8 +107,7 @@ func (bcmd *backupCmd) runBackup(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create context with timeout for the initial Backup call
-	//nolint:gocritic // CLI entry point - no parent context available
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
 
 	backupResp, err := client.Backup(ctx, &multiadminpb.BackupRequest{
@@ -140,8 +140,7 @@ func pollBackupJobStatus(cmd *cobra.Command, client multiadminpb.MultiAdminServi
 			return fmt.Errorf("backup job %s timed out after %v", jobID, backupPollTimeout)
 		case <-ticker.C:
 			// Create a fresh timeout context for each GetBackupJobStatus call
-			//nolint:gocritic // CLI entry point - no parent context available
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
 			resp, err := client.GetBackupJobStatus(ctx, &multiadminpb.GetBackupJobStatusRequest{
 				JobId: jobID,
 			})

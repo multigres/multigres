@@ -18,11 +18,13 @@
 package multigateway
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/web"
 )
 
@@ -31,6 +33,13 @@ type PoolerStatus struct {
 	Name     string `json:"name"`
 	Database string `json:"database"`
 	Type     string `json:"type"`
+}
+
+// CellStatus represents the status of pooler discovery for a single cell.
+type CellStatus struct {
+	Cell        string         `json:"cell"`
+	LastRefresh time.Time      `json:"last_refresh"`
+	Poolers     []PoolerStatus `json:"poolers"`
 }
 
 // Link represents a link on the status page.
@@ -49,11 +58,9 @@ type Status struct {
 	InitError  string            `json:"init_error"`
 	TopoStatus map[string]string `json:"topo_status"`
 
-	Cell        string         `json:"cell"`
-	ServiceID   string         `json:"service_id"`
-	PoolerCount int            `json:"pooler_count"`
-	LastRefresh time.Time      `json:"last_refresh"`
-	Poolers     []PoolerStatus `json:"poolers"`
+	LocalCell string       `json:"local_cell"`
+	ServiceID string       `json:"service_id"`
+	Cells     []CellStatus `json:"cells"`
 
 	Links []Link `json:"links"`
 }
@@ -61,25 +68,29 @@ type Status struct {
 // handleIndex serves the index page
 func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ts := mg.ts.Status()
-	pc := mg.poolerDiscovery.PoolerCount()
-	lr := mg.poolerDiscovery.LastRefresh()
-	poolers := mg.poolerDiscovery.GetPoolers()
+	cellStatuses := mg.poolerDiscovery.GetCellStatusesForAdmin()
 
 	mg.serverStatus.mu.Lock()
 	defer mg.serverStatus.mu.Unlock()
 
-	mg.serverStatus.Cell = mg.cell.Get()
+	mg.serverStatus.LocalCell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 	mg.serverStatus.TopoStatus = ts
-	mg.serverStatus.PoolerCount = pc
-	mg.serverStatus.LastRefresh = lr
-	mg.serverStatus.Poolers = make([]PoolerStatus, 0, len(poolers))
-	for _, pooler := range poolers {
-		mg.serverStatus.Poolers = append(mg.serverStatus.Poolers, PoolerStatus{
-			Name:     pooler.Id.GetName(),
-			Database: pooler.GetDatabase(),
-			Type:     pooler.GetType().String(),
-		})
+	mg.serverStatus.Cells = make([]CellStatus, 0, len(cellStatuses))
+	for _, cs := range cellStatuses {
+		cellStatus := CellStatus{
+			Cell:        cs.Cell,
+			LastRefresh: cs.LastRefresh,
+			Poolers:     make([]PoolerStatus, 0, len(cs.Poolers)),
+		}
+		for _, pooler := range cs.Poolers {
+			cellStatus.Poolers = append(cellStatus.Poolers, PoolerStatus{
+				Name:     pooler.Id.GetName(),
+				Database: pooler.GetDatabase(),
+				Type:     pooler.GetType().String(),
+			})
+		}
+		mg.serverStatus.Cells = append(mg.serverStatus.Cells, cellStatus)
 	}
 
 	err := web.Templates.ExecuteTemplate(w, "gateway_index.html", &mg.serverStatus)
@@ -99,6 +110,35 @@ func (mg *MultiGateway) handleReady(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// ConsolidatorDebugStatus contains data for the consolidator debug page.
+type ConsolidatorDebugStatus struct {
+	Title string
+	Stats preparedstatement.ConsolidatorStats
+}
+
+// handleConsolidatorDebug serves the prepared statement consolidator debug page.
+func (mg *MultiGateway) handleConsolidatorDebug(w http.ResponseWriter, r *http.Request) {
+	stats := mg.pgHandler.Consolidator().Stats()
+
+	// Check if JSON format is requested
+	if r.URL.Query().Get("format") == "json" {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(stats); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to encode JSON: %v", err), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	status := ConsolidatorDebugStatus{
+		Title: "Prepared Statement Consolidator",
+		Stats: stats,
+	}
+	if err := web.Templates.ExecuteTemplate(w, "consolidator_debug.html", &status); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
 		return
 	}

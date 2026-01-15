@@ -107,6 +107,8 @@ message MultiPooler {
   // Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
   map<string, int32> port_map = 9;
 
+  // PoolerDir is used by pgBackRest to compute the primary's data directory.
+  string pooler_dir = 10;
 
 }
 
@@ -177,7 +179,7 @@ message KeyRange {
 
 // PoolerType represents the type of a given MultiPooler.
 enum PoolerType {
-  // UNKNOWN this is not a valid type.
+  // UNKNOWN is not a valid type.
   // It is useful during upgrades to detect when a value is not initialized
   UNKNOWN = 0;
 
@@ -186,6 +188,9 @@ enum PoolerType {
 
   // REPLICA replicates from leader. It is used to read only traffic
   REPLICA = 2;
+
+  // DRAINED is used for poolers that are temporarily removed from serving traffic
+  DRAINED = 3;
 }
 
 // PoolerServingStatus represents the serving status of the given MultiPooler.
@@ -211,7 +216,10 @@ enum PoolerServingStatus {
   // the tools processes may need to run queries), but it's not used
   // to route queries from Multigres users. In this state,
   // this multipooler is dedicated to the process that uses it.
-  DRAINED = 4;
+  // DRAINED = 4;
+  // (TODO): This enum value conflicts with DRAINED in PoolerType.
+  // We need to reconcile them once we have serving state transitions in Pooler.
+  reserved 4;
 
   // SERVING_RDONLY is the status of a server in read-only mode.
   // This is used during demotion when the server transitions from PRIMARY to REPLICA,
