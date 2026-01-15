@@ -14,12 +14,12 @@
 # limitations under the License.
 
 # Updates the Grafana dashboard ConfigMap and triggers a reload.
-# Run from the kind_demo directory.
+# Run from the demo/k8s directory.
 
 set -e
 
-if [[ $(basename "$PWD") != "kind_demo" ]]; then
-  echo "Error: This script must be run from the kind_demo directory"
+if [[ $(basename "$PWD") != "k8s" ]]; then
+  echo "Error: This script must be run from the demo/k8s directory"
   exit 1
 fi
 
