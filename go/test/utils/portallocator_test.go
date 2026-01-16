@@ -17,6 +17,7 @@ package utils
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -63,5 +64,112 @@ func TestGetFreePort_Concurrent(t *testing.T) {
 	for port := range results {
 		require.False(t, seen[port], "duplicate port from concurrent allocation: %d", port)
 		seen[port] = true
+	}
+}
+
+// TestGetFreePort_CoordinatorRestart verifies that calling cleanup (shutdown)
+// followed by GetFreePort works correctly: the old coordinator stops, and a new
+// coordinator starts with a fresh lease table.
+func TestGetFreePort_CoordinatorRestart(t *testing.T) {
+	sockPath := coordDir() + "/port-coordinator.sock"
+
+	// Start with clean slate - ensure no coordinator from previous tests
+	shutdownCoordinator()
+	require.Eventually(t, func() bool {
+		_, ok := tryRequestPort(t, sockPath)
+		return !ok
+	}, 2*time.Second, 100*time.Millisecond, "coordinator should be stopped initially")
+
+	// First allocation starts the coordinator
+	port1 := GetFreePort(t)
+	require.Greater(t, port1, 0)
+
+	// Shut down coordinator (simulating test cleanup)
+	shutdownCoordinator()
+
+	// Wait for old coordinator to fully stop
+	require.Eventually(t, func() bool {
+		_, ok := tryRequestPort(t, sockPath)
+		return !ok
+	}, 2*time.Second, 100*time.Millisecond, "old coordinator should stop after shutdown")
+
+	// Next allocation should restart the coordinator with fresh lease table
+	port2 := GetFreePort(t)
+	require.Greater(t, port2, 0)
+
+	// Verify new coordinator is running
+	port3, ok := tryRequestPort(t, sockPath)
+	require.True(t, ok, "new coordinator should be running after restart")
+	require.Greater(t, port3, 0)
+
+	// Verify all ports are unique
+	require.NotEqual(t, port1, port2, "ports should be unique")
+	require.NotEqual(t, port1, port3, "ports should be unique")
+	require.NotEqual(t, port2, port3, "ports should be unique")
+}
+
+// TestGetFreePort_ConcurrentShutdownAndAllocate is a stress test that verifies
+// the system handles concurrent port allocation and coordinator shutdown/restart
+// gracefully without errors or returning invalid ports.
+func TestGetFreePort_ConcurrentShutdownAndAllocate(t *testing.T) {
+	const testDuration = 2 * time.Second
+	const allocateInterval = 50 * time.Millisecond
+	const shutdownInterval = 300 * time.Millisecond
+
+	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
+
+	// Channel to collect all allocated ports
+	portsCh := make(chan int, 1000)
+
+	// Goroutine 1: Request ports every 50ms
+	wg.Go(func() {
+		ticker := time.NewTicker(allocateInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+				port := GetFreePort(t)
+				portsCh <- port
+			}
+		}
+	})
+
+	// Goroutine 2: Shutdown coordinator every 300ms
+	wg.Go(func() {
+		ticker := time.NewTicker(shutdownInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+				shutdownCoordinator()
+			}
+		}
+	})
+
+	// Let it run for the test duration
+	time.Sleep(testDuration)
+	close(stopCh)
+	wg.Wait()
+	close(portsCh)
+
+	// Collect and verify all ports
+	var ports []int
+	for port := range portsCh {
+		ports = append(ports, port)
+	}
+
+	// Assert we got some ports
+	require.NotEmpty(t, ports, "should have allocated at least some ports")
+
+	// Assert all ports are non-zero
+	for i, port := range ports {
+		require.Greater(t, port, 0, "port at index %d should be greater than 0", i)
 	}
 }
