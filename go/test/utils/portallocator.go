@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Copyright 2025 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +23,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,17 +31,36 @@ import (
 	"time"
 )
 
-// GetFreePort returns a port number allocated by the coordinator daemon.
-// The coordinator ensures no two concurrent tests receive the same port,
-// and ports remain reserved until the test completes (via t.Cleanup).
+// GetFreePort returns a port number allocated by a coordinator daemon that
+// prevents port collisions across concurrent tests.
 //
-// The coordinator uses SO_REUSEADDR and verification to ensure ports are
-// immediately available after allocation, avoiding TIME_WAIT race conditions.
+// # Architecture
 //
-// The first test to call GetFreePort becomes the coordinator leader and
-// starts the daemon. Subsequent tests connect to the existing coordinator.
-// When the test that started the coordinator finishes, it shuts down gracefully,
-// and the next test that needs a port will restart it automatically.
+// A single coordinator daemon runs per test process, managing port allocation
+// via a Unix socket and lease table. The coordinator:
+//   - Allocates ports by asking the OS for ephemeral ports (net.Listen with :0)
+//   - Tracks allocated ports in a lease table to prevent duplicates
+//   - Retries up to 10 times if the OS returns an already-leased port
+//   - Releases ports when tests call their cleanup callbacks
+//   - Shuts down after 2 seconds of inactivity with no active leases
+//
+// # Leader Election
+//
+// The first test to call GetFreePort becomes the coordinator leader using flock:
+//  1. Try to connect to existing coordinator (fast path)
+//  2. If connection fails, attempt non-blocking flock on coordinator.lock
+//  3. If lock succeeds → become leader, start coordinator
+//  4. If lock fails → wait for coordinator to become ready (someone else is leader)
+//  5. If wait times out → retry lock (previous holder was likely cleaning up)
+//
+// When the leader test finishes, it shuts down the coordinator. The next test
+// needing a port will automatically restart it with a fresh lease table.
+//
+// # Port Lifecycle
+//
+// Each test that allocates a port registers a t.Cleanup handler to release it.
+// The coordinator tracks leased ports until they're explicitly released or the
+// coordinator restarts (which clears the entire lease table).
 func GetFreePort(t *testing.T) int {
 	t.Helper()
 
@@ -58,13 +78,7 @@ func GetFreePort(t *testing.T) int {
 		return port
 	}
 
-	// Try to become leader and start coordinator, if needed.
-	// We only attempt leadership on unix-like systems.
-	if runtime.GOOS == "windows" {
-		t.Fatalf("port coordinator: unix socket + flock not supported on windows in this implementation")
-	}
-
-	// Try to become leader with non-blocking lock
+	// Coordinator not running. Try to become leader with non-blocking lock.
 	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		t.Fatalf("open lock file: %v", err)
@@ -229,6 +243,9 @@ func newLeaseTable() *leaseTable {
 	}
 }
 
+// allocatePort asks the OS for an ephemeral port and verifies it's not already
+// leased. If the OS returns a port that's already in the lease table (rare but
+// possible), it retries up to 10 times before giving up.
 func (lt *leaseTable) allocatePort() (int, error) {
 	lt.mu.Lock()
 	defer lt.mu.Unlock()
@@ -237,7 +254,7 @@ func (lt *leaseTable) allocatePort() (int, error) {
 	var port int
 
 	for range maxAttempts {
-		// Let the OS pick a free port
+		// Ask OS for an ephemeral port
 		lis, err := net.Listen("tcp4", "127.0.0.1:0")
 		if err != nil {
 			return 0, err
