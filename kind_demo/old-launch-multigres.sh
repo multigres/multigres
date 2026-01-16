@@ -46,3 +46,6 @@ echo "  - multipooler (connection pooling)"
 echo "  - multiorch (orchestration and failover)"
 echo "  - multigateway (PostgreSQL proxy)"
 echo ""
+
+# Start multigres cluster port-forwards
+./port-forward-multigres-cluster.sh

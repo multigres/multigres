@@ -68,5 +68,45 @@
     "workload_type": "service",
     "protocol": "tcp",
     "alias": "AdminGrpc"
+  },
+  {
+    "service": "supafirehose",
+    "namespace": "default",
+    "local_port": 8080,
+    "remote_port": 8080,
+    "context": "kind-multidemo",
+    "workload_type": "service",
+    "protocol": "tcp",
+    "alias": "Supafirehose"
+  },
+  {
+    "namespace": "default",
+    "local_port": 15433,
+    "remote_port": 5432,
+    "context": "kind-multidemo",
+    "workload_type": "pod",
+    "protocol": "tcp",
+    "alias": "Pooler0",
+    "target": "statefulset.kubernetes.io/pod-name=multipooler-zone1-0"
+  },
+  {
+    "namespace": "default",
+    "local_port": 15434,
+    "remote_port": 5432,
+    "context": "kind-multidemo",
+    "workload_type": "pod",
+    "protocol": "tcp",
+    "alias": "Pooler1",
+    "target": "statefulset.kubernetes.io/pod-name=multipooler-zone1-1"
+  },
+  {
+    "namespace": "default",
+    "local_port": 15435,
+    "remote_port": 5432,
+    "context": "kind-multidemo",
+    "workload_type": "pod",
+    "protocol": "tcp",
+    "alias": "Pooler2",
+    "target": "statefulset.kubernetes.io/pod-name=multipooler-zone1-2"
   }
 ]
