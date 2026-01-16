@@ -191,11 +191,12 @@ var (
 )
 
 func startCoordinatorOnce(sockPath string, lockFile *os.File) {
+	coordMu.Lock()
+	defer coordMu.Unlock()
+
 	coordOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
-		coordMu.Lock()
 		coordShutdown = cancel
-		coordMu.Unlock()
 
 		go func() {
 			_ = runCoordinator(ctx, sockPath, lockFile)
