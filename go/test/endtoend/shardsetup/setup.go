@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -282,23 +283,56 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		MultiOrchInstances: make(map[string]*ProcessInstance),
 	}
 
-	// Create all multipooler instances (but don't start yet)
+	// Retry loop for port conflicts - can occur when multiple test packages run in parallel
+	const maxPortRetries = 3
 	var multipoolerInstances []*MultipoolerInstance
-	for i := 0; i < config.MultipoolerCount; i++ {
-		name := multipoolerName(i)
-		grpcPort := utils.GetFreePort(t)
-		pgPort := utils.GetFreePort(t)
-		multipoolerPort := utils.GetFreePort(t)
 
-		inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
-		multipoolerInstances = append(multipoolerInstances, inst)
+	for attempt := 1; attempt <= maxPortRetries; attempt++ {
+		// Create all multipooler instances with fresh port allocations each attempt
+		t.Logf("Allocating ports for multipooler instances (attempt %d/%d)...", attempt, maxPortRetries)
+		multipoolerInstances = nil
+		setup.Multipoolers = make(map[string]*MultipoolerInstance)
 
-		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
-			name, grpcPort, pgPort, multipoolerPort)
+		for i := 0; i < config.MultipoolerCount; i++ {
+			name := multipoolerName(i)
+			grpcPort := utils.GetFreePort(t)
+			pgPort := utils.GetFreePort(t)
+			multipoolerPort := utils.GetFreePort(t)
+
+			inst := setup.CreateMultipoolerInstance(t, name, grpcPort, pgPort, multipoolerPort)
+			multipoolerInstances = append(multipoolerInstances, inst)
+
+			t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
+				name, grpcPort, pgPort, multipoolerPort)
+		}
+
+		// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
+		err = startProcessesWithoutInit(t, setup, multipoolerInstances, config)
+
+		if err == nil {
+			break // Success
+		}
+
+		// Check if this is a port conflict error
+		if strings.Contains(err.Error(), "already in use") {
+			t.Logf("Port conflict detected on attempt %d, cleaning up and retrying with new ports...", attempt)
+			// Clean up processes started in this attempt
+			for _, inst := range multipoolerInstances {
+				if inst.Pgctld != nil {
+					inst.Pgctld.Stop()
+				}
+				if inst.Multipooler != nil {
+					inst.Multipooler.Stop()
+				}
+			}
+			if attempt < maxPortRetries {
+				continue
+			}
+		}
+
+		// Non-port-conflict error or exhausted retries, fail
+		t.Fatalf("Failed to start multipooler instances after %d attempts: %v", attempt, err)
 	}
-
-	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
-	startProcessesWithoutInit(t, setup, multipoolerInstances, config)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -534,10 +568,11 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 // startProcessesWithoutInit starts pgctld and multipooler processes without initializing postgres.
 // Use this for bootstrap tests where multiorch will initialize the shard.
 // pgBackRest servers are started later via startPgBackRestServers() after initialization.
+// Returns an error if starting processes fails (e.g., port conflicts).
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startProcessesWithoutInit(t *testing.T, setup *ShardSetup, instances []*MultipoolerInstance, config *SetupConfig) {
+func startProcessesWithoutInit(t *testing.T, setup *ShardSetup, instances []*MultipoolerInstance, config *SetupConfig) error {
 	t.Helper()
 
 	for _, inst := range instances {
@@ -546,13 +581,13 @@ func startProcessesWithoutInit(t *testing.T, setup *ShardSetup, instances []*Mul
 
 		// Start pgctld (postgres will be initialized later, or by multiorch for bootstrap)
 		if err := pgctld.Start(t); err != nil {
-			t.Fatalf("failed to start pgctld for %s: %v", inst.Name, err)
+			return fmt.Errorf("failed to start pgctld for %s: %w", inst.Name, err)
 		}
 		t.Logf("Started pgctld for %s (gRPC=%d, PG=%d)", inst.Name, pgctld.GrpcPort, pgctld.PgPort)
 
 		// Start multipooler
 		if err := multipooler.Start(t); err != nil {
-			t.Fatalf("failed to start multipooler for %s: %v", inst.Name, err)
+			return fmt.Errorf("failed to start multipooler for %s: %w", inst.Name, err)
 		}
 
 		// Wait for multipooler to be ready
@@ -561,6 +596,7 @@ func startProcessesWithoutInit(t *testing.T, setup *ShardSetup, instances []*Mul
 	}
 
 	t.Logf("Started %d processes without initialization (ready for bootstrap)", len(instances))
+	return nil
 }
 
 // startPgBackRestServers starts pgBackRest servers for all multipooler instances.
