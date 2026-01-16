@@ -10,6 +10,7 @@ Manage local multigres cluster - both cluster-wide operations and individual com
 ## When to Use This Skill
 
 Invoke this skill when the user asks to:
+
 - Start/stop/restart the entire cluster or individual components
 - View logs for any component
 - Connect to multipooler or multigateway with psql
@@ -22,21 +23,25 @@ Parse `./multigres_local/multigres.yaml` once when this skill is first invoked a
 ## Cluster-Wide Operations
 
 **Start entire cluster**:
+
 ```bash
 ./bin/multigres cluster up
 ```
 
 **Stop entire cluster**:
+
 ```bash
 ./bin/multigres cluster down
 ```
 
 **Check cluster status**:
+
 ```bash
 ./bin/multigres cluster status
 ```
 
 **Initialize new cluster**:
+
 ```bash
 ./bin/multigres cluster init
 ```
@@ -60,26 +65,31 @@ Parse `./multigres_local/multigres.yaml` once when this skill is first invoked a
 ### Commands
 
 **Stop pgctld**:
+
 ```bash
 ./bin/pgctld stop --pooler-dir <pooler-dir-from-config>
 ```
 
 **Start pgctld**:
+
 ```bash
 ./bin/pgctld start --pooler-dir <pooler-dir-from-config>
 ```
 
 **Restart pgctld (as standby)**:
+
 ```bash
 ./bin/pgctld restart --pooler-dir <pooler-dir-from-config> --as-standby
 ```
 
 **Check pgctld status**:
+
 ```bash
 ./bin/pgctld status --pooler-dir <pooler-dir-from-config>
 ```
 
 **View logs**:
+
 - multipooler: `./multigres_local/logs/dbs/postgres/multipooler/[id].log`
 - pgctld: `./multigres_local/logs/dbs/postgres/pgctld/[id].log`
 - multiorch: `./multigres_local/logs/dbs/postgres/multiorch/[id].log`
@@ -87,32 +97,41 @@ Parse `./multigres_local/multigres.yaml` once when this skill is first invoked a
 - PostgreSQL: `./multigres_local/data/pooler_[id]/pg_data/postgresql.log`
 
 **Tail logs**:
+
 ```bash
 tail -f <log-path>
 ```
 
 **Connect to multipooler** (via Unix socket):
+
 ```bash
 psql -h <pooler-dir>/pg_sockets -p <pg-port> -U postgres -d postgres
 ```
+
 Where:
+
 - pooler-dir is from `.provisioner-config.cells.<zone>.multipooler.pooler-dir`
 - pg-port is from `.provisioner-config.cells.<zone>.pgctld.pg-port`
 - PostgreSQL socket is at `<pooler-dir>/pg_sockets/.s.PGSQL.<pg-port>`
 
 Example:
+
 ```bash
 psql -h /Users/rafael/sandboxes/multigres/multigres_local/data/pooler_xf42rpl6/pg_sockets -p 25432 -U postgres -d postgres
 ```
 
 **Connect to multigateway** (via TCP):
+
 ```bash
 psql -h localhost -p <pg-port> -U postgres -d postgres
 ```
+
 Where:
+
 - pg-port is from `.provisioner-config.cells.<zone>.multigateway.pg-port`
 
 Example:
+
 ```bash
 psql -h localhost -p 15432 -U postgres -d postgres
 ```
@@ -126,36 +145,45 @@ Extract from YAML config at `.provisioner-config.cells.<zone>.pgctld.pooler-dir`
 **Cluster-wide:**
 
 User: "start the cluster"
+
 - Execute: `./bin/multigres cluster up`
 
 User: "stop cluster"
+
 - Execute: `./bin/multigres cluster down`
 
 User: "cluster status"
+
 - Execute: `./bin/multigres cluster status`
 
 **Individual components:**
 
 User: "stop pgctld"
+
 - Read config to find available pgctld instances
 - Ask user which one to stop (zone1, zone2, or zone3)
 - Execute stop command with selected pooler-dir
 
 User: "restart pgctld xf42rpl6 as standby"
+
 - Look up pooler-dir for xf42rpl6 in config
 - Execute: `./bin/pgctld restart --pooler-dir /path/to/pooler_xf42rpl6 --as-standby`
 
 User: "logs multipooler hm9hmxzm"
+
 - Show: `./multigres_local/logs/dbs/postgres/multipooler/hm9hmxzm.log`
 
 User: "tail pgctld"
+
 - Ask which instance
 - Tail the corresponding log file
 
 User: "connect to multipooler zone1" or "psql multipooler xf42rpl6"
+
 - Look up pooler-dir and pg-port from config
 - Show: `psql -h <pooler-dir>/pg_sockets -p <pg-port> -U postgres -d postgres`
 
 User: "connect to multigateway" or "psql multigateway"
+
 - Ask which zone
 - Show: `psql -h localhost -p <pg-port> -U postgres -d postgres`
