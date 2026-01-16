@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // PoolConfig holds configuration for the admin pool.

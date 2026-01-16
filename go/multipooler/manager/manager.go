@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/timer"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -114,17 +115,19 @@ type MultiPoolerManager struct {
 	// This is loaded once during startup and cached for fast access.
 	backupLocation string
 
-	// monitorRetryInterval is the interval between auto-restore retry attempts.
+	// pgMonitorRetryInterval is the interval between auto-restore retry attempts.
 	// Defaults to 1 second. Can be set to a shorter duration for testing.
-	monitorRetryInterval time.Duration
+	pgMonitorRetryInterval time.Duration
 
 	// initialized tracks whether this pooler has been fully initialized.
 	// Once true, stays true for the lifetime of the manager.
 	initialized bool
 
-	// monitorCancel cancels the MonitorPostgres goroutine.
-	// When nil, MonitorPostgres is not running or has been cancelled.
-	monitorCancel context.CancelFunc
+	// pgMonitor manages the PostgreSQL monitoring loop.
+	pgMonitor *timer.PeriodicRunner
+
+	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
+	pgMonitorLastLoggedReason string
 
 	// TODO: Implement async query serving state management system
 	// This should include: target state, current state, convergence goroutine,
@@ -201,19 +204,23 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, config *Config, loadT
 		connPoolMgr = config.ConnPoolConfig.NewManager(logger)
 	}
 
+	monitorRetryInterval := 5 * time.Second
+	monitorRunner := timer.NewPeriodicRunner(ctx, monitorRetryInterval)
+
 	pm := &MultiPoolerManager{
-		logger:               logger,
-		config:               config,
-		topoClient:           config.TopoClient,
-		serviceID:            config.ServiceID,
-		actionLock:           NewActionLock(),
-		state:                ManagerStateStarting,
-		loadTimeout:          loadTimeout,
-		monitorRetryInterval: 5 * time.Second,
-		queryServingState:    clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		pgctldClient:         pgctldClient,
-		connPoolMgr:          connPoolMgr,
-		readyChan:            make(chan struct{}),
+		logger:                 logger,
+		config:                 config,
+		topoClient:             config.TopoClient,
+		serviceID:              config.ServiceID,
+		actionLock:             NewActionLock(),
+		state:                  ManagerStateStarting,
+		loadTimeout:            loadTimeout,
+		pgMonitorRetryInterval: monitorRetryInterval,
+		queryServingState:      clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		pgctldClient:           pgctldClient,
+		connPoolMgr:            connPoolMgr,
+		readyChan:              make(chan struct{}),
+		pgMonitor:              monitorRunner,
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -288,20 +295,18 @@ func (pm *MultiPoolerManager) Open() error {
 		return nil
 	}
 
-	pm.logger.Info("MultiPoolerManager: opening")
 	pm.ctx, pm.cancel = context.WithCancel(context.TODO())
 
 	if err := pm.openConnectionsLocked(); err != nil {
 		return err
 	}
+	pm.logger.InfoContext(pm.ctx, "MultiPoolerManager opened database connection")
 
 	// Start background PostgreSQL monitoring and auto-recovery
-	monitorCtx, monitorCancel := context.WithCancel(pm.ctx)
-	pm.monitorCancel = monitorCancel
-	go pm.MonitorPostgres(monitorCtx)
+	pm.pgMonitor.Start(pm.monitorPostgresIteration, nil)
+	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
-	pm.logger.Info("MultiPoolerManager opened database connection")
 	return nil
 }
 
@@ -314,6 +319,7 @@ func (pm *MultiPoolerManager) Close() error {
 		return nil
 	}
 
+	pm.pgMonitor.Stop()
 	pm.closeConnectionsLocked()
 	pm.cancel()
 	pm.isOpen = false
@@ -646,14 +652,6 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		default:
 			close(pm.readyChan)
 		}
-	}
-}
-
-// waitForReady blocks until the manager is ready (topo loaded) or context is cancelled
-func (pm *MultiPoolerManager) waitForReady(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-	case <-pm.readyChan:
 	}
 }
 
@@ -1521,43 +1519,20 @@ type postgresState struct {
 	backupsAvailable bool
 }
 
-// MonitorPostgres continuously monitors PostgreSQL status and takes remedial action.
-// This runs as an independent goroutine started by Start().
-// It waits for topo to be loaded, then monitors in a loop until context is cancelled.
-//
-// Monitoring loop:
-// - Discovers PostgreSQL status via pgctld
-// - Takes remedial action based on state
-// - Exits when server is shutting down (context cancelled)
-func (pm *MultiPoolerManager) MonitorPostgres(ctx context.Context) {
-	// Wait for manager to be ready (topo loaded) before monitoring
-	pm.waitForReady(ctx)
-
-	// Check context after waiting
-	if ctx.Err() != nil {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: context cancelled while waiting for topo")
+// monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
+// This is called periodically by the monitor runner.
+func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
+	// Wait for manager to be ready
+	if err := pm.checkReady(); err != nil {
+		pm.logger.InfoContext(pm.ctx, "MonitorPostgres: manager not ready yet")
 		return
 	}
 
-	pm.logger.InfoContext(ctx, "MonitorPostgres: starting monitoring loop")
+	// Discover current status
+	currentState := pm.discoverPostgresState(ctx)
 
-	// Track last logged reason to avoid duplicate logs
-	var lastLoggedReason string
-
-	// Use configurable retry interval (same as auto-restore)
-	r := retry.New(pm.monitorRetryInterval, pm.monitorRetryInterval)
-	for attempt, err := range r.Attempts(ctx) {
-		if err != nil {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: context cancelled, exiting monitoring loop", "attempts", attempt)
-			return
-		}
-
-		// Discover current status
-		currentState := pm.discoverPostgresState(ctx)
-
-		// Take remedial action based on state
-		pm.takeRemedialAction(ctx, currentState, &lastLoggedReason)
-	}
+	// Take remedial action based on state
+	pm.takeRemedialAction(ctx, currentState)
 }
 
 // discoverPostgresState discovers the current state of PostgreSQL
@@ -1593,7 +1568,7 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 }
 
 // takeRemedialAction takes remedial action based on discovered state
-func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentState postgresState, lastLoggedReason *string) {
+func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentState postgresState) {
 	const (
 		reasonPgctldUnavailable   = "pgctld_unavailable"
 		reasonPostgresRunning     = "postgres_running"
@@ -1605,16 +1580,16 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentSta
 	// Pgctld unavailable: Log every time
 	if !currentState.pgctldAvailable {
 		pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable")
-		*lastLoggedReason = reasonPgctldUnavailable
+		pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		return
 	}
 
 	// Postgres is running: No action (if postgres is running, directory must be initialized)
 	if currentState.postgresRunning {
 		// Log only on reason change
-		if *lastLoggedReason != reasonPostgresRunning {
+		if pm.pgMonitorLastLoggedReason != reasonPostgresRunning {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running")
-			*lastLoggedReason = reasonPostgresRunning
+			pm.pgMonitorLastLoggedReason = reasonPostgresRunning
 		}
 		return
 	}
@@ -1623,9 +1598,9 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentSta
 	// Note: We only reach here if postgres is not running
 	if currentState.dirInitialized {
 		// Log only on reason change
-		if *lastLoggedReason != reasonStartingPostgres {
+		if pm.pgMonitorLastLoggedReason != reasonStartingPostgres {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
-			*lastLoggedReason = reasonStartingPostgres
+			pm.pgMonitorLastLoggedReason = reasonStartingPostgres
 		}
 		if err := pm.startPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
@@ -1637,9 +1612,9 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentSta
 	// Note: We only reach here if postgres is not running and directory is not initialized
 	if currentState.backupsAvailable {
 		// Log only on reason change
-		if *lastLoggedReason != reasonRestoringFromBackup {
+		if pm.pgMonitorLastLoggedReason != reasonRestoringFromBackup {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
-			*lastLoggedReason = reasonRestoringFromBackup
+			pm.pgMonitorLastLoggedReason = reasonRestoringFromBackup
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
@@ -1650,9 +1625,9 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentSta
 	// Directory not initialized, no backup available: No action
 	// Note: We only reach here if postgres is not running, directory is not initialized, and no backups available
 	// Log only on reason change
-	if *lastLoggedReason != reasonWaitingForBackup {
+	if pm.pgMonitorLastLoggedReason != reasonWaitingForBackup {
 		pm.logger.InfoContext(ctx, "MonitorPostgres: directory not initialized and no backups available, waiting")
-		*lastLoggedReason = reasonWaitingForBackup
+		pm.pgMonitorLastLoggedReason = reasonWaitingForBackup
 	}
 }
 
@@ -1684,13 +1659,14 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 
 // startPostgres starts PostgreSQL via pgctld
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgresSQL")
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}
 
 	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
 	if err != nil {
-		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
@@ -1750,77 +1726,74 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 
-	// Set consensus term after restore.
-	// If the cluster is at a higher term,
-	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
-	var term int64 = 0
-	if pm.consensusState != nil {
-		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
-		pm.loadConsensusTermFromDisk()
-		term = pm.consensusState.term.TermNumber
-	}
-
-	if term == 0 {
-		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
-	}
-
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"term", term)
+		"term", pm.consensusState.term.TermNumber)
 
 	return nil
 }
 
-// enableMonitorInternal starts the PostgreSQL monitoring goroutine if it's not already running.
-// This method is idempotent - calling it multiple times has no effect if monitoring is already enabled.
+// enableMonitorInternal starts the PostgreSQL monitoring if not already running.
+// Returns an error if preconditions are not met.
 func (pm *MultiPoolerManager) enableMonitorInternal() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
-	// Check if monitor is already running
-	if pm.monitorCancel != nil {
-		pm.logger.Info("MonitorPostgres already enabled, skipping")
-		return nil
-	}
-
 	// Check if the manager is open
 	if !pm.isOpen {
 		return errors.New("manager is not open, cannot enable monitor")
 	}
 
-	pm.logger.Info("Enabling MonitorPostgres")
-
-	// Create a new cancelable context for the monitor
-	monitorCtx, monitorCancel := context.WithCancel(pm.ctx)
-	pm.monitorCancel = monitorCancel
-
-	// Start the monitoring goroutine
-	go pm.MonitorPostgres(monitorCtx)
-
-	pm.logger.Info("MonitorPostgres enabled successfully")
+	// Start the monitor runner (idempotent)
+	pm.pgMonitor.Start(pm.monitorPostgresIteration, nil)
+	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 	return nil
 }
 
-// disableMonitorInternal stops the PostgreSQL monitoring goroutine.
-// This method is idempotent - calling it multiple times has no effect if monitoring is already disabled.
+// disableMonitorInternal stops the PostgreSQL monitoring.
 func (pm *MultiPoolerManager) disableMonitorInternal() {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+	// Stop the monitor runner (idempotent)
+	pm.pgMonitor.Stop()
+	pm.logger.InfoContext(pm.ctx, "MonitorPostgres disabled successfully")
+}
 
-	// Check if monitor is already stopped
-	if pm.monitorCancel == nil {
-		pm.logger.Info("MonitorPostgres already disabled, skipping")
-		return
+// PausePostgresMonitor disables monitoring if it's currently enabled and returns a function
+// that will restore the original monitoring state. If monitoring was already disabled,
+// returns a no-op function. The caller is responsible for calling the returned function
+// (typically via defer) to restore the original state.
+//
+// This method requires the action lock to be held by the caller to prevent race conditions
+// with concurrent operations that might enable or disable monitoring. The returned resume
+// function also requires the action lock to be held when called.
+//
+// Example usage:
+//
+//	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+//	if err != nil {
+//	    return err
+//	}
+//	defer resumeMonitor(ctx)
+//	// ... perform operations that require monitoring to be disabled ...
+func (pm *MultiPoolerManager) PausePostgresMonitor(ctx context.Context) (func(context.Context), error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return nil, fmt.Errorf("PausePostgresMonitor requires action lock to be held: %w", err)
 	}
 
-	pm.logger.Info("Disabling MonitorPostgres")
+	wasEnabled := pm.pgMonitor.Running()
 
-	// Cancel the monitor context
-	pm.monitorCancel()
+	if wasEnabled {
+		pm.disableMonitorInternal()
+		return func(ctx context.Context) {
+			if err := AssertActionLockHeld(ctx); err != nil {
+				pm.logger.ErrorContext(ctx, "Resume monitor called without action lock", "error", err)
+				return
+			}
+			if err := pm.enableMonitorInternal(); err != nil {
+				pm.logger.WarnContext(ctx, "Failed to re-enable monitor", "error", err)
+			}
+		}, nil
+	}
 
-	// Set to nil to indicate it's been canceled
-	pm.monitorCancel = nil
-
-	pm.logger.Info("MonitorPostgres disabled successfully")
+	// Monitoring was already disabled, return no-op
+	return func(context.Context) {}, nil
 }

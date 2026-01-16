@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 )
 
 func TestServer_BasicQuery(t *testing.T) {

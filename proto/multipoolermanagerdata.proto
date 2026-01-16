@@ -759,24 +759,14 @@ message RewindToSourceResponse {
 // PostgreSQL Monitoring Control APIs
 // =============================================================================
 
-// EnableMonitorRequest enables the PostgreSQL monitoring goroutine
-message EnableMonitorRequest {
-  // Empty for now - could add options in the future
+// SetMonitorRequest enables or disables the PostgreSQL monitoring goroutine
+message SetMonitorRequest {
+  // Whether to enable monitoring (true) or disable it (false)
+  bool enabled = 1;
 }
 
-// EnableMonitorResponse confirms monitoring was enabled
+// SetMonitorResponse confirms monitoring was updated
 // Errors are returned via gRPC status codes, not in the response body
-message EnableMonitorResponse {
-  // Empty - success indicated by no error
-}
-
-// DisableMonitorRequest disables the PostgreSQL monitoring goroutine
-message DisableMonitorRequest {
-  // Empty for now
-}
-
-// DisableMonitorResponse confirms monitoring was disabled
-// Errors are returned via gRPC status codes, not in the response body
-message DisableMonitorResponse {
+message SetMonitorResponse {
   // Empty - success indicated by no error
 }

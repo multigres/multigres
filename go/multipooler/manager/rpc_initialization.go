@@ -50,6 +50,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during initialization to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer resumeMonitor(ctx)
+
 	// Validate consensus term must be 1 for new primary
 	if req.ConsensusTerm != 1 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "consensus term must be 1 for new primary initialization, got %d", req.ConsensusTerm)

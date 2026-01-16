@@ -207,6 +207,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
+	pm.logger.InfoContext(ctx, "Starting backup operation", "backup_location", pm.backupLocation, "backup_type", backupType)
+
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
@@ -268,8 +270,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
 
-	// Capture output for logging
-	output, err := cmd.CombinedOutput()
+	// Execute backup with progress logging
+	output, err := pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
@@ -292,7 +294,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		"--set="+foundBackupID,
 		"verify")
 
-	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
+	// Execute verify with progress logging
+	verifyOutput, verifyErr := pm.runLongCommand(verifyCtx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
@@ -329,14 +332,24 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during restore to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return err
+	}
+	defer resumeMonitor(ctx)
+
 	return pm.restoreFromBackupLocked(ctx, backupID)
 }
 
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock
+// and monitoring must be disabled to avoid interference.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+
+	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_location", pm.backupLocation, "backup_id", backupID)
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -358,6 +371,21 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
 		return err
 	}
+
+	// Set consensus term after restore.
+	// If the cluster is at a higher term,
+	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
+	var term int64 = 0
+	if pm.consensusState != nil {
+		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
+		pm.loadConsensusTermFromDisk()
+		term = pm.consensusState.term.TermNumber
+	}
+
+	if term == 0 {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
+	}
+
 	if err := pm.reopenPoolerManager(ctx); err != nil {
 		return err
 	}
@@ -837,4 +865,54 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // pgbackrestPath returns the path to the pgbackrest config and data directory
 func (pm *MultiPoolerManager) pgbackrestPath() string {
 	return filepath.Join(pm.config.PoolerDir, "pgbackrest")
+}
+
+// runLongCommand executes a long-running command with periodic progress logging.
+// Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
+// to ensure proper cleanup on context cancellation.
+func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
+	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
+
+	startTime := time.Now()
+
+	// Create a context for the logging goroutine
+	logCtx, cancelLog := context.WithCancel(ctx)
+
+	// Log progress periodically in background
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-logCtx.Done():
+				return
+			case <-ticker.C:
+				elapsed := time.Since(startTime)
+				pm.logger.InfoContext(ctx, "Command still in progress",
+					"operation", operationName,
+					"elapsed_seconds", int(elapsed.Seconds()))
+			}
+		}
+	}()
+
+	// Run command in main goroutine
+	output, err := cmd.CombinedOutput()
+
+	cancelLog()
+
+	// Log completion
+	elapsed := time.Since(startTime)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Command failed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()),
+			"error", err)
+	} else {
+		pm.logger.InfoContext(ctx, "Command completed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()))
+	}
+
+	return output, err
 }

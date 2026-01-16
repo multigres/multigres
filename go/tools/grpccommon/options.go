@@ -78,20 +78,13 @@ type clientConfig struct {
 	dialOptions []grpc.DialOption
 }
 
-// WithMultipoolerTarget configures OpenTelemetry attributes for gRPC clients
-// connecting to multipooler instances. It sets:
-// - peer.service: "multipooler" (the logical service name per OTel semconv)
-// - multigres.pooler.id: the specific pooler instance identifier
-//
-// This follows OpenTelemetry semantic conventions where peer.service should match
-// the remote service's service.name resource attribute, while custom attributes
-// identify the specific instance within that service.
-func WithMultipoolerTarget(poolerID string) ClientOption {
+// WithAttributes adds custom OpenTelemetry attributes to gRPC client spans.
+// This is a generic helper that can be used by domain-specific code to add
+// custom span attributes without making grpccommon domain-aware.
+func WithAttributes(attrs ...attribute.KeyValue) ClientOption {
 	return funcOption(func(c *clientConfig) {
 		c.otelOptions = append(c.otelOptions,
-			otelgrpc.WithSpanAttributes(
-				attribute.String("multigres.pooler.id", poolerID),
-			),
+			otelgrpc.WithSpanAttributes(attrs...),
 		)
 	})
 }

@@ -20,12 +20,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // UserPool manages connection pools for a specific user.

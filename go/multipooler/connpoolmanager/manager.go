@@ -22,12 +22,12 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // Manager orchestrates per-user connection pools with a shared admin pool.

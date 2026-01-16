@@ -797,6 +797,13 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during this operation to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer resumeMonitor(ctx)
+
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
 	// not ready) updates the term, causing subsequent detection to see equal
@@ -986,13 +993,12 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Disable monitor during this operation to prevent interference
-	pm.disableMonitorInternal()
-	defer func() {
-		if err := pm.enableMonitorInternal(); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to re-enable monitor after DemoteStalePrimary", "error", err)
-		}
-	}()
+	// Pause monitoring during this operation to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer resumeMonitor(ctx)
 
 	// Validate the term
 	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
@@ -1333,6 +1339,13 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during this operation to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer resumeMonitor(ctx)
+
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
@@ -1435,35 +1448,22 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 	}, nil
 }
 
-// EnableMonitor enables the PostgreSQL monitoring goroutine (RPC handler)
-func (pm *MultiPoolerManager) EnableMonitor(
+// SetMonitor enables or disables the PostgreSQL monitoring goroutine (RPC handler)
+func (pm *MultiPoolerManager) SetMonitor(
 	ctx context.Context,
-	req *multipoolermanagerdatapb.EnableMonitorRequest,
-) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
-	pm.logger.InfoContext(ctx, "EnableMonitor RPC called")
-
-	// Call the internal enable method
-	if err := pm.enableMonitorInternal(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to enable monitor", "error", err)
-		return nil, mterrors.Wrap(err, "failed to enable PostgreSQL monitoring")
+	req *multipoolermanagerdatapb.SetMonitorRequest,
+) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
+	if req.Enabled {
+		if err := pm.enableMonitorInternal(); err != nil {
+			return nil, mterrors.Wrap(err, "failed to enable PostgreSQL monitoring")
+		}
+		pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", true)
+		return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
 	}
 
-	pm.logger.InfoContext(ctx, "EnableMonitor RPC completed successfully")
-	return &multipoolermanagerdatapb.EnableMonitorResponse{}, nil
-}
-
-// DisableMonitor disables the PostgreSQL monitoring goroutine (RPC handler)
-func (pm *MultiPoolerManager) DisableMonitor(
-	ctx context.Context,
-	req *multipoolermanagerdatapb.DisableMonitorRequest,
-) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
-	pm.logger.InfoContext(ctx, "DisableMonitor RPC called")
-
-	// Call the internal disable method
 	pm.disableMonitorInternal()
-
-	pm.logger.InfoContext(ctx, "DisableMonitor RPC completed successfully")
-	return &multipoolermanagerdatapb.DisableMonitorResponse{}, nil
+	pm.logger.InfoContext(ctx, "SetMonitor RPC completed successfully", "enabled", false)
+	return &multipoolermanagerdatapb.SetMonitorResponse{}, nil
 }
 
 // ====================================================================================
