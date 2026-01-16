@@ -73,16 +73,30 @@ func GetFreePort(t *testing.T) int {
 	// Try non-blocking exclusive lock
 	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err != nil {
-		// Someone else has the lock - they're starting the coordinator
+		// Someone else has the lock - they might be starting the coordinator
+		// or an old coordinator might be cleaning up
 		_ = lockFile.Close()
 
 		// Wait for coordinator to become available
 		port, ok := tryRequestPortWithRetry(t, sockPath, 2*time.Second)
-		if !ok {
-			t.Fatalf("coordinator did not become ready")
+		if ok {
+			registerCleanup(t, sockPath, port)
+			return port
 		}
-		registerCleanup(t, sockPath, port)
-		return port
+
+		// Coordinator never became ready. The lock holder might have been
+		// an old coordinator cleaning up. Retry lock acquisition.
+		lockFile, err = os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+		if err != nil {
+			t.Fatalf("reopen lock file: %v", err)
+		}
+
+		err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err != nil {
+			_ = lockFile.Close()
+			t.Fatalf("coordinator did not become ready and cannot acquire lock")
+		}
+		// Fall through to become leader
 	}
 
 	// We got the lock! Double check coordinator isn't already running

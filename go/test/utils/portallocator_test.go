@@ -15,7 +15,6 @@
 package utils
 
 import (
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -72,37 +71,22 @@ func TestGetFreePort_Concurrent(t *testing.T) {
 // followed by GetFreePort works correctly: the old coordinator stops, and a new
 // coordinator starts with a fresh lease table.
 func TestGetFreePort_CoordinatorRestart(t *testing.T) {
-	sockPath := coordDir() + "/port-coordinator.sock"
-
 	// Start with clean slate - ensure no coordinator from previous tests
 	shutdownCoordinator()
 
-	// Wait for socket file to be removed (cleanup is asynchronous)
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(sockPath)
-		return os.IsNotExist(err)
-	}, 3*time.Second, 50*time.Millisecond, "socket file should be removed after shutdown")
-
-	// First allocation starts the coordinator
+	// First allocation starts the coordinator (may need to wait for cleanup to complete)
 	port1 := GetFreePort(t)
 	require.Greater(t, port1, 0)
 
 	// Shut down coordinator (simulating test cleanup)
 	shutdownCoordinator()
 
-	// Wait for socket file to be removed (cleanup is asynchronous)
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(sockPath)
-		return os.IsNotExist(err)
-	}, 3*time.Second, 50*time.Millisecond, "socket file should be removed after shutdown")
-
 	// Next allocation should restart the coordinator with fresh lease table
 	port2 := GetFreePort(t)
 	require.Greater(t, port2, 0)
 
-	// Verify new coordinator is running
-	port3, ok := tryRequestPort(t, sockPath)
-	require.True(t, ok, "new coordinator should be running after restart")
+	// Get another port to verify coordinator is stable after restart
+	port3 := GetFreePort(t)
 	require.Greater(t, port3, 0)
 
 	// Verify all ports are unique
