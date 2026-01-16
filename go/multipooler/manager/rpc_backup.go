@@ -368,6 +368,18 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	if err := pm.executePgBackrestRestore(ctx, backupID); err != nil {
 		return err
 	}
+
+	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
+	// After restore, postgresql.auto.conf contains archive_command pointing to the
+	// primary's pgbackrest.conf path. Each pooler needs its own config path.
+	pm.logger.InfoContext(ctx, "Reconfiguring archive_command for local pgbackrest.conf")
+	if err := pm.removeArchiveConfigFromAutoConf(); err != nil {
+		return mterrors.Wrap(err, "failed to remove old archive configuration")
+	}
+	if err := pm.configureArchiveMode(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to configure archive mode")
+	}
+
 	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
 		return err
 	}
