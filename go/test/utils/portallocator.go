@@ -51,10 +51,11 @@ import (
 //  2. If connection fails, attempt non-blocking flock on coordinator.lock
 //  3. If lock succeeds → become leader, start coordinator
 //  4. If lock fails → wait for coordinator to become ready (someone else is leader)
-//  5. If wait times out → retry lock (previous holder was likely cleaning up)
 //
-// When the leader test finishes, it shuts down the coordinator. The next test
-// needing a port will automatically restart it with a fresh lease table.
+// When the leader test finishes, it shuts down the coordinator synchronously,
+// ensuring all cleanup (socket removal, lock release) completes before shutdown
+// returns. The next test needing a port will automatically restart it with a
+// fresh lease table.
 //
 // # Port Lifecycle
 //
@@ -87,30 +88,16 @@ func GetFreePort(t *testing.T) int {
 	// Try non-blocking exclusive lock
 	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err != nil {
-		// Someone else has the lock - they might be starting the coordinator
-		// or an old coordinator might be cleaning up
+		// Someone else has the lock - they're starting the coordinator
 		_ = lockFile.Close()
 
 		// Wait for coordinator to become available
 		port, ok := tryRequestPortWithRetry(t, sockPath, 2*time.Second)
-		if ok {
-			registerCleanup(t, sockPath, port)
-			return port
+		if !ok {
+			t.Fatalf("coordinator did not become ready")
 		}
-
-		// Coordinator never became ready. The lock holder might have been
-		// an old coordinator cleaning up. Retry lock acquisition.
-		lockFile, err = os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
-		if err != nil {
-			t.Fatalf("reopen lock file: %v", err)
-		}
-
-		err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err != nil {
-			_ = lockFile.Close()
-			t.Fatalf("coordinator did not become ready and cannot acquire lock")
-		}
-		// Fall through to become leader
+		registerCleanup(t, sockPath, port)
+		return port
 	}
 
 	// We got the lock! Double check coordinator isn't already running
@@ -148,16 +135,33 @@ func registerCoordinatorCleanup(t *testing.T) {
 	})
 }
 
+// shutdownCoordinator stops the coordinator and waits for cleanup to complete.
+// When this function returns, the coordinator goroutine has finished, the Unix
+// socket is removed, and the flock is released. This synchronous shutdown
+// eliminates race conditions when restarting the coordinator.
 func shutdownCoordinator() {
 	coordMu.Lock()
-	defer coordMu.Unlock()
 
-	if coordShutdown != nil {
-		coordShutdown()
-		coordShutdown = nil
-		// Reset coordOnce so coordinator can be restarted by another test
-		coordOnce = sync.Once{}
+	if coordShutdown == nil {
+		// Already shutdown
+		coordMu.Unlock()
+		return
 	}
+
+	// Cancel context to signal coordinator to stop
+	coordShutdown()
+	coordShutdown = nil
+
+	// Release lock before waiting to avoid deadlock
+	coordMu.Unlock()
+
+	// Wait for coordinator goroutine to complete cleanup (synchronous)
+	coordWg.Wait()
+
+	// Reset coordOnce so coordinator can be restarted
+	coordMu.Lock()
+	coordOnce = sync.Once{}
+	coordMu.Unlock()
 }
 
 func tryRequestPort(t *testing.T, sockPath string) (int, bool) {
@@ -215,6 +219,7 @@ func coordDir() string {
 var (
 	coordOnce     sync.Once
 	coordShutdown context.CancelFunc
+	coordWg       sync.WaitGroup // tracks coordinator goroutine for synchronous shutdown
 	coordMu       sync.Mutex
 )
 
@@ -226,9 +231,9 @@ func startCoordinatorOnce(sockPath string, lockFile *os.File) {
 		ctx, cancel := context.WithCancel(context.Background())
 		coordShutdown = cancel
 
-		go func() {
+		coordWg.Go(func() {
 			_ = runCoordinator(ctx, sockPath, lockFile)
-		}()
+		})
 	})
 }
 
