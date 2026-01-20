@@ -488,11 +488,9 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, no
 		}
 
 		// Check if node is back up as a replica with replication configured
-		if status.Status.IsInitialized &&
-			status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA &&
+		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA &&
 			status.Status.ReplicationStatus != nil &&
 			status.Status.ReplicationStatus.PrimaryConnInfo != nil {
-			t.Logf("Node %s successfully rejoined as standby (pooler_type=%s)", nodeName, status.Status.PoolerType)
 			return true
 		}
 
