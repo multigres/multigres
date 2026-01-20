@@ -25,7 +25,7 @@
 #       ./port-forward-infra.sh              (for MultiAdmin gRPC)
 #
 # Usage:
-#   cd kind_demo
+#   cd demo/k8s
 #   ./backup-restore.sh
 #
 # The script will interactively demonstrate:
@@ -39,9 +39,9 @@
 
 set -e
 
-# Ensure we're in the kind_demo directory
-if [[ $(basename "$PWD") != "kind_demo" ]]; then
-  echo "Error: This script must be run from the kind_demo directory"
+# Ensure we're in the k8s directory
+if [[ $(basename "$PWD") != "k8s" ]]; then
+  echo "Error: This script must be run from the demo/k8s directory"
   exit 1
 fi
 
@@ -68,7 +68,7 @@ pause_for_input() {
 echo ""
 echo "Listing existing backups"
 echo "========================"
-run_cmd ../bin/multigres cluster list-backups \
+run_cmd ../../bin/multigres cluster list-backups \
   --admin-server localhost:18070 \
   --database postgres \
   --config-file-not-found-handling ignore
@@ -79,7 +79,7 @@ pause_for_input
 echo ""
 echo "Performing incremental backup"
 echo "=============================="
-run_cmd ../bin/multigres cluster backup \
+run_cmd ../../bin/multigres cluster backup \
   --admin-server localhost:18070 \
   --database postgres \
   --type incremental \
@@ -91,7 +91,7 @@ pause_for_input
 echo ""
 echo "Listing backups after first backup"
 echo "==================================="
-run_cmd ../bin/multigres cluster list-backups \
+run_cmd ../../bin/multigres cluster list-backups \
   --admin-server localhost:18070 \
   --database postgres \
   --config-file-not-found-handling ignore
@@ -133,7 +133,7 @@ pause_for_input
 echo ""
 echo "Performing full backup"
 echo "======================="
-run_cmd ../bin/multigres cluster backup \
+run_cmd ../../bin/multigres cluster backup \
   --admin-server localhost:18070 \
   --database postgres \
   --type full \
@@ -145,7 +145,7 @@ pause_for_input
 echo ""
 echo "Listing all backups (final)"
 echo "==========================="
-run_cmd ../bin/multigres cluster list-backups \
+run_cmd ../../bin/multigres cluster list-backups \
   --admin-server localhost:18070 \
   --database postgres \
   --config-file-not-found-handling ignore

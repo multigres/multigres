@@ -3,5 +3,5 @@
 # Skip demo and frontend directories
 scan:
   skip-dirs:
-    - kind_demo
+    - demo/k8s
     - web/multiadmin
