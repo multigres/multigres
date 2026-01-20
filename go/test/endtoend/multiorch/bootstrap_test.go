@@ -391,6 +391,27 @@ func TestBootstrapInitialization(t *testing.T) {
 			status.Status.IsInitialized, status.Status.HasDataDirectory,
 			status.Status.PostgresRunning, status.Status.PostgresRole)
 	})
+
+	t.Run("verify archive_command config on all nodes", func(t *testing.T) {
+		// Verify each pooler has archive_command pointing to its own local pgbackrest.conf
+		for name, inst := range setup.Multipoolers {
+			// Read postgresql.auto.conf
+			autoConfPath := filepath.Join(inst.Pgctld.DataDir, "pg_data", "postgresql.auto.conf")
+			content, err := os.ReadFile(autoConfPath)
+			require.NoError(t, err, "Should read postgresql.auto.conf on %s", name)
+
+			autoConfStr := string(content)
+
+			// Verify archive_mode is enabled (we write it with quotes to match PostgreSQL's normalized format)
+			assert.Contains(t, autoConfStr, "archive_mode = 'on'",
+				"Node %s should have archive_mode enabled", name)
+
+			// Verify archive_command points to this pooler's local pgbackrest.conf
+			expectedConfigPath := filepath.Join(inst.Pgctld.DataDir, "pgbackrest", "pgbackrest.conf")
+			assert.Contains(t, autoConfStr, "--config="+expectedConfigPath,
+				"Node %s should have archive_command pointing to local pgbackrest.conf at %s", name, expectedConfigPath)
+		}
+	})
 }
 
 // verifyMultigresTables checks that multigres internal tables exist on an initialized node.
