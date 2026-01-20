@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -35,6 +35,26 @@ type transactionTestCase struct {
 	testFunc func(ctx context.Context, t *testing.T, conn *client.Conn) error
 	// verifyFunc verifies the final state after testFunc completes
 	verifyFunc func(ctx context.Context, t *testing.T, conn *client.Conn)
+}
+
+// testTables lists all tables that may be created during transaction tests.
+// This ensures cleanup happens even if tests fail mid-execution.
+var testTables = []string{
+	// multiStatementTestCases
+	"users_ex1", "users_ex2", "users_ex3", "users_ex4", "users_ex5", "users_ex6",
+	// autocommitTestCases
+	"users_autocommit",
+	// ddlTransactionTestCases
+	"temp_ddl_test", "t1_ddl_test", "t2_ddl_test",
+	// explicitTransactionTestCases
+	"txn_explicit_test", "txn_rollback_test", "txn_savepoint_test", "txn_abort_test",
+}
+
+// cleanupTestTables drops all test tables to ensure a clean state.
+func cleanupTestTables(ctx context.Context, conn *client.Conn) {
+	for _, table := range testTables {
+		_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS "+table)
+	}
 }
 
 // runTransactionTests executes a slice of transaction test cases.
@@ -56,6 +76,27 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 			})
 			require.NoError(t, err)
 			defer conn.Close()
+
+			// Register cleanup to ensure test tables are dropped even if test fails.
+			// This runs after the test completes (success or failure).
+			// We use a fresh context with timeout since the test context may be cancelled.
+			t.Cleanup(func() {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				cleanupConn, cleanupErr := client.Connect(cleanupCtx, &client.Config{
+					Host:        "localhost",
+					Port:        primary.Pgctld.PgPort,
+					User:        "postgres",
+					Password:    shardsetup.TestPostgresPassword,
+					Database:    "postgres",
+					DialTimeout: 5 * time.Second,
+				})
+				if cleanupErr != nil {
+					return
+				}
+				defer cleanupConn.Close()
+				cleanupTestTables(cleanupCtx, cleanupConn)
+			})
 
 			// Run the test
 			_ = tc.testFunc(ctx, t, conn)
@@ -120,7 +161,6 @@ func multiStatementTestCases() []transactionTestCase {
 				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM users_ex1")
 				require.NoError(t, err)
 				assert.Equal(t, "3", string(results[0].Rows[0].Values[0]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS users_ex1")
 			},
 		},
 		{
@@ -153,7 +193,6 @@ func multiStatementTestCases() []transactionTestCase {
 				require.NoError(t, err)
 				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]),
 					"Table should be empty - all statements rolled back")
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS users_ex2")
 			},
 		},
 		{
@@ -181,7 +220,6 @@ func multiStatementTestCases() []transactionTestCase {
 				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM users_ex3")
 				require.NoError(t, err)
 				assert.Equal(t, "3", string(results[0].Rows[0].Values[0]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS users_ex3")
 			},
 		},
 		{
@@ -219,7 +257,6 @@ func multiStatementTestCases() []transactionTestCase {
 				require.NoError(t, err)
 				assert.Empty(t, results[0].Rows,
 					"Table should be empty - no COMMIT before error means everything rolled back")
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS users_ex4")
 			},
 		},
 		{
@@ -249,7 +286,6 @@ func multiStatementTestCases() []transactionTestCase {
 				require.NoError(t, err)
 				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]),
 					"Table should be empty - failure before BEGIN rolls back everything")
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS users_ex5")
 			},
 		},
 		{
@@ -291,7 +327,6 @@ func multiStatementTestCases() []transactionTestCase {
 				require.Len(t, results[0].Rows, 2, "Only Alice and Bob should survive (committed before error)")
 				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
 				assert.Equal(t, "Bob", string(results[0].Rows[1].Values[1]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS users_ex6")
 			},
 		},
 	}
@@ -329,7 +364,6 @@ func autocommitTestCases() []transactionTestCase {
 				require.Len(t, results[0].Rows, 2, "Alice and Bob should both exist")
 				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
 				assert.Equal(t, "Bob", string(results[0].Rows[1].Values[1]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS users_autocommit")
 			},
 		},
 	}
@@ -421,7 +455,6 @@ func ddlTransactionTestCases() []transactionTestCase {
 				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM t2_ddl_test")
 				require.NoError(t, err, "Table should still exist after failed transaction")
 				assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS t2_ddl_test")
 			},
 		},
 		{
@@ -473,7 +506,6 @@ func explicitTransactionTestCases() []transactionTestCase {
 				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM txn_explicit_test")
 				require.NoError(t, err)
 				assert.Equal(t, "2", string(results[0].Rows[0].Values[0]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS txn_explicit_test")
 			},
 		},
 		{
@@ -504,7 +536,6 @@ func explicitTransactionTestCases() []transactionTestCase {
 				require.NoError(t, err)
 				assert.Equal(t, "1", string(results[0].Rows[0].Values[0]),
 					"Only Alice should exist after rollback")
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS txn_rollback_test")
 			},
 		},
 		{
@@ -538,7 +569,6 @@ func explicitTransactionTestCases() []transactionTestCase {
 				require.Len(t, results[0].Rows, 2, "Alice and Charlie should exist")
 				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[1]))
 				assert.Equal(t, "Charlie", string(results[0].Rows[1].Values[1]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS txn_savepoint_test")
 			},
 		},
 		{
@@ -575,7 +605,6 @@ func explicitTransactionTestCases() []transactionTestCase {
 				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM txn_abort_test")
 				require.NoError(t, err)
 				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]))
-				_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS txn_abort_test")
 			},
 		},
 	}
