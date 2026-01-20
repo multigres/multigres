@@ -22,7 +22,6 @@ package multiorch
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,7 +31,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/test/endtoend"
+
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -95,6 +94,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
+
+	_, err = primaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
+	require.NoError(t, err)
+	defer func() {
+		_, _ = primaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
+	}()
 
 	t.Logf("Starting continuous writes to primary...")
 	validator.Start(t)
@@ -191,7 +196,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.Contains(t, leaderID, newPrimaryName, "leader_id should contain new primary name")
 		// Verify coordinator_id matches the multiorch's cell_name format
 		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := fmt.Sprintf("%s_multiorch", setup.CellName)
+		expectedCoordinatorID := setup.CellName + "_multiorch"
 		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
 		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
@@ -228,7 +233,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		t.Logf("New primary LSN: %s", primaryLSN)
 
 		// Collect pooler clients for the surviving nodes and wait for replica to catch up
-		var poolers []*endtoend.MultiPoolerTestClient
+		var poolers []*shardsetup.MultiPoolerTestClient
 		poolers = append(poolers, newPrimaryClient.Pooler)
 
 		for name, inst := range setup.Multipoolers {

@@ -17,6 +17,7 @@ package manager
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,6 +37,11 @@ import (
 func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
 	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 
+	// Wait for topology to be loaded (needed for backup location)
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+
 	// Acquire action lock
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
@@ -43,6 +49,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Pause monitoring during initialization to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer resumeMonitor(ctx)
 
 	// Validate consensus term must be 1 for new primary
 	if req.ConsensusTerm != 1 {
@@ -169,129 +182,6 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{
 		Success:  true,
 		BackupId: backupID,
-	}, nil
-}
-
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-func (pm *MultiPoolerManager) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	// Validate primary is provided
-	if req.Primary == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary is required")
-	}
-
-	// Extract primary connection info
-	primaryHost := req.Primary.Hostname
-	primaryPort, ok := req.Primary.PortMap["postgres"]
-	if !ok {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "primary MultiPooler has no postgres port configured")
-	}
-
-	// Store primary pooler ID so we can track which primary we're replicating from
-	pm.mu.Lock()
-	pm.primaryPoolerID = req.Primary.Id
-	pm.primaryHost = primaryHost
-	pm.primaryPort = primaryPort
-	pm.mu.Unlock()
-
-	pm.logger.InfoContext(ctx, "InitializeAsStandby called",
-		"shard", pm.getShardID(),
-		"primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort),
-		"term", req.ConsensusTerm,
-		"force", req.Force)
-
-	// Acquire action lock
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "InitializeAsStandby")
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to acquire action lock")
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// 1. Check for existing data directory
-	if pm.hasDataDirectory() {
-		if !req.Force {
-			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "data directory already exists, use force=true to reinitialize")
-		}
-		// Remove data directory if force
-		pm.logger.InfoContext(ctx, "Force reinit: removing data directory", "shard", pm.getShardID())
-		if err := pm.removeDataDirectory(); err != nil {
-			return nil, mterrors.Wrap(err, "failed to remove data directory")
-		}
-	}
-
-	// 2. Restore from the specified backup (or latest if not specified)
-	if req.BackupId != "" {
-		pm.logger.InfoContext(ctx, "Restoring from specified backup", "backup_id", req.BackupId, "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
-	} else {
-		pm.logger.InfoContext(ctx, "Restoring from latest backup on primary", "primary", fmt.Sprintf("%s:%d", primaryHost, primaryPort))
-	}
-
-	// Restore from backup (empty string means latest)
-	// restoreFromBackupLocked will check that this is a standby and start PostgreSQL in standby mode
-	err = pm.restoreFromBackupLocked(ctx, req.BackupId)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to restore from backup")
-	}
-
-	if req.BackupId != "" {
-		pm.logger.InfoContext(ctx, "Successfully restored from specified backup", "backup_id", req.BackupId)
-	} else {
-		pm.logger.InfoContext(ctx, "Successfully restored from latest backup")
-	}
-
-	// Note: RestoreFromBackup already restarted PostgreSQL as standby, so we skip
-	// the explicit restart here. The standby.signal is already in place.
-
-	// Extract final LSN from backup metadata
-	backups, err := pm.getBackupsLocked(ctx, 1) // Get latest backup
-	if err != nil {
-		pm.logger.WarnContext(ctx, "Failed to get backup metadata for LSN", "error", err)
-		// Non-fatal: we can continue without LSN
-	}
-
-	finalLSN := ""
-	if len(backups) > 0 && backups[0].FinalLsn != "" {
-		finalLSN = backups[0].FinalLsn
-		pm.logger.InfoContext(ctx, "Backup LSN captured", "backup_id", backups[0].BackupId, "final_lsn", finalLSN)
-	} else {
-		pm.logger.WarnContext(ctx, "No LSN available from backup metadata")
-	}
-
-	// 3. Wait for database connection
-	if err := pm.waitForDatabaseConnection(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to connect to database")
-	}
-
-	// 4. Configure primary_conninfo now that PostgreSQL is running
-	// Use the locked version since we're already holding the action lock
-	pm.logger.InfoContext(ctx, "Configuring primary connection info", "primary_host", primaryHost, "primary_port", primaryPort)
-	if err := pm.setPrimaryConnInfoLocked(ctx, primaryHost, primaryPort, false, true); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set primary_conninfo")
-	}
-
-	// 5. Set consensus term
-	if pm.consensusState != nil {
-		if err := pm.consensusState.UpdateTermAndSave(ctx, req.ConsensusTerm); err != nil {
-			return nil, mterrors.Wrap(err, "failed to set consensus term")
-		}
-	}
-
-	// 6. Set pooler type to REPLICA
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-		return nil, mterrors.Wrap(err, "failed to set pooler type")
-	}
-
-	// Mark as initialized after successful standby initialization.
-	// This sets the cached boolean and writes the marker file.
-	if err := pm.setInitialized(); err != nil {
-		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby", "shard", pm.getShardID(), "term", req.ConsensusTerm)
-	return &multipoolermanagerdatapb.InitializeAsStandbyResponse{
-		Success:  true,
-		FinalLsn: finalLSN,
 	}, nil
 }
 
@@ -444,7 +334,7 @@ func (pm *MultiPoolerManager) getShardID() string {
 // removeDataDirectory removes the PostgreSQL data directory
 func (pm *MultiPoolerManager) removeDataDirectory() error {
 	if pm.config == nil || pm.config.PoolerDir == "" {
-		return fmt.Errorf("pooler directory path not configured")
+		return errors.New("pooler directory path not configured")
 	}
 
 	dataDir := filepath.Join(pm.config.PoolerDir, "pg_data")

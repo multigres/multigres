@@ -591,7 +591,7 @@ func (s *SelectStmt) SqlString() string {
 				valueRows = append(valueRows, fmt.Sprintf("(%s)", strings.Join(values, ", ")))
 			}
 		}
-		return fmt.Sprintf("VALUES %s", strings.Join(valueRows, ", "))
+		return "VALUES " + strings.Join(valueRows, ", ")
 	}
 
 	// Regular SELECT statement
@@ -1343,7 +1343,7 @@ func (cc *CTECycleClause) SqlString() string {
 			PrintAExprConst(cc.CycleMarkDefault))
 	}
 
-	result += fmt.Sprintf(" USING %s", cc.CyclePathColumn)
+	result += " USING " + cc.CyclePathColumn
 
 	return result
 }

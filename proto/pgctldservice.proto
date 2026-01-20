@@ -195,17 +195,21 @@ message InitDataDirResponse {
 
 // PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 message PgRewindRequest {
-  // Source server connection string (--source-server)
-  // Format: "host=<hostname> port=<port> user=<user> dbname=<dbname>"
-  string source_server = 1;
+  // Source server hostname
+  string source_host = 1;
+
+  // Source server port
+  int32 source_port = 2;
 
   // Perform a dry run without making changes (--dry-run)
-  bool dry_run = 2;
+  bool dry_run = 3;
 
   // Additional pg_rewind command line arguments
-  repeated string extra_args = 3;
+  repeated string extra_args = 4;
 }
 
 message PgRewindResponse {
+  // Status message
+  string message = 1;
+  string output = 2;
 }
-

@@ -15,6 +15,7 @@
 package executor
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,7 +28,7 @@ import (
 // Each destination should be a pointer to a supported type (bool, string, int, int32, int64, float64, time.Time).
 func ScanRow(row *sqltypes.Row, dests ...any) error {
 	if row == nil {
-		return fmt.Errorf("row is nil")
+		return errors.New("row is nil")
 	}
 	if len(row.Values) < len(dests) {
 		return fmt.Errorf("not enough columns: got %d, want %d", len(row.Values), len(dests))
@@ -46,7 +47,7 @@ func ScanRow(row *sqltypes.Row, dests ...any) error {
 // Returns an error if the result has no rows.
 func ScanSingleRow(result *sqltypes.Result, dests ...any) error {
 	if result == nil || len(result.Rows) == 0 {
-		return fmt.Errorf("no rows in result")
+		return errors.New("no rows in result")
 	}
 	return ScanRow(result.Rows[0], dests...)
 }
@@ -208,7 +209,7 @@ func scanValue(val []byte, dest any) error {
 func getValue[T any](row *sqltypes.Row, col int) (T, error) {
 	var result T
 	if row == nil {
-		return result, fmt.Errorf("row is nil")
+		return result, errors.New("row is nil")
 	}
 	if col >= len(row.Values) {
 		return result, fmt.Errorf("column index %d out of range", col)

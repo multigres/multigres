@@ -55,6 +55,11 @@ export interface MultiPooler {
   port_map?: PortMap;
 }
 
+// Enriched pooler with status information
+export interface MultiPoolerWithStatus extends MultiPooler {
+  status?: PoolerStatus;
+}
+
 export type PoolerType = "PRIMARY" | "REPLICA";
 
 // MultiOrch from clustermetadata.proto
@@ -66,7 +71,12 @@ export interface MultiOrch {
 
 // Job types and status
 export type JobType = "UNKNOWN" | "BACKUP" | "RESTORE";
-export type JobStatus = "UNKNOWN" | "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+export type JobStatus =
+  | "UNKNOWN"
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED";
 export type BackupStatus = "UNKNOWN" | "INCOMPLETE" | "COMPLETE" | "FAILED";
 
 // BackupInfo from GetBackups
@@ -166,4 +176,50 @@ export interface GetBackupsRequest {
 
 export interface GetBackupsResponse {
   backups: BackupInfo[];
+}
+
+// Pooler Status types
+
+export interface GetPoolerStatusRequest {
+  poolerId: ID;
+}
+
+export interface GetPoolerStatusResponse {
+  status: PoolerStatus;
+}
+
+export interface PoolerStatus {
+  pooler_type?: PoolerType;
+  primary_status?: PrimaryStatus;
+  replication_status?: StandbyReplicationStatus;
+  is_initialized?: boolean;
+  has_data_directory?: boolean;
+  postgres_running?: boolean;
+  postgres_role?: string;
+  wal_position?: string;
+  consensus_term?: string;
+  shard_id?: string;
+}
+
+export interface PrimaryStatus {
+  lsn?: string;
+  ready?: boolean;
+  connected_followers?: ID[];
+  sync_replication_config?: SyncReplicationConfig;
+}
+
+export interface SyncReplicationConfig {
+  synchronous_commit?: string;
+  synchronous_method?: string;
+  num_sync?: number;
+  standby_ids?: ID[];
+}
+
+export interface StandbyReplicationStatus {
+  last_replay_lsn?: string;
+  last_receive_lsn?: string;
+  is_wal_replay_paused?: boolean;
+  wal_replay_pause_state?: string;
+  lag?: string; // Duration as string (e.g., "5s")
+  last_xact_replay_timestamp?: string;
 }

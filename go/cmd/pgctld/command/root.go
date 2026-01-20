@@ -16,6 +16,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -173,7 +174,7 @@ func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) e
 	// Validate pooler-dir is required and non-empty for all commands
 	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {
-		return fmt.Errorf("pooler-dir needs to be set")
+		return errors.New("pooler-dir needs to be set")
 	}
 
 	// If pg-hba-template is specified, read and replace the default template

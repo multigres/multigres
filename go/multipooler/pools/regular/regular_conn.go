@@ -17,15 +17,16 @@ package regular
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/client"
-	"github.com/multigres/multigres/go/pgprotocol/protocol"
 )
 
 // Conn wraps a client.Conn with session state management.
@@ -296,7 +297,7 @@ func (c *Conn) SecretKey() uint32 {
 // Requires adminPool to be set; returns error if adminPool is nil.
 func (c *Conn) Kill(ctx context.Context) error {
 	if c.adminPool == nil {
-		return fmt.Errorf("cannot kill connection: admin pool not configured")
+		return errors.New("cannot kill connection: admin pool not configured")
 	}
 	_, err := c.adminPool.TerminateBackend(ctx, c.ProcessID())
 	return err

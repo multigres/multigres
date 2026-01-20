@@ -16,7 +16,7 @@ package manager
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -276,7 +276,7 @@ func TestBeginTerm(t *testing.T) {
 				// isInRecovery check - returns true (in recovery = standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				// WAL receiver query returns error (disconnected standby)
-				m.AddQueryPatternOnceWithError("SELECT last_msg_receipt_time", fmt.Errorf("no rows"))
+				m.AddQueryPatternOnceWithError("SELECT last_msg_receipt_time", errors.New("no rows"))
 				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// pauseReplication - pg_reload_conf
@@ -830,8 +830,9 @@ func TestConsensusStatus(t *testing.T) {
 						"pg_get_wal_replay_pause_state",
 						"pg_last_xact_replay_timestamp",
 						"current_setting",
+						"wal_receiver_status",
 					},
-					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, ""}}))
+					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, "", "streaming"}}))
 			},
 			expectedCurrentTerm: 3,
 			expectedIsHealthy:   true,
@@ -862,7 +863,7 @@ func TestConsensusStatus(t *testing.T) {
 			termInMemory: true,
 			setupMock: func(m *mock.QueryService) {
 				// Health check fails
-				m.AddQueryPatternOnceWithError("^SELECT 1$", fmt.Errorf("connection refused"))
+				m.AddQueryPatternOnceWithError("^SELECT 1$", errors.New("connection refused"))
 			},
 			expectedCurrentTerm: 4,
 			expectedIsHealthy:   false,

@@ -144,9 +144,6 @@ type MultiPoolerClient interface {
 	// InitializeEmptyPrimary initializes the multipooler as an empty primary.
 	InitializeEmptyPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error)
 
-	// InitializeAsStandby initializes the multipooler as a standby from a primary.
-	InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error)
-
 	//
 	// Manager Service Methods - Status and Monitoring
 	//
@@ -220,6 +217,9 @@ type MultiPoolerClient interface {
 	// UndoDemote undoes a demotion.
 	UndoDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error)
 
+	// DemoteStalePrimary demotes a stale primary that came back after failover.
+	DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error)
+
 	//
 	// Manager Service Methods - Type and Term Management
 	//
@@ -262,6 +262,13 @@ type MultiPoolerClient interface {
 
 	// RewindToSource performs pg_rewind to synchronize a replica with its source.
 	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
+
+	//
+	// Manager Service Methods - PostgreSQL Monitoring Control
+	//
+
+	// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
+	SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error)
 
 	//
 	// Connection Management Methods

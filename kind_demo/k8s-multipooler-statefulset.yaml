@@ -33,17 +33,16 @@ data:
     host    replication     all             ::0/0                   trust
 
     # IPv4 local connections:
-    host    all             all             127.0.0.1/32            scram-sha-256
-    host    all             all             ::1/128                 scram-sha-256
+    host    all     all             0.0.0.0/0                       trust
+    host    all     all             ::0/0                           trust
 
     # IPv4 external connections
-    host    all             all             10.0.0.0/8              scram-sha-256
-    host    all             all             172.16.0.0/12           scram-sha-256
-    host    all             all             192.168.0.0/16          scram-sha-256
-    host    all             all             0.0.0.0/0               scram-sha-256
+    host    all     all             0.0.0.0/0                       trust
+    host    all     all             ::0/0                           trust
 
     # IPv6 external connections
-    host    all             all             ::0/0                   scram-sha-256
+    host    all     all             ::0/0                           trust
+
 ---
 apiVersion: v1
 kind: Service
@@ -87,6 +86,21 @@ spec:
         app: multipooler
         cell: zone1
     spec:
+      initContainers:
+        - name: setup-certs
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              cp /certs-secret/* /certs/
+              chmod 600 /certs/*.key
+              chmod 644 /certs/*.crt
+          volumeMounts:
+            - name: certs-secret
+              mountPath: /certs-secret
+            - name: certs
+              mountPath: /certs
       containers:
         - name: multipooler
           image: docker.io/multigres/multigres:latest
@@ -109,8 +123,8 @@ spec:
             - --socket-file=/data/pg_sockets/.s.PGSQL.5432
             - --grpc-socket-file=/data/multipooler.sock
             - --service-map=grpc-pooler
-            - --pgbackrest-cert-file=/certs/pgbackrest.crt
-            - --pgbackrest-key-file=/certs/pgbackrest.key
+            - --pgbackrest-cert-file=/certs/tls.crt
+            - --pgbackrest-key-file=/certs/tls.key
             - --pgbackrest-ca-file=/certs/ca.crt
             - --pgbackrest-port=8432
             - --pprof-http=true
@@ -136,6 +150,9 @@ spec:
               mountPath: /certs
             - name: backup-data
               mountPath: /backups
+            - name: sampling-config
+              mountPath: /etc/otel
+              readOnly: true
           env:
             - name: POD_NAME
               valueFrom:
@@ -145,6 +162,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+            - name: MT_CELL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['cell']
             - name: OTEL_SERVICE_NAME
               value: "multipooler"
           envFrom:
@@ -229,6 +250,9 @@ spec:
           hostPath:
             path: /data
             type: DirectoryOrCreate
+        - name: certs-secret
+          secret:
+            secretName: pgbackrest-tls
         - name: certs
           hostPath:
             path: /data/certs
@@ -240,3 +264,6 @@ spec:
         - name: pg-hba-template
           configMap:
             name: pg-hba-template
+        - name: sampling-config
+          configMap:
+            name: sampling-config

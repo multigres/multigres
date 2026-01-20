@@ -16,14 +16,13 @@ package shardsetup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/multigres/multigres/go/test/endtoend"
 )
 
 // WriterValidator continuously writes to a test table and tracks successful/failed writes.
@@ -33,7 +32,7 @@ type WriterValidator struct {
 	workerCount   int
 	writeInterval time.Duration
 
-	pooler *endtoend.MultiPoolerTestClient
+	pooler *MultiPoolerTestClient
 
 	nextID atomic.Int64
 
@@ -66,7 +65,7 @@ func WithWriteInterval(interval time.Duration) WriterValidatorOption {
 
 // NewWriterValidator creates a new WriterValidator for the given pooler.
 // It creates the test table immediately and returns a cleanup function that drops it.
-func NewWriterValidator(t *testing.T, pooler *endtoend.MultiPoolerTestClient, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
+func NewWriterValidator(t *testing.T, pooler *MultiPoolerTestClient, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
 	t.Helper()
 	w := &WriterValidator{
 		tableName:     fmt.Sprintf("writer_validator_%d", time.Now().UnixNano()),
@@ -104,7 +103,7 @@ func (w *WriterValidator) createTable(ctx context.Context) error {
 
 // dropTable drops the test table.
 func (w *WriterValidator) dropTable(ctx context.Context) error {
-	query := fmt.Sprintf("DROP TABLE IF EXISTS %s", w.tableName)
+	query := "DROP TABLE IF EXISTS " + w.tableName
 	_, err := w.pooler.ExecuteQuery(ctx, query, 0)
 	return err
 }
@@ -214,7 +213,7 @@ func (w *WriterValidator) Stats() (successful, failed int) {
 }
 
 // Verify checks that all successful writes are present in at least one of the provided poolers.
-func (w *WriterValidator) Verify(t *testing.T, poolers []*endtoend.MultiPoolerTestClient) error {
+func (w *WriterValidator) Verify(t *testing.T, poolers []*MultiPoolerTestClient) error {
 	t.Helper()
 
 	w.mu.Lock()
@@ -223,14 +222,14 @@ func (w *WriterValidator) Verify(t *testing.T, poolers []*endtoend.MultiPoolerTe
 	w.mu.Unlock()
 
 	if len(successfulIDs) == 0 {
-		return fmt.Errorf("no successful writes to verify")
+		return errors.New("no successful writes to verify")
 	}
 
 	// Build set of all IDs found across all poolers
 	foundIDs := make(map[int64]bool)
 
 	for _, pooler := range poolers {
-		query := fmt.Sprintf("SELECT id FROM %s", w.tableName)
+		query := "SELECT id FROM " + w.tableName
 		resp, err := pooler.ExecuteQuery(t.Context(), query, 0)
 		if err != nil {
 			return fmt.Errorf("failed to execute query: %w", err)

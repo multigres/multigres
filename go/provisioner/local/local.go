@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -182,7 +183,7 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 
 	dir, ok := etcdConfig["data-dir"].(string)
 	if !ok {
-		return nil, fmt.Errorf("etcd data directory not found in config")
+		return nil, errors.New("etcd data directory not found in config")
 	}
 
 	dataDir := dir
@@ -344,7 +345,7 @@ func (p *localProvisioner) readServiceLogs(logFile string, lines int) string {
 
 	// Check if log file exists
 	if _, err := os.Stat(logFile); os.IsNotExist(err) {
-		return fmt.Sprintf("Log file not found: %s", logFile)
+		return "Log file not found: " + logFile
 	}
 
 	// Read the file
@@ -381,7 +382,7 @@ func (p *localProvisioner) getRootWorkingDir() string {
 
 // GeneratePoolerDir generates a pooler directory path for a given base directory and service ID
 func GeneratePoolerDir(baseDir, serviceID string) string {
-	return filepath.Join(baseDir, "data", fmt.Sprintf("pooler_%s", serviceID))
+	return filepath.Join(baseDir, "data", "pooler_"+serviceID)
 }
 
 // provisionMultigateway provisions multigateway using either binaries or Docker containers
@@ -464,9 +465,9 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 
 	// Build command arguments
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
-		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
+		"--pg-port", strconv.Itoa(pgPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--cell", cell,
@@ -598,8 +599,8 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 
 	// Build command arguments
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--log-level", logLevel,
@@ -789,8 +790,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Build command arguments with pgctld-addr
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--cell", cell,
@@ -802,7 +803,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--log-level", logLevel,
 		"--log-output", logFile,
 		"--pooler-dir", poolerDir,
-		"--pg-port", fmt.Sprintf("%d", pgPort),
+		"--pg-port", strconv.Itoa(pgPort),
 		"--hostname", "localhost",
 		"--connpool-admin-password", "postgres", // Password created in initializePgctldDirectories
 		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
@@ -831,7 +832,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
 		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
 		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
-		"--pgbackrest-port", fmt.Sprintf("%d", pgbackrestPort),
+		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
 	)
 
 	// Start multipooler process
@@ -969,8 +970,8 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 
 	// Build command arguments
 	args := []string{
-		"--http-port", fmt.Sprintf("%d", httpPort),
-		"--grpc-port", fmt.Sprintf("%d", grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
+		"--grpc-port", strconv.Itoa(grpcPort),
 		"--topo-global-server-addresses", etcdAddress,
 		"--topo-global-root", topoGlobalRoot,
 		"--cell", cell,
@@ -1124,7 +1125,7 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 			return err
 		}
 		if service == nil {
-			return fmt.Errorf("pgctld service not found")
+			return errors.New("pgctld service not found")
 		}
 		return p.deprovisionPgctld(ctx, service)
 	default:
@@ -1141,7 +1142,7 @@ func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisio
 	}
 
 	if service == nil {
-		return fmt.Errorf("service not found")
+		return errors.New("service not found")
 	}
 
 	// Stop the process if it's running
@@ -1561,11 +1562,11 @@ func getGRPCSocketFile(serviceConfig map[string]any) (string, error) {
 // getDefaultDatabaseName returns the default database name from config
 func (p *localProvisioner) getDefaultDatabaseName() (string, error) {
 	if p.config == nil {
-		return "", fmt.Errorf("provisioner config not set")
+		return "", errors.New("provisioner config not set")
 	}
 
 	if p.config.DefaultDbName == "" {
-		return "", fmt.Errorf("default-dbname not specified in configuration")
+		return "", errors.New("default-dbname not specified in configuration")
 	}
 
 	return p.config.DefaultDbName, nil
@@ -1857,7 +1858,7 @@ func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName
 // getTopologyConfig extracts topology configuration from provisioner config
 func (p *localProvisioner) getTopologyConfig() (*TopologyConfig, error) {
 	if p.config == nil {
-		return nil, fmt.Errorf("provisioner config not set")
+		return nil, errors.New("provisioner config not set")
 	}
 
 	return &p.config.Topology, nil
@@ -1866,11 +1867,11 @@ func (p *localProvisioner) getTopologyConfig() (*TopologyConfig, error) {
 // getAllCells returns all configured cells
 func (p *localProvisioner) getAllCells() ([]CellConfig, error) {
 	if p.config == nil {
-		return nil, fmt.Errorf("provisioner config not set")
+		return nil, errors.New("provisioner config not set")
 	}
 
 	if len(p.config.Topology.Cells) == 0 {
-		return nil, fmt.Errorf("no cells configured")
+		return nil, errors.New("no cells configured")
 	}
 
 	return p.config.Topology.Cells, nil
@@ -1893,11 +1894,11 @@ func (p *localProvisioner) getCellNames() ([]string, error) {
 // getCellByName returns the cell configuration for a specific cell name
 func (p *localProvisioner) getCellByName(cellName string) (*CellConfig, error) {
 	if p.config == nil {
-		return nil, fmt.Errorf("provisioner config not set")
+		return nil, errors.New("provisioner config not set")
 	}
 
 	if len(p.config.Topology.Cells) == 0 {
-		return nil, fmt.Errorf("no cells configured")
+		return nil, errors.New("no cells configured")
 	}
 
 	// Find the specific cell by name
@@ -1924,10 +1925,10 @@ func (p *localProvisioner) ValidateConfig(config map[string]any) error {
 
 	// Validate required topology fields
 	if typedConfig.Topology.GlobalRootPath == "" {
-		return fmt.Errorf("topology global-root-path is required")
+		return errors.New("topology global-root-path is required")
 	}
 	if len(typedConfig.Topology.Cells) == 0 {
-		return fmt.Errorf("topology must have at least one cell configured")
+		return errors.New("topology must have at least one cell configured")
 	}
 	// Validate each cell
 	for i, cell := range typedConfig.Topology.Cells {
@@ -1969,7 +1970,7 @@ func (p *localProvisioner) validateUnixSocketPathLength(config *LocalProvisioner
 	maxServiceIDLength := 8
 	worstCasePoolerSocketPath := []string{
 		"data",
-		fmt.Sprintf("pooler_%s", strings.Repeat("x", maxServiceIDLength)),
+		"pooler_" + strings.Repeat("x", maxServiceIDLength),
 		"pg_sockets",
 		".s.PGSQL.5432",
 	}

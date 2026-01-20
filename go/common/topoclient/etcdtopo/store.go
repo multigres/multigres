@@ -145,7 +145,7 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 	config := clientv3.Config{
 		Endpoints:   serverAddrs,
 		DialTimeout: time.Second,
-		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // nolint:staticcheck
+		DialOptions: []grpc.DialOption{grpc.WithBlock()}, //nolint:staticcheck
 	}
 
 	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)

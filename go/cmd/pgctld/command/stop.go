@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -175,7 +176,7 @@ func stopWithPgCtlWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConf
 		"stop",
 		"-D", config.PostgresDataDir,
 		"-m", mode,
-		"-t", fmt.Sprintf("%d", config.Timeout),
+		"-t", strconv.Itoa(config.Timeout),
 	}
 
 	cmd := exec.Command("pg_ctl", args...)
@@ -193,7 +194,7 @@ func takeCheckpoint(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	args := []string{
 		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-c", "CHECKPOINT;",

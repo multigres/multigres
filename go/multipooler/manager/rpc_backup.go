@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -34,7 +35,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // PgBackRestConfigMode specifies how initPgBackRest should create the config file
@@ -94,6 +94,11 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		if err := os.MkdirAll(lockPath, 0o755); err != nil {
 			return "", fmt.Errorf("failed to create lock directory %s: %w", lockPath, err)
 		}
+	}
+
+	// Validate backup location is set (requires topology to be loaded)
+	if pm.backupLocation == "" {
+		return "", errors.New("backup location not set; topology may not be loaded yet")
 	}
 
 	// Generate pgbackrest config file from template
@@ -202,6 +207,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
+	pm.logger.InfoContext(ctx, "Starting backup operation", "backup_location", pm.backupLocation, "backup_type", backupType)
+
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
@@ -263,8 +270,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
 
-	// Capture output for logging
-	output, err := cmd.CombinedOutput()
+	// Execute backup with progress logging
+	output, err := pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
@@ -287,7 +294,8 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		"--set="+foundBackupID,
 		"verify")
 
-	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
+	// Execute verify with progress logging
+	verifyOutput, verifyErr := pm.runLongCommand(verifyCtx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
@@ -324,14 +332,24 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during restore to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return err
+	}
+	defer resumeMonitor(ctx)
+
 	return pm.restoreFromBackupLocked(ctx, backupID)
 }
 
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock
+// and monitoring must be disabled to avoid interference.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+
+	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_location", pm.backupLocation, "backup_id", backupID)
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -353,6 +371,21 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
 		return err
 	}
+
+	// Set consensus term after restore.
+	// If the cluster is at a higher term,
+	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
+	var term int64 = 0
+	if pm.consensusState != nil {
+		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
+		pm.loadConsensusTermFromDisk()
+		term = pm.consensusState.term.TermNumber
+	}
+
+	if term == 0 {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
+	}
+
 	if err := pm.reopenPoolerManager(ctx); err != nil {
 		return err
 	}
@@ -775,7 +808,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 
 	if len(matchedBackups) == 0 {
 		return "", mterrors.New(mtrpcpb.Code_NOT_FOUND,
-			fmt.Sprintf("no backup found with job_id=%s", jobID))
+			"no backup found with job_id="+jobID)
 	}
 
 	if len(matchedBackups) > 1 {
@@ -785,166 +818,6 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	}
 
 	return matchedBackups[0], nil
-}
-
-// tryAutoRestoreFromBackup attempts to restore from backup if the pooler is uninitialized.
-// This runs as an independent goroutine started by Start().
-// It waits for topo to be loaded, then retries until:
-// - A backup is found and restore succeeds
-// - The pooler becomes initialized (by an RPC)
-// - The context is cancelled
-//
-// Auto-restore only applies to REPLICA poolers. PRIMARY poolers must be explicitly
-// initialized via InitializeEmptyPrimary RPC.
-func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) {
-	// Wait for manager to be ready (topo loaded) before checking initialization state
-	pm.waitForReady(ctx)
-
-	// Check context after waiting
-	if ctx.Err() != nil {
-		pm.logger.InfoContext(ctx, "Auto-restore: context cancelled while waiting for topo")
-		return
-	}
-
-	// TODO: Handle partial initialization state (data dir exists but no marker).
-	// Currently we proceed as if uninitialized, which may cause issues if
-	// PostgreSQL is partially set up. Options for future:
-	// - Detect and cleanup automatically (with explicit flag)
-	// - Detect and block startup, require manual intervention
-
-	// Check if already initialized - skip if so (no retry needed)
-	if pm.isInitialized(ctx) {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler already initialized")
-		return
-	}
-
-	// Skip if data directory exists - pooler was initialized at some point.
-	// This prevents restore attempts when the pooler has data but the
-	// initialization marker was lost or the pooler is temporarily down.
-	if pm.hasDataDirectory() {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: data directory already exists")
-		return
-	}
-
-	// Only auto-restore REPLICA poolers - PRIMARY must be explicitly initialized.
-	poolerType := pm.getPoolerType()
-	if poolerType != clustermetadatapb.PoolerType_REPLICA {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: only REPLICA poolers auto-restore", "pooler_type", poolerType.String())
-		return
-	}
-
-	pm.logger.InfoContext(ctx, "Auto-restore: pooler is uninitialized, checking for backups")
-
-	// Retry loop: keep trying until we succeed or context is cancelled
-	r := retry.New(pm.autoRestoreRetryInterval, pm.autoRestoreRetryInterval)
-	for attempt, err := range r.Attempts(ctx) {
-		if err != nil {
-			pm.logger.InfoContext(ctx, "Auto-restore: context cancelled", "attempts", attempt, "error", err)
-			return
-		}
-
-		if attempt > 1 {
-			pm.logger.InfoContext(ctx, "Auto-restore: retrying", "attempt", attempt)
-		}
-
-		_, done := pm.tryAutoRestoreOnce(ctx)
-		if done {
-			// Either succeeded or determined should not retry
-			return
-		}
-		// continue to next iteration for retry
-	}
-}
-
-// tryAutoRestoreOnce attempts a single auto-restore from backup.
-// Returns (success, done) where:
-//   - success=true, done=true: restore completed successfully
-//   - success=false, done=true: should not retry (e.g., already initialized)
-//   - success=false, done=false: should retry
-func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success bool, done bool) {
-	// Acquire action lock to prevent races with initialization RPCs.
-	// This ensures InitializeEmptyPrimary/InitializeAsStandby can't run concurrently.
-	lockCtx, err := pm.actionLock.Acquire(ctx, "tryAutoRestoreFromBackup")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: failed to acquire action lock, will retry", "error", err)
-		return false, false
-	}
-	defer pm.actionLock.Release(lockCtx)
-
-	// Check if we were initialized while waiting (by an RPC)
-	if pm.isInitialized(lockCtx) {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler was initialized while waiting")
-		return false, true
-	}
-
-	// Check for available backups
-	backups, err := pm.listBackups(lockCtx)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: failed to check for backups, will retry", "error", err)
-		return false, false
-	}
-	if len(backups) == 0 {
-		// No backups at all - this is a fresh cluster. Bootstrap will handle
-		// initialization, so don't retry auto-restore. This prevents a race
-		// where auto-restore picks up a backup created during bootstrap before
-		// bootstrap can initialize this pooler as a standby.
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: no backups exist for shard (fresh cluster, bootstrap will initialize)")
-		return false, true // done, don't retry
-	}
-
-	// Filter to only complete backups for auto-restore
-	var completeBackups []*multipoolermanagerdata.BackupMetadata
-	for _, b := range backups {
-		if b.Status == multipoolermanagerdata.BackupMetadata_COMPLETE {
-			completeBackups = append(completeBackups, b)
-		}
-	}
-
-	if len(completeBackups) == 0 {
-		// Backups exist but none are complete yet - wait for completion
-		pm.logger.InfoContext(ctx, "Auto-restore: no complete backups available yet, will retry",
-			"total_backups", len(backups))
-		return false, false
-	}
-
-	// Use the latest complete backup (last in the list from pgbackrest, according to
-	// pgbackrest docs)
-	latestBackup := completeBackups[len(completeBackups)-1]
-	pm.logger.InfoContext(ctx, "Auto-restore: found backup, attempting restore",
-		"backup_id", latestBackup.BackupId,
-		"total_backups", len(backups))
-
-	// Perform the restore using restoreFromBackupLocked
-	// This ensures consistent behavior between auto-restore and explicit RestoreFromBackup RPC
-	pm.logger.InfoContext(ctx, "Executing auto-restore from backup", "backup_id", latestBackup.BackupId)
-	if err := pm.restoreFromBackupLocked(lockCtx, latestBackup.BackupId); err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: restore failed, will retry",
-			"backup_id", latestBackup.BackupId,
-			"error", err)
-		return false, false
-	}
-
-	// Set consensus term after restore.
-	// If the cluster is at a higher term,
-	// validateAndUpdateTerm will automatically update our term when multiorc fixes replication.
-	var term int64 = 0
-	if pm.consensusState != nil {
-		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
-		pm.loadConsensusTermFromDisk()
-		term = pm.consensusState.term.TermNumber
-	}
-
-	if term == 0 {
-		pm.logger.ErrorContext(ctx, "Auto-restore: term is uninitialized even after restore")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully initialized pooler as standby via auto-restore",
-		"shard", pm.getShardID(),
-		"term", term,
-		"backup_id", latestBackup.BackupId,
-	)
-
-	return true, true
 }
 
 // GetBackupByJobId searches for a backup with the given job_id annotation.
@@ -992,4 +865,54 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // pgbackrestPath returns the path to the pgbackrest config and data directory
 func (pm *MultiPoolerManager) pgbackrestPath() string {
 	return filepath.Join(pm.config.PoolerDir, "pgbackrest")
+}
+
+// runLongCommand executes a long-running command with periodic progress logging.
+// Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
+// to ensure proper cleanup on context cancellation.
+func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
+	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
+
+	startTime := time.Now()
+
+	// Create a context for the logging goroutine
+	logCtx, cancelLog := context.WithCancel(ctx)
+
+	// Log progress periodically in background
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-logCtx.Done():
+				return
+			case <-ticker.C:
+				elapsed := time.Since(startTime)
+				pm.logger.InfoContext(ctx, "Command still in progress",
+					"operation", operationName,
+					"elapsed_seconds", int(elapsed.Seconds()))
+			}
+		}
+	}()
+
+	// Run command in main goroutine
+	output, err := cmd.CombinedOutput()
+
+	cancelLog()
+
+	// Log completion
+	elapsed := time.Since(startTime)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Command failed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()),
+			"error", err)
+	} else {
+		pm.logger.InfoContext(ctx, "Command completed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()))
+	}
+
+	return output, err
 }

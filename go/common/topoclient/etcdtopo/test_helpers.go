@@ -16,6 +16,7 @@ package etcdtopo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -70,7 +71,7 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 			return fmt.Errorf("etcd failed to become ready: %w", err)
 		}
 
-		url := fmt.Sprintf("%s/readyz", clientAddr)
+		url := clientAddr + "/readyz"
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
@@ -89,7 +90,7 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 		lastErr = nil
 		lastStatusCode = resp.StatusCode
 	}
-	return fmt.Errorf("etcd failed to become ready")
+	return errors.New("etcd failed to become ready")
 }
 
 // EtcdOptions contains optional configuration for starting etcd.

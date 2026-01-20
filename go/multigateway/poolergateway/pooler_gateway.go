@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -213,7 +214,8 @@ func (pg *PoolerGateway) getOrCreateConnection(
 
 	// Create gRPC connection (non-blocking in newer gRPC)
 	conn, err := grpccommon.NewClient(addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
+		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for pooler %s at %s: %w", poolerID, addr, err)

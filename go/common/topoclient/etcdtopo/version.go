@@ -14,9 +14,7 @@
 
 package etcdtopo
 
-import (
-	"fmt"
-)
+import "strconv"
 
 // EtcdVersion is etcd's idea of a version.
 // It implements topoclient.Version.
@@ -25,5 +23,5 @@ type EtcdVersion int64
 
 // String is part of the topoclient.Version interface.
 func (v EtcdVersion) String() string {
-	return fmt.Sprintf("%v", int64(v))
+	return strconv.FormatInt(int64(v), 10)
 }

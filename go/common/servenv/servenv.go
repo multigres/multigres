@@ -29,12 +29,42 @@ import (
 	viperdebug "github.com/multigres/multigres/go/common/servenv/viperdebug"
 	"github.com/multigres/multigres/go/tools/event"
 	"github.com/multigres/multigres/go/tools/netutil"
+	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+// ServiceIdentity holds service identification for telemetry and topology registration.
+type ServiceIdentity struct {
+	// ServiceName is the logical name of the service (e.g., "multipooler", "multigateway").
+	ServiceName string
+
+	// ServiceInstanceID is the unique identifier for this service instance.
+	ServiceInstanceID string
+
+	// Cell is the availability zone/cell this service runs in.
+	Cell string
+
+	// Shard is the shard range this service handles (multipooler-specific).
+	// Example: "0-inf"
+	Shard string
+
+	// Database is the PostgreSQL database this service manages (multipooler-specific).
+	// Example: "postgres"
+	Database string
+
+	// TableGroup is the table group this service handles (multipooler-specific).
+	// Example: "default"
+	TableGroup string
+}
+
+// GenerateRandomServiceID generates a random 8-character service instance ID.
+func GenerateRandomServiceID() string {
+	return stringutil.RandomString(8)
+}
 
 // ServEnv holds the service environment configuration and state
 type ServEnv struct {
@@ -267,10 +297,10 @@ func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hook
 
 	select {
 	case <-done:
-		slog.Info(fmt.Sprintf("%s hooks finished", name))
+		slog.Info(name + " hooks finished")
 		return true
 	case <-timer.C:
-		slog.Info(fmt.Sprintf("%s hooks timed out", name))
+		slog.Info(name + " hooks timed out")
 		return false
 	}
 }

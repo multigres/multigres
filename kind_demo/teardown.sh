@@ -15,7 +15,7 @@
 
 set -ex
 
-# Kind cluster demo teardown also deletes data.
+# Kind cluster demo teardown - removes everything including data
 
 # Ensure we're in the kind_demo directory.
 # This is because we use a relative path name to the data files.
@@ -24,8 +24,27 @@ if [[ $(basename "$PWD") != "kind_demo" ]]; then
   exit 1
 fi
 
-# Initialize the cluster with etcd
-kind delete cluster --name=multidemo
-rm -rf data/*
+# Kill any running kubectl port-forward processes
+echo "Stopping port-forwards..."
+pkill -f "kubectl.*port-forward" 2>/dev/null || true
 
-echo "Cleaned up data and cluster."
+# Delete the Kind cluster
+echo "Deleting Kind cluster..."
+kind delete cluster --name=multidemo
+
+# Clean up data directory
+echo "Cleaning up data directory..."
+rm -rf data/* 2>/dev/null || true
+
+set +x
+echo ""
+echo "========================================="
+echo "Complete Teardown Finished"
+echo "========================================="
+echo ""
+echo "Removed:"
+echo "  - Kind cluster (including all pods and services)"
+echo "  - Data directory"
+echo ""
+echo "To start fresh: ./launch-infra.sh && ./launch-multigres-cluster.sh"
+echo ""

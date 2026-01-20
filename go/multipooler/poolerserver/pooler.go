@@ -17,7 +17,7 @@ package poolerserver
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -98,11 +98,11 @@ func (s *QueryPoolerServer) IsHealthy() error {
 	defer s.mu.Unlock()
 
 	if s.executor == nil {
-		return fmt.Errorf("executor not initialized")
+		return errors.New("executor not initialized")
 	}
 
 	if s.poolManager == nil {
-		return fmt.Errorf("pool manager not initialized")
+		return errors.New("pool manager not initialized")
 	}
 
 	// The pool manager handles connection health internally.
@@ -133,7 +133,7 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 	defer s.mu.Unlock()
 
 	if s.executor == nil {
-		return nil, fmt.Errorf("executor not initialized - pool manager was nil")
+		return nil, errors.New("executor not initialized - pool manager was nil")
 	}
 
 	return s.executor, nil

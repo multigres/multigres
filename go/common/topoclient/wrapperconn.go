@@ -131,7 +131,6 @@ func (c *WrapperConn) retryConnection(err error) {
 	// still be good to inherit from a higher-level background context for better
 	// tracing.
 	for range r.Attempts(context.TODO()) {
-
 		conn, err := c.newFunc()
 		mustContinue := func() bool {
 			// We have to do this entire operation within a lock:

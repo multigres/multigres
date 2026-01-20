@@ -64,6 +64,11 @@ message StandbyReplicationStatus {
 
   // Primary connection info parsed from primary_conninfo setting
   PrimaryConnInfo primary_conn_info = 7;
+
+  // WAL receiver status from pg_stat_wal_receiver.status
+  // Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
+  // Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
+  string wal_receiver_status = 8;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -84,7 +89,6 @@ message StartReplicationRequest {
 
 message StartReplicationResponse {
 }
-
 
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
@@ -321,6 +325,35 @@ message DemoteResponse {
 
   // Number of connections that were terminated
   int32 connections_terminated = 4;
+}
+
+// DemoteStalePrimary demotes a stale primary that came back online after failover.
+// This is a complete operation that:
+// 1. Stops postgres if running
+// 2. Runs pg_rewind to sync with the correct primary
+// 3. Clears sync replication config
+// 4. Restarts as standby
+// 5. Updates topology to REPLICA
+message DemoteStalePrimaryRequest {
+  // Source multipooler (the correct primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+
+  // Consensus term from the correct primary
+  int64 consensus_term = 2;
+
+  // Force the operation even if term validation fails
+  bool force = 3;
+}
+
+message DemoteStalePrimaryResponse {
+  // True if the operation completed successfully
+  bool success = 1;
+
+  // Whether pg_rewind was performed (servers were diverged)
+  bool rewind_performed = 2;
+
+  // LSN position after becoming standby
+  string lsn_position = 3;
 }
 
 // UndoDemote undoes a demotion
@@ -572,34 +605,6 @@ message InitializeEmptyPrimaryResponse {
   string backup_id = 3;
 }
 
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-message InitializeAsStandbyRequest {
-  // Primary pooler to replicate from
-  clustermetadata.MultiPooler primary = 1;
-
-  // Consensus term to set for this standby
-  int64 consensus_term = 2;
-
-  // Whether to force reinitialization (removes existing data directory)
-  bool force = 3;
-
-  // Optional: Specific backup ID to restore from
-  // If empty, restore from the latest backup
-  string backup_id = 4;
-}
-
-message InitializeAsStandbyResponse {
-  // Whether the initialization succeeded
-  bool success = 1;
-
-  // Error message if initialization failed
-  string error_message = 2;
-
-  // Final LSN position after backup completed
-  string final_lsn = 3;
-}
-
 // Backup operations
 // All of these RPCs perform backups and restores in the context
 // of the database, table group, and shard this multipooler serves.
@@ -668,7 +673,7 @@ message BackupMetadata {
   string shard = 2;
   Status status = 3;
   string backup_id = 4;
-  string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
+  string final_lsn = 5; // Final checkpoint LSN (stop LSN) for this backup
 
   // Job ID annotation if present (for cross-process tracking)
   string job_id = 6;
@@ -728,19 +733,40 @@ message CreateDurabilityPolicyResponse {
 // =============================================================================
 
 // RewindToSourceRequest requests pg_rewind to synchronize with a source server.
-// This stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
+// This operation:
+// 1. Stops PostgreSQL
+// 2. Runs pg_rewind --dry-run to check if rewind is needed
+// 3. If needed, runs actual pg_rewind
+// 4. Starts PostgreSQL
 message RewindToSourceRequest {
   // Source multipooler (the primary) to rewind to
   clustermetadata.MultiPooler source = 1;
-
-  // If true, only check if rewind is possible without making changes
-  bool dry_run = 2;
 }
 
 message RewindToSourceResponse {
-  // True if the rewind was successful (or would be successful for dry_run)
+  // True if the operation completed successfully
   bool success = 1;
 
-  // Error message if rewind failed or is not possible
+  // Error message if operation failed
   string error_message = 2;
+
+  // True if servers had diverged and pg_rewind was performed
+  // False if timelines were compatible and no rewind was needed
+  bool rewind_performed = 3;
+}
+
+// =============================================================================
+// PostgreSQL Monitoring Control APIs
+// =============================================================================
+
+// SetMonitorRequest enables or disables the PostgreSQL monitoring goroutine
+message SetMonitorRequest {
+  // Whether to enable monitoring (true) or disable it (false)
+  bool enabled = 1;
+}
+
+// SetMonitorResponse confirms monitoring was updated
+// Errors are returned via gRPC status codes, not in the response body
+message SetMonitorResponse {
+  // Empty - success indicated by no error
 }

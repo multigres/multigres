@@ -27,7 +27,7 @@ package parser
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,7 +195,7 @@ func getParserOutput(query string) (string, error) {
 		return "", err
 	}
 	if len(asts) == 0 {
-		return "", fmt.Errorf("no ASTs generated")
+		return "", errors.New("no ASTs generated")
 	}
 
 	var sqls string

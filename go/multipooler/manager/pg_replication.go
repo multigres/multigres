@@ -179,7 +179,8 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 		pg_is_wal_replay_paused(),
 		pg_get_wal_replay_pause_state(),
 		pg_last_xact_replay_timestamp(),
-		current_setting('primary_conninfo')`
+		current_setting('primary_conninfo'),
+		(SELECT status FROM pg_stat_wal_receiver LIMIT 1)`
 
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -194,8 +195,9 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	var pauseState string
 	var lastXactTime *string
 	var primaryConnInfo string
+	var walReceiverStatus *string
 
-	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo)
+	err = executor.ScanSingleRow(result, &replayLsn, &receiveLsn, &isPaused, &pauseState, &lastXactTime, &primaryConnInfo, &walReceiverStatus)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to query replication status")
 	}
@@ -211,6 +213,9 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	}
 	if lastXactTime != nil {
 		status.LastXactReplayTimestamp = *lastXactTime
+	}
+	if walReceiverStatus != nil {
+		status.WalReceiverStatus = *walReceiverStatus
 	}
 
 	// Parse primary_conninfo into structured format
@@ -270,7 +275,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo s
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer execCancel()
-	sql := fmt.Sprintf("ALTER SYSTEM SET primary_conninfo = %s", ast.QuoteStringLiteral(connInfo))
+	sql := "ALTER SYSTEM SET primary_conninfo = " + ast.QuoteStringLiteral(connInfo)
 	if err := pm.exec(execCtx, sql); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to set primary_conninfo", "error", err)
 		return mterrors.Wrap(err, "failed to set primary_conninfo")
@@ -548,7 +553,7 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 		syncCommitValue = "remote_apply"
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			fmt.Sprintf("invalid synchronous_commit level: %s", synchronousCommit.String()))
+			"invalid synchronous_commit level: "+synchronousCommit.String())
 	}
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -595,7 +600,7 @@ func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, 
 	defer execCancel()
 
 	// ALTER SYSTEM SET doesn't support parameterized queries, so we use string formatting
-	sql := fmt.Sprintf("ALTER SYSTEM SET synchronous_standby_names = %s", ast.QuoteStringLiteral(value))
+	sql := "ALTER SYSTEM SET synchronous_standby_names = " + ast.QuoteStringLiteral(value)
 	if err := pm.exec(execCtx, sql); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
@@ -937,7 +942,7 @@ func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 			followerID, err := parseApplicationName(appName)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to parse application_name", "application_name", appName, "error", err)
-				return nil, mterrors.Wrap(err, fmt.Sprintf("failed to parse application_name: %s", appName))
+				return nil, mterrors.Wrap(err, "failed to parse application_name: "+appName)
 			}
 			followers = append(followers, followerID)
 		}

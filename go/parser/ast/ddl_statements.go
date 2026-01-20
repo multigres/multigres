@@ -27,6 +27,7 @@ package ast
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -329,12 +330,14 @@ func (ka *KeyAction) SqlString() string {
 	if ka.Cols != nil && len(ka.Cols.Items) > 0 {
 		if ka.Action == FKCONSTR_ACTION_SETNULL || ka.Action == FKCONSTR_ACTION_SETDEFAULT {
 			result += " ("
+			var colsBuilder strings.Builder
 			for i, col := range ka.Cols.Items {
 				if i > 0 {
-					result += ", "
+					colsBuilder.WriteString(", ")
 				}
-				result += col.SqlString()
+				colsBuilder.WriteString(col.SqlString())
 			}
+			result += colsBuilder.String()
 			result += ")"
 		}
 	}
@@ -946,15 +949,17 @@ func (t *TypeName) SqlString() string {
 
 	// Add array bounds if present
 	if t.ArrayBounds != nil && t.ArrayBounds.Len() > 0 {
+		var boundsBuilder strings.Builder
 		for _, bound := range t.ArrayBounds.Items {
 			if intBound, ok := bound.(*Integer); ok {
 				if intBound.IVal == -1 {
-					result += "[]"
+					boundsBuilder.WriteString("[]")
 				} else {
-					result += fmt.Sprintf("[%d]", intBound.IVal)
+					boundsBuilder.WriteString(fmt.Sprintf("[%d]", intBound.IVal))
 				}
 			}
 		}
+		result += boundsBuilder.String()
 	}
 
 	return result
@@ -1099,15 +1104,15 @@ func (d *DefElem) SqlStringForFunction() string {
 		}
 	case "cost":
 		if d.Arg != nil {
-			return fmt.Sprintf("COST %s", d.Arg.SqlString())
+			return "COST " + d.Arg.SqlString()
 		}
 	case "rows":
 		if d.Arg != nil {
-			return fmt.Sprintf("ROWS %s", d.Arg.SqlString())
+			return "ROWS " + d.Arg.SqlString()
 		}
 	case "parallel":
 		if strNode, ok := d.Arg.(*String); ok {
-			return fmt.Sprintf("PARALLEL %s", strings.ToUpper(strNode.SVal))
+			return "PARALLEL " + strings.ToUpper(strNode.SVal)
 		}
 	case "support":
 		if d.Arg != nil {
@@ -1120,11 +1125,11 @@ func (d *DefElem) SqlStringForFunction() string {
 						nameStrs = append(nameStrs, strNode.SVal)
 					}
 				}
-				return fmt.Sprintf("SUPPORT %s", strings.Join(nameStrs, "."))
+				return "SUPPORT " + strings.Join(nameStrs, ".")
 			} else if strNode, ok := d.Arg.(*String); ok {
-				return fmt.Sprintf("SUPPORT %s", strNode.SVal)
+				return "SUPPORT " + strNode.SVal
 			} else {
-				return fmt.Sprintf("SUPPORT %s", d.Arg.SqlString())
+				return "SUPPORT " + d.Arg.SqlString()
 			}
 		}
 	case "set":
@@ -1515,7 +1520,7 @@ func (r *ReplicaIdentityStmt) SqlString() string {
 	case REPLICA_IDENTITY_DEFAULT:
 		return "REPLICA IDENTITY DEFAULT"
 	case REPLICA_IDENTITY_INDEX:
-		return fmt.Sprintf("REPLICA IDENTITY USING INDEX %s", r.Name)
+		return "REPLICA IDENTITY USING INDEX " + r.Name
 	default:
 		return "REPLICA IDENTITY"
 	}
@@ -1758,7 +1763,7 @@ func (a *AlterTableCmd) SqlString() string {
 		if a.Name != "" {
 			parts = append(parts, QuoteIdentifier(a.Name))
 		} else {
-			parts = append(parts, fmt.Sprintf("%d", a.Num))
+			parts = append(parts, strconv.Itoa(int(a.Num)))
 		}
 		parts = append(parts, "SET STATISTICS")
 		if a.Def != nil {

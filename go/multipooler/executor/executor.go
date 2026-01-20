@@ -19,6 +19,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -187,10 +188,10 @@ func (e *Executor) PortalStreamExecute(
 		target = &query.Target{}
 	}
 	if preparedStatement == nil {
-		return queryservice.ReservedState{}, fmt.Errorf("prepared statement is required")
+		return queryservice.ReservedState{}, errors.New("prepared statement is required")
 	}
 	if portal == nil {
-		return queryservice.ReservedState{}, fmt.Errorf("portal is required")
+		return queryservice.ReservedState{}, errors.New("portal is required")
 	}
 
 	user := e.getUserFromOptions(options)
@@ -334,7 +335,7 @@ func (e *Executor) Describe(
 	}
 
 	if preparedStatement == nil {
-		return nil, fmt.Errorf("no prepared statement provided")
+		return nil, errors.New("no prepared statement provided")
 	}
 
 	user := e.getUserFromOptions(options)

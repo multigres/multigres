@@ -1,46 +1,5 @@
-# Observability stack for kind_demo: Prometheus + Jaeger + Grafana
-# All three services run in a single pod for simplicity.
----
-# ConfigMap: Prometheus configuration (minimal - using OTLP push, not scrape)
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: prometheus-config
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-      evaluation_interval: 15s
----
-# ConfigMap: Grafana datasources
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-datasources
-data:
-  datasources.yml: |
-    apiVersion: 1
-    datasources:
-      - name: Prometheus
-        type: prometheus
-        uid: Prometheus
-        access: proxy
-        url: http://localhost:9090
-        isDefault: true
-        editable: false
-        jsonData:
-          timeInterval: "60s"
-          exemplarTraceIdDestinations:
-            - name: trace_id
-              datasourceUid: jaeger
-              url: "http://localhost:16686/trace/$${__value.raw}"
-              urlDisplayLabel: "View Trace in Jaeger"
-      - name: Jaeger
-        type: jaeger
-        uid: jaeger
-        access: proxy
-        url: http://localhost:16686
-        editable: false
+# Observability stack for kind_demo using grafana/otel-lgtm all-in-one
+# Note: grafana-datasources ConfigMap is created from file in launch-infra.sh
 ---
 # ConfigMap: Grafana dashboard provisioning
 apiVersion: v1
@@ -51,31 +10,35 @@ data:
   dashboards.yml: |
     apiVersion: 1
     providers:
-      - name: "default"
+      - name: "Multigres"
         orgId: 1
-        folder: ""
         type: file
         disableDeletion: false
         editable: true
         options:
-          path: /var/lib/grafana/dashboards
+          path: /otel-lgtm/multigres-dashboard.json
+          foldersFromFilesStructure: false
 ---
 # ConfigMap: OTEL environment variables for multigres services
+# Using unified OTLP endpoint - all signals go to the same place
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-config
 data:
   OTEL_METRIC_EXPORT_INTERVAL: "5000"
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://observability:4318/v1/traces"
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://observability:9090/api/v1/otlp/v1/metrics"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://observability:4318"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
   OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
   OTEL_TRACES_EXPORTER: "otlp"
   OTEL_METRICS_EXPORTER: "otlp"
-  OTEL_TRACES_SAMPLER: "always_on"
+  OTEL_LOGS_EXPORTER: "otlp"
   OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: "base2_exponential_bucket_histogram"
+  # Custom file-based sampling configuration
+  OTEL_TRACES_SAMPLER: "multigres_custom"
+  OTEL_TRACES_SAMPLER_CONFIG: "/etc/otel/sampling-config.yaml"
 ---
-# Deployment: Observability stack (Prometheus + Jaeger + Grafana in one pod)
+# Deployment: Observability stack (single otel-lgtm container)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -93,42 +56,22 @@ spec:
         app: observability
     spec:
       containers:
-        - name: jaeger
-          image: jaegertracing/jaeger:2.3.0
+        - name: otel-lgtm
+          image: grafana/otel-lgtm:0.13.0
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 16686
-              name: ui
+            - containerPort: 3000
+              name: grafana
             - containerPort: 4318
               name: otlp-http
             - containerPort: 4317
               name: otlp-grpc
-          env:
-            - name: COLLECTOR_OTLP_ENABLED
-              value: "true"
-        - name: prometheus
-          image: prom/prometheus:v3.1.0
-          imagePullPolicy: IfNotPresent
-          ports:
             - containerPort: 9090
-              name: prom-http
-          args:
-            - "--config.file=/etc/prometheus/prometheus.yml"
-            - "--storage.tsdb.path=/prometheus"
-            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
-            - "--web.console.templates=/usr/share/prometheus/consoles"
-            - "--enable-feature=exemplar-storage"
-            - "--enable-feature=native-histograms"
-            - "--web.enable-otlp-receiver"
-          volumeMounts:
-            - name: prometheus-config
-              mountPath: /etc/prometheus
-        - name: grafana
-          image: grafana/grafana:11.4.0
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 3000
-              name: http
+              name: prometheus
+            - containerPort: 3100
+              name: loki
+            - containerPort: 3200
+              name: tempo
           env:
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "true"
@@ -138,17 +81,18 @@ spec:
               value: "true"
             - name: GF_SECURITY_ADMIN_PASSWORD
               value: "admin"
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: "traceqlEditor,traceQLStreaming,correlations"
           volumeMounts:
             - name: grafana-datasources
               mountPath: /etc/grafana/provisioning/datasources
             - name: grafana-dashboards-config
-              mountPath: /etc/grafana/provisioning/dashboards
+              mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards
             - name: grafana-dashboard-multigres
-              mountPath: /var/lib/grafana/dashboards
+              mountPath: /otel-lgtm/multigres-dashboard.json
+              subPath: multigres.json
+              readOnly: true
       volumes:
-        - name: prometheus-config
-          configMap:
-            name: prometheus-config
         - name: grafana-datasources
           configMap:
             name: grafana-datasources
@@ -168,9 +112,9 @@ spec:
   selector:
     app: observability
   ports:
-    - port: 16686
-      targetPort: 16686
-      name: jaeger-ui
+    - port: 3000
+      targetPort: 3000
+      name: grafana
     - port: 4318
       targetPort: 4318
       name: otlp-http
@@ -180,7 +124,10 @@ spec:
     - port: 9090
       targetPort: 9090
       name: prometheus
-    - port: 3000
-      targetPort: 3000
-      name: grafana
+    - port: 3100
+      targetPort: 3100
+      name: loki
+    - port: 3200
+      targetPort: 3200
+      name: tempo
   type: ClusterIP

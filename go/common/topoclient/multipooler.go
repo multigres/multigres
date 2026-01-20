@@ -21,7 +21,6 @@ import (
 	"path"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
 
@@ -29,11 +28,7 @@ import (
 )
 
 // NewMultiPooler creates a new MultiPooler record with the given name, cell, hostname, and tableGroup.
-// If name is empty, a random name will be generated.
 func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadatapb.MultiPooler {
-	if name == "" {
-		name = stringutil.RandomString(8)
-	}
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
