@@ -138,7 +138,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		t.Logf("New primary elected: %s", newPrimaryName)
 
 		// Wait for killed node to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, 30*time.Second)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, 10*time.Second)
 
 		// Ensure monitoring is disabled on all nodes (multiorch recovery might have re-enabled it)
 		t.Logf("Re-disabling monitoring on all nodes after failover %d...", i+1)
@@ -190,7 +190,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 			return true
 		}, 10*time.Second, 500*time.Millisecond, "Multipooler %s should be healthy", name)
-		t.Logf("Multipooler %s is healthy", name)
 	}
 
 	// Verify final primary is functional
@@ -233,7 +232,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err := db.QueryRow("SHOW synchronous_standby_names").Scan(&syncStandbyNames)
 		require.NoError(t, err, "Should be able to query synchronous_standby_names")
 		require.NotEmpty(t, syncStandbyNames, "Final primary should have synchronous_standby_names configured after failovers")
-		t.Logf("Final primary synchronous_standby_names: %s", syncStandbyNames)
 	})
 
 	// Verify leadership_history records all failovers
@@ -302,7 +300,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		primaryPosResp, err := finalPrimaryClient.Manager.PrimaryPosition(utils.WithShortDeadline(t), &multipoolermanagerdatapb.PrimaryPositionRequest{})
 		require.NoError(t, err, "Should be able to get final primary position")
 		primaryLSN := primaryPosResp.LsnPosition
-		t.Logf("Final primary LSN: %s", primaryLSN)
 
 		// Collect multipooler test clients for all nodes (primary + standbys) and wait for replicas to catch up
 		var poolerClients []*shardsetup.MultiPoolerTestClient
@@ -326,7 +323,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			})
 			client.Close()
 			require.NoError(t, err, "Replica %s should catch up to final primary LSN", name)
-			t.Logf("Replica %s caught up to LSN %s", name, primaryLSN)
 
 			// Add replica's pooler client
 			replicaPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", inst.Multipooler.GrpcPort))
@@ -340,11 +336,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Verify writes - deterministic now that replication has caught up
 		err = validator.Verify(t, poolerClients)
 		require.NoError(t, err, "all successful writes should be present on all nodes")
-
 		t.Logf("Write durability verified: %d successful writes present on all nodes", successfulWrites)
 	})
 
-	// Capture table name before subtest to avoid closure issues
 	validatorTableName := validator.TableName()
 	t.Logf("Validator table for consistency check: %s", validatorTableName)
 
@@ -353,9 +347,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		finalPrimaryName := setup.PrimaryName
 		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
 		require.NotNil(t, finalPrimaryInst)
-
-		// Use the captured table name
-		t.Logf("Using validator table: %s", validatorTableName)
 
 		// Connect to primary and get row count and checksum
 		primarySocketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
@@ -366,14 +357,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		countQuery := "SELECT COUNT(*) FROM " + validatorTableName
 		err := primaryDB.QueryRow(countQuery).Scan(&primaryRowCount)
 		require.NoError(t, err, "Should be able to count rows on primary")
-		t.Logf("Primary %s has %d rows", finalPrimaryName, primaryRowCount)
 
 		// Get a checksum of all data on primary for consistency verification
 		var primaryChecksum string
 		checksumQuery := "SELECT md5(string_agg(id::text, '' ORDER BY id)) FROM " + validatorTableName
 		err = primaryDB.QueryRow(checksumQuery).Scan(&primaryChecksum)
 		require.NoError(t, err, "Should be able to compute checksum on primary")
-		t.Logf("Primary %s data checksum: %s", finalPrimaryName, primaryChecksum)
 
 		// Verify all standbys have identical data
 		for name, inst := range setup.Multipoolers {
@@ -390,14 +379,12 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			err = standbyDB.QueryRow(countQuery).Scan(&standbyRowCount)
 			require.NoError(t, err, "Should be able to count rows on standby %s", name)
 			assert.Equal(t, primaryRowCount, standbyRowCount, "Standby %s should have same row count as primary", name)
-			t.Logf("Standby %s has %d rows (matches primary)", name, standbyRowCount)
 
 			// Check data checksum matches
 			var standbyChecksum string
 			err = standbyDB.QueryRow(checksumQuery).Scan(&standbyChecksum)
 			require.NoError(t, err, "Should be able to compute checksum on standby %s", name)
 			assert.Equal(t, primaryChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
-			t.Logf("Standby %s data checksum: %s (matches primary)", name, standbyChecksum)
 		}
 
 		t.Logf("Data consistency verified: all %d nodes have identical data (%d rows, checksum %s)",

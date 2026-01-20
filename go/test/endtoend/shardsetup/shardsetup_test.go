@@ -338,15 +338,15 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	// Connect directly to primary's postgres for writes
-	primaryInst := setup.GetPrimary(t)
-	primaryConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		primaryInst.Pgctld.PgPort)
-	primaryDB, err := sql.Open("postgres", primaryConnStr)
+	// Connect to multigateway for writes (realistic client path)
+	require.NotNil(t, setup.Multigateway, "multigateway should be available in shared setup")
+	gatewayConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
+		setup.MultigatewayPgPort)
+	gatewayDB, err := sql.Open("postgres", gatewayConnStr)
 	require.NoError(t, err)
-	defer primaryDB.Close()
+	defer gatewayDB.Close()
 
-	validator, cleanup, err := NewWriterValidator(t, primaryDB,
+	validator, cleanup, err := NewWriterValidator(t, gatewayDB,
 		WithWorkerCount(4),
 		WithWriteInterval(10*time.Millisecond),
 	)
@@ -370,6 +370,7 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	var poolerClients []*MultiPoolerTestClient
 
 	// Add primary's multipooler client
+	primaryInst := setup.GetPrimary(t)
 	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", primaryInst.Multipooler.GrpcPort))
 	require.NoError(t, err)
 	defer primaryPoolerClient.Close()
