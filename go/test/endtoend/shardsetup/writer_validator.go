@@ -94,6 +94,22 @@ func NewWriterValidator(t *testing.T, pooler *MultiPoolerTestClient, opts ...Wri
 	return w, cleanup, nil
 }
 
+// TableName returns the name of the test table.
+func (w *WriterValidator) TableName() string {
+	return w.tableName
+}
+
+// SetPooler updates the pooler that the validator writes to.
+// The validator must be stopped before calling this method.
+func (w *WriterValidator) SetPooler(pooler *MultiPoolerTestClient) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.started {
+		panic("cannot set pooler while validator is running")
+	}
+	w.pooler = pooler
+}
+
 // createTable creates the test table.
 func (w *WriterValidator) createTable(ctx context.Context) error {
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY)", w.tableName)

@@ -15,6 +15,7 @@
 package shardsetup
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -28,6 +29,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -121,6 +124,36 @@ func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
 		t.Fatal("GetPrimary: no primary has been elected yet")
 	}
 	return s.GetMultipoolerInstance(s.PrimaryName)
+}
+
+// RefreshPrimary queries all multipoolers to find the current primary and updates PrimaryName.
+func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
+	t.Helper()
+
+	for name, inst := range s.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		if err != nil {
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		cancel()
+		client.Close()
+
+		if err != nil {
+			continue
+		}
+
+		if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+			s.PrimaryName = name
+			t.Logf("RefreshPrimary: current primary is %s", name)
+			return inst
+		}
+	}
+
+	t.Fatal("RefreshPrimary: no primary found in cluster")
+	return nil
 }
 
 // GetStandbys returns all multipooler instances that are not the primary.
