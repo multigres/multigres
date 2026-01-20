@@ -21,11 +21,14 @@ package multiorch
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -50,12 +53,14 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
 	setup.StartMultiOrchs(t)
+	setup.WaitForMultigatewayQueryServing(t)
 
 	// Get the primary
 	primary := setup.GetPrimary(t)
@@ -87,19 +92,25 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Logf("Disabling monitoring on all nodes...")
 	disableMonitoringOnAllNodes(t, setup)
 
-	// Create write validator pointing to initial primary (single table throughout test)
-	primaryClient, err := shardsetup.NewMultipoolerClient(primary.Multipooler.GrpcPort)
+	// Connect to multigateway for continuous writes (automatically routes to current primary)
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
+		setup.MultigatewayPgPort)
+	gatewayDB, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
-	defer primaryClient.Close()
+	defer gatewayDB.Close()
 
-	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, primaryClient.Pooler,
+	err = gatewayDB.Ping()
+	require.NoError(t, err, "failed to ping multigateway")
+
+	// Create write validator pointing to multigateway (automatically routes through failovers)
+	validator, validatorCleanup, err := shardsetup.NewWriterValidator(t, gatewayDB,
 		shardsetup.WithWorkerCount(4),
 		shardsetup.WithWriteInterval(10*time.Millisecond),
 	)
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
 
-	t.Logf("Starting continuous writes to initial primary (table: %s)...", validator.TableName())
+	t.Logf("Starting continuous writes via multigateway (table: %s)...", validator.TableName())
 	validator.Start(t)
 
 	// Let writes accumulate before first failover
@@ -126,11 +137,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
-		// Stop the validator (pointing to old primary)
-		validator.Stop()
-		successWrites, failedWrites := validator.Stats()
-		t.Logf("Iteration %d: stopped validator (%d successful, %d failed writes so far)", i+1, successWrites, failedWrites)
-
 		// Wait for killed node to rejoin as standby (always wait, even on last iteration)
 		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, 30*time.Second)
 
@@ -138,18 +144,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		t.Logf("Re-disabling monitoring on all nodes after failover %d...", i+1)
 		disableMonitoringOnAllNodes(t, setup)
 
-		// Point validator to new primary and restart writes
-		newPrimaryInst := setup.GetMultipoolerInstance(newPrimaryName)
-		require.NotNil(t, newPrimaryInst, "new primary instance should exist")
-
-		newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimaryInst.Multipooler.GrpcPort)
-		require.NoError(t, err)
-
-		validator.SetPooler(newPrimaryClient.Pooler)
-		newPrimaryClient.Close() // Close immediately after setting pooler
-
-		t.Logf("Restarting continuous writes to new primary %s...", newPrimaryName)
-		validator.Start(t)
+		// No need to restart validator or switch connections - multigateway automatically routes to new primary
+		successWrites, failedWrites := validator.Stats()
+		t.Logf("Iteration %d: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
+			i+1, successWrites, failedWrites, newPrimaryName)
 		time.Sleep(200 * time.Millisecond) // Let writes accumulate before next failover
 	}
 
@@ -274,9 +272,14 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		primaryLSN := primaryPosResp.LsnPosition
 		t.Logf("Final primary LSN: %s", primaryLSN)
 
-		// Collect pooler clients for all nodes (primary + standbys) and wait for replicas to catch up
-		var poolers []*shardsetup.MultiPoolerTestClient
-		poolers = append(poolers, finalPrimaryClient.Pooler)
+		// Collect multipooler test clients for all nodes (primary + standbys) and wait for replicas to catch up
+		var poolerClients []*shardsetup.MultiPoolerTestClient
+
+		// Add primary's pooler client
+		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", finalPrimaryInst.Multipooler.GrpcPort))
+		require.NoError(t, err)
+		defer primaryPoolerClient.Close()
+		poolerClients = append(poolerClients, primaryPoolerClient)
 
 		for name, inst := range setup.Multipoolers {
 			if name == finalPrimaryName {
@@ -284,22 +287,26 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			}
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 			require.NoError(t, err)
-			defer client.Close()
 
 			// Wait for replica to catch up to the final primary's LSN
 			_, err = client.Manager.WaitForLSN(utils.WithTimeout(t, 2*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
 				TargetLsn: primaryLSN,
 			})
+			client.Close()
 			require.NoError(t, err, "Replica %s should catch up to final primary LSN", name)
 			t.Logf("Replica %s caught up to LSN %s", name, primaryLSN)
 
-			poolers = append(poolers, client.Pooler)
+			// Add replica's pooler client
+			replicaPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", inst.Multipooler.GrpcPort))
+			require.NoError(t, err)
+			defer replicaPoolerClient.Close()
+			poolerClients = append(poolerClients, replicaPoolerClient)
 		}
 
-		require.Len(t, poolers, 3, "should have 3 healthy poolers (all nodes rejoined)")
+		require.Len(t, poolerClients, 3, "should have 3 multipooler clients (all nodes rejoined)")
 
 		// Verify writes - deterministic now that replication has caught up
-		err = validator.Verify(t, poolers)
+		err = validator.Verify(t, poolerClients)
 		require.NoError(t, err, "all successful writes should be present on all nodes")
 
 		t.Logf("Write durability verified: %d successful writes present on all nodes", successfulWrites)

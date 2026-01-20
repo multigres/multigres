@@ -16,6 +16,7 @@ package shardsetup
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -32,7 +33,7 @@ type WriterValidator struct {
 	workerCount   int
 	writeInterval time.Duration
 
-	pooler *MultiPoolerTestClient
+	db *sql.DB
 
 	nextID atomic.Int64
 
@@ -63,15 +64,15 @@ func WithWriteInterval(interval time.Duration) WriterValidatorOption {
 	}
 }
 
-// NewWriterValidator creates a new WriterValidator for the given pooler.
+// NewWriterValidator creates a new WriterValidator for the given sql.DB connection.
 // It creates the test table immediately and returns a cleanup function that drops it.
-func NewWriterValidator(t *testing.T, pooler *MultiPoolerTestClient, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
+func NewWriterValidator(t *testing.T, db *sql.DB, opts ...WriterValidatorOption) (*WriterValidator, func(), error) {
 	t.Helper()
 	w := &WriterValidator{
 		tableName:     fmt.Sprintf("writer_validator_%d", time.Now().UnixNano()),
 		workerCount:   4,
 		writeInterval: 10 * time.Millisecond,
-		pooler:        pooler,
+		db:            db,
 	}
 
 	for _, opt := range opts {
@@ -99,28 +100,17 @@ func (w *WriterValidator) TableName() string {
 	return w.tableName
 }
 
-// SetPooler updates the pooler that the validator writes to.
-// The validator must be stopped before calling this method.
-func (w *WriterValidator) SetPooler(pooler *MultiPoolerTestClient) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.started {
-		panic("cannot set pooler while validator is running")
-	}
-	w.pooler = pooler
-}
-
 // createTable creates the test table.
 func (w *WriterValidator) createTable(ctx context.Context) error {
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY)", w.tableName)
-	_, err := w.pooler.ExecuteQuery(ctx, query, 0)
+	_, err := w.db.ExecContext(ctx, query)
 	return err
 }
 
 // dropTable drops the test table.
 func (w *WriterValidator) dropTable(ctx context.Context) error {
 	query := "DROP TABLE IF EXISTS " + w.tableName
-	_, err := w.pooler.ExecuteQuery(ctx, query, 0)
+	_, err := w.db.ExecContext(ctx, query)
 	return err
 }
 
@@ -181,8 +171,9 @@ func (w *WriterValidator) worker() {
 		case <-ticker.C:
 			id := w.nextID.Add(1)
 			ctx, cancel := context.WithTimeout(w.ctx, 5*time.Second)
-			query := fmt.Sprintf("INSERT INTO %s (id) VALUES (%d)", w.tableName, id)
-			_, err := w.pooler.ExecuteQuery(ctx, query, 0)
+			// #nosec G202 -- tableName is a constant from test setup, not user-controlled.
+			query := "INSERT INTO " + w.tableName + " (id) VALUES ($1)"
+			_, err := w.db.ExecContext(ctx, query, id)
 			cancel()
 			w.recordResult(id, err)
 		}
@@ -241,20 +232,19 @@ func (w *WriterValidator) Verify(t *testing.T, poolers []*MultiPoolerTestClient)
 		return errors.New("no successful writes to verify")
 	}
 
-	// Build set of all IDs found across all poolers
+	// Build set of all IDs found across all pooler connections
 	foundIDs := make(map[int64]bool)
 
 	for _, pooler := range poolers {
 		query := "SELECT id FROM " + w.tableName
-		resp, err := pooler.ExecuteQuery(t.Context(), query, 0)
+		result, err := pooler.ExecuteQuery(t.Context(), query, 0)
 		if err != nil {
 			return fmt.Errorf("failed to execute query: %w", err)
 		}
 
-		for _, row := range resp.Rows {
-			if len(row.Values) > 0 {
-				idStr := string(row.Values[0])
-				id, err := strconv.ParseInt(idStr, 10, 64)
+		for _, row := range result.Rows {
+			if len(row.Values) > 0 && !row.Values[0].IsNull() {
+				id, err := strconv.ParseInt(string(row.Values[0]), 10, 64)
 				if err == nil {
 					foundIDs[id] = true
 				}

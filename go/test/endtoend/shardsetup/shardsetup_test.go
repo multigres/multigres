@@ -15,9 +15,12 @@
 package shardsetup
 
 import (
+	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -335,11 +338,15 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	// Create a writer validator pointing to the primary
-	primaryClient := setup.NewPrimaryClient(t)
-	defer primaryClient.Close()
+	// Connect directly to primary's postgres for writes
+	primaryInst := setup.GetPrimary(t)
+	primaryConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
+		primaryInst.Pgctld.PgPort)
+	primaryDB, err := sql.Open("postgres", primaryConnStr)
+	require.NoError(t, err)
+	defer primaryDB.Close()
 
-	validator, cleanup, err := NewWriterValidator(t, primaryClient.Pooler,
+	validator, cleanup, err := NewWriterValidator(t, primaryDB,
 		WithWorkerCount(4),
 		WithWriteInterval(10*time.Millisecond),
 	)
@@ -359,18 +366,26 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	t.Logf("WriterValidator stats: %d successful, %d failed", successful, failed)
 	require.Greater(t, successful, 0, "should have some successful writes")
 
-	// Collect all pooler clients for verification
-	var poolers []*MultiPoolerTestClient
-	poolers = append(poolers, primaryClient.Pooler)
+	// Collect all multipooler test clients for verification
+	var poolerClients []*MultiPoolerTestClient
+
+	// Add primary's multipooler client
+	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", primaryInst.Multipooler.GrpcPort))
+	require.NoError(t, err)
+	defer primaryPoolerClient.Close()
+	poolerClients = append(poolerClients, primaryPoolerClient)
+
+	// Add standbys' multipooler clients
 	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.NewClient(t, standby.Name)
-		defer standbyClient.Close()
-		poolers = append(poolers, standbyClient.Pooler)
+		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standby.Multipooler.GrpcPort))
+		require.NoError(t, err)
+		defer standbyPoolerClient.Close()
+		poolerClients = append(poolerClients, standbyPoolerClient)
 	}
 
 	// Wait for replication to catch up, then verify
 	require.Eventually(t, func() bool {
-		err := validator.Verify(t, poolers)
+		err := validator.Verify(t, poolerClients)
 		return err == nil
 	}, 5*time.Second, 100*time.Millisecond, "all successful writes should be present across poolers")
 }
