@@ -161,6 +161,38 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NotNil(t, finalPrimary, "final primary should exist")
 	t.Logf("Final primary after all failovers: %s", finalPrimary.Name)
 
+	// Wait for all multipoolers to be healthy before verification
+	t.Logf("Waiting for all multipoolers to be healthy before verification...")
+	for name, inst := range setup.Multipoolers {
+		require.Eventually(t, func() bool {
+			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+			if err != nil {
+				return false
+			}
+			defer client.Close()
+
+			status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+			if err != nil {
+				return false
+			}
+
+			// Check if postgres is running
+			if !status.Status.PostgresRunning {
+				return false
+			}
+
+			// For replicas, check replication is configured
+			if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+				if status.Status.ReplicationStatus == nil || status.Status.ReplicationStatus.PrimaryConnInfo == nil {
+					return false
+				}
+			}
+
+			return true
+		}, 10*time.Second, 500*time.Millisecond, "Multipooler %s should be healthy", name)
+		t.Logf("Multipooler %s is healthy", name)
+	}
+
 	// Verify final primary is functional
 	t.Run("verify final primary is functional", func(t *testing.T) {
 		finalPrimaryName := setup.PrimaryName
