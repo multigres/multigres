@@ -88,8 +88,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			resp.Status.ReplicationStatus.PrimaryConnInfo.Port)
 	}
 
-	// Disable monitoring on all nodes so multiorch handles recovery (not postgres monitor)
-	t.Logf("Disabling monitoring on all nodes...")
+	// Disable monitoring on all multipoolers so multiorch handles recovery (not postgres monitor)
+	t.Logf("Disabling monitoring on all multipoolers...")
 	disableMonitoringOnAllNodes(t, setup)
 
 	// Connect to multigateway for continuous writes (automatically routes to current primary)
@@ -128,7 +128,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		currentPrimaryName := currentPrimary.Name
 
 		// Kill postgres on the primary (multipooler stays running to report unhealthy status)
-		t.Logf("Killing postgres on primary node %s to simulate database crash", currentPrimaryName)
+		t.Logf("Killing postgres on primary multipooler %s to simulate database crash", currentPrimaryName)
 		setup.KillPostgres(t, currentPrimaryName)
 
 		// Wait for multiorch to detect failure and elect new primary
@@ -137,11 +137,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
-		// Wait for killed node to rejoin as standby (always wait, even on last iteration)
+		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
 		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, 10*time.Second)
 
-		// Ensure monitoring is disabled on all nodes (multiorch recovery might have re-enabled it)
-		t.Logf("Re-disabling monitoring on all nodes after failover %d...", i+1)
+		// Ensure monitoring is disabled on all multipoolers (multiorch recovery might have re-enabled it)
+		t.Logf("Re-disabling monitoring on all multipoolers after failover %d...", i+1)
 		disableMonitoringOnAllNodes(t, setup)
 
 		// No need to restart validator or switch connections - multigateway automatically routes to new primary
@@ -286,7 +286,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			termNumber, leaderID, coordinatorID, reason)
 	})
 
-	// Verify all successful writes are present on all nodes (all should be healthy now)
+	// Verify all successful writes are present on all multipoolers (all should be healthy now)
 	t.Run("verify writes durability after failovers", func(t *testing.T) {
 		finalPrimaryName := setup.PrimaryName
 		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
@@ -301,7 +301,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err, "Should be able to get final primary position")
 		primaryLSN := primaryPosResp.LsnPosition
 
-		// Collect multipooler test clients for all nodes (primary + standbys) and wait for replicas to catch up
+		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
 		var poolerClients []*shardsetup.MultiPoolerTestClient
 
 		// Add primary's pooler client
@@ -331,19 +331,19 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			poolerClients = append(poolerClients, replicaPoolerClient)
 		}
 
-		require.Len(t, poolerClients, 3, "should have 3 multipooler clients (all nodes rejoined)")
+		require.Len(t, poolerClients, 3, "should have 3 multipooler clients (all multipoolers rejoined)")
 
 		// Verify writes - deterministic now that replication has caught up
 		err = validator.Verify(t, poolerClients)
-		require.NoError(t, err, "all successful writes should be present on all nodes")
-		t.Logf("Write durability verified: %d successful writes present on all nodes", successfulWrites)
+		require.NoError(t, err, "all successful writes should be present on all multipoolers")
+		t.Logf("Write durability verified: %d successful writes present on all multipoolers", successfulWrites)
 	})
 
 	validatorTableName := validator.TableName()
 	t.Logf("Validator table for consistency check: %s", validatorTableName)
 
-	// Verify data consistency across all nodes
-	t.Run("verify data consistency across all nodes", func(t *testing.T) {
+	// Verify data consistency across all multipoolers
+	t.Run("verify data consistency across all multipoolers", func(t *testing.T) {
 		finalPrimaryName := setup.PrimaryName
 		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
 		require.NotNil(t, finalPrimaryInst)
@@ -369,76 +369,98 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			if name == finalPrimaryName {
 				continue // Already checked primary
 			}
-
-			standbySocketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
-			standbyDB := connectToPostgres(t, standbySocketDir, inst.Pgctld.PgPort)
-			defer standbyDB.Close()
-
-			// Check row count matches
-			var standbyRowCount int
-			err = standbyDB.QueryRow(countQuery).Scan(&standbyRowCount)
-			require.NoError(t, err, "Should be able to count rows on standby %s", name)
-			assert.Equal(t, primaryRowCount, standbyRowCount, "Standby %s should have same row count as primary", name)
-
-			// Check data checksum matches
-			var standbyChecksum string
-			err = standbyDB.QueryRow(checksumQuery).Scan(&standbyChecksum)
-			require.NoError(t, err, "Should be able to compute checksum on standby %s", name)
-			assert.Equal(t, primaryChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
+			verifyStandbyDataConsistency(t, name, inst, countQuery, checksumQuery, primaryRowCount, primaryChecksum)
 		}
 
-		t.Logf("Data consistency verified: all %d nodes have identical data (%d rows, checksum %s)",
+		t.Logf("Data consistency verified: all %d multipoolers have identical data (%d rows, checksum %s)",
 			len(setup.Multipoolers), primaryRowCount, primaryChecksum)
 	})
 }
 
-// disableMonitoringOnAllNodes disables postgres monitoring on all multipooler nodes.
+// verifyStandbyDataConsistency checks that a standby has the same data as the primary.
+func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.MultipoolerInstance, countQuery, checksumQuery string, expectedRowCount int, expectedChecksum string) {
+	t.Helper()
+	standbySocketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
+	standbyDB := connectToPostgres(t, standbySocketDir, inst.Pgctld.PgPort)
+	defer standbyDB.Close()
+
+	// Check row count matches
+	var standbyRowCount int
+	err := standbyDB.QueryRow(countQuery).Scan(&standbyRowCount)
+	require.NoError(t, err, "Should be able to count rows on standby %s", name)
+	assert.Equal(t, expectedRowCount, standbyRowCount, "Standby %s should have same row count as primary", name)
+
+	// Check data checksum matches
+	var standbyChecksum string
+	err = standbyDB.QueryRow(checksumQuery).Scan(&standbyChecksum)
+	require.NoError(t, err, "Should be able to compute checksum on standby %s", name)
+	assert.Equal(t, expectedChecksum, standbyChecksum, "Standby %s should have identical data to primary", name)
+}
+
+// disableMultipoolerMonitoring disables postgres monitoring on a single multipooler.
+func disableMultipoolerMonitoring(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
+	t.Helper()
+	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer client.Close()
+
+	_, err = client.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
+	require.NoError(t, err)
+}
+
+// disableMonitoringOnAllNodes disables postgres monitoring on all multipoolers.
 func disableMonitoringOnAllNodes(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Helper()
 	for name, inst := range setup.Multipoolers {
-		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		require.NoError(t, err)
-		_, err = client.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
-		require.NoError(t, err)
-		client.Close()
-		t.Logf("Monitoring disabled on %s", name)
+		disableMultipoolerMonitoring(t, name, inst)
 	}
+}
+
+// checkPrimary checks if a specific multipooler is the primary.
+// Returns the multipooler name if it's a primary, empty string otherwise.
+func checkPrimary(t *testing.T, name string, inst *shardsetup.MultipoolerInstance, oldPrimaryName string) string {
+	t.Helper()
+	if name == oldPrimaryName {
+		return ""
+	}
+
+	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	if err != nil {
+		return ""
+	}
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
+		return ""
+	}
+
+	if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+		t.Logf("New primary elected: %s (pooler_type=%s)", name, resp.Status.PoolerType)
+		return name
+	}
+
+	return ""
 }
 
 // waitForNewPrimary waits for a new primary (different from oldPrimaryName) to be elected.
 func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
 	t.Helper()
 
-	checkPrimary := func() string {
+	checkForNewPrimary := func() string {
 		for name, inst := range setup.Multipoolers {
-			if name == oldPrimaryName {
-				continue
-			}
-
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-			client.Close()
-
-			if err != nil {
-				continue
-			}
-
-			if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-				t.Logf("New primary elected: %s (pooler_type=%s)", name, resp.Status.PoolerType)
-				return name
+			if primaryName := checkPrimary(t, name, inst, oldPrimaryName); primaryName != "" {
+				return primaryName
 			}
 		}
 		return ""
 	}
 
 	// Check immediately
-	if name := checkPrimary(); name != "" {
+	if name := checkForNewPrimary(); name != "" {
 		return name
 	}
 
@@ -451,7 +473,7 @@ func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryNam
 	for {
 		select {
 		case <-ticker.C:
-			if name := checkPrimary(); name != "" {
+			if name := checkForNewPrimary(); name != "" {
 				return name
 			}
 			t.Logf("Waiting for new primary election... (sleeping %v)", checkInterval)
@@ -463,44 +485,46 @@ func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryNam
 	}
 }
 
-// waitForNodeToRejoinAsStandby waits for a killed node to be restarted by multiorch
-// and rejoin the cluster as a standby replica.
-func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, nodeName string, timeout time.Duration) {
+// checkRejoin checks if a multipooler has rejoined the cluster as a standby replica.
+func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.MultipoolerInstance) bool {
 	t.Helper()
-	t.Logf("Waiting for multiorch to restart %s and rejoin as standby...", nodeName)
+	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	if err != nil {
+		return false
+	}
+	defer client.Close()
 
-	inst := setup.GetMultipoolerInstance(nodeName)
-	require.NotNil(t, inst, "node %s should exist", nodeName)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	checkRejoin := func() bool {
-		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		if err != nil {
-			return false
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		cancel()
-		client.Close()
-
-		if err != nil {
-			return false
-		}
-
-		// Check if node is back up as a replica with replication configured
-		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA &&
-			status.Status.ReplicationStatus != nil &&
-			status.Status.ReplicationStatus.PrimaryConnInfo != nil {
-			return true
-		}
-
-		t.Logf("Node %s not yet rejoined (PostgresRunning=%v, PoolerType=%v), waiting...",
-			nodeName, status.Status.PostgresRunning, status.Status.PoolerType)
+	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
 		return false
 	}
 
+	// Check if multipooler is back up as a replica with replication configured
+	if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA &&
+		status.Status.ReplicationStatus != nil &&
+		status.Status.ReplicationStatus.PrimaryConnInfo != nil {
+		return true
+	}
+
+	t.Logf("Multipooler %s not yet rejoined (PostgresRunning=%v, PoolerType=%v), waiting...",
+		multipoolerName, status.Status.PostgresRunning, status.Status.PoolerType)
+	return false
+}
+
+// waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch
+// and rejoin the cluster as a standby replica.
+func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, timeout time.Duration) {
+	t.Helper()
+	t.Logf("Waiting for multiorch to restart %s and rejoin as standby...", multipoolerName)
+
+	inst := setup.GetMultipoolerInstance(multipoolerName)
+	require.NotNil(t, inst, "multipooler %s should exist", multipoolerName)
+
 	// Check immediately
-	if checkRejoin() {
+	if checkRejoin(t, multipoolerName, inst) {
 		return
 	}
 
@@ -513,12 +537,12 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, no
 	for {
 		select {
 		case <-ticker.C:
-			if checkRejoin() {
+			if checkRejoin(t, multipoolerName, inst) {
 				return
 			}
 
 		case <-timeoutCh:
-			t.Fatalf("Timeout: node %s did not rejoin as standby within %v", nodeName, timeout)
+			t.Fatalf("Timeout: multipooler %s did not rejoin as standby within %v", multipoolerName, timeout)
 		}
 	}
 }
@@ -550,7 +574,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	t.Logf("Initial primary: %s", setup.PrimaryName)
 
 	// Kill the multipooler process on the primary (but leave Postgres running)
-	t.Logf("Killing multipooler on primary node %s (postgres stays running)", setup.PrimaryName)
+	t.Logf("Killing multipooler on primary %s (postgres stays running)", setup.PrimaryName)
 	killMultipooler(t, primary)
 
 	// Wait for multiorch to detect the pooler is down and run several recovery cycles.
@@ -563,22 +587,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 			if name == setup.PrimaryName {
 				continue // Skip the primary (its pooler is down)
 			}
-
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			require.NoError(t, err)
-			defer client.Close()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-
-			require.NoError(t, err)
-			require.True(t, resp.Status.IsInitialized, "Node %s should be initialized", name)
-			require.Equal(t, clustermetadatapb.PoolerType_REPLICA, resp.Status.PoolerType,
-				"Node %s should still be REPLICA (no failover should have occurred)", name)
-			require.NotNil(t, resp.Status.ReplicationStatus, "Standby %s should have replication status", name)
-			require.NotNil(t, resp.Status.ReplicationStatus.PrimaryConnInfo, "Standby %s should have PrimaryConnInfo", name)
-			t.Logf("Standby %s is still replicating (type=%s), no failover triggered", name, resp.Status.PoolerType)
+			verifyStandbyIsStillReplica(t, name, inst)
 		}
 	})
 
@@ -601,35 +610,61 @@ func TestPoolerDownNoFailover(t *testing.T) {
 			if name == setup.PrimaryName {
 				continue
 			}
-			socketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
-			db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort)
-			defer db.Close()
-
-			var result int
-			err := db.QueryRow("SELECT 1").Scan(&result)
-			require.NoError(t, err, "Should be able to query standby %s", name)
-			assert.Equal(t, 1, result)
+			verifyStandbyIsQueryable(t, name, inst)
 		}
 		t.Logf("All standbys are still queryable")
 	})
 }
 
-// killMultipooler terminates the multipooler process for a node (simulates pooler crash)
-func killMultipooler(t *testing.T, node *shardsetup.MultipoolerInstance) {
+// verifyStandbyIsQueryable checks that a standby postgres is queryable.
+func verifyStandbyIsQueryable(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
+	t.Helper()
+	socketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
+	db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort)
+	defer db.Close()
+
+	var result int
+	err := db.QueryRow("SELECT 1").Scan(&result)
+	require.NoError(t, err, "Should be able to query standby %s", name)
+	assert.Equal(t, 1, result)
+}
+
+// verifyStandbyIsStillReplica checks that a standby is still a replica (no failover occurred).
+func verifyStandbyIsStillReplica(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
+	t.Helper()
+	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	require.True(t, resp.Status.IsInitialized, "Multipooler %s should be initialized", name)
+	require.Equal(t, clustermetadatapb.PoolerType_REPLICA, resp.Status.PoolerType,
+		"Multipooler %s should still be REPLICA (no failover should have occurred)", name)
+	require.NotNil(t, resp.Status.ReplicationStatus, "Standby %s should have replication status", name)
+	require.NotNil(t, resp.Status.ReplicationStatus.PrimaryConnInfo, "Standby %s should have PrimaryConnInfo", name)
+	t.Logf("Standby %s is still replicating (type=%s), no failover triggered", name, resp.Status.PoolerType)
+}
+
+// killMultipooler terminates the multipooler process (simulates pooler crash)
+func killMultipooler(t *testing.T, multipooler *shardsetup.MultipoolerInstance) {
 	t.Helper()
 
-	if node.Multipooler == nil || node.Multipooler.Process == nil || node.Multipooler.Process.Process == nil {
-		t.Fatalf("Multipooler process not found for node %s", node.Name)
+	if multipooler.Multipooler == nil || multipooler.Multipooler.Process == nil || multipooler.Multipooler.Process.Process == nil {
+		t.Fatalf("Multipooler process not found for %s", multipooler.Name)
 	}
 
-	pid := node.Multipooler.Process.Process.Pid
-	t.Logf("Killing multipooler (PID %d) on node %s", pid, node.Name)
+	pid := multipooler.Multipooler.Process.Process.Pid
+	t.Logf("Killing multipooler (PID %d) on %s", pid, multipooler.Name)
 
-	err := node.Multipooler.Process.Process.Kill()
+	err := multipooler.Multipooler.Process.Process.Kill()
 	require.NoError(t, err, "Failed to kill multipooler process")
 
 	// Wait for the process to actually terminate
-	_ = node.Multipooler.Process.Wait()
+	_ = multipooler.Multipooler.Process.Wait()
 
-	t.Logf("Multipooler killed on %s - postgres should still be running", node.Name)
+	t.Logf("Multipooler killed on %s - postgres should still be running", multipooler.Name)
 }
