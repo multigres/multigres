@@ -170,3 +170,29 @@ func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 	maps.Copy(settings, m.SessionSettings)
 	return settings
 }
+
+// GetSessionVariable returns the value of a specific session variable.
+// Returns (value, true) if exists, ("", false) if not.
+func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.SessionSettings == nil {
+		return "", false
+	}
+	value, exists := m.SessionSettings[name]
+	return value, exists
+}
+
+// RestoreSessionSettings replaces the current session settings with a new map.
+// Used for rolling back RESET ALL failures.
+func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if settings == nil {
+		m.SessionSettings = nil
+	} else {
+		// Make a copy to prevent external mutation
+		m.SessionSettings = make(map[string]string, len(settings))
+		maps.Copy(m.SessionSettings, settings)
+	}
+}

@@ -83,35 +83,27 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	st := h.getConnectionState(conn)
 
 	for _, astStmt := range asts {
-		// Check if this is a SET/RESET command and track it in connection state
-		if setCmd, isSet := sessionstate.AnalyzeStatement(astStmt); isSet {
-			switch setCmd.Kind {
-			case sessionstate.SetValue:
-				// SET variable = value
-				st.SetSessionVariable(setCmd.Variable, setCmd.Value)
-				h.logger.DebugContext(ctx, "tracked SET command",
-					"variable", setCmd.Variable,
-					"value", setCmd.Value)
-			case sessionstate.ResetVariable:
-				// RESET variable
-				st.ResetSessionVariable(setCmd.Variable)
-				h.logger.DebugContext(ctx, "tracked RESET command",
-					"variable", setCmd.Variable)
-			case sessionstate.ResetAll:
-				// RESET ALL
-				st.ResetAllSessionVariables()
-				h.logger.DebugContext(ctx, "tracked RESET ALL command")
-			case sessionstate.SetLocal:
-				// SET LOCAL - Phase 1: Just pass through without tracking
-				// TODO Phase 2: Track transaction-scoped settings
-				h.logger.DebugContext(ctx, "detected SET LOCAL (not tracked in Phase 1)",
-					"variable", setCmd.Variable)
-			}
+		// Check if this is a SET/RESET command
+		setCmd, isSet := sessionstate.AnalyzeStatement(astStmt)
+
+		// Capture state snapshot for potential rollback
+		var stateSnapshot *sessionstate.StateSnapshot
+		if isSet && setCmd.Kind != sessionstate.SetLocal {
+			stateSnapshot = h.captureStateSnapshot(st, setCmd)
+
+			// Apply changes optimistically
+			h.applyStateChange(ctx, st, setCmd)
 		}
 
 		// Route the query through the executor which will eventually call multipooler
 		// We still execute SET/RESET commands on the backend to keep it in sync
 		err = h.executor.StreamExecute(ctx, conn, st, queryStr, astStmt, callback)
+
+		// Roll back on error
+		if err != nil && stateSnapshot != nil {
+			h.restoreStateSnapshot(st, stateSnapshot)
+		}
+
 		if err != nil {
 			return err
 		}
@@ -129,6 +121,77 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 		return newState
 	}
 	return state.(*MultiGatewayConnectionState)
+}
+
+// captureStateSnapshot saves the current state before a SET/RESET command
+// for potential rollback if the command fails.
+func (h *MultiGatewayHandler) captureStateSnapshot(st *MultiGatewayConnectionState, setCmd *sessionstate.SetCommand) *sessionstate.StateSnapshot {
+	switch setCmd.Kind {
+	case sessionstate.SetValue, sessionstate.ResetVariable:
+		// Save the previous value (or note that it didn't exist)
+		prevValue, existed := st.GetSessionVariable(setCmd.Variable)
+		return &sessionstate.StateSnapshot{
+			Kind:        setCmd.Kind,
+			Variable:    setCmd.Variable,
+			PrevValue:   prevValue,
+			PrevExisted: existed,
+		}
+	case sessionstate.ResetAll:
+		// Save entire current state
+		return &sessionstate.StateSnapshot{
+			Kind:        sessionstate.ResetAll,
+			AllSettings: st.GetSessionSettings(), // Returns a copy
+		}
+	}
+	return nil
+}
+
+// applyStateChange applies a SET/RESET command to connection state optimistically.
+func (h *MultiGatewayHandler) applyStateChange(ctx context.Context, st *MultiGatewayConnectionState, setCmd *sessionstate.SetCommand) {
+	switch setCmd.Kind {
+	case sessionstate.SetValue:
+		// SET variable = value
+		st.SetSessionVariable(setCmd.Variable, setCmd.Value)
+		h.logger.DebugContext(ctx, "tracked SET command",
+			"variable", setCmd.Variable,
+			"value", setCmd.Value)
+	case sessionstate.ResetVariable:
+		// RESET variable
+		st.ResetSessionVariable(setCmd.Variable)
+		h.logger.DebugContext(ctx, "tracked RESET command",
+			"variable", setCmd.Variable)
+	case sessionstate.ResetAll:
+		// RESET ALL
+		st.ResetAllSessionVariables()
+		h.logger.DebugContext(ctx, "tracked RESET ALL command")
+	case sessionstate.SetLocal:
+		// SET LOCAL - Phase 1: Just pass through without tracking
+		// TODO Phase 2: Track transaction-scoped settings
+		h.logger.DebugContext(ctx, "detected SET LOCAL (not tracked in Phase 1)",
+			"variable", setCmd.Variable)
+	}
+}
+
+// restoreStateSnapshot rolls back to the captured state if a SET/RESET command fails.
+func (h *MultiGatewayHandler) restoreStateSnapshot(st *MultiGatewayConnectionState, snapshot *sessionstate.StateSnapshot) {
+	switch snapshot.Kind {
+	case sessionstate.SetValue:
+		// Restore previous value or remove if it didn't exist
+		if snapshot.PrevExisted {
+			st.SetSessionVariable(snapshot.Variable, snapshot.PrevValue)
+		} else {
+			st.ResetSessionVariable(snapshot.Variable)
+		}
+	case sessionstate.ResetVariable:
+		// RESET failed, restore the previous value if it existed
+		if snapshot.PrevExisted {
+			st.SetSessionVariable(snapshot.Variable, snapshot.PrevValue)
+		}
+		// If it didn't exist before, it's already not in the map
+	case sessionstate.ResetAll:
+		// RESET ALL failed, restore the entire previous state
+		st.RestoreSessionSettings(snapshot.AllSettings)
+	}
 }
 
 // HandleParse processes a Parse message ('P') for the extended query protocol.
