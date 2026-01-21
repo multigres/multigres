@@ -309,7 +309,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Add primary's pooler client
 		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", finalPrimaryInst.Multipooler.GrpcPort))
 		require.NoError(t, err)
-		defer primaryPoolerClient.Close()
 		poolerClients = append(poolerClients, primaryPoolerClient)
 
 		for name, inst := range setup.Multipoolers {
@@ -323,15 +322,16 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			_, err = client.Manager.WaitForLSN(utils.WithTimeout(t, 2*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
 				TargetLsn: primaryLSN,
 			})
-			client.Close()
 			require.NoError(t, err, "Replica %s should catch up to final primary LSN", name)
-
-			// Add replica's pooler client
-			replicaPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", inst.Multipooler.GrpcPort))
-			require.NoError(t, err)
-			defer replicaPoolerClient.Close()
-			poolerClients = append(poolerClients, replicaPoolerClient)
+			poolerClients = append(poolerClients, client.Pooler)
 		}
+
+		// Defer cleanup of all pooler clients after collection
+		defer func() {
+			for _, client := range poolerClients {
+				client.Close()
+			}
+		}()
 
 		require.Len(t, poolerClients, 3, "should have 3 multipooler clients (all multipoolers rejoined)")
 
