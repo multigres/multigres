@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -43,6 +44,9 @@ import (
 // A PoolerConnection exists if and only if we are actively connected to the pooler.
 // The LoadBalancer creates and destroys PoolerConnections based on discovery events.
 type PoolerConnection struct {
+	// mu protects poolerInfo from concurrent access
+	mu sync.Mutex
+
 	// poolerInfo contains the pooler metadata from discovery
 	poolerInfo *topoclient.MultiPoolerInfo
 
@@ -106,21 +110,29 @@ func NewPoolerConnection(
 
 // ID returns the unique identifier for this pooler connection.
 func (pc *PoolerConnection) ID() string {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
 	return topoclient.MultiPoolerIDString(pc.poolerInfo.Id)
 }
 
 // Cell returns the cell where this pooler is located.
 func (pc *PoolerConnection) Cell() string {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
 	return pc.poolerInfo.Id.GetCell()
 }
 
 // Type returns the pooler type (PRIMARY or REPLICA).
 func (pc *PoolerConnection) Type() clustermetadatapb.PoolerType {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
 	return pc.poolerInfo.Type
 }
 
 // PoolerInfo returns the underlying pooler metadata.
 func (pc *PoolerConnection) PoolerInfo() *topoclient.MultiPoolerInfo {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
 	return pc.poolerInfo
 }
 
@@ -128,6 +140,20 @@ func (pc *PoolerConnection) PoolerInfo() *topoclient.MultiPoolerInfo {
 // This can be used for authentication, health checks, and other system-level operations.
 func (pc *PoolerConnection) ServiceClient() multipoolerpb.MultiPoolerServiceClient {
 	return pc.serviceClient
+}
+
+// UpdateMetadata updates the pooler metadata without recreating the gRPC connection.
+// This is used when pooler properties change (e.g., type changes from REPLICA to PRIMARY during promotion).
+func (pc *PoolerConnection) UpdateMetadata(pooler *clustermetadatapb.MultiPooler) {
+	pc.mu.Lock()
+	pc.poolerInfo = &topoclient.MultiPoolerInfo{MultiPooler: pooler}
+	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	poolerType := pooler.Type.String()
+	pc.mu.Unlock()
+
+	pc.logger.Debug("updated pooler metadata",
+		"pooler_id", poolerID,
+		"type", poolerType)
 }
 
 // StreamExecute executes a query and streams results back via callback.
