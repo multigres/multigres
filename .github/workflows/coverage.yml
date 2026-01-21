@@ -166,8 +166,8 @@ jobs:
   coveralls-finish:
     name: Finish Coveralls upload
     runs-on: ubuntu-24.04
-    needs: [merge-and-upload]
-    if: always()
+    needs: [coverage-direct, coverage-subprocess, merge-and-upload]
+    if: success()
 
     steps:
       - name: Coveralls Finished
