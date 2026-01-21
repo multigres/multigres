@@ -20,9 +20,11 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // GetConnectionOptions specifies options for connection selection.
@@ -150,10 +152,34 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 // available or the context is cancelled.
 //
 // This is useful during failover when waiting for a new primary to be elected.
+// Maximum wait time is 30 seconds (similar to Vitess's initialTabletTimeout).
 func (lb *LoadBalancer) GetConnectionContext(ctx context.Context, target *query.Target, opts *GetConnectionOptions) (*PoolerConnection, error) {
-	// For now, just delegate to GetConnection.
-	// Waiting logic will be added when we implement health streaming.
-	return lb.GetConnection(target, opts)
+	// Try once immediately
+	conn, err := lb.GetConnection(target, opts)
+	if err == nil {
+		return conn, nil
+	}
+
+	// If no connection found, retry with backoff up to 30 seconds total
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	r := retry.New(10*time.Millisecond, 100*time.Millisecond)
+	for _, retryErr := range r.Attempts(ctx) {
+		if retryErr != nil {
+			return nil, fmt.Errorf("no pooler found for target after 30s: tablegroup=%s, shard=%s, type=%s",
+				target.TableGroup, target.Shard, target.PoolerType.String())
+		}
+
+		conn, connErr := lb.GetConnection(target, opts)
+		if connErr == nil {
+			return conn, nil
+		}
+		// Continue retrying on next iteration
+	}
+
+	// This should be unreachable since r.Attempts will return context error
+	return nil, errors.New("no pooler found for target after retry")
 }
 
 // selectConnection chooses the best connection from candidates.

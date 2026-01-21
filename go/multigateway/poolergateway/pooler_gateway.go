@@ -88,8 +88,8 @@ func (pg *PoolerGateway) StreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target, nil)
+	// Get a connection matching the target (waits for discovery if needed)
+	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
 	if err != nil {
 		return err
 	}
@@ -109,8 +109,8 @@ func (pg *PoolerGateway) StreamExecute(
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
-	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target, nil)
+	// Get a connection matching the target (waits for discovery if needed)
+	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +135,8 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
-	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target, nil)
+	// Get a connection matching the target (waits for discovery if needed)
+	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
 	if err != nil {
 		return queryservice.ReservedState{}, err
 	}
@@ -160,8 +160,8 @@ func (pg *PoolerGateway) Describe(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
-	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target, nil)
+	// Get a connection matching the target (waits for discovery if needed)
+	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
 	if err != nil {
 		return nil, err
 	}
