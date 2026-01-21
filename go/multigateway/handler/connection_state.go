@@ -15,6 +15,7 @@
 package handler
 
 import (
+	"maps"
 	"sync"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -42,6 +43,12 @@ type MultiGatewayConnectionState struct {
 	// ShardStates is the information per shard that needs to be maintained.
 	// It keeps track of any reserved connections on each Shard currently open.
 	ShardStates []*ShardState
+
+	// SessionSettings stores session variables set via SET commands.
+	// These settings are propagated to multipooler to ensure the correct
+	// pooled connection (with matching settings) is reused.
+	// Map keys are variable names, values are the string representation.
+	SessionSettings map[string]string
 }
 
 type ShardState struct {
@@ -120,4 +127,46 @@ func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Targ
 	ss.PoolerID = rs.PoolerID
 	ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
 	m.ShardStates = append(m.ShardStates, ss)
+}
+
+// SetSessionVariable sets a session variable (from SET command).
+// The variable name and value are stored to be propagated to multipooler.
+func (m *MultiGatewayConnectionState) SetSessionVariable(name, value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.SessionSettings == nil {
+		m.SessionSettings = make(map[string]string)
+	}
+	m.SessionSettings[name] = value
+}
+
+// ResetSessionVariable removes a session variable (from RESET command).
+func (m *MultiGatewayConnectionState) ResetSessionVariable(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.SessionSettings != nil {
+		delete(m.SessionSettings, name)
+	}
+}
+
+// ResetAllSessionVariables clears all session variables (from RESET ALL command).
+func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.SessionSettings = make(map[string]string)
+}
+
+// GetSessionSettings returns a copy of the current session settings.
+// Returns nil if no settings have been set.
+// The copy prevents external mutation of the internal state.
+func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.SessionSettings) == 0 {
+		return nil
+	}
+	// Return copy to prevent external mutation
+	settings := make(map[string]string, len(m.SessionSettings))
+	maps.Copy(settings, m.SessionSettings)
+	return settings
 }
