@@ -17,6 +17,7 @@ package multigateway
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -726,16 +727,37 @@ func TestCellPoolerDiscovery_ExtractPoolerIDFromPath(t *testing.T) {
 
 // mockPoolerListener records pooler change events for testing.
 type mockPoolerListener struct {
+	mu             sync.Mutex
 	changedPoolers []string
 	removedPoolers []string
 }
 
 func (m *mockPoolerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.changedPoolers = append(m.changedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
 }
 
 func (m *mockPoolerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.removedPoolers = append(m.removedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
+}
+
+func (m *mockPoolerListener) getChangedPoolers() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.changedPoolers))
+	copy(result, m.changedPoolers)
+	return result
+}
+
+func (m *mockPoolerListener) getRemovedPoolers() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.removedPoolers))
+	copy(result, m.removedPoolers)
+	return result
 }
 
 func TestGlobalPoolerDiscovery_RegisterListener_ReplaysExistingPoolers(t *testing.T) {
@@ -763,14 +785,16 @@ func TestGlobalPoolerDiscovery_RegisterListener_ReplaysExistingPoolers(t *testin
 	gd.RegisterListener(listener)
 
 	// The listener should immediately receive OnPoolerChanged for all existing poolers
-	require.Len(t, listener.changedPoolers, 2, "Listener should receive replay of existing poolers")
+	changedPoolers := listener.getChangedPoolers()
+	require.Len(t, changedPoolers, 2, "Listener should receive replay of existing poolers")
 
 	// Verify both poolers were replayed (order may vary)
-	assert.Contains(t, listener.changedPoolers, topoclient.MultiPoolerIDString(pooler1.Id))
-	assert.Contains(t, listener.changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
+	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler1.Id))
+	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
 
 	// No poolers should have been removed
-	assert.Empty(t, listener.removedPoolers)
+	removedPoolers := listener.getRemovedPoolers()
+	assert.Empty(t, removedPoolers)
 }
 
 func TestGlobalPoolerDiscovery_RegisterListener_ReceivesSubsequentChanges(t *testing.T) {
@@ -795,7 +819,8 @@ func TestGlobalPoolerDiscovery_RegisterListener_ReceivesSubsequentChanges(t *tes
 	gd.RegisterListener(listener)
 
 	// Should have replayed pooler1
-	require.Len(t, listener.changedPoolers, 1)
+	changedPoolers := listener.getChangedPoolers()
+	require.Len(t, changedPoolers, 1)
 
 	// Now add another pooler
 	pooler2 := createTestPooler("pooler2", "zone1", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
@@ -803,8 +828,9 @@ func TestGlobalPoolerDiscovery_RegisterListener_ReceivesSubsequentChanges(t *tes
 
 	// Wait for listener to receive the new pooler
 	waitForCondition(t, func() bool {
-		return len(listener.changedPoolers) == 2
+		return len(listener.getChangedPoolers()) == 2
 	}, "Listener should receive new pooler after registration")
 
-	assert.Contains(t, listener.changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
+	changedPoolers = listener.getChangedPoolers()
+	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
 }
