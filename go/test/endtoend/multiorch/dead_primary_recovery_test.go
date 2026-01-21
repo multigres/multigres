@@ -87,8 +87,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			resp.Status.ReplicationStatus.PrimaryConnInfo.Port)
 	}
 
-	// Disable monitoring on all multipoolers so multiorch handles recovery (not postgres monitor)
-	t.Logf("Disabling monitoring on all multipoolers...")
+	// Disable monitoring so multiorch orchestrates recovery instead
+	// of each multipooler's local postgres monitor. This could create races for
+	// this test.
 	disableMonitoringOnAllNodes(t, setup)
 
 	// Connect to multigateway for continuous writes (automatically routes to current primary)
@@ -144,6 +145,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		disableMonitoringOnAllNodes(t, setup)
 
 		// No need to restart validator or switch connections - multigateway automatically routes to new primary
+		// We track failed writes just for debugging purposes, but during a failover it is expected
+		// that we will see some failures (at least until we get to buffering)
 		successWrites, failedWrites := validator.Stats()
 		t.Logf("Iteration %d: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
 			i+1, successWrites, failedWrites, newPrimaryName)
