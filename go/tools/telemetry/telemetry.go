@@ -453,16 +453,20 @@ func (h *compositeHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *compositeHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Send to both handlers
-	// Don't short-circuit on error - try to log to both destinations
+	// Send to handlers that are enabled for this level
+	// Check Enabled() before Handle() to avoid overhead for disabled levels
 	var errs []error
 
-	if err := h.local.Handle(ctx, r); err != nil {
-		errs = append(errs, fmt.Errorf("local handler: %w", err))
+	if h.local.Enabled(ctx, r.Level) {
+		if err := h.local.Handle(ctx, r); err != nil {
+			errs = append(errs, fmt.Errorf("local handler: %w", err))
+		}
 	}
 
-	if err := h.otel.Handle(ctx, r); err != nil {
-		errs = append(errs, fmt.Errorf("otel handler: %w", err))
+	if h.otel.Enabled(ctx, r.Level) {
+		if err := h.otel.Handle(ctx, r); err != nil {
+			errs = append(errs, fmt.Errorf("otel handler: %w", err))
+		}
 	}
 
 	if len(errs) > 0 {
