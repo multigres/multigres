@@ -1491,7 +1491,7 @@ func TestReplicationStatus(t *testing.T) {
 	})
 }
 
-func TestEnableMonitorRPC(t *testing.T) {
+func TestSetMonitorRPCEnable(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -1501,7 +1501,7 @@ func TestEnableMonitorRPC(t *testing.T) {
 		Name:      "test-service",
 	}
 
-	t.Run("EnableMonitor_Success", func(t *testing.T) {
+	t.Run("SetMonitor_Enable_Success", func(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
@@ -1556,16 +1556,16 @@ func TestEnableMonitorRPC(t *testing.T) {
 
 		// Disable monitor first
 		pm.disableMonitorInternal()
-		require.Nil(t, pm.monitorCancel, "Monitor should be disabled")
+		require.False(t, pm.pgMonitor.Running(), "Monitor should be disabled")
 
 		// Enable monitor via RPC
-		resp, err := pm.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
+		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.NotNil(t, pm.monitorCancel, "Monitor should be enabled")
+		require.True(t, pm.pgMonitor.Running(), "Monitor should be enabled")
 	})
 
-	t.Run("EnableMonitor_Idempotent", func(t *testing.T) {
+	t.Run("SetMonitor_Enable_Idempotent", func(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
@@ -1619,16 +1619,16 @@ func TestEnableMonitorRPC(t *testing.T) {
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 		// Monitor should already be running after Start
-		require.NotNil(t, pm.monitorCancel, "Monitor should be running after Start")
+		require.True(t, pm.pgMonitor.Running(), "Monitor should be running after Start")
 
 		// Enable monitor again - should be idempotent (no error, monitor still running)
-		resp, err := pm.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
+		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.NotNil(t, pm.monitorCancel, "Monitor should still be enabled")
+		require.True(t, pm.pgMonitor.Running(), "Monitor should still be enabled")
 	})
 
-	t.Run("EnableMonitor_WhenNotOpen", func(t *testing.T) {
+	t.Run("SetMonitor_Enable_WhenNotOpen", func(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
@@ -1668,14 +1668,14 @@ func TestEnableMonitorRPC(t *testing.T) {
 		// Don't start the manager - isOpen should be false
 
 		// Try to enable monitor when manager is not open
-		resp, err := pm.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
+		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 		require.Error(t, err)
 		require.Nil(t, resp)
 		require.Contains(t, err.Error(), "manager is not open")
 	})
 }
 
-func TestDisableMonitorRPC(t *testing.T) {
+func TestSetMonitorRPCDisable(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -1685,7 +1685,7 @@ func TestDisableMonitorRPC(t *testing.T) {
 		Name:      "test-service",
 	}
 
-	t.Run("DisableMonitor_Success", func(t *testing.T) {
+	t.Run("SetMonitor_Disable_Success", func(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
@@ -1739,16 +1739,16 @@ func TestDisableMonitorRPC(t *testing.T) {
 		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 		// Monitor should be running after Start
-		require.NotNil(t, pm.monitorCancel, "Monitor should be running")
+		require.True(t, pm.pgMonitor.Running(), "Monitor should be running")
 
 		// Disable monitor via RPC
-		resp, err := pm.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
+		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Nil(t, pm.monitorCancel, "Monitor should be disabled")
+		require.False(t, pm.pgMonitor.Running(), "Monitor should be disabled")
 	})
 
-	t.Run("DisableMonitor_Idempotent", func(t *testing.T) {
+	t.Run("SetMonitor_Disable_Idempotent", func(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
@@ -1803,12 +1803,12 @@ func TestDisableMonitorRPC(t *testing.T) {
 
 		// Disable monitor
 		pm.disableMonitorInternal()
-		require.Nil(t, pm.monitorCancel, "Monitor should be disabled")
+		require.False(t, pm.pgMonitor.Running(), "Monitor should be disabled")
 
 		// Disable monitor again via RPC - should be idempotent
-		resp, err := pm.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
+		resp, err := pm.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		require.Nil(t, pm.monitorCancel, "Monitor should still be disabled")
+		require.False(t, pm.pgMonitor.Running(), "Monitor should still be disabled")
 	})
 }

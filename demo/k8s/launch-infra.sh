@@ -20,10 +20,10 @@ set -ex
 # multigres images must be built first
 # Edit kind.yaml
 
-# Ensure we're in the kind_demo directory.
+# Ensure we're in the k8s directory.
 # This is because we use a relative path name to the data files.
-if [[ $(basename "$PWD") != "kind_demo" ]]; then
-  echo "Error: This script must be run from the kind_demo directory"
+if [[ $(basename "$PWD") != "k8s" ]]; then
+  echo "Error: This script must be run from the demo/k8s directory"
   exit 1
 fi
 
@@ -44,9 +44,10 @@ kubectl apply -f k8s-etcd.yaml
 kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
 
 # Deploy observability stack (Prometheus, Tempo, Loki, Grafana)
-# The otel-config and sampling-config ConfigMaps must exist before services that reference them.
-kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=observability/grafana-dashboard.json --save-config
-kubectl create configmap sampling-config --from-file=sampling-config.yaml --save-config
+# The otel-config, sampling-config, and grafana-datasources ConfigMaps must exist before services that reference them.
+kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=../demo/observability/grafana-dashboard.json --save-config
+kubectl create configmap grafana-datasources --from-file=datasources.yml=../demo/observability/grafana-datasources.yml --save-config
+kubectl create configmap sampling-config --from-file=sampling-config.yaml=../demo/observability/sampling-config.yaml --save-config
 kubectl apply -f k8s-observability.yaml
 
 # We're launching this as a job. The operator will just invoke this CLI.

@@ -77,7 +77,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 
 	t.Run("3. disable monitoring", func(t *testing.T) {
 		ctx := utils.WithShortDeadline(t)
-		_, err := primaryClient.Manager.DisableMonitor(ctx, &multipoolermanagerdatapb.DisableMonitorRequest{})
+		_, err := primaryClient.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
 		require.NoError(t, err, "Should disable monitoring successfully")
 		t.Logf("Monitoring disabled on primary")
 	})
@@ -101,7 +101,7 @@ func TestPostgresMonitorControl(t *testing.T) {
 	t.Run("5. enable monitoring and verify postgres restarts", func(t *testing.T) {
 		// Enable monitoring
 		ctx := utils.WithShortDeadline(t)
-		_, err := primaryClient.Manager.EnableMonitor(ctx, &multipoolermanagerdatapb.EnableMonitorRequest{})
+		_, err := primaryClient.Manager.SetMonitor(ctx, &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 		require.NoError(t, err, "Should enable monitoring successfully")
 		t.Logf("Monitoring enabled on primary")
 

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -49,6 +50,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Pause monitoring during initialization to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer resumeMonitor(ctx)
 
 	// Validate consensus term must be 1 for new primary
 	if req.ConsensusTerm != 1 {
@@ -406,6 +414,34 @@ func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) err
 	return mterrors.Wrap(lastErr, "failed to connect to database after retries")
 }
 
+// removeArchiveConfigFromAutoConf removes archive configuration lines from postgresql.auto.conf
+// This is used after restore to remove the primary's archive config before applying the standby's config
+func (pm *MultiPoolerManager) removeArchiveConfigFromAutoConf() error {
+	autoConfPath := filepath.Join(pm.config.PoolerDir, "pg_data", "postgresql.auto.conf")
+
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // File doesn't exist, nothing to remove
+		}
+		return fmt.Errorf("failed to read postgresql.auto.conf: %w", err)
+	}
+
+	var filtered []string
+	for line := range strings.SplitSeq(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Skip archive-related lines
+		if strings.HasPrefix(trimmed, "archive_mode") ||
+			strings.HasPrefix(trimmed, "archive_command") ||
+			trimmed == "# Archive mode for pgbackrest backups" {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	return os.WriteFile(autoConfPath, []byte(strings.Join(filtered, "\n")), 0o644)
+}
+
 // configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
 // This must be called after InitDataDir but BEFORE starting PostgreSQL
 func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
@@ -435,7 +471,7 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 	// Following the pattern from test/endtoend/multipooler/setup_test.go:479-498
 	archiveConfig := fmt.Sprintf(`
 # Archive mode for pgbackrest backups
-archive_mode = on
+archive_mode = 'on'
 archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 `, pm.stanzaName(), configPath)
 

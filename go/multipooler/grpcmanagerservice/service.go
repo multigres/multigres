@@ -330,12 +330,7 @@ func (s *managerService) RewindToSource(ctx context.Context, req *multipoolerman
 	return s.manager.RewindToSource(ctx, req.Source)
 }
 
-// EnableMonitor enables the PostgreSQL monitoring goroutine
-func (s *managerService) EnableMonitor(ctx context.Context, req *multipoolermanagerdatapb.EnableMonitorRequest) (*multipoolermanagerdatapb.EnableMonitorResponse, error) {
-	return s.manager.EnableMonitor(ctx, req)
-}
-
-// DisableMonitor disables the PostgreSQL monitoring goroutine
-func (s *managerService) DisableMonitor(ctx context.Context, req *multipoolermanagerdatapb.DisableMonitorRequest) (*multipoolermanagerdatapb.DisableMonitorResponse, error) {
-	return s.manager.DisableMonitor(ctx, req)
+// SetMonitor enables or disables the PostgreSQL monitoring goroutine
+func (s *managerService) SetMonitor(ctx context.Context, req *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
+	return s.manager.SetMonitor(ctx, req)
 }

@@ -32,6 +32,8 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/tools/timer"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -91,6 +93,8 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		fullBackupLocation = filepath.Join(backupLocation, database, tableGroup, shard)
 	}
 
+	monitorRunner := timer.NewPeriodicRunner(context.TODO(), 10*time.Second)
+
 	pm := &MultiPoolerManager{
 		config: &Config{
 			PoolerDir:  poolerDir,
@@ -105,6 +109,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
 		logger:         slog.Default(),
+		pgMonitor:      monitorRunner,
 		cachedMultipooler: cachedMultiPoolerInfo{
 			multipooler: topoclient.NewMultiPoolerInfo(
 				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),

@@ -100,20 +100,11 @@ service MultiAdminService {
   // PostgreSQL Monitoring Control (proxy methods)
   //
 
-  // EnablePostgresMonitor enables PostgreSQL monitoring on a pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.EnableMonitor RPC.
-  rpc EnablePostgresMonitor(EnablePostgresMonitorRequest) returns (EnablePostgresMonitorResponse) {
+  // SetPostgresMonitor enables or disables PostgreSQL monitoring on a pooler.
+  // This proxies the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
+  rpc SetPostgresMonitor(SetPostgresMonitorRequest) returns (SetPostgresMonitorResponse) {
     option (google.api.http) = {
-      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/enable-postgres-monitor"
-      body: "*"
-    };
-  }
-
-  // DisablePostgresMonitor disables PostgreSQL monitoring on a pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.DisableMonitor RPC.
-  rpc DisablePostgresMonitor(DisablePostgresMonitorRequest) returns (DisablePostgresMonitorResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/disable-postgres-monitor"
+      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-monitor"
       body: "*"
     };
   }
@@ -372,26 +363,17 @@ message GetPoolerStatusResponse {
 
 // PostgreSQL Monitoring Control operation messages
 
-// EnablePostgresMonitorRequest requests to enable PostgreSQL monitoring on a pooler
-message EnablePostgresMonitorRequest {
-  // pooler_id identifies which pooler to enable monitoring on (required)
+// SetPostgresMonitorRequest requests to enable or disable PostgreSQL monitoring on a pooler
+message SetPostgresMonitorRequest {
+  // pooler_id identifies which pooler to update monitoring on (required)
   clustermetadata.ID pooler_id = 1;
+
+  // enabled controls whether monitoring is enabled (true) or disabled (false)
+  bool enabled = 2;
 }
 
-// EnablePostgresMonitorResponse confirms that monitoring was enabled
+// SetPostgresMonitorResponse confirms that monitoring was updated
 // Errors are returned via gRPC status codes, not in the response body
-message EnablePostgresMonitorResponse {
-  // Empty - success indicated by no error
-}
-
-// DisablePostgresMonitorRequest requests to disable PostgreSQL monitoring on a pooler
-message DisablePostgresMonitorRequest {
-  // pooler_id identifies which pooler to disable monitoring on (required)
-  clustermetadata.ID pooler_id = 1;
-}
-
-// DisablePostgresMonitorResponse confirms that monitoring was disabled
-// Errors are returned via gRPC status codes, not in the response body
-message DisablePostgresMonitorResponse {
+message SetPostgresMonitorResponse {
   // Empty - success indicated by no error
 }

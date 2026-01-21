@@ -69,7 +69,7 @@ go/common/web/templates/css/pico.*
 y.output
 
 # Kind demo runtime data
-kind_demo/data/
+demo/k8s/data/
 
 # Next
 .next

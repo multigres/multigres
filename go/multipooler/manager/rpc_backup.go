@@ -332,10 +332,18 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during restore to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return err
+	}
+	defer resumeMonitor(ctx)
+
 	return pm.restoreFromBackupLocked(ctx, backupID)
 }
 
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock
+// and monitoring must be disabled to avoid interference.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -360,9 +368,36 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	if err := pm.executePgBackrestRestore(ctx, backupID); err != nil {
 		return err
 	}
+
+	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
+	// After restore, postgresql.auto.conf contains archive_command pointing to the
+	// primary's pgbackrest.conf path. Each pooler needs its own config path.
+	pm.logger.InfoContext(ctx, "Reconfiguring archive_command for local pgbackrest.conf")
+	if err := pm.removeArchiveConfigFromAutoConf(); err != nil {
+		return mterrors.Wrap(err, "failed to remove old archive configuration")
+	}
+	if err := pm.configureArchiveMode(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to configure archive mode")
+	}
+
 	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
 		return err
 	}
+
+	// Set consensus term after restore.
+	// If the cluster is at a higher term,
+	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
+	var term int64 = 0
+	if pm.consensusState != nil {
+		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
+		pm.loadConsensusTermFromDisk()
+		term = pm.consensusState.term.TermNumber
+	}
+
+	if term == 0 {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
+	}
+
 	if err := pm.reopenPoolerManager(ctx); err != nil {
 		return err
 	}

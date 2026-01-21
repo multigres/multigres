@@ -21,8 +21,8 @@ CHECK_INTERVAL = 1  # seconds
 PGCTLD_BIN = "/usr/local/bin/pgctld"
 POOLER_DIR = "/data"
 
-# Local multigres CLI (relative to kind_demo directory)
-MULTIGRES_BIN = os.path.join(os.path.dirname(__file__), "..", "bin", "multigres")
+# Local multigres CLI (relative to demo/k8s directory)
+MULTIGRES_BIN = os.path.join(os.path.dirname(__file__), "..", "..", "bin", "multigres")
 
 # Colors
 class Colors:

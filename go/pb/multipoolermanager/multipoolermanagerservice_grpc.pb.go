@@ -62,8 +62,7 @@ const (
 	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
 	MultiPoolerManager_GetBackupByJobId_FullMethodName                = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
 	MultiPoolerManager_RewindToSource_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/RewindToSource"
-	MultiPoolerManager_EnableMonitor_FullMethodName                   = "/multipoolermanager.MultiPoolerManager/EnableMonitor"
-	MultiPoolerManager_DisableMonitor_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/DisableMonitor"
+	MultiPoolerManager_SetMonitor_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/SetMonitor"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -142,10 +141,8 @@ type MultiPoolerManagerClient interface {
 	// This is used to repair diverged timelines after failover.
 	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
 	RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error)
-	// EnableMonitor starts the PostgreSQL monitoring goroutine
-	EnableMonitor(ctx context.Context, in *multipoolermanagerdata.EnableMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnableMonitorResponse, error)
-	// DisableMonitor stops the PostgreSQL monitoring goroutine
-	DisableMonitor(ctx context.Context, in *multipoolermanagerdata.DisableMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DisableMonitorResponse, error)
+	// SetMonitor enables or disables the PostgreSQL monitoring goroutine
+	SetMonitor(ctx context.Context, in *multipoolermanagerdata.SetMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetMonitorResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -436,20 +433,10 @@ func (c *multiPoolerManagerClient) RewindToSource(ctx context.Context, in *multi
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) EnableMonitor(ctx context.Context, in *multipoolermanagerdata.EnableMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnableMonitorResponse, error) {
+func (c *multiPoolerManagerClient) SetMonitor(ctx context.Context, in *multipoolermanagerdata.SetMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetMonitorResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.EnableMonitorResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_EnableMonitor_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) DisableMonitor(ctx context.Context, in *multipoolermanagerdata.DisableMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DisableMonitorResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.DisableMonitorResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_DisableMonitor_FullMethodName, in, out, cOpts...)
+	out := new(multipoolermanagerdata.SetMonitorResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_SetMonitor_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -532,10 +519,8 @@ type MultiPoolerManagerServer interface {
 	// This is used to repair diverged timelines after failover.
 	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
 	RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error)
-	// EnableMonitor starts the PostgreSQL monitoring goroutine
-	EnableMonitor(context.Context, *multipoolermanagerdata.EnableMonitorRequest) (*multipoolermanagerdata.EnableMonitorResponse, error)
-	// DisableMonitor stops the PostgreSQL monitoring goroutine
-	DisableMonitor(context.Context, *multipoolermanagerdata.DisableMonitorRequest) (*multipoolermanagerdata.DisableMonitorResponse, error)
+	// SetMonitor enables or disables the PostgreSQL monitoring goroutine
+	SetMonitor(context.Context, *multipoolermanagerdata.SetMonitorRequest) (*multipoolermanagerdata.SetMonitorResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -630,11 +615,8 @@ func (UnimplementedMultiPoolerManagerServer) GetBackupByJobId(context.Context, *
 func (UnimplementedMultiPoolerManagerServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RewindToSource not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) EnableMonitor(context.Context, *multipoolermanagerdata.EnableMonitorRequest) (*multipoolermanagerdata.EnableMonitorResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method EnableMonitor not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) DisableMonitor(context.Context, *multipoolermanagerdata.DisableMonitorRequest) (*multipoolermanagerdata.DisableMonitorResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DisableMonitor not implemented")
+func (UnimplementedMultiPoolerManagerServer) SetMonitor(context.Context, *multipoolermanagerdata.SetMonitorRequest) (*multipoolermanagerdata.SetMonitorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetMonitor not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 func (UnimplementedMultiPoolerManagerServer) testEmbeddedByValue()                            {}
@@ -1161,38 +1143,20 @@ func _MultiPoolerManager_RewindToSource_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_EnableMonitor_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.EnableMonitorRequest)
+func _MultiPoolerManager_SetMonitor_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetMonitorRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).EnableMonitor(ctx, in)
+		return srv.(MultiPoolerManagerServer).SetMonitor(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_EnableMonitor_FullMethodName,
+		FullMethod: MultiPoolerManager_SetMonitor_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).EnableMonitor(ctx, req.(*multipoolermanagerdata.EnableMonitorRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerManager_DisableMonitor_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.DisableMonitorRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).DisableMonitor(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_DisableMonitor_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).DisableMonitor(ctx, req.(*multipoolermanagerdata.DisableMonitorRequest))
+		return srv.(MultiPoolerManagerServer).SetMonitor(ctx, req.(*multipoolermanagerdata.SetMonitorRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1317,12 +1281,8 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerManager_RewindToSource_Handler,
 		},
 		{
-			MethodName: "EnableMonitor",
-			Handler:    _MultiPoolerManager_EnableMonitor_Handler,
-		},
-		{
-			MethodName: "DisableMonitor",
-			Handler:    _MultiPoolerManager_DisableMonitor_Handler,
+			MethodName: "SetMonitor",
+			Handler:    _MultiPoolerManager_SetMonitor_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

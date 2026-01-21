@@ -660,7 +660,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
+func TestMultiAdminServerSetPostgresMonitorEnabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -671,8 +671,8 @@ func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
 	server.SetRPCClient(fakeClient)
 
 	t.Run("nil pooler_id returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.EnablePostgresMonitorRequest{PoolerId: nil}
-		resp, err := server.EnablePostgresMonitor(ctx, req)
+		req := &multiadminpb.SetPostgresMonitorRequest{PoolerId: nil, Enabled: true}
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -684,10 +684,11 @@ func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
 	})
 
 	t.Run("empty cell returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.EnablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "", Name: "pool1"},
+			Enabled:  true,
 		}
-		resp, err := server.EnablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -699,10 +700,11 @@ func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
 	})
 
 	t.Run("empty name returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.EnablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: ""},
+			Enabled:  true,
 		}
-		resp, err := server.EnablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -714,10 +716,11 @@ func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
 	})
 
 	t.Run("non-existent pooler returns NotFound", func(t *testing.T) {
-		req := &multiadminpb.EnablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: "nonexistent"},
+			Enabled:  true,
 		}
-		resp, err := server.EnablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -745,12 +748,13 @@ func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
 
 		// Setup fake response - use the same key format as the rpc client
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
-		fakeClient.SetEnableMonitorResponse(poolerKey, &multipoolermanagerdatapb.EnableMonitorResponse{})
+		fakeClient.SetMonitorResponse(poolerKey, &multipoolermanagerdatapb.SetMonitorResponse{})
 
-		req := &multiadminpb.EnablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: poolerID,
+			Enabled:  true,
 		}
-		resp, err := server.EnablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -775,10 +779,11 @@ func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
-		req := &multiadminpb.EnablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: poolerID,
+			Enabled:  true,
 		}
-		resp, err := server.EnablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -786,11 +791,11 @@ func TestMultiAdminServerEnablePostgresMonitor(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.Unavailable, st.Code())
-		assert.Contains(t, st.Message(), "failed to enable PostgreSQL monitoring on pooler")
+		assert.Contains(t, st.Message(), "failed to update PostgreSQL monitoring on pooler")
 	})
 }
 
-func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
+func TestMultiAdminServerSetPostgresMonitorDisabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -801,8 +806,8 @@ func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
 	server.SetRPCClient(fakeClient)
 
 	t.Run("nil pooler_id returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.DisablePostgresMonitorRequest{PoolerId: nil}
-		resp, err := server.DisablePostgresMonitor(ctx, req)
+		req := &multiadminpb.SetPostgresMonitorRequest{PoolerId: nil, Enabled: false}
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -814,10 +819,11 @@ func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
 	})
 
 	t.Run("empty cell returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.DisablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "", Name: "pool1"},
+			Enabled:  false,
 		}
-		resp, err := server.DisablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -829,10 +835,11 @@ func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
 	})
 
 	t.Run("empty name returns InvalidArgument", func(t *testing.T) {
-		req := &multiadminpb.DisablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: ""},
+			Enabled:  false,
 		}
-		resp, err := server.DisablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -844,10 +851,11 @@ func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
 	})
 
 	t.Run("non-existent pooler returns NotFound", func(t *testing.T) {
-		req := &multiadminpb.DisablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: &clustermetadatapb.ID{Cell: "cell1", Name: "nonexistent"},
+			Enabled:  false,
 		}
-		resp, err := server.DisablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -875,12 +883,13 @@ func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
 
 		// Setup fake response - use the same key format as the rpc client
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
-		fakeClient.SetDisableMonitorResponse(poolerKey, &multipoolermanagerdatapb.DisableMonitorResponse{})
+		fakeClient.SetMonitorResponse(poolerKey, &multipoolermanagerdatapb.SetMonitorResponse{})
 
-		req := &multiadminpb.DisablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: poolerID,
+			Enabled:  false,
 		}
-		resp, err := server.DisablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -905,10 +914,11 @@ func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
 		fakeClient.Errors[poolerKey] = errors.New("connection refused")
 
-		req := &multiadminpb.DisablePostgresMonitorRequest{
+		req := &multiadminpb.SetPostgresMonitorRequest{
 			PoolerId: poolerID,
+			Enabled:  false,
 		}
-		resp, err := server.DisablePostgresMonitor(ctx, req)
+		resp, err := server.SetPostgresMonitor(ctx, req)
 
 		assert.Nil(t, resp)
 		require.Error(t, err)
@@ -916,6 +926,6 @@ func TestMultiAdminServerDisablePostgresMonitor(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.Unavailable, st.Code())
-		assert.Contains(t, st.Message(), "failed to disable PostgreSQL monitoring on pooler")
+		assert.Contains(t, st.Message(), "failed to update PostgreSQL monitoring on pooler")
 	})
 }

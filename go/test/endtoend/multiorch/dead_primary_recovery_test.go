@@ -95,10 +95,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(validatorCleanup)
 
-	_, err = primaryClient.Manager.DisableMonitor(t.Context(), &multipoolermanagerdatapb.DisableMonitorRequest{})
+	_, err = primaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
 	require.NoError(t, err)
 	defer func() {
-		_, _ = primaryClient.Manager.EnableMonitor(t.Context(), &multipoolermanagerdatapb.EnableMonitorRequest{})
+		_, _ = primaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
 	}()
 
 	t.Logf("Starting continuous writes to primary...")

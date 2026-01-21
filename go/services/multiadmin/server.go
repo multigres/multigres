@@ -375,9 +375,9 @@ func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminp
 	}, nil
 }
 
-// EnablePostgresMonitor enables PostgreSQL monitoring on a specific pooler by proxying
-// the request to the target pooler's MultiPoolerManager.EnableMonitor RPC.
-func (s *MultiAdminServer) EnablePostgresMonitor(ctx context.Context, req *multiadminpb.EnablePostgresMonitorRequest) (*multiadminpb.EnablePostgresMonitorResponse, error) {
+// SetPostgresMonitor enables or disables PostgreSQL monitoring on a specific pooler by proxying
+// the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
+func (s *MultiAdminServer) SetPostgresMonitor(ctx context.Context, req *multiadminpb.SetPostgresMonitorRequest) (*multiadminpb.SetPostgresMonitorResponse, error) {
 	// Validate request
 	if req.PoolerId == nil {
 		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
@@ -405,52 +405,14 @@ func (s *MultiAdminServer) EnablePostgresMonitor(ctx context.Context, req *multi
 		return nil, status.Errorf(codes.Internal, "failed to retrieve pooler: %v", err)
 	}
 
-	// Call EnableMonitor RPC on the pooler
-	_, err = s.rpcClient.EnableMonitor(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.EnableMonitorRequest{})
+	// Call SetMonitor RPC on the pooler
+	_, err = s.rpcClient.SetMonitor(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.SetMonitorRequest{
+		Enabled: req.Enabled,
+	})
 	if err != nil {
-		s.logger.ErrorContext(ctx, "Failed to enable monitor on pooler", "pooler_id", req.PoolerId, "error", err)
-		return nil, status.Errorf(codes.Unavailable, "failed to enable PostgreSQL monitoring on pooler: %v", err)
+		s.logger.ErrorContext(ctx, "Failed to update monitor on pooler", "pooler_id", req.PoolerId, "enabled", req.Enabled, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to update PostgreSQL monitoring on pooler: %v", err)
 	}
 
-	return &multiadminpb.EnablePostgresMonitorResponse{}, nil
-}
-
-// DisablePostgresMonitor disables PostgreSQL monitoring on a specific pooler by proxying
-// the request to the target pooler's MultiPoolerManager.DisableMonitor RPC.
-func (s *MultiAdminServer) DisablePostgresMonitor(ctx context.Context, req *multiadminpb.DisablePostgresMonitorRequest) (*multiadminpb.DisablePostgresMonitorResponse, error) {
-	// Validate request
-	if req.PoolerId == nil {
-		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
-	}
-	if req.PoolerId.Cell == "" || req.PoolerId.Name == "" {
-		return nil, status.Error(codes.InvalidArgument, "pooler_id must have both cell and name")
-	}
-
-	// Create a fully-qualified pooler ID for topology lookup
-	poolerID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      req.PoolerId.Cell,
-		Name:      req.PoolerId.Name,
-	}
-
-	// Get pooler from topology
-	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
-	if err != nil {
-		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)
-
-		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
-			return nil, status.Errorf(codes.NotFound, "pooler '%s/%s' not found", req.PoolerId.Cell, req.PoolerId.Name)
-		}
-
-		return nil, status.Errorf(codes.Internal, "failed to retrieve pooler: %v", err)
-	}
-
-	// Call DisableMonitor RPC on the pooler
-	_, err = s.rpcClient.DisableMonitor(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.DisableMonitorRequest{})
-	if err != nil {
-		s.logger.ErrorContext(ctx, "Failed to disable monitor on pooler", "pooler_id", req.PoolerId, "error", err)
-		return nil, status.Errorf(codes.Unavailable, "failed to disable PostgreSQL monitoring on pooler: %v", err)
-	}
-
-	return &multiadminpb.DisablePostgresMonitorResponse{}, nil
+	return &multiadminpb.SetPostgresMonitorResponse{}, nil
 }

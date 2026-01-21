@@ -213,8 +213,6 @@ func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 	if err := WaitForPortReady(t, "multiorch", p.GrpcPort, 15*time.Second); err != nil {
 		return err
 	}
-	t.Logf("MultiOrch is ready")
-
 	return nil
 }
 

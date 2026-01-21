@@ -175,11 +175,7 @@ service MultiPoolerManager {
   // PostgreSQL Monitoring Control
   //
   
-  // EnableMonitor starts the PostgreSQL monitoring goroutine
-  rpc EnableMonitor(multipoolermanagerdata.EnableMonitorRequest)
-        returns (multipoolermanagerdata.EnableMonitorResponse);
-  
-  // DisableMonitor stops the PostgreSQL monitoring goroutine
-  rpc DisableMonitor(multipoolermanagerdata.DisableMonitorRequest)
-        returns (multipoolermanagerdata.DisableMonitorResponse);
+  // SetMonitor enables or disables the PostgreSQL monitoring goroutine
+  rpc SetMonitor(multipoolermanagerdata.SetMonitorRequest)
+        returns (multipoolermanagerdata.SetMonitorResponse);
 }
