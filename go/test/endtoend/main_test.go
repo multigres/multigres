@@ -24,20 +24,6 @@ import (
 	"github.com/multigres/multigres/go/tools/pathutil"
 )
 
-// setupManager manages the shared test setup for endtoend tests.
-var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
-	return shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2), // primary + standby
-		shardsetup.WithMultigateway(),      // enable multigateway
-	)
-})
-
-// getSharedSetup returns the shared setup for endtoend tests.
-func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
-	t.Helper()
-	return setupManager.Get(t)
-}
-
 // TestMain sets the path and cleans up after all tests
 func TestMain(m *testing.M) {
 	// Set the PATH so etcd and orphan detection scripts can be found
@@ -54,10 +40,6 @@ func TestMain(m *testing.M) {
 
 	// Run all tests
 	exitCode := shardsetup.RunTestMain(m)
-	if exitCode != 0 {
-		setupManager.DumpLogs()
-	}
-	setupManager.Cleanup()
 
 	// Cleanup environment variable
 	os.Unsetenv("MULTIGRES_TEST_PARENT_PID")

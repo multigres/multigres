@@ -25,7 +25,10 @@ import (
 var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
 	// Create a 2-node cluster for testing (primary + standby)
 	// We only use the primary for transaction tests, but shardsetup requires 2 nodes for bootstrap
-	return shardsetup.New(t, shardsetup.WithMultipoolerCount(2))
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2), // primary + standby
+		shardsetup.WithMultigateway(),      // enable multigateway
+	)
 })
 
 // TestMain sets the path and cleans up after all tests.
