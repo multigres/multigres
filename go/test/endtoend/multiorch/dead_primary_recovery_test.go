@@ -20,7 +20,6 @@
 package multiorch
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -430,10 +429,7 @@ func checkPrimary(t *testing.T, name string, inst *shardsetup.MultipoolerInstanc
 	}
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	resp, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return ""
 	}
@@ -494,10 +490,7 @@ func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.Multipoo
 	}
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return false
 	}
@@ -636,10 +629,7 @@ func verifyStandbyIsStillReplica(t *testing.T, name string, inst *shardsetup.Mul
 	require.NoError(t, err)
 	defer client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	resp, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
 	require.True(t, resp.Status.IsInitialized, "Multipooler %s should be initialized", name)
 	require.Equal(t, clustermetadatapb.PoolerType_REPLICA, resp.Status.PoolerType,
