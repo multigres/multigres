@@ -86,7 +86,10 @@ func (sc *ScatterConn) StreamExecute(
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{}
+	eo := &query.ExecuteOptions{
+		User:            conn.User(),
+		SessionSettings: state.GetSessionSettings(),
+	}
 
 	var qs queryservice.QueryService = sc.gateway
 	var err error
@@ -151,7 +154,9 @@ func (sc *ScatterConn) PortalStreamExecute(
 	}
 
 	eo := &query.ExecuteOptions{
-		MaxRows: uint64(maxRows),
+		User:            conn.User(),
+		MaxRows:         uint64(maxRows),
+		SessionSettings: state.GetSessionSettings(),
 	}
 
 	var qs queryservice.QueryService = sc.gateway
@@ -218,7 +223,10 @@ func (sc *ScatterConn) Describe(
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{}
+	eo := &query.ExecuteOptions{
+		User:            conn.User(),
+		SessionSettings: state.GetSessionSettings(),
+	}
 	var preparedStatement *query.PreparedStatement
 	var portal *query.Portal
 	if portalInfo != nil {

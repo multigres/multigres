@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/multigateway/sessionstate"
 	"github.com/multigres/multigres/go/parser"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
@@ -82,7 +83,34 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	st := h.getConnectionState(conn)
 
 	for _, astStmt := range asts {
+		// Check if this is a SET/RESET command and track it in connection state
+		if setCmd, isSet := sessionstate.AnalyzeStatement(astStmt); isSet {
+			switch setCmd.Kind {
+			case sessionstate.SetValue:
+				// SET variable = value
+				st.SetSessionVariable(setCmd.Variable, setCmd.Value)
+				h.logger.DebugContext(ctx, "tracked SET command",
+					"variable", setCmd.Variable,
+					"value", setCmd.Value)
+			case sessionstate.ResetVariable:
+				// RESET variable
+				st.ResetSessionVariable(setCmd.Variable)
+				h.logger.DebugContext(ctx, "tracked RESET command",
+					"variable", setCmd.Variable)
+			case sessionstate.ResetAll:
+				// RESET ALL
+				st.ResetAllSessionVariables()
+				h.logger.DebugContext(ctx, "tracked RESET ALL command")
+			case sessionstate.SetLocal:
+				// SET LOCAL - Phase 1: Just pass through without tracking
+				// TODO Phase 2: Track transaction-scoped settings
+				h.logger.DebugContext(ctx, "detected SET LOCAL (not tracked in Phase 1)",
+					"variable", setCmd.Variable)
+			}
+		}
+
 		// Route the query through the executor which will eventually call multipooler
+		// We still execute SET/RESET commands on the backend to keep it in sync
 		err = h.executor.StreamExecute(ctx, conn, st, queryStr, astStmt, callback)
 		if err != nil {
 			return err
