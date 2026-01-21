@@ -467,13 +467,23 @@ func TestLoadBalancer_GetConnectionContext(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(primary), conn.ID())
 
-	// Should also work with cancelled context (returns immediately)
+	// Should return immediately if pooler exists even with cancelled context
 	cancelledCtx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err = lb.GetConnectionContext(cancelledCtx, target, nil)
-	// Currently GetConnectionContext delegates to GetConnection, so cancellation doesn't affect it
-	// This will change when we implement waiting logic
 	require.NoError(t, err)
+
+	// Should timeout after 30s if no pooler found
+	emptyLb := NewLoadBalancer("zone1", logger)
+	replicaTarget := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		PoolerType: clustermetadatapb.PoolerType_REPLICA, // No replica exists
+	}
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel2()
+	_, err = emptyLb.GetConnectionContext(ctx2, replicaTarget, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no pooler found for target")
 }
 
 func TestLoadBalancer_GetConnection_MultipleRemoteReplicas(t *testing.T) {
