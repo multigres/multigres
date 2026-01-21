@@ -81,6 +81,8 @@ func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetada
 // - TableGroup: Required
 // - PoolerType: PRIMARY (writes), REPLICA (reads), etc. Defaults to PRIMARY if not set.
 // - Shard: Optional, empty matches any shard
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -89,7 +91,7 @@ func (pg *PoolerGateway) StreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// Get a connection matching the target (waits for discovery if needed)
-	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return err
 	}
@@ -108,9 +110,11 @@ func (pg *PoolerGateway) StreamExecute(
 // It routes the query to the appropriate multipooler instance based on the target.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
 	// Get a connection matching the target (waits for discovery if needed)
-	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +131,8 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 
 // PortalStreamExecute implements queryservice.QueryService.
 // It executes a portal and returns reservation information.
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -136,7 +142,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
 	// Get a connection matching the target (waits for discovery if needed)
-	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return queryservice.ReservedState{}, err
 	}
@@ -153,6 +159,8 @@ func (pg *PoolerGateway) PortalStreamExecute(
 
 // Describe implements queryservice.QueryService.
 // It returns metadata about a prepared statement or portal.
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) Describe(
 	ctx context.Context,
 	target *query.Target,
@@ -161,7 +169,7 @@ func (pg *PoolerGateway) Describe(
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	// Get a connection matching the target (waits for discovery if needed)
-	conn, err := pg.loadBalancer.GetConnectionContext(ctx, target, nil)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, err
 	}

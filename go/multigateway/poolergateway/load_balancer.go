@@ -15,16 +15,15 @@
 package poolergateway
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // GetConnectionOptions specifies options for connection selection.
@@ -60,17 +59,22 @@ func NewLoadBalancer(localCell string, logger *slog.Logger) *LoadBalancer {
 	}
 }
 
-// AddPooler creates a new PoolerConnection for the given pooler.
-// If a connection already exists for this pooler, it is a no-op.
+// AddPooler creates or updates a PoolerConnection for the given pooler.
+// If a connection already exists, its metadata is updated (to handle type changes like REPLICA -> PRIMARY).
 func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	poolerID := poolerIDString(pooler.Id)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	// Check if already exists
-	if _, exists := lb.connections[poolerID]; exists {
-		lb.logger.Debug("pooler connection already exists", "pooler_id", poolerID)
+	// Check if already exists - if so, update its metadata
+	// This handles the case where a pooler's type changes (REPLICA -> PRIMARY during promotion)
+	if existingConn, exists := lb.connections[poolerID]; exists {
+		lb.logger.Debug("pooler connection already exists, updating metadata",
+			"pooler_id", poolerID,
+			"old_type", existingConn.Type().String(),
+			"new_type", pooler.Type.String())
+		existingConn.UpdateMetadata(pooler)
 		return nil
 	}
 
@@ -112,11 +116,14 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 }
 
 // GetConnection returns a PoolerConnection matching the target specification.
-// Returns an error immediately if no suitable connection is available.
+// Returns an error immediately if no suitable connection is available (fail-fast).
 //
 // Selection logic:
 // - For PRIMARY: returns the primary pooler (any cell)
 // - For REPLICA: prefers local cell, falls back to other cells
+//
+// This method never waits or retries. Retry logic should be implemented
+// at a higher level in the stack (e.g., PoolerGateway).
 func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionOptions) (*PoolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")
@@ -139,47 +146,15 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 	}
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s",
+		// Return UNAVAILABLE error (like Vitess does for "no healthy tablet")
+		// This makes the error retryable by the retry logic
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no pooler found for target: tablegroup=%s, shard=%s, type=%s",
 			target.TableGroup, target.Shard, target.PoolerType.String())
 	}
 
 	// Select best candidate
 	return lb.selectConnection(candidates, target), nil
-}
-
-// GetConnectionContext returns a PoolerConnection matching the target specification.
-// If no suitable connection is immediately available, it waits until one becomes
-// available or the context is cancelled.
-//
-// This is useful during failover when waiting for a new primary to be elected.
-// Maximum wait time is 30 seconds (similar to Vitess's initialTabletTimeout).
-func (lb *LoadBalancer) GetConnectionContext(ctx context.Context, target *query.Target, opts *GetConnectionOptions) (*PoolerConnection, error) {
-	// Try once immediately
-	conn, err := lb.GetConnection(target, opts)
-	if err == nil {
-		return conn, nil
-	}
-
-	// If no connection found, retry with backoff up to 30 seconds total
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	r := retry.New(10*time.Millisecond, 100*time.Millisecond)
-	for _, retryErr := range r.Attempts(ctx) {
-		if retryErr != nil {
-			return nil, fmt.Errorf("no pooler found for target after 30s: tablegroup=%s, shard=%s, type=%s",
-				target.TableGroup, target.Shard, target.PoolerType.String())
-		}
-
-		conn, connErr := lb.GetConnection(target, opts)
-		if connErr == nil {
-			return conn, nil
-		}
-		// Continue retrying on next iteration
-	}
-
-	// This should be unreachable since r.Attempts will return context error
-	return nil, errors.New("no pooler found for target after retry")
 }
 
 // selectConnection chooses the best connection from candidates.

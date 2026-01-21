@@ -15,7 +15,6 @@
 package poolergateway
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -446,44 +445,6 @@ func TestLoadBalancer_GetConnection_EmptyTableGroup(t *testing.T) {
 	_, err := lb.GetConnection(target, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pooler found")
-}
-
-func TestLoadBalancer_GetConnectionContext(t *testing.T) {
-	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
-
-	// Add a primary
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, lb.AddPooler(primary))
-
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-
-	// GetConnectionContext should delegate to GetConnection and return the same result
-	ctx := t.Context()
-	conn, err := lb.GetConnectionContext(ctx, target, nil)
-	require.NoError(t, err)
-	assert.Equal(t, poolerID(primary), conn.ID())
-
-	// Should return immediately if pooler exists even with cancelled context
-	cancelledCtx, cancel := context.WithCancel(t.Context())
-	cancel()
-	_, err = lb.GetConnectionContext(cancelledCtx, target, nil)
-	require.NoError(t, err)
-
-	// Should timeout after 30s if no pooler found
-	emptyLb := NewLoadBalancer("zone1", logger)
-	replicaTarget := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_REPLICA, // No replica exists
-	}
-	ctx2, cancel2 := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel2()
-	_, err = emptyLb.GetConnectionContext(ctx2, replicaTarget, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no pooler found for target")
 }
 
 func TestLoadBalancer_GetConnection_MultipleRemoteReplicas(t *testing.T) {
