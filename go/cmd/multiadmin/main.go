@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -39,7 +40,7 @@ func CreateMultiAdminCommand() (*cobra.Command, *multiadmin.MultiAdmin) {
 			return ma.CobraPreRunE(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(ma)
+			return run(cmd.Context(), ma)
 		},
 	}
 
@@ -57,8 +58,8 @@ func main() {
 	}
 }
 
-func run(ma *multiadmin.MultiAdmin) error {
-	if err := ma.Init(); err != nil {
+func run(ctx context.Context, ma *multiadmin.MultiAdmin) error {
+	if err := ma.Init(ctx); err != nil {
 		return err
 	}
 	return ma.RunDefault()

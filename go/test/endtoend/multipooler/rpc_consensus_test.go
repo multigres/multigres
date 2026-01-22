@@ -25,7 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/test/endtoend"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -481,7 +481,7 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		t.Logf("Current term: %d, role: %s", currentTerm, statusResp.Role)
 
 		// Verify PostgreSQL is actually running as primary (not in recovery)
-		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		defer primaryPoolerClient.Close()
 

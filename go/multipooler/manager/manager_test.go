@@ -196,6 +196,8 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	}
 
 	manager, err := NewMultiPoolerManager(logger, config)
+	// If we don't open, Close is a noop.
+	manager.isOpen = true
 	require.NoError(t, err)
 
 	// Start the async loader
@@ -825,4 +827,334 @@ func TestMultiPoolerManager_backupLocationPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnableMonitor(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context (simulating Open without connecting to DB)
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	manager.isOpen = true
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	// Verify monitor is not running initially
+	assert.False(t, manager.pgMonitor.Running(), "Monitor should not be running initially")
+
+	// Enable the monitor
+	err = manager.enableMonitorInternal()
+	require.NoError(t, err)
+
+	// Verify monitor is enabled
+	assert.True(t, manager.pgMonitor.Running(), "Monitor should be enabled")
+
+	// Clean up: disable the monitor
+	manager.disableMonitorInternal()
+}
+
+func TestEnableMonitor_Idempotent(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context (simulating Open without connecting to DB)
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	manager.isOpen = true
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	// Enable the monitor
+	err = manager.enableMonitorInternal()
+	require.NoError(t, err)
+
+	// Verify monitor is enabled
+	assert.True(t, manager.pgMonitor.Running(), "Monitor should be enabled")
+
+	// Enable again - should be idempotent (no error, monitor still enabled)
+	err = manager.enableMonitorInternal()
+	require.NoError(t, err)
+
+	// Verify monitor is still enabled (idempotency means calling again has no effect)
+	assert.True(t, manager.pgMonitor.Running(), "Monitor should still be enabled after second call")
+
+	// Clean up: disable the monitor
+	manager.disableMonitorInternal()
+}
+
+func TestDisableMonitor(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context (simulating Open without connecting to DB)
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	manager.isOpen = true
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	// Enable the monitor first
+	err = manager.enableMonitorInternal()
+	require.NoError(t, err)
+
+	// Verify monitor is running
+	assert.True(t, manager.pgMonitor.Running(), "Monitor should be running after enableMonitorInternal")
+
+	// Disable the monitor
+	manager.disableMonitorInternal()
+
+	// Verify monitor is disabled
+	assert.False(t, manager.pgMonitor.Running(), "Monitor should be disabled")
+}
+
+func TestDisableMonitor_Idempotent(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context (simulating Open without connecting to DB)
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	manager.isOpen = true
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	// Enable the monitor first
+	err = manager.enableMonitorInternal()
+	require.NoError(t, err)
+
+	// Disable the monitor
+	manager.disableMonitorInternal()
+
+	// Verify monitor is disabled
+	assert.False(t, manager.pgMonitor.Running(), "Monitor should be disabled")
+
+	// Disable again - should be idempotent (no panic)
+	manager.disableMonitorInternal()
+
+	// Verify monitor is still disabled
+	assert.False(t, manager.pgMonitor.Running(), "Monitor should still be disabled")
+}
+
+func TestEnableDisableMonitor_Cycle(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context (simulating Open without connecting to DB)
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	manager.isOpen = true
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	// Test multiple enable/disable cycles
+	for i := range 3 {
+		// Enable
+		err = manager.enableMonitorInternal()
+		require.NoError(t, err)
+		assert.True(t, manager.pgMonitor.Running(), "Monitor should be enabled at iteration %d", i)
+
+		// Give the goroutine a moment to start
+		time.Sleep(10 * time.Millisecond)
+
+		// Disable
+		manager.disableMonitorInternal()
+		assert.False(t, manager.pgMonitor.Running(), "Monitor should be disabled at iteration %d", i)
+	}
+}
+
+func TestEnableMonitor_WhenNotOpen(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context but don't set isOpen
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	// isOpen is false by default
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	// Try to enable monitor when manager is not open
+	err = manager.enableMonitorInternal()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "manager is not open")
+}
+
+func TestPausePostgresMonitor_RequiresActionLock(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	config := &Config{
+		TopoClient: ts,
+		ServiceID:  serviceID,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, config)
+	require.NoError(t, err)
+
+	// Initialize the manager context
+	manager.mu.Lock()
+	manager.ctx, manager.cancel = context.WithCancel(context.TODO())
+	manager.isOpen = true
+	manager.mu.Unlock()
+	defer manager.cancel()
+
+	t.Run("WithoutActionLock", func(t *testing.T) {
+		// Try to call PausePostgresMonitor without holding the action lock
+		resumeMonitor, err := manager.PausePostgresMonitor(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "action lock")
+		assert.Nil(t, resumeMonitor)
+	})
+
+	t.Run("WithActionLock", func(t *testing.T) {
+		// Acquire the action lock
+		lockCtx, err := manager.actionLock.Acquire(ctx, "test")
+		require.NoError(t, err)
+		defer manager.actionLock.Release(lockCtx)
+
+		// Should succeed with action lock held
+		resumeMonitor, err := manager.PausePostgresMonitor(lockCtx)
+		require.NoError(t, err)
+		assert.NotNil(t, resumeMonitor)
+
+		// Clean up - resume also requires action lock
+		resumeMonitor(lockCtx)
+	})
+
+	t.Run("ResumeWithoutActionLock", func(t *testing.T) {
+		// Acquire the action lock
+		lockCtx, err := manager.actionLock.Acquire(ctx, "test")
+		require.NoError(t, err)
+
+		// Should succeed with action lock held
+		resumeMonitor, err := manager.PausePostgresMonitor(lockCtx)
+		require.NoError(t, err)
+		assert.NotNil(t, resumeMonitor)
+
+		// Release the lock before calling resume
+		manager.actionLock.Release(lockCtx)
+
+		// Resume should detect missing action lock and log error (but not panic)
+		// This is a graceful degradation - logs error but doesn't crash
+		resumeMonitor(ctx)
+	})
 }

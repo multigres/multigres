@@ -154,7 +154,7 @@ func TestIsServerReady(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			result := isServerReadyWithConfig(config)
+			result := isServerReadyWithConfig(t.Context(), config)
 			assert.Equal(t, tt.isReady, result)
 		})
 	}
@@ -212,7 +212,7 @@ func TestGetServerVersion(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			result := getServerVersionWithConfig(config)
+			result := getServerVersionWithConfig(t.Context(), config)
 			if tt.expectedOutput != "" {
 				assert.Contains(t, result, tt.expectedOutput)
 			} else {

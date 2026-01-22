@@ -26,6 +26,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/multigres/multigres/go/parser/ast"
@@ -95,7 +96,7 @@ func makeTypeNameFromString(str string) *ast.TypeName {
 // Ported from PostgreSQL's makeRangeVarFromAnyName function.
 func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, error) {
 	if names == nil {
-		return nil, fmt.Errorf("names cannot be nil")
+		return nil, errors.New("names cannot be nil")
 	}
 
 	r := &ast.RangeVar{
@@ -112,7 +113,7 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 			r.SchemaName = ""
 			r.RelName = str.SVal
 		} else {
-			return nil, fmt.Errorf("expected string node in names list")
+			return nil, errors.New("expected string node in names list")
 		}
 	case 2:
 		// Two names: schema.relation
@@ -122,10 +123,10 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 				r.SchemaName = str1.SVal
 				r.RelName = str2.SVal
 			} else {
-				return nil, fmt.Errorf("expected string node for relation name")
+				return nil, errors.New("expected string node for relation name")
 			}
 		} else {
-			return nil, fmt.Errorf("expected string node for schema name")
+			return nil, errors.New("expected string node for schema name")
 		}
 	case 3:
 		// Three names: catalog.schema.relation
@@ -136,13 +137,13 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 					r.SchemaName = str2.SVal
 					r.RelName = str3.SVal
 				} else {
-					return nil, fmt.Errorf("expected string node for relation name")
+					return nil, errors.New("expected string node for relation name")
 				}
 			} else {
-				return nil, fmt.Errorf("expected string node for schema name")
+				return nil, errors.New("expected string node for schema name")
 			}
 		} else {
-			return nil, fmt.Errorf("expected string node for catalog name")
+			return nil, errors.New("expected string node for catalog name")
 		}
 	default:
 		return nil, fmt.Errorf("improper qualified name (too many dotted names): expected 1-3 names, got %d", length)
@@ -283,12 +284,12 @@ func makeOrderedSetArgs(directArgs *ast.NodeList, orderedArgs *ast.NodeList) (*a
 			if lastParam.Mode == ast.FUNC_PARAM_VARIADIC {
 				// PostgreSQL requires exactly one VARIADIC ordered argument of the same type
 				if orderedArgs.Len() != 1 {
-					return nil, fmt.Errorf("an ordered-set aggregate with a VARIADIC direct argument must have one VARIADIC aggregated argument of the same data type")
+					return nil, errors.New("an ordered-set aggregate with a VARIADIC direct argument must have one VARIADIC aggregated argument of the same data type")
 				}
 
 				if firstOrdered, ok := orderedArgs.Items[0].(*ast.FunctionParameter); ok {
 					if firstOrdered.Mode != ast.FUNC_PARAM_VARIADIC {
-						return nil, fmt.Errorf("an ordered-set aggregate with a VARIADIC direct argument must have one VARIADIC aggregated argument of the same data type")
+						return nil, errors.New("an ordered-set aggregate with a VARIADIC direct argument must have one VARIADIC aggregated argument of the same data type")
 					}
 					// TODO: Check that types are equal when we have proper type comparison
 					// For now, we skip type checking but drop the duplicate VARIADIC argument

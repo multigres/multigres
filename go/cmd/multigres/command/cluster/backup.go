@@ -79,6 +79,7 @@ func AddBackupCommand(clusterCmd *cobra.Command) {
 	cmd.Flags().String("type", bcmd.backupType.Default(), "Backup type: full, differential, or incremental")
 	cmd.Flags().Bool("primary", bcmd.primary.Default(), "Force backup on primary instead of replica (use with caution)")
 	cmd.Flags().Duration("timeout", bcmd.timeout.Default(), "Timeout for initial backup call")
+	cmd.Flags().String("admin-server", "", "host:port of the multiadmin server (overrides config)")
 
 	viperutil.BindFlags(cmd.Flags(), bcmd.database, bcmd.backupType, bcmd.primary, bcmd.timeout)
 

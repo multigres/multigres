@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // PoolConfig holds configuration for the admin pool.
@@ -46,9 +46,10 @@ type Pool struct {
 }
 
 // NewPool creates a new admin connection pool.
-func NewPool(config *PoolConfig) *Pool {
-	pool := connpool.NewPool[*Conn](config.ConnPoolConfig)
-	pool.Name = "admin"
+// The context is used for background pool operations and OTel tracking.
+// The pool must be opened with Open() before use.
+func NewPool(ctx context.Context, config *PoolConfig) *Pool {
+	pool := connpool.NewPool[*Conn](ctx, config.ConnPoolConfig)
 
 	return &Pool{
 		pool:   pool,
@@ -58,7 +59,7 @@ func NewPool(config *PoolConfig) *Pool {
 
 // Open opens the pool and starts background workers.
 // Must be called before using the pool.
-func (p *Pool) Open(ctx context.Context) {
+func (p *Pool) Open() {
 	connector := func(ctx context.Context) (*Conn, error) {
 		conn, err := client.Connect(ctx, p.config.ClientConfig)
 		if err != nil {
@@ -67,7 +68,7 @@ func (p *Pool) Open(ctx context.Context) {
 		return NewConn(conn), nil
 	}
 
-	p.pool.Open(ctx, connector, nil)
+	p.pool.Open(connector, nil)
 }
 
 // Get acquires an admin connection from the pool.

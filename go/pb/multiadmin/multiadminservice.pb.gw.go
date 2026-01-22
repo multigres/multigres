@@ -402,16 +402,38 @@ func local_request_MultiAdminService_GetBackups_0(ctx context.Context, marshaler
 	return msg, metadata, err
 }
 
+var filter_MultiAdminService_GetPoolerStatus_0 = &utilities.DoubleArray{Encoding: map[string]int{"pooler_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
+
 func request_MultiAdminService_GetPoolerStatus_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetPoolerStatusRequest
 		metadata runtime.ServerMetadata
+		err      error
 	)
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
 	if req.Body != nil {
 		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["pooler_id.cell"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.cell")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.cell", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.cell", err)
+	}
+	val, ok = pathParams["pooler_id.name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.name")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.name", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.name", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetPoolerStatus_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetPoolerStatus(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
@@ -421,11 +443,92 @@ func local_request_MultiAdminService_GetPoolerStatus_0(ctx context.Context, mars
 	var (
 		protoReq GetPoolerStatusRequest
 		metadata runtime.ServerMetadata
+		err      error
+	)
+	val, ok := pathParams["pooler_id.cell"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.cell")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.cell", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.cell", err)
+	}
+	val, ok = pathParams["pooler_id.name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.name")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.name", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.name", err)
+	}
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetPoolerStatus_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.GetPoolerStatus(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_MultiAdminService_SetPostgresMonitor_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SetPostgresMonitorRequest
+		metadata runtime.ServerMetadata
+		err      error
 	)
 	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	msg, err := server.GetPoolerStatus(ctx, &protoReq)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	val, ok := pathParams["pooler_id.cell"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.cell")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.cell", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.cell", err)
+	}
+	val, ok = pathParams["pooler_id.name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.name")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.name", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.name", err)
+	}
+	msg, err := client.SetPostgresMonitor(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_MultiAdminService_SetPostgresMonitor_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SetPostgresMonitorRequest
+		metadata runtime.ServerMetadata
+		err      error
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	val, ok := pathParams["pooler_id.cell"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.cell")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.cell", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.cell", err)
+	}
+	val, ok = pathParams["pooler_id.name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "pooler_id.name")
+	}
+	err = runtime.PopulateFieldFromPath(&protoReq, "pooler_id.name", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "pooler_id.name", err)
+	}
+	msg, err := server.SetPostgresMonitor(ctx, &protoReq)
 	return msg, metadata, err
 }
 
@@ -655,13 +758,13 @@ func RegisterMultiAdminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		}
 		forward_MultiAdminService_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/multiadmin.MultiAdminService/GetPoolerStatus"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -674,6 +777,26 @@ func RegisterMultiAdminServiceHandlerServer(ctx context.Context, mux *runtime.Se
 			return
 		}
 		forward_MultiAdminService_GetPoolerStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiAdminService_SetPostgresMonitor_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/SetPostgresMonitor", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-monitor"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultiAdminService_SetPostgresMonitor_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiAdminService_SetPostgresMonitor_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
@@ -902,11 +1025,11 @@ func RegisterMultiAdminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		}
 		forward_MultiAdminService_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/multiadmin.MultiAdminService/GetPoolerStatus"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -918,6 +1041,23 @@ func RegisterMultiAdminServiceHandlerClient(ctx context.Context, mux *runtime.Se
 			return
 		}
 		forward_MultiAdminService_GetPoolerStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultiAdminService_SetPostgresMonitor_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/SetPostgresMonitor", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-monitor"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_MultiAdminService_SetPostgresMonitor_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultiAdminService_SetPostgresMonitor_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
@@ -934,7 +1074,8 @@ var (
 	pattern_MultiAdminService_RestoreFromBackup_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "restores"}, ""))
 	pattern_MultiAdminService_GetBackupJobStatus_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "jobs", "job_id"}, ""))
 	pattern_MultiAdminService_GetBackups_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "backups"}, ""))
-	pattern_MultiAdminService_GetPoolerStatus_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multiadmin.MultiAdminService", "GetPoolerStatus"}, ""))
+	pattern_MultiAdminService_GetPoolerStatus_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "status"}, ""))
+	pattern_MultiAdminService_SetPostgresMonitor_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "postgres-monitor"}, ""))
 )
 
 var (
@@ -950,4 +1091,5 @@ var (
 	forward_MultiAdminService_GetBackupJobStatus_0 = runtime.ForwardResponseMessage
 	forward_MultiAdminService_GetBackups_0         = runtime.ForwardResponseMessage
 	forward_MultiAdminService_GetPoolerStatus_0    = runtime.ForwardResponseMessage
+	forward_MultiAdminService_SetPostgresMonitor_0 = runtime.ForwardResponseMessage
 )

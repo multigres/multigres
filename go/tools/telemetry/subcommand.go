@@ -16,7 +16,6 @@ package telemetry
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 
@@ -28,7 +27,6 @@ import (
 func getTraceparent(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
 	if span.SpanContext().IsValid() {
-
 		// Extract trace context to W3C Trace Context format
 		carrier := propagation.MapCarrier{}
 		propagator := otel.GetTextMapPropagator()
@@ -54,7 +52,7 @@ func addTraceparent(ctx context.Context, cmd *exec.Cmd) {
 			cmd.Env = os.Environ()
 		}
 		// Add TRACEPARENT environment variable
-		cmd.Env = append(cmd.Env, fmt.Sprintf("TRACEPARENT=%s", traceparent))
+		cmd.Env = append(cmd.Env, "TRACEPARENT="+traceparent)
 	}
 }
 
@@ -63,13 +61,29 @@ func StartCmd(ctx context.Context, cmd *exec.Cmd) error {
 	return cmd.Start()
 }
 
-func RunCmd(ctx context.Context, cmd *exec.Cmd, clientSpan bool) error {
+// prepareCmd sets up tracing context for a command and returns a cleanup function.
+// If clientSpan is true, creates a span that must be ended by calling the returned function.
+func prepareCmd(ctx context.Context, cmd *exec.Cmd, clientSpan bool) func() {
 	var span trace.Span
 	if clientSpan {
 		ctx, span = tracer.Start(ctx, cmd.Path)
-		defer span.End()
 	}
-
 	addTraceparent(ctx, cmd)
+	return func() {
+		if span != nil {
+			span.End()
+		}
+	}
+}
+
+// RunCmd runs a command with optional tracing.
+func RunCmd(ctx context.Context, cmd *exec.Cmd, clientSpan bool) error {
+	defer prepareCmd(ctx, cmd, clientSpan)()
 	return cmd.Run()
+}
+
+// RunCmdOutput runs a command and captures its stdout, with optional tracing.
+func RunCmdOutput(ctx context.Context, cmd *exec.Cmd, clientSpan bool) ([]byte, error) {
+	defer prepareCmd(ctx, cmd, clientSpan)()
+	return cmd.Output()
 }

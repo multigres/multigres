@@ -53,7 +53,7 @@ func NewClient(capacity int) *Client {
 // The closer should be called even if the RPC fails.
 func (c *Client) dialPersistent(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (*cachedConn, closeFunc, error) {
 	addr := getPoolerAddr(pooler)
-	return c.cache.getOrDial(ctx, addr)
+	return c.cache.getOrDial(ctx, addr, pooler.Id)
 }
 
 // getPoolerAddr returns the gRPC address for a pooler.
@@ -132,19 +132,6 @@ func (c *Client) InitializeEmptyPrimary(ctx context.Context, pooler *clustermeta
 	}()
 
 	return conn.managerClient.InitializeEmptyPrimary(ctx, request)
-}
-
-// InitializeAsStandby initializes the multipooler as a standby from a primary.
-func (c *Client) InitializeAsStandby(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.InitializeAsStandby(ctx, request)
 }
 
 //
@@ -389,6 +376,19 @@ func (c *Client) UndoDemote(ctx context.Context, pooler *clustermetadatapb.Multi
 	return conn.managerClient.UndoDemote(ctx, request)
 }
 
+// DemoteStalePrimary demotes a stale primary that came back after failover.
+func (c *Client) DemoteStalePrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.DemoteStalePrimary(ctx, request)
+}
+
 //
 // Manager Service Methods - Type and Term Management
 //
@@ -490,6 +490,40 @@ func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb
 	}()
 
 	return conn.managerClient.GetBackupByJobId(ctx, request)
+}
+
+//
+// Manager Service Methods - Timeline Repair
+//
+
+// RewindToSource performs pg_rewind to synchronize a replica with its source.
+func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.RewindToSource(ctx, request)
+}
+
+//
+// Manager Service Methods - PostgreSQL Monitoring Control
+//
+
+// SetMonitor enables or disables the PostgreSQL monitoring goroutine on a pooler.
+func (c *Client) SetMonitor(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.SetMonitor(ctx, request)
 }
 
 //

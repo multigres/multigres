@@ -282,7 +282,7 @@ func TestPrimaryStatus(t *testing.T) {
 		require.NotEmpty(t, statusResp.Status.ConnectedFollowers, "Should have at least one follower")
 
 		// Find our standby in the followers list
-		expectedAppName := fmt.Sprintf("test-cell_%s", setup.StandbyMultipooler.Name)
+		expectedAppName := "test-cell_" + setup.StandbyMultipooler.Name
 		foundStandby := false
 		for _, follower := range statusResp.Status.ConnectedFollowers {
 			if follower.Cell == "test-cell" && follower.Name == setup.StandbyMultipooler.Name {

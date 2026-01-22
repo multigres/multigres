@@ -10,7 +10,7 @@ if ! command -v prettier >/dev/null 2>&1; then
   exit 0
 fi
 
-FILES=$(git diff --cached --name-only --diff-filter=ACMR -- '*.yml' '*.yaml' '*.md' '*.mdx' '*.html' '*.css' | sed 's| |\\ |g' | (grep -v '^external' || true))
+FILES=$(git diff --cached --name-only --diff-filter=ACMR -- '*.yml' '*.yaml' '*.md' '*.mdx' '*.html' '*.css' '*.ts' '*.tsx' | sed 's| |\\ |g' | (grep -v '^external' || true))
 [ -z "$FILES" ] && exit 0
 
 # Prettify all selected files

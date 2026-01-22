@@ -60,6 +60,7 @@ package topoclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -210,6 +211,10 @@ type Store interface {
 	// See shard_lock.go for full documentation.
 	TryLockShard(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
 
+	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
+	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+	GetRemoteOperationTimeout() time.Duration
+
 	// Resource cleanup
 	io.Closer
 }
@@ -264,8 +269,9 @@ func (ts *store) getLockTimeout() time.Duration {
 	return ts.config.GetLockTimeout()
 }
 
-// getRemoteOperationTimeout returns the configured remote operation timeout.
-func (ts *store) getRemoteOperationTimeout() time.Duration {
+// GetRemoteOperationTimeout returns the configured remote operation timeout.
+// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+func (ts *store) GetRemoteOperationTimeout() time.Duration {
 	return ts.config.GetRemoteOperationTimeout()
 }
 
@@ -413,7 +419,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string, config *
 // root path, and server addresses for the global topology server.
 func OpenServer(implementation, root string, serverAddrs []string, config *TopoConfig) (Store, error) {
 	if config == nil {
-		return nil, fmt.Errorf("TopoConfig is required")
+		return nil, errors.New("TopoConfig is required")
 	}
 
 	factory, ok := factories[implementation]
@@ -425,7 +431,7 @@ func OpenServer(implementation, root string, serverAddrs []string, config *TopoC
 		}
 
 		if len(available) == 0 {
-			return nil, fmt.Errorf("no topology implementations registered. This may indicate a build or import issue")
+			return nil, errors.New("no topology implementations registered. This may indicate a build or import issue")
 		}
 
 		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
@@ -441,10 +447,10 @@ func (config *TopoConfig) Open() (Store, error) {
 	root := config.globalRoot.Get()
 
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("topo-global-server-addresses must be configured")
+		return nil, errors.New("topo-global-server-addresses must be configured")
 	}
 	if root == "" {
-		return nil, fmt.Errorf("topo-global-root must be non-empty")
+		return nil, errors.New("topo-global-root must be non-empty")
 	}
 
 	ts, err := OpenServer(DefaultTopoImplementation, root, addresses, config)

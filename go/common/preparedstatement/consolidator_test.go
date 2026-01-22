@@ -231,3 +231,49 @@ func TestNewPortalInfo(t *testing.T) {
 	require.Equal(t, "portal1", portalInfo.Name)
 	require.Equal(t, psi, portalInfo.PreparedStatementInfo)
 }
+
+func TestConsolidator_Stats(t *testing.T) {
+	consolidator := NewConsolidator()
+
+	// Test empty consolidator
+	stats := consolidator.Stats()
+	require.Equal(t, 0, stats.UniqueStatements)
+	require.Equal(t, 0, stats.TotalReferences)
+	require.Equal(t, 0, stats.ConnectionCount)
+	require.Empty(t, stats.Statements)
+
+	// Add statements from multiple connections
+	connID1 := uint32(1)
+	connID2 := uint32(2)
+	connID3 := uint32(3)
+
+	// Add first statement on connection 1
+	_, err := consolidator.AddPreparedStatement(connID1, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	// Add same query on connection 2 (should be consolidated)
+	_, err = consolidator.AddPreparedStatement(connID2, "stmt2", "SELECT 1", nil)
+	require.NoError(t, err)
+
+	// Add different query on connection 3
+	_, err = consolidator.AddPreparedStatement(connID3, "stmt3", "SELECT 2", nil)
+	require.NoError(t, err)
+
+	stats = consolidator.Stats()
+	require.Equal(t, 2, stats.UniqueStatements)
+	require.Equal(t, 3, stats.TotalReferences)
+	require.Equal(t, 3, stats.ConnectionCount)
+	require.Len(t, stats.Statements, 2)
+
+	// Verify statement details
+	stmtMap := make(map[string]StatementStats)
+	for _, s := range stats.Statements {
+		stmtMap[s.Query] = s
+	}
+
+	require.Contains(t, stmtMap, "SELECT 1")
+	require.Equal(t, 2, stmtMap["SELECT 1"].UsageCount)
+
+	require.Contains(t, stmtMap, "SELECT 2")
+	require.Equal(t, 1, stmtMap["SELECT 2"].UsageCount)
+}

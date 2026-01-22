@@ -341,7 +341,7 @@ func NewServerAndFactoryWithConfig(ctx context.Context, config *topoclient.TopoC
 		cellInfo := &clustermetadatapb.Cell{
 			Name:            cell,
 			ServerAddresses: []string{fmt.Sprintf("localhost:%d", 2379+len(f.cells))},
-			Root:            fmt.Sprintf("/multigres/%s", cell),
+			Root:            "/multigres/" + cell,
 		}
 		if err := ts.CreateCell(ctx, cell, cellInfo); err != nil {
 			slog.ErrorContext(ctx, "ts.CreateCellInfo failed", "cell", cell, "error", err)

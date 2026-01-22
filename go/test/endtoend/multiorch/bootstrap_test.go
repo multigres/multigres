@@ -197,20 +197,43 @@ func TestBootstrapInitialization(t *testing.T) {
 	})
 
 	t.Run("verify consensus term", func(t *testing.T) {
-		// All initialized nodes should have consensus term = 1
-		for name, inst := range setup.Multipoolers {
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			require.NoError(t, err)
+		// All nodes should eventually be initialized with consensus term = 1
+		require.Eventually(t, func() bool {
+			allInitialized := true
+			allHaveCorrectTerm := true
 
-			ctx := utils.WithTimeout(t, 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
+			for name, inst := range setup.Multipoolers {
+				client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+				if err != nil {
+					t.Logf("Node %s: failed to connect: %v", name, err)
+					allInitialized = false
+					continue
+				}
 
-			require.NoError(t, err)
-			if status.Status.IsInitialized {
-				assert.Equal(t, int64(1), status.Status.ConsensusTerm, "Node %s should have consensus term 1", name)
+				ctx := utils.WithTimeout(t, 5*time.Second)
+				status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+				client.Close()
+
+				if err != nil {
+					t.Logf("Node %s: failed to get status: %v", name, err)
+					allInitialized = false
+					continue
+				}
+
+				if !status.Status.IsInitialized {
+					t.Logf("Node %s: not yet initialized", name)
+					allInitialized = false
+					continue
+				}
+
+				if status.Status.ConsensusTerm != 1 {
+					t.Logf("Node %s: consensus term is %d, expected 1", name, status.Status.ConsensusTerm)
+					allHaveCorrectTerm = false
+				}
 			}
-		}
+
+			return allInitialized && allHaveCorrectTerm
+		}, 30*time.Second, 1*time.Second, "All nodes should be initialized with consensus term 1")
 	})
 
 	t.Run("verify leadership history", func(t *testing.T) {
@@ -248,7 +271,7 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		// Verify coordinator_id matches the multiorch's cell_name format
 		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := fmt.Sprintf("%s_test-multiorch", setup.CellName)
+		expectedCoordinatorID := setup.CellName + "_test-multiorch"
 		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
 
 		// Verify WAL position is non-empty
@@ -347,7 +370,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return status.Status.IsInitialized && status.Status.PostgresRunning
+			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm > 0
 		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
 
 		// Verify final state
@@ -367,6 +390,27 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
 			status.Status.IsInitialized, status.Status.HasDataDirectory,
 			status.Status.PostgresRunning, status.Status.PostgresRole)
+	})
+
+	t.Run("verify archive_command config on all nodes", func(t *testing.T) {
+		// Verify each pooler has archive_command pointing to its own local pgbackrest.conf
+		for name, inst := range setup.Multipoolers {
+			// Read postgresql.auto.conf
+			autoConfPath := filepath.Join(inst.Pgctld.DataDir, "pg_data", "postgresql.auto.conf")
+			content, err := os.ReadFile(autoConfPath)
+			require.NoError(t, err, "Should read postgresql.auto.conf on %s", name)
+
+			autoConfStr := string(content)
+
+			// Verify archive_mode is enabled (we write it with quotes to match PostgreSQL's normalized format)
+			assert.Contains(t, autoConfStr, "archive_mode = 'on'",
+				"Node %s should have archive_mode enabled", name)
+
+			// Verify archive_command points to this pooler's local pgbackrest.conf
+			expectedConfigPath := filepath.Join(inst.Pgctld.DataDir, "pgbackrest", "pgbackrest.conf")
+			assert.Contains(t, autoConfStr, "--config="+expectedConfigPath,
+				"Node %s should have archive_command pointing to local pgbackrest.conf at %s", name, expectedConfigPath)
+		}
 	})
 }
 

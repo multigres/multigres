@@ -221,7 +221,7 @@ func (e *LexerError) DetailedError() string {
 
 	// Basic error message
 	if e.AtEOF {
-		parts = append(parts, fmt.Sprintf("%s at end of input", e.Message))
+		parts = append(parts, e.Message+" at end of input")
 	} else if e.NearText != "" {
 		parts = append(parts, fmt.Sprintf("%s at or near \"%s\"", e.Message, e.NearText))
 	} else {
@@ -233,12 +233,12 @@ func (e *LexerError) DetailedError() string {
 
 	// Context information
 	if e.Context != "" {
-		parts = append(parts, fmt.Sprintf("Context: %s", e.Context))
+		parts = append(parts, "Context: "+e.Context)
 	}
 
 	// Hint for recovery
 	if e.Hint != "" {
-		parts = append(parts, fmt.Sprintf("Hint: %s", e.Hint))
+		parts = append(parts, "Hint: "+e.Hint)
 	}
 
 	return strings.Join(parts, "\n")

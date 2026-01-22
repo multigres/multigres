@@ -22,6 +22,7 @@ package servenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -33,19 +34,56 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/tools/netutil"
+
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 // Init is the first phase of the server startup.
-func (sv *ServEnv) Init(serviceName string) error {
+// The id parameter provides service identification for telemetry resource attributes.
+func (sv *ServEnv) Init(id ServiceIdentity) error {
 	sv.mu.Lock()
 	sv.initStartTime = time.Now()
 	sv.mu.Unlock()
 	sv.lg.SetupLogging()
 
-	// Initialize OpenTelemetry
-	if err := sv.telemetry.InitTelemetry(context.TODO(), serviceName); err != nil {
+	// Build OTel resource attributes from service identity
+	var attrs []attribute.KeyValue
+	// Compute OTel-compliant service.instance.id (cell-qualified for multi-cell uniqueness).
+	// Per OTel semantic conventions, service.instance.id must be globally unique for each
+	// instance of the same service.name. For multi-cell deployments, we qualify the instance
+	// ID with the cell name to achieve global uniqueness.
+	if id.ServiceInstanceID != "" {
+		if id.Cell != "" {
+			// Multi-cell: qualify instance ID with cell (e.g., "zone1-0")
+			otelInstanceID := fmt.Sprintf("%s-%s", id.Cell, id.ServiceInstanceID)
+			attrs = append(attrs, semconv.ServiceInstanceID(otelInstanceID))
+		} else {
+			// Single-cell: use instance ID directly
+			attrs = append(attrs, semconv.ServiceInstanceID(id.ServiceInstanceID))
+		}
+	}
+	if id.Cell != "" {
+		attrs = append(attrs, semconv.CloudAvailabilityZone(id.Cell))
+	}
+	// Add multigres-specific resource attributes (multipooler only)
+	if id.Shard != "" {
+		attrs = append(attrs, attribute.String("multigres.shard", id.Shard))
+	}
+	if id.Database != "" {
+		attrs = append(attrs, attribute.String("multigres.database", id.Database))
+	}
+	if id.TableGroup != "" {
+		attrs = append(attrs, attribute.String("multigres.tablegroup", id.TableGroup))
+	}
+
+	// Initialize OpenTelemetry with service identity attributes
+	if err := sv.telemetry.InitTelemetry(context.TODO(), id.ServiceName, attrs...); err != nil {
 		slog.Error("Failed to initialize OpenTelemetry", "error", err)
 		// Continue without telemetry rather than crashing
+	} else {
+		// Re-wrap logger now that LoggerProvider is initialized
+		sv.lg.UpdateTelemetryWrapper()
 	}
 
 	// Ignore SIGPIPE if specified
@@ -73,7 +111,7 @@ func (sv *ServEnv) Init(serviceName string) error {
 	// Once you run as root, you pretty much destroy the chances of a
 	// non-privileged user starting the program correctly.
 	if uid := os.Getuid(); uid == 0 {
-		return fmt.Errorf("running as root is not permitted")
+		return errors.New("running as root is not permitted")
 	}
 
 	// We used to set this limit directly, but you pretty much have to

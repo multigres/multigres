@@ -17,16 +17,17 @@ package connpoolmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // Manager orchestrates per-user connection pools with a shared admin pool.
@@ -38,8 +39,8 @@ import (
 //	cfg := connpoolmanager.NewConfig(reg)
 //	cfg.RegisterFlags(cmd.Flags())
 //	// ... parse flags ...
-//	mgr := cfg.NewManager()
-//	mgr.Open(ctx, logger, connConfig)
+//	mgr := cfg.NewManager(logger)
+//	mgr.Open(ctx, connConfig)
 //	defer mgr.Close()
 //
 //	// Get connections as needed
@@ -53,6 +54,7 @@ type Manager struct {
 
 	adminPool     *admin.Pool              // Shared admin pool for kill operations
 	settingsCache *connstate.SettingsCache // Shared settings cache for all users
+	metrics       *Metrics                 // OpenTelemetry metrics
 
 	mu        sync.Mutex
 	userPools map[string]*UserPool // Per-user connection pools
@@ -64,16 +66,11 @@ type Manager struct {
 //
 // Parameters:
 //   - ctx: Context for pool operations
-//   - logger: Logger for pool operations (uses slog.Default() if nil)
 //   - connConfig: Connection settings (socket file, host, port, database)
-func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *ConnectionConfig) {
+func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if logger == nil {
-		logger = slog.Default()
-	}
-	m.logger = logger
 	m.connConfig = connConfig
 	m.userPools = make(map[string]*UserPool)
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
@@ -84,16 +81,17 @@ func (m *Manager) Open(ctx context.Context, logger *slog.Logger, connConfig *Con
 
 	// Build admin pool config
 	adminPoolConfig := &connpool.Config{
+		Name:     "admin",
 		Capacity: m.config.AdminCapacity(),
 		Logger:   m.logger,
 	}
 
 	// Create shared admin pool (used by all user pools for kill operations)
-	m.adminPool = admin.NewPool(&admin.PoolConfig{
+	m.adminPool = admin.NewPool(ctx, &admin.PoolConfig{
 		ClientConfig:   adminClientConfig,
 		ConnPoolConfig: adminPoolConfig,
 	})
-	m.adminPool.Open(ctx)
+	m.adminPool.Open()
 
 	m.logger.InfoContext(ctx, "connection pool manager opened",
 		"admin_user", m.config.AdminUser(),
@@ -120,7 +118,7 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 // getOrCreateUserPool returns the pool for the given user, creating it if needed.
 func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPool, error) {
 	if user == "" {
-		return nil, fmt.Errorf("user cannot be empty")
+		return nil, errors.New("user cannot be empty")
 	}
 
 	m.mu.Lock()
@@ -128,7 +126,7 @@ func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPo
 
 	// Check if closed
 	if m.closed {
-		return nil, fmt.Errorf("manager is closed")
+		return nil, errors.New("manager is closed")
 	}
 
 	// Check if pool already exists
@@ -143,23 +141,29 @@ func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPo
 		return nil, fmt.Errorf("maximum number of user pools (%d) reached", maxUsers)
 	}
 
-	// Create new user pool
+	// Create new user pool with per-user pool names for metric cardinality.
+	// Note: Including username in pool names enables per-user monitoring but increases
+	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
 	pool := NewUserPool(ctx, &UserPoolConfig{
 		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
-			Capacity:     m.config.UserRegularCapacity(),
-			MaxIdleCount: m.config.UserRegularMaxIdle(),
-			IdleTimeout:  m.config.UserRegularIdleTimeout(),
-			MaxLifetime:  m.config.UserRegularMaxLifetime(),
-			Logger:       m.logger,
+			Name:            "regular:" + user,
+			Capacity:        m.config.UserRegularCapacity(),
+			MaxIdleCount:    m.config.UserRegularMaxIdle(),
+			IdleTimeout:     m.config.UserRegularIdleTimeout(),
+			MaxLifetime:     m.config.UserRegularMaxLifetime(),
+			ConnectionCount: m.metrics.RegularConnCount(),
+			Logger:          m.logger,
 		},
 		ReservedPoolConfig: &connpool.Config{
-			Capacity:     m.config.UserReservedCapacity(),
-			MaxIdleCount: m.config.UserReservedMaxIdle(),
-			IdleTimeout:  m.config.UserReservedIdleTimeout(),
-			MaxLifetime:  m.config.UserReservedMaxLifetime(),
-			Logger:       m.logger,
+			Name:            "reserved:" + user,
+			Capacity:        m.config.UserReservedCapacity(),
+			MaxIdleCount:    m.config.UserReservedMaxIdle(),
+			IdleTimeout:     m.config.UserReservedIdleTimeout(),
+			MaxLifetime:     m.config.UserReservedMaxLifetime(),
+			ConnectionCount: m.metrics.ReservedConnCount(),
+			Logger:          m.logger,
 		},
 		ReservedInactivityTimeout: m.config.UserReservedInactivityTimeout(),
 		Logger:                    m.logger,

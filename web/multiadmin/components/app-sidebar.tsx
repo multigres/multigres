@@ -13,13 +13,11 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 
-import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupLabel,
-  SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -27,33 +25,32 @@ import {
 } from "@/components/ui/sidebar";
 import { Logo } from "./logo";
 
-const user = {
-  name: "shadcn",
-  email: "m@example.com",
-  avatar: "/avatars/shadcn.jpg",
-};
-
 const managementNav = [
-  { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
-  { title: "Topology", url: "/dashboard/topology", icon: IconListDetails },
+  // { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
+  {
+    title: "Cluster Overview",
+    url: "/dashboard/topology",
+    icon: IconListDetails,
+  },
   { title: "Databases", url: "/dashboard/databases", icon: IconDatabase },
-  { title: "Replication", url: "/dashboard/replication", icon: IconReport },
-  {
-    title: "Durability",
-    url: "/dashboard/durability",
-    icon: IconInnerShadowTop,
-  },
-  {
-    title: "Backup & Restore",
-    url: "/dashboard/backup-restore",
-    icon: IconFolder,
-  },
+  // { title: "Replication", url: "/dashboard/replication", icon: IconReport },
+  // {
+  //   title: "Durability",
+  //   url: "/dashboard/durability",
+  //   icon: IconInnerShadowTop,
+  // },
+  // {
+  //   title: "Backup & Restore",
+  //   url: "/dashboard/backup-restore",
+  //   icon: IconFolder,
+  // },
 ];
 
 const clusterNav = [
   { title: "MultiGateways", url: "/dashboard/multigateways", icon: IconFolder },
   { title: "MultiPoolers", url: "/dashboard/multipoolers", icon: IconFolder },
-  { title: "Settings", url: "/dashboard/settings", icon: IconSettings },
+  { title: "MultiOrchestrator", url: "/dashboard/multiorch", icon: IconFolder },
+  // { title: "Settings", url: "/dashboard/settings", icon: IconSettings },
 ];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
@@ -92,7 +89,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel>Cluster</SidebarGroupLabel>
+          <SidebarGroupLabel>Services</SidebarGroupLabel>
           <SidebarMenu>
             {clusterNav.map((item) => (
               <SidebarMenuItem key={item.title}>
@@ -110,9 +107,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <NavUser user={user} />
-      </SidebarFooter>
     </Sidebar>
   );
 }

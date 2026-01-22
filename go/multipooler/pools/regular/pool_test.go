@@ -28,7 +28,7 @@ import (
 )
 
 func newTestPool(_ *testing.T, server *fakepgserver.Server) *Pool {
-	pool := NewPool(&PoolConfig{
+	pool := NewPool(context.Background(), &PoolConfig{
 		ClientConfig: server.ClientConfig(),
 		ConnPoolConfig: &connpool.Config{
 			Capacity:     2,
@@ -36,7 +36,7 @@ func newTestPool(_ *testing.T, server *fakepgserver.Server) *Pool {
 		},
 		AdminPool: nil, // Not needed for basic tests
 	})
-	pool.Open(context.Background())
+	pool.Open()
 	return pool
 }
 
@@ -162,7 +162,7 @@ func TestPool_InnerPool(t *testing.T) {
 
 	inner := pool.InnerPool()
 	require.NotNil(t, inner)
-	assert.Equal(t, "regular", inner.Name)
+	assert.Equal(t, "unnamed", inner.Name)
 }
 
 func TestConn_State(t *testing.T) {

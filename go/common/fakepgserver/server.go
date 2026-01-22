@@ -28,10 +28,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/client"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // Server is a fake PostgreSQL server for testing.

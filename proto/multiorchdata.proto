@@ -17,6 +17,7 @@ syntax = "proto3";
 package multiorchdata;
 
 import "clustermetadata.proto";
+import "consensusdata.proto";
 import "google/protobuf/timestamp.proto";
 import "multipoolermanagerdata.proto";
 
@@ -71,4 +72,7 @@ message PoolerHealthState {
   // Whether the PostgreSQL data directory exists.
   // Determined from the Status RPC's has_data_directory field.
   bool has_data_directory = 12;
+
+  // Consensus status from ConsensusStatus RPC (for divergence detection)
+  consensusdata.StatusResponse consensus_status = 13;
 }

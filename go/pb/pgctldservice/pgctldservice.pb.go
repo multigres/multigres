@@ -911,13 +911,14 @@ func (x *InitDataDirResponse) GetMessage() string {
 // PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 type PgRewindRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Source server connection string (--source-server)
-	// Format: "host=<hostname> port=<port> user=<user> dbname=<dbname>"
-	SourceServer string `protobuf:"bytes,1,opt,name=source_server,json=sourceServer,proto3" json:"source_server,omitempty"`
+	// Source server hostname
+	SourceHost string `protobuf:"bytes,1,opt,name=source_host,json=sourceHost,proto3" json:"source_host,omitempty"`
+	// Source server port
+	SourcePort int32 `protobuf:"varint,2,opt,name=source_port,json=sourcePort,proto3" json:"source_port,omitempty"`
 	// Perform a dry run without making changes (--dry-run)
-	DryRun bool `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	DryRun bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	// Additional pg_rewind command line arguments
-	ExtraArgs     []string `protobuf:"bytes,3,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	ExtraArgs     []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -952,11 +953,18 @@ func (*PgRewindRequest) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *PgRewindRequest) GetSourceServer() string {
+func (x *PgRewindRequest) GetSourceHost() string {
 	if x != nil {
-		return x.SourceServer
+		return x.SourceHost
 	}
 	return ""
+}
+
+func (x *PgRewindRequest) GetSourcePort() int32 {
+	if x != nil {
+		return x.SourcePort
+	}
+	return 0
 }
 
 func (x *PgRewindRequest) GetDryRun() bool {
@@ -974,7 +982,10 @@ func (x *PgRewindRequest) GetExtraArgs() []string {
 }
 
 type PgRewindResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Status message
+	Message       string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Output        string `protobuf:"bytes,2,opt,name=output,proto3" json:"output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1007,6 +1018,20 @@ func (x *PgRewindResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use PgRewindResponse.ProtoReflect.Descriptor instead.
 func (*PgRewindResponse) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *PgRewindResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *PgRewindResponse) GetOutput() string {
+	if x != nil {
+		return x.Output
+	}
+	return ""
 }
 
 var File_pgctldservice_proto protoreflect.FileDescriptor
@@ -1066,13 +1091,18 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
 	"extra_args\x18\x03 \x03(\tR\textraArgs\"/\n" +
 	"\x13InitDataDirResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"n\n" +
-	"\x0fPgRewindRequest\x12#\n" +
-	"\rsource_server\x18\x01 \x01(\tR\fsourceServer\x12\x17\n" +
-	"\adry_run\x18\x02 \x01(\bR\x06dryRun\x12\x1d\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\x8b\x01\n" +
+	"\x0fPgRewindRequest\x12\x1f\n" +
+	"\vsource_host\x18\x01 \x01(\tR\n" +
+	"sourceHost\x12\x1f\n" +
+	"\vsource_port\x18\x02 \x01(\x05R\n" +
+	"sourcePort\x12\x17\n" +
+	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x03 \x03(\tR\textraArgs\"\x12\n" +
-	"\x10PgRewindResponse*f\n" +
+	"extra_args\x18\x04 \x03(\tR\textraArgs\"D\n" +
+	"\x10PgRewindResponse\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x16\n" +
+	"\x06output\x18\x02 \x01(\tR\x06output*f\n" +
 	"\fServerStatus\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSTOPPED\x10\x01\x12\f\n" +

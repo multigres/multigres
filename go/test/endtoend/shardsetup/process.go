@@ -48,6 +48,7 @@ type ProcessInstance struct {
 	PgPort      int    // Used by pgctld
 	PgctldAddr  string // Used by multipooler
 	EtcdAddr    string // Used by multipooler for topology
+	GlobalRoot  string // Topology global root path (used by multipooler, multiorch, multigateway)
 	Process     *exec.Cmd
 	Binary      string
 	Environment []string
@@ -63,7 +64,7 @@ type ProcessInstance struct {
 	PgBackRestPort      int                        // pgBackRest server port
 }
 
-// Start starts the process instance (pgctld, multipooler, or multiorch).
+// Start starts the process instance (pgctld, multipooler, multiorch, or multigateway).
 // Follows the proven pattern from multipooler/setup_test.go.
 func (p *ProcessInstance) Start(t *testing.T) error {
 	t.Helper()
@@ -75,6 +76,8 @@ func (p *ProcessInstance) Start(t *testing.T) error {
 		return p.startMultipooler(t)
 	case "multiorch":
 		return p.startMultiOrch(t)
+	case "multigateway":
+		return p.startMultigateway(t)
 	}
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
@@ -92,6 +95,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
+		"--timeout", "60",
 		"--log-output", p.LogFile)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
@@ -209,7 +213,57 @@ func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 	if err := WaitForPortReady(t, "multiorch", p.GrpcPort, 15*time.Second); err != nil {
 		return err
 	}
-	t.Logf("MultiOrch is ready")
+	return nil
+}
+
+// startMultigateway starts a multigateway instance.
+func (p *ProcessInstance) startMultigateway(t *testing.T) error {
+	t.Helper()
+
+	t.Logf("Starting %s: binary '%s', PG port %d, gRPC port %d, HTTP port %d", p.Name, p.Binary, p.PgPort, p.GrpcPort, p.HttpPort)
+
+	args := []string{
+		"--cell", p.Cell,
+		"--service-id", p.ServiceID,
+		"--pg-port", strconv.Itoa(p.PgPort),
+		"--pg-bind-address", "127.0.0.1",
+		"--topo-global-server-addresses", p.EtcdAddr,
+		"--topo-global-root", p.GlobalRoot,
+		"--grpc-port", strconv.Itoa(p.GrpcPort),
+		"--http-port", strconv.Itoa(p.HttpPort),
+		"--hostname", "localhost",
+		"--log-level", "debug",
+	}
+
+	p.Process = exec.Command(p.Binary, args...)
+
+	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
+	p.Process.Env = append(p.Environment,
+		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.LogFile),
+	)
+
+	// Set up logging
+	if p.LogFile != "" {
+		logF, err := os.Create(p.LogFile)
+		if err != nil {
+			return fmt.Errorf("failed to create log file: %w", err)
+		}
+		p.Process.Stdout = logF
+		p.Process.Stderr = logF
+	}
+
+	// Start the process
+	if err := p.Process.Start(); err != nil {
+		return fmt.Errorf("failed to start multigateway: %w", err)
+	}
+	t.Logf("Started multigateway (pid: %d, pg: %d, grpc: %d, http: %d, log: %s)",
+		p.Process.Process.Pid, p.PgPort, p.GrpcPort, p.HttpPort, p.LogFile)
+
+	// Wait for multigateway to be ready (Status RPC check)
+	if err := WaitForPortReady(t, "multigateway", p.GrpcPort, 3*time.Second); err != nil {
+		return err
+	}
+	t.Logf("Multigateway is ready")
 
 	return nil
 }

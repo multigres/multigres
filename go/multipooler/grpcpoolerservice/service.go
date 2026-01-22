@@ -17,6 +17,7 @@ package grpcpoolerservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"google.golang.org/grpc/codes"
@@ -76,7 +77,7 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, fmt.Errorf("executor not initialized")
+		return nil, errors.New("executor not initialized")
 	}
 
 	// Execute the query and stream results
@@ -145,7 +146,7 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, fmt.Errorf("executor not initialized")
+		return nil, errors.New("executor not initialized")
 	}
 
 	// Call the executor's Describe method

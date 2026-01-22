@@ -16,6 +16,7 @@ package reserved
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -84,7 +85,7 @@ func (c *Conn) State() *connstate.ConnectionState {
 // Begin starts a transaction on this connection.
 func (c *Conn) Begin(ctx context.Context) error {
 	if c.IsInTransaction() {
-		return fmt.Errorf("transaction already in progress")
+		return errors.New("transaction already in progress")
 	}
 
 	_, err := c.pooled.Conn.Query(ctx, "BEGIN")
@@ -99,7 +100,7 @@ func (c *Conn) Begin(ctx context.Context) error {
 // Commit commits the current transaction.
 func (c *Conn) Commit(ctx context.Context) error {
 	if !c.IsInTransaction() {
-		return fmt.Errorf("no active transaction")
+		return errors.New("no active transaction")
 	}
 
 	_, err := c.pooled.Conn.Query(ctx, "COMMIT")

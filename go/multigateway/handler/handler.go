@@ -16,16 +16,17 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/parser"
 	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // Executor defines the interface for query execution.
@@ -56,6 +57,11 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger) *MultiGatewa
 		logger:   logger.With("component", "multigateway_handler"),
 		psc:      preparedstatement.NewConsolidator(),
 	}
+}
+
+// Consolidator returns the prepared statement consolidator.
+func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
+	return h.psc
 }
 
 // HandleQuery processes a simple query protocol message ('Q').
@@ -104,7 +110,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 
 	// Basic validation: query must not be empty.
 	if queryStr == "" {
-		return fmt.Errorf("query string cannot be empty")
+		return errors.New("query string cannot be empty")
 	}
 
 	_, err := h.psc.AddPreparedStatement(conn.ConnectionID(), name, queryStr, paramTypes)

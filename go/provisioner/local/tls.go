@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -183,7 +184,7 @@ func loadCA(certPath, keyPath string) (*x509.Certificate, *ecdsa.PrivateKey, err
 	}
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
-		return nil, nil, fmt.Errorf("failed to decode CA cert PEM")
+		return nil, nil, errors.New("failed to decode CA cert PEM")
 	}
 	caCert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
@@ -197,7 +198,7 @@ func loadCA(certPath, keyPath string) (*x509.Certificate, *ecdsa.PrivateKey, err
 	}
 	block, _ = pem.Decode(keyPEM)
 	if block == nil {
-		return nil, nil, fmt.Errorf("failed to decode CA key PEM")
+		return nil, nil, errors.New("failed to decode CA key PEM")
 	}
 	caKey, err := x509.ParseECPrivateKey(block.Bytes)
 	if err != nil {

@@ -16,6 +16,7 @@ package multigateway
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sort"
 	"strings"
@@ -118,12 +119,8 @@ func (pd *CellPoolerDiscovery) Start() {
 							return
 						}
 
-						if watchData.Err != nil {
-							pd.logger.Error("Watch error received", "error", watchData.Err)
-							// Continue watching despite the error
-							continue
-						}
-
+						// Process the change - this handles both updates and deletions.
+						// Deletions come as events with Err set to NoNode error.
 						pd.processPoolerChange(watchData)
 					}
 				}
@@ -184,6 +181,30 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 	pd.mu.Lock()
 	defer pd.mu.Unlock()
 
+	// Check if this is an error event
+	if watchData.Err != nil {
+		// Check if it's a deletion event (NoNode error) for a pooler path.
+		// TopoError is returned as a value type, so we need to use errors.Is with a pointer.
+		if errors.Is(watchData.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			if strings.HasSuffix(watchData.Path, "/Pooler") {
+				poolerID := pd.extractPoolerIDFromPath(watchData.Path)
+				if poolerID != "" {
+					if _, existed := pd.poolers[poolerID]; existed {
+						delete(pd.poolers, poolerID)
+						pd.lastRefresh = time.Now()
+						pd.logger.Info("Pooler removed",
+							"id", poolerID,
+							"path", watchData.Path)
+					}
+				}
+			}
+		} else {
+			// Log other watch errors (non-deletion errors)
+			pd.logger.Warn("Watch error received", "error", watchData.Err, "path", watchData.Path)
+		}
+		return
+	}
+
 	// Parse the pooler from watch data
 	pooler, err := pd.parsePoolerFromWatchData(watchData)
 	if err != nil {
@@ -192,13 +213,19 @@ func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDa
 	}
 
 	if pooler == nil {
-		// This might be a deletion or non-pooler file
-		pd.logger.Debug("Skipping non-pooler file or deletion", "path", watchData.Path)
+		// This is a non-pooler file, skip
+		pd.logger.Debug("Skipping non-pooler file", "path", watchData.Path)
 		return
 	}
 
-	// Add or update the pooler
 	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+
+	// If this is a PRIMARY, evict any other PRIMARY for the same TableGroup/Shard.
+	// This handles the failover case where a new PRIMARY comes up but the old
+	// crashed PRIMARY's record is still present.
+	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
+		pd.evictConflictingPrimary(poolerID, pooler.TableGroup, pooler.Shard)
+	}
 
 	// Check if this is a new pooler
 	_, existed := pd.poolers[poolerID]
@@ -349,6 +376,43 @@ func (pd *CellPoolerDiscovery) parsePoolerFromWatchData(watchData *topoclient.Wa
 	return &topoclient.MultiPoolerInfo{
 		MultiPooler: pooler,
 	}, nil
+}
+
+// extractPoolerIDFromPath extracts the pooler ID from a watch path.
+// The path format is: "poolers/{pooler_id}/Pooler"
+func (pd *CellPoolerDiscovery) extractPoolerIDFromPath(path string) string {
+	// Expected format: "poolers/{pooler_id}/Pooler"
+	parts := strings.Split(path, "/")
+	if len(parts) >= 3 && parts[0] == "poolers" && parts[len(parts)-1] == "Pooler" {
+		// The pooler ID is the middle part(s) - everything between "poolers/" and "/Pooler"
+		return strings.Join(parts[1:len(parts)-1], "/")
+	}
+	return ""
+}
+
+// evictConflictingPrimary removes any existing PRIMARY pooler for the same
+// TableGroup/Shard that has a different pooler ID. This handles the failover
+// case where a new PRIMARY comes up but the old crashed PRIMARY's record is
+// still in the discovery cache.
+// Caller must hold pd.mu.
+func (pd *CellPoolerDiscovery) evictConflictingPrimary(newPoolerID, tableGroup, shard string) {
+	for poolerID, pooler := range pd.poolers {
+		// Skip if it's the same pooler (update case)
+		if poolerID == newPoolerID {
+			continue
+		}
+		// Check if this is a PRIMARY for the same TableGroup/Shard
+		if pooler.Type == clustermetadatapb.PoolerType_PRIMARY &&
+			pooler.TableGroup == tableGroup &&
+			pooler.Shard == shard {
+			delete(pd.poolers, poolerID)
+			pd.logger.Info("Evicted stale PRIMARY pooler",
+				"evicted_id", poolerID,
+				"new_primary_id", newPoolerID,
+				"tableGroup", tableGroup,
+				"shard", shard)
+		}
+	}
 }
 
 // Cell returns the cell this discovery is watching.

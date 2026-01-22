@@ -12,6 +12,7 @@ import {
 import { Database, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useApi } from "@/lib/api";
+import { getTableGroupStats } from "../actions";
 
 type DatabaseInfo = {
   name: string;
@@ -32,31 +33,24 @@ export function DashboardItemsTable() {
         setLoading(true);
         setError(null);
 
-        // Get all database names
+        // Get database names from multiadmin API
         const { names } = await api.getDatabaseNames();
 
-        // Fetch details for each database
-        const dbInfos: DatabaseInfo[] = await Promise.all(
-          names.map(async (name) => {
-            try {
-              const { database } = await api.getDatabase(name);
-              const tableGroups = database.tableGroups?.length ?? 0;
-              const totalShards =
-                database.tableGroups?.reduce(
-                  (sum, tg) => sum + (tg.shards?.length ?? 0),
-                  0
-                ) ?? 0;
-              return { name, tableGroups, totalShards };
-            } catch {
-              // If we can't get details, just show the name
-              return { name, tableGroups: 0, totalShards: 0 };
-            }
-          })
-        );
+        // Get tablegroup/shard counts from psql
+        const stats = await getTableGroupStats();
+
+        // For single database setup, apply stats to the database
+        const dbInfos: DatabaseInfo[] = names.map((name) => ({
+          name,
+          tableGroups: stats.tableGroupCount,
+          totalShards: stats.shardCount,
+        }));
 
         setDatabases(dbInfos);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to fetch databases");
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch databases",
+        );
       } finally {
         setLoading(false);
       }

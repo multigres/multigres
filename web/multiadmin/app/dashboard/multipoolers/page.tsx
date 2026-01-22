@@ -1,4 +1,5 @@
 import { PageLayout } from "@/components/page-layout";
+import { MultiPoolersTable } from "./components/multipoolers-table";
 
 export default function Page() {
   return (
@@ -9,7 +10,7 @@ export default function Page() {
         { label: "MultiPoolers" },
       ]}
     >
-      <div className="px-4 lg:px-6">MultiPoolers</div>
+      <MultiPoolersTable />
     </PageLayout>
   );
 }

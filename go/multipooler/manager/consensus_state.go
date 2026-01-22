@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -132,11 +133,11 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 	defer cs.mu.Unlock()
 
 	if cs.term == nil {
-		return fmt.Errorf("consensus term not initialized")
+		return errors.New("consensus term not initialized")
 	}
 
 	if candidateID == nil {
-		return fmt.Errorf("candidate ID cannot be nil")
+		return errors.New("candidate ID cannot be nil")
 	}
 
 	// If already accepted from this coordinator, idempotent success
@@ -177,7 +178,7 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 	defer cs.mu.Unlock()
 
 	if candidateID == nil {
-		return fmt.Errorf("candidate ID cannot be nil")
+		return errors.New("candidate ID cannot be nil")
 	}
 
 	currentTerm := int64(0)
@@ -202,7 +203,7 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 	} else {
 		// Same term: just update acceptance (idempotent check first)
 		if cs.term == nil {
-			return fmt.Errorf("consensus term not initialized")
+			return errors.New("consensus term not initialized")
 		}
 
 		// If already accepted from this coordinator, idempotent success

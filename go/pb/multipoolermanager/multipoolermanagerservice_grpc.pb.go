@@ -52,14 +52,16 @@ const (
 	MultiPoolerManager_GetFollowers_FullMethodName                    = "/multipoolermanager.MultiPoolerManager/GetFollowers"
 	MultiPoolerManager_Demote_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Demote"
 	MultiPoolerManager_UndoDemote_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/UndoDemote"
+	MultiPoolerManager_DemoteStalePrimary_FullMethodName              = "/multipoolermanager.MultiPoolerManager/DemoteStalePrimary"
 	MultiPoolerManager_Promote_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/Promote"
 	MultiPoolerManager_State_FullMethodName                           = "/multipoolermanager.MultiPoolerManager/State"
 	MultiPoolerManager_InitializeEmptyPrimary_FullMethodName          = "/multipoolermanager.MultiPoolerManager/InitializeEmptyPrimary"
-	MultiPoolerManager_InitializeAsStandby_FullMethodName             = "/multipoolermanager.MultiPoolerManager/InitializeAsStandby"
 	MultiPoolerManager_Backup_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Backup"
 	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
 	MultiPoolerManager_GetBackups_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/GetBackups"
 	MultiPoolerManager_GetBackupByJobId_FullMethodName                = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
+	MultiPoolerManager_RewindToSource_FullMethodName                  = "/multipoolermanager.MultiPoolerManager/RewindToSource"
+	MultiPoolerManager_SetMonitor_FullMethodName                      = "/multipoolermanager.MultiPoolerManager/SetMonitor"
 )
 
 // MultiPoolerManagerClient is the client API for MultiPoolerManager service.
@@ -113,6 +115,9 @@ type MultiPoolerManagerClient interface {
 	Demote(ctx context.Context, in *multipoolermanagerdata.DemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteResponse, error)
 	// UndoDemote undoes a demotion
 	UndoDemote(ctx context.Context, in *multipoolermanagerdata.UndoDemoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UndoDemoteResponse, error)
+	// DemoteStalePrimary demotes a stale primary that came back after failover
+	// by rewinding to the correct primary and restarting as standby
+	DemoteStalePrimary(ctx context.Context, in *multipoolermanagerdata.DemoteStalePrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error)
 	// Promote promotes a replica to leader (Multigres-level operation)
 	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
 	// State gets the current status of the manager
@@ -120,9 +125,6 @@ type MultiPoolerManagerClient interface {
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(ctx context.Context, in *multipoolermanagerdata.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
-	// InitializeAsStandby initializes this pooler as a standby from a primary backup
-	// Used during bootstrap initialization of a new shard or when adding a new standby
-	InitializeAsStandby(ctx context.Context, in *multipoolermanagerdata.InitializeAsStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
 	// Backup performs a backup
 	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -132,6 +134,12 @@ type MultiPoolerManagerClient interface {
 	// GetBackupByJobId queries a backup by its job_id annotation.
 	// Returns the backup metadata if found, or nil backup if not.
 	GetBackupByJobId(ctx context.Context, in *multipoolermanagerdata.GetBackupByJobIdRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
+	// RewindToSource performs pg_rewind to synchronize this server with a source.
+	// This is used to repair diverged timelines after failover.
+	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
+	RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error)
+	// SetMonitor enables or disables the PostgreSQL monitoring goroutine
+	SetMonitor(ctx context.Context, in *multipoolermanagerdata.SetMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetMonitorResponse, error)
 }
 
 type multiPoolerManagerClient struct {
@@ -322,6 +330,16 @@ func (c *multiPoolerManagerClient) UndoDemote(ctx context.Context, in *multipool
 	return out, nil
 }
 
+func (c *multiPoolerManagerClient) DemoteStalePrimary(ctx context.Context, in *multipoolermanagerdata.DemoteStalePrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.DemoteStalePrimaryResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_DemoteStalePrimary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiPoolerManagerClient) Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.PromoteResponse)
@@ -346,16 +364,6 @@ func (c *multiPoolerManagerClient) InitializeEmptyPrimary(ctx context.Context, i
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.InitializeEmptyPrimaryResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_InitializeEmptyPrimary_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) InitializeAsStandby(ctx context.Context, in *multipoolermanagerdata.InitializeAsStandbyRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeAsStandbyResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.InitializeAsStandbyResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_InitializeAsStandby_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -396,6 +404,26 @@ func (c *multiPoolerManagerClient) GetBackupByJobId(ctx context.Context, in *mul
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.GetBackupByJobIdResponse)
 	err := c.cc.Invoke(ctx, MultiPoolerManager_GetBackupByJobId_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.RewindToSourceResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_RewindToSource_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerManagerClient) SetMonitor(ctx context.Context, in *multipoolermanagerdata.SetMonitorRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetMonitorResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.SetMonitorResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerManager_SetMonitor_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +481,9 @@ type MultiPoolerManagerServer interface {
 	Demote(context.Context, *multipoolermanagerdata.DemoteRequest) (*multipoolermanagerdata.DemoteResponse, error)
 	// UndoDemote undoes a demotion
 	UndoDemote(context.Context, *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error)
+	// DemoteStalePrimary demotes a stale primary that came back after failover
+	// by rewinding to the correct primary and restarting as standby
+	DemoteStalePrimary(context.Context, *multipoolermanagerdata.DemoteStalePrimaryRequest) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error)
 	// Promote promotes a replica to leader (Multigres-level operation)
 	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
 	// State gets the current status of the manager
@@ -460,9 +491,6 @@ type MultiPoolerManagerServer interface {
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
-	// InitializeAsStandby initializes this pooler as a standby from a primary backup
-	// Used during bootstrap initialization of a new shard or when adding a new standby
-	InitializeAsStandby(context.Context, *multipoolermanagerdata.InitializeAsStandbyRequest) (*multipoolermanagerdata.InitializeAsStandbyResponse, error)
 	// Backup performs a backup
 	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
 	// RestoreFromBackup restores from a backup
@@ -472,6 +500,12 @@ type MultiPoolerManagerServer interface {
 	// GetBackupByJobId queries a backup by its job_id annotation.
 	// Returns the backup metadata if found, or nil backup if not.
 	GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error)
+	// RewindToSource performs pg_rewind to synchronize this server with a source.
+	// This is used to repair diverged timelines after failover.
+	// The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
+	RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error)
+	// SetMonitor enables or disables the PostgreSQL monitoring goroutine
+	SetMonitor(context.Context, *multipoolermanagerdata.SetMonitorRequest) (*multipoolermanagerdata.SetMonitorResponse, error)
 	mustEmbedUnimplementedMultiPoolerManagerServer()
 }
 
@@ -536,6 +570,9 @@ func (UnimplementedMultiPoolerManagerServer) Demote(context.Context, *multipoole
 func (UnimplementedMultiPoolerManagerServer) UndoDemote(context.Context, *multipoolermanagerdata.UndoDemoteRequest) (*multipoolermanagerdata.UndoDemoteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UndoDemote not implemented")
 }
+func (UnimplementedMultiPoolerManagerServer) DemoteStalePrimary(context.Context, *multipoolermanagerdata.DemoteStalePrimaryRequest) (*multipoolermanagerdata.DemoteStalePrimaryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DemoteStalePrimary not implemented")
+}
 func (UnimplementedMultiPoolerManagerServer) Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Promote not implemented")
 }
@@ -544,9 +581,6 @@ func (UnimplementedMultiPoolerManagerServer) State(context.Context, *multipooler
 }
 func (UnimplementedMultiPoolerManagerServer) InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitializeEmptyPrimary not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) InitializeAsStandby(context.Context, *multipoolermanagerdata.InitializeAsStandbyRequest) (*multipoolermanagerdata.InitializeAsStandbyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method InitializeAsStandby not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
@@ -559,6 +593,12 @@ func (UnimplementedMultiPoolerManagerServer) GetBackups(context.Context, *multip
 }
 func (UnimplementedMultiPoolerManagerServer) GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackupByJobId not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RewindToSource not implemented")
+}
+func (UnimplementedMultiPoolerManagerServer) SetMonitor(context.Context, *multipoolermanagerdata.SetMonitorRequest) (*multipoolermanagerdata.SetMonitorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetMonitor not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
 func (UnimplementedMultiPoolerManagerServer) testEmbeddedByValue()                            {}
@@ -905,6 +945,24 @@ func _MultiPoolerManager_UndoDemote_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerManager_DemoteStalePrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.DemoteStalePrimaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).DemoteStalePrimary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_DemoteStalePrimary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).DemoteStalePrimary(ctx, req.(*multipoolermanagerdata.DemoteStalePrimaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiPoolerManager_Promote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.PromoteRequest)
 	if err := dec(in); err != nil {
@@ -955,24 +1013,6 @@ func _MultiPoolerManager_InitializeEmptyPrimary_Handler(srv interface{}, ctx con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).InitializeEmptyPrimary(ctx, req.(*multipoolermanagerdata.InitializeEmptyPrimaryRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerManager_InitializeAsStandby_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.InitializeAsStandbyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).InitializeAsStandby(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_InitializeAsStandby_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).InitializeAsStandby(ctx, req.(*multipoolermanagerdata.InitializeAsStandbyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1045,6 +1085,42 @@ func _MultiPoolerManager_GetBackupByJobId_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiPoolerManagerServer).GetBackupByJobId(ctx, req.(*multipoolermanagerdata.GetBackupByJobIdRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_RewindToSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.RewindToSourceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).RewindToSource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_RewindToSource_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).RewindToSource(ctx, req.(*multipoolermanagerdata.RewindToSourceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerManager_SetMonitor_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetMonitorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerManagerServer).SetMonitor(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerManager_SetMonitor_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerManagerServer).SetMonitor(ctx, req.(*multipoolermanagerdata.SetMonitorRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1129,6 +1205,10 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerManager_UndoDemote_Handler,
 		},
 		{
+			MethodName: "DemoteStalePrimary",
+			Handler:    _MultiPoolerManager_DemoteStalePrimary_Handler,
+		},
+		{
 			MethodName: "Promote",
 			Handler:    _MultiPoolerManager_Promote_Handler,
 		},
@@ -1139,10 +1219,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitializeEmptyPrimary",
 			Handler:    _MultiPoolerManager_InitializeEmptyPrimary_Handler,
-		},
-		{
-			MethodName: "InitializeAsStandby",
-			Handler:    _MultiPoolerManager_InitializeAsStandby_Handler,
 		},
 		{
 			MethodName: "Backup",
@@ -1159,6 +1235,14 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBackupByJobId",
 			Handler:    _MultiPoolerManager_GetBackupByJobId_Handler,
+		},
+		{
+			MethodName: "RewindToSource",
+			Handler:    _MultiPoolerManager_RewindToSource_Handler,
+		},
+		{
+			MethodName: "SetMonitor",
+			Handler:    _MultiPoolerManager_SetMonitor_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

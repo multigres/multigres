@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -28,33 +27,27 @@ export function SiteHeader({
         {breadcrumbs && breadcrumbs.length ? (
           <Breadcrumb>
             <BreadcrumbList>
-              {breadcrumbs.map((bc, idx) => (
-                <BreadcrumbItem key={idx}>
-                  {bc.href && idx < breadcrumbs.length - 1 ? (
-                    <BreadcrumbLink href={bc.href}>{bc.label}</BreadcrumbLink>
-                  ) : (
-                    <BreadcrumbPage>{bc.label}</BreadcrumbPage>
-                  )}
-                  {idx < breadcrumbs.length - 1 && <BreadcrumbSeparator />}
-                </BreadcrumbItem>
-              ))}
+              {breadcrumbs.flatMap((bc, idx) => {
+                const item = (
+                  <BreadcrumbItem key={`item-${idx}`}>
+                    {bc.href && idx < breadcrumbs.length - 1 ? (
+                      <BreadcrumbLink href={bc.href}>{bc.label}</BreadcrumbLink>
+                    ) : (
+                      <BreadcrumbPage>{bc.label}</BreadcrumbPage>
+                    )}
+                  </BreadcrumbItem>
+                );
+                const separator =
+                  idx < breadcrumbs.length - 1 ? (
+                    <BreadcrumbSeparator key={`sep-${idx}`} />
+                  ) : null;
+                return [item, separator].filter(Boolean);
+              })}
             </BreadcrumbList>
           </Breadcrumb>
         ) : (
           <h1 className="text-base font-medium">Documents</h1>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" asChild size="sm" className="hidden sm:flex">
-            <a
-              href="https://github.com/shadcn-ui/ui/tree/main/apps/v4/app/(examples)/dashboard"
-              rel="noopener noreferrer"
-              target="_blank"
-              className="dark:text-foreground"
-            >
-              GitHub
-            </a>
-          </Button>
-        </div>
       </div>
     </header>
   );

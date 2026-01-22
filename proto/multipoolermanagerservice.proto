@@ -111,6 +111,11 @@ service MultiPoolerManager {
   rpc UndoDemote(multipoolermanagerdata.UndoDemoteRequest)
     returns (multipoolermanagerdata.UndoDemoteResponse);
 
+  // DemoteStalePrimary demotes a stale primary that came back after failover
+  // by rewinding to the correct primary and restarting as standby
+  rpc DemoteStalePrimary(multipoolermanagerdata.DemoteStalePrimaryRequest)
+    returns (multipoolermanagerdata.DemoteStalePrimaryResponse);
+
   // Promote promotes a replica to leader (Multigres-level operation)
   rpc Promote(multipoolermanagerdata.PromoteRequest)
     returns (multipoolermanagerdata.PromoteResponse);
@@ -128,11 +133,6 @@ service MultiPoolerManager {
   // Used during bootstrap initialization of a new shard
   rpc InitializeEmptyPrimary(multipoolermanagerdata.InitializeEmptyPrimaryRequest)
     returns (multipoolermanagerdata.InitializeEmptyPrimaryResponse);
-
-  // InitializeAsStandby initializes this pooler as a standby from a primary backup
-  // Used during bootstrap initialization of a new shard or when adding a new standby
-  rpc InitializeAsStandby(multipoolermanagerdata.InitializeAsStandbyRequest)
-    returns (multipoolermanagerdata.InitializeAsStandbyResponse);
 
   //
   // Backup and Restore
@@ -156,4 +156,22 @@ service MultiPoolerManager {
   // Returns the backup metadata if found, or nil backup if not.
   rpc GetBackupByJobId(multipoolermanagerdata.GetBackupByJobIdRequest)
       returns (multipoolermanagerdata.GetBackupByJobIdResponse);
+
+  //
+  // PgRewind Operations
+  //
+
+  // RewindToSource performs pg_rewind to synchronize this server with a source.
+  // This is used to repair diverged timelines after failover.
+  // The operation stops PostgreSQL, runs pg_rewind, and restarts PostgreSQL.
+  rpc RewindToSource(multipoolermanagerdata.RewindToSourceRequest)
+      returns (multipoolermanagerdata.RewindToSourceResponse);
+  
+  //
+  // PostgreSQL Monitoring Control
+  //
+  
+  // SetMonitor enables or disables the PostgreSQL monitoring goroutine
+  rpc SetMonitor(multipoolermanagerdata.SetMonitorRequest)
+        returns (multipoolermanagerdata.SetMonitorResponse);
 }

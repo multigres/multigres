@@ -92,7 +92,22 @@ service MultiAdminService {
 
   // GetPoolerStatus retrieves the unified status of a specific pooler.
   // This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
-  rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse);
+  rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse) {
+    option (google.api.http) = {get: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"};
+  }
+
+  //
+  // PostgreSQL Monitoring Control (proxy methods)
+  //
+
+  // SetPostgresMonitor enables or disables PostgreSQL monitoring on a pooler.
+  // This proxies the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
+  rpc SetPostgresMonitor(SetPostgresMonitorRequest) returns (SetPostgresMonitorResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-monitor"
+      body: "*"
+    };
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -344,4 +359,21 @@ message GetPoolerStatusRequest {
 message GetPoolerStatusResponse {
   // status contains the pooler's unified status from MultiPoolerManager.Status
   multipoolermanagerdata.Status status = 1;
+}
+
+// PostgreSQL Monitoring Control operation messages
+
+// SetPostgresMonitorRequest requests to enable or disable PostgreSQL monitoring on a pooler
+message SetPostgresMonitorRequest {
+  // pooler_id identifies which pooler to update monitoring on (required)
+  clustermetadata.ID pooler_id = 1;
+
+  // enabled controls whether monitoring is enabled (true) or disabled (false)
+  bool enabled = 2;
+}
+
+// SetPostgresMonitorResponse confirms that monitoring was updated
+// Errors are returned via gRPC status codes, not in the response body
+message SetPostgresMonitorResponse {
+  // Empty - success indicated by no error
 }

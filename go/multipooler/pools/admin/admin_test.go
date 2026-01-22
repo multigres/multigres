@@ -26,14 +26,14 @@ import (
 )
 
 func newTestPool(_ *testing.T, server *fakepgserver.Server) *Pool {
-	pool := NewPool(&PoolConfig{
+	pool := NewPool(context.Background(), &PoolConfig{
 		ClientConfig: server.ClientConfig(),
 		ConnPoolConfig: &connpool.Config{
 			Capacity:     2,
 			MaxIdleCount: 2,
 		},
 	})
-	pool.Open(context.Background())
+	pool.Open()
 	return pool
 }
 

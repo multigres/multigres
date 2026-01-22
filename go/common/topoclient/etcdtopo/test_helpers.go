@@ -16,6 +16,7 @@ package etcdtopo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -52,6 +53,16 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 	for _, err := range retry.New(10*time.Millisecond, time.Second).Attempts(ctx) {
 		if err != nil {
 			if lastErr != nil {
+				// Check if error is "connection refused" and provide helpful diagnostic
+				errMsg := lastErr.Error()
+				if strings.Contains(errMsg, "connection refused") {
+					// Check for orphan etcd processes
+					orphanHint := ""
+					if out, pgrepErr := exec.Command("pgrep", "-fl", "etcd").Output(); pgrepErr == nil && len(out) > 0 {
+						orphanHint = fmt.Sprintf(" Orphan etcd processes detected:\n%s\nTry: pkill -9 etcd", string(out))
+					}
+					return fmt.Errorf("etcd failed to become ready (connection refused - etcd may have failed to start, or an orphan process may be blocking resources).%s\nLast error: %w", orphanHint, err)
+				}
 				return fmt.Errorf("etcd failed to become ready (last error: %w): %w", lastErr, err)
 			}
 			if lastStatusCode != 0 {
@@ -60,7 +71,7 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 			return fmt.Errorf("etcd failed to become ready: %w", err)
 		}
 
-		url := fmt.Sprintf("%s/readyz", clientAddr)
+		url := clientAddr + "/readyz"
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
@@ -79,7 +90,7 @@ func WaitForReady(ctx context.Context, clientAddr string) error {
 		lastErr = nil
 		lastStatusCode = resp.StatusCode
 	}
-	return fmt.Errorf("etcd failed to become ready")
+	return errors.New("etcd failed to become ready")
 }
 
 // EtcdOptions contains optional configuration for starting etcd.

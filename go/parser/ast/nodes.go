@@ -30,6 +30,7 @@ package ast
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -1065,7 +1066,7 @@ func (i *Integer) String() string {
 
 // SqlString returns the SQL representation of the Integer
 func (i *Integer) SqlString() string {
-	return fmt.Sprintf("%d", i.IVal)
+	return strconv.Itoa(i.IVal)
 }
 
 func (i *Integer) ExpressionType() string {

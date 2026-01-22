@@ -1,0 +1,95 @@
+# For a single-cell cluster, we need only one muultigateway.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multigateway
+  labels:
+    app: multigateway
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: multigateway
+  template:
+    metadata:
+      labels:
+        app: multigateway
+    spec:
+      containers:
+        - name: multigateway
+          image: docker.io/multigres/multigres:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/multigres/bin/multigateway"]
+          args:
+            - --http-port=15000
+            - --grpc-port=15100
+            - --pg-port=15432
+            # Use POD_IP as hostname since pod hostnames are not DNS-resolvable
+            # in Deployments (unlike StatefulSets). This allows the admin proxy
+            # to connect to individual gateway instances.
+            - --hostname=$(POD_IP)
+            - --topo-global-server-addresses=etcd:2379
+            - --topo-global-root=/multigres/test/global
+            - --cell=zone1
+            - --pprof-http=true
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: OTEL_SERVICE_NAME
+              value: "multigateway"
+          envFrom:
+            - configMapRef:
+                name: otel-config
+          ports:
+            - containerPort: 15432
+              name: postgres
+              protocol: TCP
+            - containerPort: 15000
+              name: http
+              protocol: TCP
+            - containerPort: 15100
+              name: grpc
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 15000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 15000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: sampling-config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: sampling-config
+          configMap:
+            name: sampling-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: multigateway
+spec:
+  # Fixed ClusterIP for load testing to bypass DNS
+  clusterIP: 10.96.100.1
+  selector:
+    app: multigateway
+  ports:
+    - port: 15432
+      targetPort: 15432
+      name: postgres
+    - port: 15000
+      targetPort: 15000
+      name: http
+    - port: 15100
+      targetPort: 15100
+      name: grpc
+  type: ClusterIP

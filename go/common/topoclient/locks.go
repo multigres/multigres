@@ -205,7 +205,7 @@ func (l *Lock) unlock(ctx context.Context, ts *store, lt iTopoLock, lockDescript
 	// Detach from the parent timeout, but preserve the trace span.
 	// We need to still release the lock even if the parent context timed out.
 	ctx = context.WithoutCancel(ctx)
-	ctx, cancel := context.WithTimeout(ctx, ts.getRemoteOperationTimeout())
+	ctx, cancel := context.WithTimeout(ctx, ts.GetRemoteOperationTimeout())
 	defer cancel()
 
 	ctx, unlockSpan := telemetry.Tracer().Start(ctx, "TopoServer.Unlock",
