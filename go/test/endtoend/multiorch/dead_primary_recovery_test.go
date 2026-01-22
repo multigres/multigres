@@ -137,8 +137,19 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
+		// Get the new primary's consensus term to verify rejoining nodes are on correct term
+		newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
+		require.NotNil(t, newPrimary, "new primary instance should exist")
+		newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimary.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		status, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+		newPrimaryClient.Close()
+		require.NoError(t, err, "should be able to get status from new primary")
+		newPrimaryTerm := status.Status.ConsensusTerm
+		t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
+
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, 10*time.Second)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 10*time.Second)
 
 		// Ensure monitoring is disabled on all multipoolers (multiorch recovery might have re-enabled it)
 		t.Logf("Re-disabling monitoring on all multipoolers after failover %d...", i+1)
@@ -485,7 +496,8 @@ func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryNam
 }
 
 // checkRejoin checks if a multipooler has rejoined the cluster as a standby replica.
-func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.MultipoolerInstance) bool {
+// It verifies the node is on the correct consensus term and replicating from the expected primary.
+func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.MultipoolerInstance, expectedPrimaryName string, expectedTerm int64) bool {
 	t.Helper()
 	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 	if err != nil {
@@ -498,29 +510,53 @@ func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.Multipoo
 		return false
 	}
 
-	// Check if multipooler is back up as a replica with replication configured
-	if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA &&
-		status.Status.ReplicationStatus != nil &&
-		status.Status.ReplicationStatus.PrimaryConnInfo != nil {
-		return true
+	// Must be a replica with postgres running
+	if status.Status.PoolerType != clustermetadatapb.PoolerType_REPLICA {
+		t.Logf("Multipooler %s not yet rejoined (PoolerType=%v, expected REPLICA)", multipoolerName, status.Status.PoolerType)
+		return false
 	}
 
-	t.Logf("Multipooler %s not yet rejoined (PostgresRunning=%v, PoolerType=%v), waiting...",
-		multipoolerName, status.Status.PostgresRunning, status.Status.PoolerType)
-	return false
+	if !status.Status.PostgresRunning {
+		t.Logf("Multipooler %s postgres not running yet", multipoolerName)
+		return false
+	}
+
+	// Must have replication configured and streaming
+	if status.Status.ReplicationStatus == nil || status.Status.ReplicationStatus.PrimaryConnInfo == nil {
+		t.Logf("Multipooler %s replication not configured yet", multipoolerName)
+		return false
+	}
+
+	// Verify on the correct consensus term (must match the new primary's term exactly)
+	if status.Status.ConsensusTerm != expectedTerm {
+		t.Logf("Multipooler %s on wrong term %d (expected %d)", multipoolerName, status.Status.ConsensusTerm, expectedTerm)
+		return false
+	}
+
+	// Verify replication is healthy (streaming state)
+	if status.Status.ReplicationStatus.WalReceiverStatus != "streaming" {
+		t.Logf("Multipooler %s replication not streaming yet (state=%s)", multipoolerName, status.Status.ReplicationStatus.WalReceiverStatus)
+		return false
+	}
+
+	t.Logf("Multipooler %s successfully rejoined (term=%d, replicating from %s, state=%s)",
+		multipoolerName, status.Status.ConsensusTerm, expectedPrimaryName, status.Status.ReplicationStatus.WalReceiverStatus)
+	return true
 }
 
 // waitForNodeToRejoinAsStandby waits for a killed multipooler to be restarted by multiorch
-// and rejoin the cluster as a standby replica.
-func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, timeout time.Duration) {
+// and rejoin the cluster as a standby replica. It verifies the node is on the correct term
+// and replicating from the expected primary.
+func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, expectedPrimaryName string, expectedTerm int64, timeout time.Duration) {
 	t.Helper()
-	t.Logf("Waiting for multiorch to restart %s and rejoin as standby...", multipoolerName)
+	t.Logf("Waiting for multiorch to restart %s and rejoin as standby (expected primary: %s, term: %d)...",
+		multipoolerName, expectedPrimaryName, expectedTerm)
 
 	inst := setup.GetMultipoolerInstance(multipoolerName)
 	require.NotNil(t, inst, "multipooler %s should exist", multipoolerName)
 
 	// Check immediately
-	if checkRejoin(t, multipoolerName, inst) {
+	if checkRejoin(t, multipoolerName, inst, expectedPrimaryName, expectedTerm) {
 		return
 	}
 
@@ -533,7 +569,7 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 	for {
 		select {
 		case <-ticker.C:
-			if checkRejoin(t, multipoolerName, inst) {
+			if checkRejoin(t, multipoolerName, inst, expectedPrimaryName, expectedTerm) {
 				return
 			}
 
