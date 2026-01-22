@@ -94,8 +94,7 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 
 // RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
 // Uses Force=true to bypass term validation for simplicity in test cleanup.
-// Note: poolerDataDir parameter is kept for API compatibility but no longer used.
-func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, poolerDataDir string) error {
+func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) error {
 	t.Helper()
 
 	// Stop replication on primary

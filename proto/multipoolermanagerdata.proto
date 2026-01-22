@@ -304,6 +304,7 @@ message GetFollowersResponse {
 // transition a primary to read-only mode and prevent it from making further progress.
 message DemoteRequest {
   // Consensus term for this demotion operation
+  // When force=true, this field is ignored and should be passed as 0
   int64 consensus_term = 1;
 
   // Drain timeout - how long to wait for in-flight queries (default: 5s)
@@ -395,6 +396,7 @@ message ChangeTypeResponse {
 message PromoteRequest {
   // Consensus term for this promotion operation
   // Used to ensure this promotion corresponds to the correct term
+  // When force=true, this field is ignored and should be passed as 0
   int64 consensus_term = 1;
 
   // Expected LSN position before promotion (optional, for validation)

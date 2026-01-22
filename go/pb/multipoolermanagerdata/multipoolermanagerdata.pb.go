@@ -1805,6 +1805,7 @@ func (x *GetFollowersResponse) GetSyncConfig() *SynchronousReplicationConfigurat
 type DemoteRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Consensus term for this demotion operation
+	// When force=true, this field is ignored and should be passed as 0
 	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Drain timeout - how long to wait for in-flight queries (default: 5s)
 	DrainTimeout *durationpb.Duration `protobuf:"bytes,2,opt,name=drain_timeout,json=drainTimeout,proto3" json:"drain_timeout,omitempty"`
@@ -2335,6 +2336,7 @@ type PromoteRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Consensus term for this promotion operation
 	// Used to ensure this promotion corresponds to the correct term
+	// When force=true, this field is ignored and should be passed as 0
 	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Expected LSN position before promotion (optional, for validation)
 	// By the Propagate stage, replication should already be stopped and the LSN frozen.
