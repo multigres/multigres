@@ -227,9 +227,6 @@ type MultiPoolerClient interface {
 	// ChangeType changes the pooler type (PRIMARY/REPLICA).
 	ChangeType(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ChangeTypeRequest) (*multipoolermanagerdatapb.ChangeTypeResponse, error)
 
-	// SetTerm sets the consensus term information.
-	SetTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetTermRequest) (*multipoolermanagerdatapb.SetTermResponse, error)
-
 	//
 	// Manager Service Methods - Durability Policy
 	//

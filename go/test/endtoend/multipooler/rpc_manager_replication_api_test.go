@@ -121,13 +121,7 @@ func TestReplicationAPIs(t *testing.T) {
 		ctx = utils.WithTimeout(t, 1*time.Second)
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=true
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		})
-		require.NoError(t, err, "SetTerm should succeed on standby")
-
+		// Use Force=true since we're testing replication functionality, not term validation
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -141,8 +135,8 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -294,16 +288,10 @@ func TestReplicationAPIs(t *testing.T) {
 		assert.Equal(t, "t", isPaused, "WAL replay should be paused")
 
 		// Call SetPrimaryConnInfo with StartReplicationAfter=false
+		// Use Force=true since we're testing replication functionality, not term validation
 		ctx = utils.WithTimeout(t, 1*time.Second)
 
 		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=false...")
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		})
-		require.NoError(t, err, "SetTerm should succeed on standby")
-
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -317,8 +305,8 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -923,13 +911,8 @@ func TestReplicationAPIs(t *testing.T) {
 		// and that data inserted after reset does not replicate until replication is re-enabled
 
 		// First ensure replication is configured
+		// Use Force=true since we're testing ResetReplication functionality, not term validation
 		t.Log("Ensuring replication is configured...")
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		})
-		require.NoError(t, err, "SetTerm should succeed on standby")
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -943,8 +926,8 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -1200,14 +1183,8 @@ func TestStandbyReplicationStatus(t *testing.T) {
 		setupPoolerTest(t, setup)
 
 		// Configure replication but stop it
+		// Use Force=true since we're testing ReplicationStatus functionality, not term validation
 		t.Log("Configuring replication and then stopping it...")
-		_, err := standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		})
-		require.NoError(t, err, "SetTerm should succeed on standby")
-
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1221,10 +1198,10 @@ func TestStandbyReplicationStatus(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: false,
 			StopReplicationBefore: true,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for config to take effect and WAL replay to be paused
@@ -1311,13 +1288,7 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 		defer primaryPoolerClient.Close()
 
 		// First, configure and start replication
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		})
-		require.NoError(t, err, "SetTerm should succeed on standby")
-
+		// Use Force=true since we're testing StopReplicationAndGetStatus functionality, not term validation
 		t.Log("Configuring replication on standby...")
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -1332,8 +1303,8 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -1771,13 +1742,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 				len(config.StandbyIds) == 1
 		}, "Synchronous replication configuration should converge")
 
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		})
-		require.NoError(t, err, "SetTerm should succeed")
-
+		// Use Force=true since we're testing synchronous replication functionality, not term validation
 		t.Log("Ensuring standby is connected to primary and replicating...")
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
@@ -1792,8 +1757,8 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
-			Force:                 false,
+			CurrentTerm:           0, // Ignored when Force=true
+			Force:                 true,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
@@ -2046,19 +2011,13 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 		assert.True(t, containsStandbyIDInConfig(status.SyncReplicationConfig, "test-cell", "standby1"))
 		t.Log("Initial configuration verified")
 
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 1,
-			},
-		})
-		require.NoError(t, err, "SetTerm should succeed on primary")
-
+		// Use Force=true since we're testing UpdateSynchronousStandbyList functionality, not term validation
 		updateReq := &multipoolermanagerdatapb.UpdateSynchronousStandbyListRequest{
 			Operation:     multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD,
 			StandbyIds:    []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby2")},
 			ReloadConfig:  true,
-			ConsensusTerm: 1,
-			Force:         false,
+			ConsensusTerm: 0, // Ignored when Force=true
+			Force:         true,
 		}
 		_, err = primaryManagerClient.UpdateSynchronousStandbyList(utils.WithShortDeadline(t), updateReq)
 		require.NoError(t, err, "ADD should succeed")

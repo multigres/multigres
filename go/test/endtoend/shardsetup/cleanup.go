@@ -26,22 +26,24 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// ResetTerm resets the consensus term to 1 with all fields cleared.
-// This is used during initialization and cleanup to ensure a clean state.
-// Follows the pattern from multipooler/setup_test.go:resetTerm.
-func ResetTerm(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
-	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
-		TermNumber:                    1,
-		AcceptedTermFromCoordinatorId: nil,
-		LastAcceptanceTime:            nil,
-		LeaderId:                      nil,
-	}
-
-	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{Term: initialTerm})
+// GetCurrentTerm returns the current consensus term from a node.
+// Use this instead of hardcoded term values for test isolation.
+func GetCurrentTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusClient) (int64, error) {
+	resp, err := client.Status(ctx, &consensusdatapb.StatusRequest{})
 	if err != nil {
-		return fmt.Errorf("failed to set term: %w", err)
+		return 0, fmt.Errorf("failed to get consensus status: %w", err)
 	}
-	return nil
+	return resp.CurrentTerm, nil
+}
+
+// MustGetCurrentTerm returns the current term or fails the test.
+func MustGetCurrentTerm(t *testing.T, ctx context.Context, client consensuspb.MultiPoolerConsensusClient) int64 {
+	t.Helper()
+	term, err := GetCurrentTerm(ctx, client)
+	if err != nil {
+		t.Fatalf("failed to get current term: %v", err)
+	}
+	return term
 }
 
 // SetPoolerType sets the pooler type using the provided manager client.
@@ -91,19 +93,12 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 }
 
 // RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
-// Uses Force=true and resets term to 1 for simplicity in test cleanup.
-// Follows the pattern from multipooler/setup_test.go:restorePrimaryAfterDemotion.
-func RestorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) error {
-	// Set term back to 1
-	_, err := client.SetTerm(ctx, &multipoolermanagerdatapb.SetTermRequest{
-		Term: &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set term on primary: %w", err)
-	}
+// Uses Force=true to bypass term validation for simplicity in test cleanup.
+func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) error {
+	t.Helper()
 
 	// Stop replication on primary
-	_, err = client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
+	_, err := client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to stop replication on primary: %w", err)
 	}
@@ -114,9 +109,10 @@ func RestorePrimaryAfterDemotion(ctx context.Context, client multipoolermanagerp
 		return fmt.Errorf("failed to get primary replication status: %w", err)
 	}
 
-	// Force promote primary back
+	// Force promote primary back - term value doesn't matter when Force=true
+	// (Force bypasses term validation)
 	_, err = client.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
-		ConsensusTerm: 1,
+		ConsensusTerm: 0, // Ignored when Force=true
 		ExpectedLsn:   statusResp.Status.LastReplayLsn,
 		Force:         true,
 	})

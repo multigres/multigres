@@ -32,7 +32,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Multigres - Admin UI",
-  description: "Administrative interface for Multigres PostgreSQL cluster management",
+  description:
+    "Administrative interface for Multigres PostgreSQL cluster management",
 };
 
 export default function RootLayout({

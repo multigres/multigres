@@ -55,7 +55,6 @@ const (
 	MultiPoolerManager_DemoteStalePrimary_FullMethodName              = "/multipoolermanager.MultiPoolerManager/DemoteStalePrimary"
 	MultiPoolerManager_Promote_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/Promote"
 	MultiPoolerManager_State_FullMethodName                           = "/multipoolermanager.MultiPoolerManager/State"
-	MultiPoolerManager_SetTerm_FullMethodName                         = "/multipoolermanager.MultiPoolerManager/SetTerm"
 	MultiPoolerManager_InitializeEmptyPrimary_FullMethodName          = "/multipoolermanager.MultiPoolerManager/InitializeEmptyPrimary"
 	MultiPoolerManager_Backup_FullMethodName                          = "/multipoolermanager.MultiPoolerManager/Backup"
 	MultiPoolerManager_RestoreFromBackup_FullMethodName               = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
@@ -123,8 +122,6 @@ type MultiPoolerManagerClient interface {
 	Promote(ctx context.Context, in *multipoolermanagerdata.PromoteRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.PromoteResponse, error)
 	// State gets the current status of the manager
 	State(ctx context.Context, in *multipoolermanagerdata.StateRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StateResponse, error)
-	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
-	SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error)
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(ctx context.Context, in *multipoolermanagerdata.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
@@ -363,16 +360,6 @@ func (c *multiPoolerManagerClient) State(ctx context.Context, in *multipoolerman
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) SetTerm(ctx context.Context, in *multipoolermanagerdata.SetTermRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetTermResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.SetTermResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_SetTerm_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiPoolerManagerClient) InitializeEmptyPrimary(ctx context.Context, in *multipoolermanagerdata.InitializeEmptyPrimaryRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.InitializeEmptyPrimaryResponse)
@@ -501,8 +488,6 @@ type MultiPoolerManagerServer interface {
 	Promote(context.Context, *multipoolermanagerdata.PromoteRequest) (*multipoolermanagerdata.PromoteResponse, error)
 	// State gets the current status of the manager
 	State(context.Context, *multipoolermanagerdata.StateRequest) (*multipoolermanagerdata.StateResponse, error)
-	// SetTerm sets the consensus term information. Used by MultiOrch for consensus operations.
-	SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error)
 	// InitializeEmptyPrimary initializes this pooler as an empty primary
 	// Used during bootstrap initialization of a new shard
 	InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error)
@@ -593,9 +578,6 @@ func (UnimplementedMultiPoolerManagerServer) Promote(context.Context, *multipool
 }
 func (UnimplementedMultiPoolerManagerServer) State(context.Context, *multipoolermanagerdata.StateRequest) (*multipoolermanagerdata.StateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method State not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) SetTerm(context.Context, *multipoolermanagerdata.SetTermRequest) (*multipoolermanagerdata.SetTermResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetTerm not implemented")
 }
 func (UnimplementedMultiPoolerManagerServer) InitializeEmptyPrimary(context.Context, *multipoolermanagerdata.InitializeEmptyPrimaryRequest) (*multipoolermanagerdata.InitializeEmptyPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InitializeEmptyPrimary not implemented")
@@ -1017,24 +999,6 @@ func _MultiPoolerManager_State_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_SetTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.SetTermRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).SetTerm(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_SetTerm_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).SetTerm(ctx, req.(*multipoolermanagerdata.SetTermRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultiPoolerManager_InitializeEmptyPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.InitializeEmptyPrimaryRequest)
 	if err := dec(in); err != nil {
@@ -1251,10 +1215,6 @@ var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "State",
 			Handler:    _MultiPoolerManager_State_Handler,
-		},
-		{
-			MethodName: "SetTerm",
-			Handler:    _MultiPoolerManager_SetTerm_Handler,
 		},
 		{
 			MethodName: "InitializeEmptyPrimary",

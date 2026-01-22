@@ -49,7 +49,7 @@ export function DashboardItemsTable() {
         setDatabases(dbInfos);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to fetch databases"
+          err instanceof Error ? err.message : "Failed to fetch databases",
         );
       } finally {
         setLoading(false);

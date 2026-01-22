@@ -264,19 +264,6 @@ func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) 
 	return cs.saveAndUpdateLocked(term)
 }
 
-// SetTermDirectly directly sets the consensus term to the provided value.
-// This is used for initialization or explicit term setting (e.g., by coordinator after leader appointment).
-// Unlike UpdateTermAndSave, this does NOT validate or reset fields - it saves exactly what's provided.
-func (cs *ConsensusState) SetTermDirectly(ctx context.Context, term *multipoolermanagerdatapb.ConsensusTerm) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	return cs.saveAndUpdateLocked(term)
-}
-
 // saveAndUpdateLocked saves the term to disk and updates memory.
 // MUST be called with cs.mu held.
 // This is the key method that ensures memory never diverges from disk.

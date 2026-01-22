@@ -79,7 +79,6 @@ type FakeClient struct {
 	DemoteResponses                          map[string]*multipoolermanagerdatapb.DemoteResponse
 	UndoDemoteResponses                      map[string]*multipoolermanagerdatapb.UndoDemoteResponse
 	ChangeTypeResponses                      map[string]*multipoolermanagerdatapb.ChangeTypeResponse
-	SetTermResponses                         map[string]*multipoolermanagerdatapb.SetTermResponse
 	GetDurabilityPolicyResponses             map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse
 	CreateDurabilityPolicyResponses          map[string]*multipoolermanagerdatapb.CreateDurabilityPolicyResponse
 	BackupResponses                          map[string]*multipoolermanagerdatapb.BackupResponse
@@ -125,7 +124,6 @@ func NewFakeClient() *FakeClient {
 		DemoteResponses:                          make(map[string]*multipoolermanagerdatapb.DemoteResponse),
 		UndoDemoteResponses:                      make(map[string]*multipoolermanagerdatapb.UndoDemoteResponse),
 		ChangeTypeResponses:                      make(map[string]*multipoolermanagerdatapb.ChangeTypeResponse),
-		SetTermResponses:                         make(map[string]*multipoolermanagerdatapb.SetTermResponse),
 		GetDurabilityPolicyResponses:             make(map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse),
 		CreateDurabilityPolicyResponses:          make(map[string]*multipoolermanagerdatapb.CreateDurabilityPolicyResponse),
 		BackupResponses:                          make(map[string]*multipoolermanagerdatapb.BackupResponse),
@@ -636,22 +634,6 @@ func (f *FakeClient) ChangeType(ctx context.Context, pooler *clustermetadatapb.M
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.ChangeTypeResponse{}, nil
-}
-
-func (f *FakeClient) SetTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetTermRequest) (*multipoolermanagerdatapb.SetTermResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("SetTerm", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.SetTermResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.SetTermResponse{}, nil
 }
 
 //

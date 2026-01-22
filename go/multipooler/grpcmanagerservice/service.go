@@ -253,14 +253,6 @@ func (s *managerService) State(ctx context.Context, req *multipoolermanagerdatap
 	return s.manager.State(ctx)
 }
 
-// SetTerm sets the consensus term information
-func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdatapb.SetTermRequest) (*multipoolermanagerdatapb.SetTermResponse, error) {
-	if err := s.manager.SetTerm(ctx, req.Term); err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return &multipoolermanagerdatapb.SetTermResponse{}, nil
-}
-
 // Backup performs a backup
 func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
 	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.JobId)
