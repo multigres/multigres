@@ -76,8 +76,8 @@ func (e *Executor) StreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// Step 1: Plan the query
-	plan, err := e.planner.Plan(queryStr, conn)
+	// Step 1: Plan the query (now with AST for better analysis)
+	plan, err := e.planner.Plan(queryStr, astStmt, conn)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
 			"query", queryStr,
