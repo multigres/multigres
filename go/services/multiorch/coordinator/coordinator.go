@@ -79,6 +79,29 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"required_count", quorumRule.RequiredCount,
 		"description", quorumRule.Description)
 
+	// Stage 0.5: Discover max term from cached health state
+	c.logger.InfoContext(ctx, "Discovering max term", "shard", shardID)
+	maxTerm, err := c.discoverMaxTerm(ctx, cohort)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to discover max term")
+	}
+	proposedTerm := maxTerm + 1
+
+	c.logger.InfoContext(ctx, "Discovered max term",
+		"shard", shardID,
+		"max_term", maxTerm,
+		"proposed_term", proposedTerm)
+
+	// Stage 0.6: PreVote - validate election is likely to succeed
+	c.logger.InfoContext(ctx, "Running pre-vote check", "shard", shardID)
+	canProceed, preVoteReason := c.preVote(ctx, cohort, quorumRule, proposedTerm)
+	if !canProceed {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"pre-vote failed for shard %s: %s", shardID, preVoteReason)
+	}
+
+	c.logger.InfoContext(ctx, "Pre-vote check passed", "shard", shardID)
+
 	// Stage 1-5: BeginTerm (recruit nodes, get consensus, validate quorum)
 	c.logger.InfoContext(ctx, "Stage 1-5: Beginning term", "shard", shardID)
 	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule)

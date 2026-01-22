@@ -16,7 +16,9 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jackc/pglogrepl"
 
@@ -29,6 +31,69 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
+
+// preVote performs a pre-election check to determine if an election is likely to succeed.
+// This prevents disruptive elections that would fail due to:
+// 1. Insufficient healthy poolers to form a quorum (based on durability policy)
+// 2. Another coordinator recently started an election (within last 10 seconds)
+//
+// Returns (canProceed, reason) where canProceed indicates if election should proceed.
+func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, quorumRule *clustermetadatapb.QuorumRule, proposedTerm int64) (bool, string) {
+	now := time.Now()
+	const recentAcceptanceWindow = 10 * time.Second
+
+	// Check 1: Verify we have enough healthy initialized poolers with consensus term data
+	// PreVote is conservative and doesn't handle bootstrap - if poolers lack consensus
+	// term information, we can't make an informed decision about election safety.
+	var healthyInitializedPoolers []*multiorchdatapb.PoolerHealthState
+	for _, pooler := range cohort {
+		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil {
+			healthyInitializedPoolers = append(healthyInitializedPoolers, pooler)
+		}
+	}
+
+	c.logger.InfoContext(ctx, "pre-vote health check",
+		"healthy_initialized_poolers", len(healthyInitializedPoolers),
+		"total_poolers", len(cohort),
+		"quorum_type", quorumRule.QuorumType,
+		"required_count", quorumRule.RequiredCount,
+		"proposed_term", proposedTerm)
+
+	// Validate we have enough healthy initialized poolers to satisfy quorum
+	if err := c.ValidateQuorum(quorumRule, cohort, healthyInitializedPoolers); err != nil {
+		return false, fmt.Sprintf("insufficient healthy initialized poolers for quorum: %v", err)
+	}
+
+	// Check 2: Has another coordinator recently started an election?
+	// If we detect a recent term acceptance (within the last 10 seconds), back off
+	// to give the other coordinator a chance to complete their election.
+	for _, pooler := range healthyInitializedPoolers {
+		// Check if this pooler recently accepted a term from another coordinator
+		if pooler.ConsensusTerm.LastAcceptanceTime != nil {
+			lastAcceptanceTime := pooler.ConsensusTerm.LastAcceptanceTime.AsTime()
+			timeSinceAcceptance := now.Sub(lastAcceptanceTime)
+
+			// If the acceptance was recent (within our window), back off
+			if timeSinceAcceptance < recentAcceptanceWindow && timeSinceAcceptance >= 0 {
+				c.logger.InfoContext(ctx, "detected recent term acceptance, backing off to avoid disruption",
+					"pooler", pooler.MultiPooler.Id.Name,
+					"accepted_term", pooler.ConsensusTerm.TermNumber,
+					"accepted_from", pooler.ConsensusTerm.AcceptedTermFromCoordinatorId,
+					"time_since_acceptance", timeSinceAcceptance,
+					"backoff_window", recentAcceptanceWindow)
+
+				return false, fmt.Sprintf("another coordinator started election recently (%v ago), backing off to avoid disruption",
+					timeSinceAcceptance.Round(time.Millisecond))
+			}
+		}
+	}
+
+	c.logger.InfoContext(ctx, "pre-vote check passed",
+		"proposed_term", proposedTerm,
+		"healthy_initialized_poolers", len(healthyInitializedPoolers))
+
+	return true, ""
+}
 
 // BeginTerm implements stages 1-5 of the consensus protocol:
 // 1. Discover max term from all nodes
@@ -87,58 +152,28 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 	return candidate, standbys, newTerm, nil
 }
 
-// discoverMaxTerm queries all nodes in parallel to find the maximum consensus term.
+// discoverMaxTerm finds the maximum consensus term from cached health state.
+// This uses the ConsensusTerm data already populated by health checks, avoiding extra RPCs.
 func (c *Coordinator) discoverMaxTerm(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (int64, error) {
-	type result struct {
-		term int64
-		err  error
-	}
-
-	results := make(chan result, len(cohort))
-	var wg sync.WaitGroup
+	var maxTerm int64
 
 	for _, pooler := range cohort {
-		wg.Add(1)
-		go func(n *multiorchdatapb.PoolerHealthState) {
-			defer wg.Done()
-			req := &consensusdatapb.StatusRequest{}
-			resp, err := c.rpcClient.ConsensusStatus(ctx, n.MultiPooler, req)
-			if err != nil {
-				results <- result{err: err}
-				return
-			}
-			results <- result{term: resp.CurrentTerm}
-		}(pooler)
-	}
-
-	// Wait for all goroutines to complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Find max term
-	var maxTerm int64
-	var errs []error
-	for r := range results {
-		if r.err != nil {
-			errs = append(errs, r.err)
-			continue
+		// Invariant: poolers in the cohort with successful health checks must have ConsensusTerm populated
+		if pooler.IsLastCheckValid && pooler.ConsensusTerm == nil {
+			return 0, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+				"healthy pooler %s in cohort missing consensus term data - health check invariant violated",
+				pooler.MultiPooler.Id.Name)
 		}
-		if r.term > maxTerm {
-			maxTerm = r.term
+
+		if pooler.ConsensusTerm != nil && pooler.ConsensusTerm.TermNumber > maxTerm {
+			maxTerm = pooler.ConsensusTerm.TermNumber
 		}
 	}
 
-	// If we got at least one successful response, use that
-	if maxTerm > 0 || len(errs) < len(cohort) {
-		return maxTerm, nil
-	}
-
-	// All nodes failed
-	if len(errs) > 0 {
-		return 0, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"failed to query term from any node: %v", errs[0])
+	// Invariant: at least one pooler in the cohort must have a term > 0
+	if maxTerm == 0 {
+		return 0, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no poolers in cohort have initialized consensus term - cannot discover max term")
 	}
 
 	return maxTerm, nil

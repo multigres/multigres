@@ -73,8 +73,19 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 
 	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
 
+	// Build ConsensusTerm if term > 0
+	var consensusTerm *multipoolermanagerdatapb.ConsensusTerm
+	if term > 0 {
+		consensusTerm = &multipoolermanagerdatapb.ConsensusTerm{
+			TermNumber: term,
+		}
+	}
+
 	return &multiorchdatapb.PoolerHealthState{
-		MultiPooler: pooler,
+		MultiPooler:      pooler,
+		IsLastCheckValid: healthy,
+		IsInitialized:    term > 0,
+		ConsensusTerm:    consensusTerm,
 	}
 }
 
@@ -105,7 +116,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 		require.Equal(t, int64(7), maxTerm)
 	})
 
-	t.Run("success - returns 0 when all nodes have term 0", func(t *testing.T) {
+	t.Run("error - returns error when all nodes have term 0", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
 		c := &Coordinator{
 			coordinatorID: coordID,
@@ -113,13 +124,13 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 0, "0/1000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 0, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 0, "0/1000000", false /* unhealthy */, "standby"),
+			createMockNode(fakeClient, "mp2", 0, "0/1000000", false /* unhealthy */, "standby"),
 		}
 
-		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
-		require.NoError(t, err)
-		require.Equal(t, int64(0), maxTerm)
+		_, err := c.discoverMaxTerm(ctx, cohort)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no poolers in cohort have initialized consensus term")
 	})
 
 	t.Run("success - ignores failed nodes", func(t *testing.T) {
