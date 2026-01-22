@@ -534,7 +534,7 @@ func (m *mockPrimaryDeadAnalyzer) Name() types.CheckName {
 
 func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
 	// Detect if this is a primary that is unreachable
-	if a.IsPrimary && a.IsUnreachable {
+	if a.IsPrimary && !a.LastCheckValid {
 		return []types.Problem{
 			{
 				Code:           types.ProblemPrimaryIsDead,

@@ -38,7 +38,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	// Skip unreachable nodes - we can't determine their true initialization state.
 	// An unreachable node might be perfectly initialized but just temporarily down.
 	// PrimaryIsDead analyzer will handle dead primaries.
-	if poolerAnalysis.IsUnreachable {
+	if !poolerAnalysis.LastCheckValid {
 		return nil, nil
 	}
 

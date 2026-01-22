@@ -66,7 +66,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	a.logger.InfoContext(ctx, "executing appoint leader action",
 		"shard_key", problem.ShardKey.String())
 
-	// Fetch cohort and recheck the problem after acquiring lock
+	// Fetch cohort and recheck the problem
 	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
 		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
