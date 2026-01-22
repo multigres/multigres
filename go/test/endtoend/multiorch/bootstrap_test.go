@@ -226,8 +226,12 @@ func TestBootstrapInitialization(t *testing.T) {
 					continue
 				}
 
-				if status.Status.ConsensusTerm != 1 {
-					t.Logf("Node %s: consensus term is %d, expected 1", name, status.Status.ConsensusTerm)
+				if status.Status.ConsensusTerm == nil || status.Status.ConsensusTerm.TermNumber != 1 {
+					termNum := int64(0)
+					if status.Status.ConsensusTerm != nil {
+						termNum = status.Status.ConsensusTerm.TermNumber
+					}
+					t.Logf("Node %s: consensus term is %d, expected 1", name, termNum)
 					allHaveCorrectTerm = false
 				}
 			}
@@ -370,7 +374,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm > 0
+			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm != nil && status.Status.ConsensusTerm.TermNumber > 0
 		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
 
 		// Verify final state

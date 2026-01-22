@@ -89,6 +89,23 @@ func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
 	return cs.term.GetTermNumber(), nil
 }
 
+// GetInconsistentTerm returns a copy of the current consensus term for monitoring.
+// It doesn't require the action lock to be held, so the value returned may
+// be outdated by the time it's used. Use GetTerm() as part of any action
+// workflow to protect against race conditions.
+// Returns nil if state has not been loaded.
+func (cs *ConsensusState) GetInconsistentTerm() (*multipoolermanagerdatapb.ConsensusTerm, error) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if cs.term == nil {
+		return nil, nil
+	}
+
+	// Return a copy to prevent external modifications
+	return cloneTerm(cs.term), nil
+}
+
 // GetAcceptedLeader returns the coordinator ID this pooler accepted the term from.
 // Returns empty string if no coordinator was accepted.
 func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error) {

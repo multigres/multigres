@@ -145,7 +145,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		status, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		newPrimaryClient.Close()
 		require.NoError(t, err, "should be able to get status from new primary")
-		newPrimaryTerm := status.Status.ConsensusTerm
+		newPrimaryTerm := status.Status.ConsensusTerm.TermNumber
 		t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
@@ -528,8 +528,12 @@ func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.Multipoo
 	}
 
 	// Verify on the correct consensus term (must match the new primary's term exactly)
-	if status.Status.ConsensusTerm != expectedTerm {
-		t.Logf("Multipooler %s on wrong term %d (expected %d)", multipoolerName, status.Status.ConsensusTerm, expectedTerm)
+	if status.Status.ConsensusTerm == nil || status.Status.ConsensusTerm.TermNumber != expectedTerm {
+		termNum := int64(0)
+		if status.Status.ConsensusTerm != nil {
+			termNum = status.Status.ConsensusTerm.TermNumber
+		}
+		t.Logf("Multipooler %s on wrong term %d (expected %d)", multipoolerName, termNum, expectedTerm)
 		return false
 	}
 
@@ -540,7 +544,7 @@ func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.Multipoo
 	}
 
 	t.Logf("Multipooler %s successfully rejoined (term=%d, replicating from %s, state=%s)",
-		multipoolerName, status.Status.ConsensusTerm, expectedPrimaryName, status.Status.ReplicationStatus.WalReceiverStatus)
+		multipoolerName, status.Status.ConsensusTerm.TermNumber, expectedPrimaryName, status.Status.ReplicationStatus.WalReceiverStatus)
 	return true
 }
 
