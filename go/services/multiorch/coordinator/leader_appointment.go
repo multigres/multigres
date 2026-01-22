@@ -32,15 +32,20 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// BeginTerm implements stages 1-3 of the consensus protocol:
-// 1. Select candidate based on WAL position
-// 2. Send BeginTerm RPC to all nodes in parallel
-// 3. Validate quorum using durability policy
+// BeginTerm achieves Revocation, Candidacy, and Discovery by recruiting nodes
+// under the proposed term:
 //
-// The proposedTerm parameter is the term number to use for this election.
-// It should be computed by the caller as maxTerm + 1.
+//   - Revocation: Recruited nodes accept the new term, preventing any old leader
+//     from completing requests under a previous term
+//   - Discovery: Identifies the most progressed node based on WAL position to serve
+//     as the candidate. From Raft: the log with highest term is most progressed;
+//     for identical terms, highest LSN is most progressed
+//   - Candidacy: Validates that recruited nodes satisfy the quorum rules, ensuring
+//     the candidate has sufficient support to proceed
 //
-// Returns the candidate node, standbys, the proposed term, and any error.
+// The proposedTerm parameter is the term number to use (computed as maxTerm + 1).
+//
+// Returns the candidate node, standbys that accepted the term, the term, and any error.
 func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, quorumRule *clustermetadatapb.QuorumRule, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
 	c.logger.InfoContext(ctx, "Beginning term", "shard", shardID, "term", proposedTerm)
 
@@ -277,9 +282,15 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 	return recruited, nil
 }
 
-// Propagate implements stage 5 of the consensus protocol:
-// - Configure standbys to replicate from the candidate (before promotion)
-// - Promote the candidate to primary (includes sync replication configuration)
+// Propagate achieves the Propagation goal: making the timeline durable under the new term.
+//
+// This is accomplished by:
+// 1. Configuring standbys to replicate from the candidate (before promotion)
+// 2. Promoting the candidate to primary with synchronous replication configured
+//
+// The timeline becomes durable when the promoted candidate can commit under the new term,
+// which requires quorum acknowledgment per the durability policy. This satisfies the
+// Raft constraint that you can commit only when the log's term matches the current term.
 //
 // Standbys are configured BEFORE promotion to avoid a deadlock: the Promote RPC
 // configures sync replication and writes leadership history, which blocks until
@@ -411,19 +422,17 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 	return nil
 }
 
-// EstablishLeader implements stage 6 of the consensus protocol:
-// - Start heartbeat writer on the primary
-// - Enable serving (if needed)
+// EstablishLeader achieves the Establishment goal: finalizing the leader.
+//
+// At this point, the candidate has been promoted and has the delegated term.
+// This function should notify the primary pooler is ready to traffic and that:
+// any other post promotion steps.
+// Note: This is a TODO.
+//
+// These checks ensure the leadership transition is complete and the new leader
+// is operational.
 func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, term int64) error {
-	// The Promote RPC already handles:
-	// 1. Starting the heartbeat writer
-	// 2. Enabling serving
-	// 3. Updating the consensus term
-	//
-	// So this function is mostly a placeholder for any additional
-	// finalization steps that might be needed in the future.
-
-	c.logger.InfoContext(ctx, "Leader established",
+	c.logger.InfoContext(ctx, "Establishing leadership",
 		"node", candidate.MultiPooler.Id.Name,
 		"term", term)
 
