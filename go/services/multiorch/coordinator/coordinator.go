@@ -66,8 +66,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardID)
 	}
 
-	// Stage 0: Load durability policy from any available node
-	c.logger.InfoContext(ctx, "Loading durability policy", "shard", shardID)
 	quorumRule, err := c.LoadQuorumRule(ctx, cohort, database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy")
@@ -79,20 +77,19 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"required_count", quorumRule.RequiredCount,
 		"description", quorumRule.Description)
 
-	// Stage 0.5: Discover max term from cached health state
-	c.logger.InfoContext(ctx, "Discovering max term", "shard", shardID)
-	maxTerm, err := c.discoverMaxTerm(ctx, cohort)
+	// Discover max term from cached health state
+	maxTerm, err := c.discoverMaxTerm(cohort)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to discover max term")
 	}
 	proposedTerm := maxTerm + 1
 
-	c.logger.InfoContext(ctx, "Discovered max term",
+	c.logger.InfoContext(ctx, "Max term discovered",
 		"shard", shardID,
 		"max_term", maxTerm,
 		"proposed_term", proposedTerm)
 
-	// Stage 0.6: PreVote - validate election is likely to succeed
+	// PreVote - validate BeginTerm is likely to succeed
 	c.logger.InfoContext(ctx, "Running pre-vote check", "shard", shardID)
 	canProceed, preVoteReason := c.preVote(ctx, cohort, quorumRule, proposedTerm)
 	if !canProceed {
@@ -100,11 +97,9 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 			"pre-vote failed for shard %s: %s", shardID, preVoteReason)
 	}
 
-	c.logger.InfoContext(ctx, "Pre-vote check passed", "shard", shardID)
-
 	// Stage 1-5: BeginTerm (recruit nodes, get consensus, validate quorum)
-	c.logger.InfoContext(ctx, "Stage 1-5: Beginning term", "shard", shardID)
-	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule)
+	c.logger.InfoContext(ctx, "Beginning term", "shard", shardID)
+	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule, proposedTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")
 	}
@@ -115,8 +110,8 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"candidate", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
 
-	// Stage 6: Propagate (setup replication within shard)
-	c.logger.InfoContext(ctx, "Stage 6: Propagating replication", "shard", shardID)
+	//  Propagate (setup replication within shard)
+	c.logger.InfoContext(ctx, "Propagating leader appointment", "shard", shardID)
 
 	// Reconstruct the recruited list (nodes that accepted the term).
 	// This is candidate + standbys.
@@ -136,7 +131,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	c.logger.InfoContext(ctx, "Propagate succeeded", "shard", shardID)
 
 	// Stage 7: Establish (start heartbeat, enable serving)
-	c.logger.InfoContext(ctx, "Stage 7: Establishing leader", "shard", shardID)
+	c.logger.InfoContext(ctx, "Establishing leader", "shard", shardID)
 	if err := c.EstablishLeader(ctx, candidate, term); err != nil {
 		return mterrors.Wrap(err, "EstablishLeader failed")
 	}

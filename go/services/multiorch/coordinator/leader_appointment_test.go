@@ -90,7 +90,6 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 }
 
 func TestDiscoverMaxTerm(t *testing.T) {
-	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	coordID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
@@ -111,7 +110,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 7, "0/1000000", true, "standby"),
 		}
 
-		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
+		maxTerm, err := c.discoverMaxTerm(cohort)
 		require.NoError(t, err)
 		require.Equal(t, int64(7), maxTerm)
 	})
@@ -128,7 +127,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			createMockNode(fakeClient, "mp2", 0, "0/1000000", false /* unhealthy */, "standby"),
 		}
 
-		_, err := c.discoverMaxTerm(ctx, cohort)
+		_, err := c.discoverMaxTerm(cohort)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "no poolers in cohort have initialized consensus term")
 	})
@@ -159,7 +158,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 3, "0/1000000", true, "standby"),
 		}
 
-		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
+		maxTerm, err := c.discoverMaxTerm(cohort)
 		require.NoError(t, err)
 		require.Equal(t, int64(5), maxTerm)
 	})
@@ -346,7 +345,8 @@ func TestBeginTerm(t *testing.T) {
 			Description:   "Test majority quorum",
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
+		proposedTerm := int64(6) // maxTerm (5) + 1
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name) // Most advanced WAL
@@ -394,7 +394,8 @@ func TestBeginTerm(t *testing.T) {
 			Description:   "Test quorum requiring 2 nodes",
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
+		proposedTerm := int64(6) // maxTerm (5) + 1
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)
