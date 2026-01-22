@@ -347,7 +347,11 @@ func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
 	ctx := context.Background()
 
 	pm := &MultiPoolerManager{
-		logger: slog.Default(),
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_REPLICA,
+		},
 	}
 
 	state := postgresState{
@@ -436,7 +440,11 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	ctx := context.Background()
 
 	pm := &MultiPoolerManager{
-		logger: slog.Default(),
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_REPLICA,
+		},
 	}
 
 	state := postgresState{
@@ -625,6 +633,10 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 		readyChan:    readyChan,
 		pgctldClient: mockPgctld,
 		state:        ManagerStateReady,
+		actionLock:   NewActionLock(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_PRIMARY,
+		},
 	}
 
 	// Call iteration - should discover running state and not call Start

@@ -160,7 +160,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 }
 
 func TestManagerState_RetryUntilSuccess(t *testing.T) {
-	t.Skip("Need to change to test new retry behavior after implementation")
+	t.Skip("TODO(sougou): Need to change to test new retry behavior after implementation")
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
