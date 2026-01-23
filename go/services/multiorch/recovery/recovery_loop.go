@@ -247,9 +247,6 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 
 	// Check if deadline has expired (noop for problems without deadline tracking)
 	if !re.deadlineTracker.ShouldExecute(problem) {
-		re.logger.InfoContext(ctx, "deadline not yet expired, deferring recovery",
-			"shard", problem.ShardKey.String(),
-			"problem_code", problem.Code)
 		return
 	}
 
