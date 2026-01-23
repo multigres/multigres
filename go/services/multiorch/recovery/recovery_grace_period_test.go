@@ -56,8 +56,8 @@ func (m *mockActionWithGracePeriod) GracePeriod() *types.GracePeriodConfig {
 
 func TestRecoveryGracePeriod_InitialDeadlineReset(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -93,8 +93,8 @@ func TestRecoveryGracePeriod_InitialDeadlineReset(t *testing.T) {
 
 func TestRecoveryGracePeriod_ContinuousReset(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	// Use deterministic random generator for predictable jitter
@@ -159,8 +159,8 @@ func TestRecoveryGracePeriod_ContinuousReset(t *testing.T) {
 
 func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(10*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
+		config.WithPrimaryFailoverGracePeriodBase(10*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(0), // No jitter for predictability
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -216,8 +216,8 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 
 func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(10*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
+		config.WithPrimaryFailoverGracePeriodBase(10*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(0), // No jitter for predictability
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -257,8 +257,8 @@ func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 
 func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(100*time.Millisecond),
-		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
+		config.WithPrimaryFailoverGracePeriodBase(100*time.Millisecond),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(0), // No jitter for predictability
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -301,8 +301,8 @@ func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 
 func TestRecoveryGracePeriod_NoDeadlineTracked(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -337,8 +337,8 @@ func TestRecoveryGracePeriod_NoDeadlineTracked(t *testing.T) {
 
 func TestRecoveryGracePeriod_JitterRecalculatedAcrossResets(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -374,8 +374,8 @@ func TestRecoveryGracePeriod_JitterRecalculatedAcrossResets(t *testing.T) {
 
 func TestRecoveryGracePeriod_DifferentProblemsIndependent(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -407,8 +407,8 @@ func TestRecoveryGracePeriod_DifferentProblemsIndependent(t *testing.T) {
 
 func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	// Use deterministic random generator
@@ -484,8 +484,8 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 
 func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -528,8 +528,8 @@ func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 
 func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -585,8 +585,8 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 
 func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 	cfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(4*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(8*time.Second),
 	)
 
 	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
@@ -618,8 +618,8 @@ func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 
 	// Create a new tracker with different config to verify new problems use new config
 	newCfg := config.NewTestConfig(
-		config.WithPrimaryElectionTimeoutBase(2*time.Second),
-		config.WithPrimaryElectionTimeoutMaxJitter(4*time.Second),
+		config.WithPrimaryFailoverGracePeriodBase(2*time.Second),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(4*time.Second),
 	)
 	newTracker := NewRecoveryGracePeriodTracker(t.Context(), newCfg)
 

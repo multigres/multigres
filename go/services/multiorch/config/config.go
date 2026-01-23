@@ -146,17 +146,17 @@ func ParseShardWatchTargets(targets []string) ([]WatchTarget, error) {
 // Config encapsulates all multiorch configuration.
 // This is passed to the recovery engine and other components.
 type Config struct {
-	cell                            viperutil.Value[string]
-	serviceID                       viperutil.Value[string]
-	shardWatchTargets               viperutil.Value[[]string]
-	bookkeepingInterval             viperutil.Value[time.Duration]
-	clusterMetadataRefreshInterval  viperutil.Value[time.Duration]
-	clusterMetadataRefreshTimeout   viperutil.Value[time.Duration]
-	poolerHealthCheckInterval       viperutil.Value[time.Duration]
-	healthCheckWorkers              viperutil.Value[int]
-	recoveryCycleInterval           viperutil.Value[time.Duration]
-	primaryElectionTimeoutBase      viperutil.Value[time.Duration]
-	primaryElectionTimeoutMaxJitter viperutil.Value[time.Duration]
+	cell                                viperutil.Value[string]
+	serviceID                           viperutil.Value[string]
+	shardWatchTargets                   viperutil.Value[[]string]
+	bookkeepingInterval                 viperutil.Value[time.Duration]
+	clusterMetadataRefreshInterval      viperutil.Value[time.Duration]
+	clusterMetadataRefreshTimeout       viperutil.Value[time.Duration]
+	poolerHealthCheckInterval           viperutil.Value[time.Duration]
+	healthCheckWorkers                  viperutil.Value[int]
+	recoveryCycleInterval               viperutil.Value[time.Duration]
+	primaryFailoverGracePeriodBase      viperutil.Value[time.Duration]
+	primaryFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -222,17 +222,17 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_RECOVERY_CYCLE_INTERVAL"},
 		}),
-		primaryElectionTimeoutBase: viperutil.Configure(reg, "primary-election-timeout-base", viperutil.Options[time.Duration]{
+		primaryFailoverGracePeriodBase: viperutil.Configure(reg, "primary-failover-grace-period-base", viperutil.Options[time.Duration]{
 			Default:  4 * time.Second,
-			FlagName: "primary-election-timeout-base",
+			FlagName: "primary-failover-grace-period-base",
 			Dynamic:  true,
-			EnvVars:  []string{"MT_PRIMARY_ELECTION_TIMEOUT_BASE"},
+			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_BASE"},
 		}),
-		primaryElectionTimeoutMaxJitter: viperutil.Configure(reg, "primary-election-timeout-max-jitter", viperutil.Options[time.Duration]{
+		primaryFailoverGracePeriodMaxJitter: viperutil.Configure(reg, "primary-failover-grace-period-max-jitter", viperutil.Options[time.Duration]{
 			Default:  8 * time.Second,
-			FlagName: "primary-election-timeout-max-jitter",
+			FlagName: "primary-failover-grace-period-max-jitter",
 			Dynamic:  true,
-			EnvVars:  []string{"MT_PRIMARY_ELECTION_TIMEOUT_MAX_JITTER"},
+			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_MAX_JITTER"},
 		}),
 	}
 }
@@ -275,12 +275,12 @@ func (c *Config) GetRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Get()
 }
 
-func (c *Config) GetPrimaryElectionTimeoutBase() time.Duration {
-	return c.primaryElectionTimeoutBase.Get()
+func (c *Config) GetPrimaryFailoverGracePeriodBase() time.Duration {
+	return c.primaryFailoverGracePeriodBase.Get()
 }
 
-func (c *Config) GetPrimaryElectionTimeoutMaxJitter() time.Duration {
-	return c.primaryElectionTimeoutMaxJitter.Get()
+func (c *Config) GetPrimaryFailoverGracePeriodMaxJitter() time.Duration {
+	return c.primaryFailoverGracePeriodMaxJitter.Get()
 }
 
 // Defaults for flags (used in RegisterFlags)
@@ -321,12 +321,12 @@ func (c *Config) DefaultRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Default()
 }
 
-func (c *Config) DefaultPrimaryElectionTimeoutBase() time.Duration {
-	return c.primaryElectionTimeoutBase.Default()
+func (c *Config) DefaultPrimaryFailoverGracePeriodBase() time.Duration {
+	return c.primaryFailoverGracePeriodBase.Default()
 }
 
-func (c *Config) DefaultPrimaryElectionTimeoutMaxJitter() time.Duration {
-	return c.primaryElectionTimeoutMaxJitter.Default()
+func (c *Config) DefaultPrimaryFailoverGracePeriodMaxJitter() time.Duration {
+	return c.primaryFailoverGracePeriodMaxJitter.Default()
 }
 
 // RegisterFlags registers the config flags with pflag.
@@ -340,8 +340,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
-	fs.Duration("primary-election-timeout-base", c.DefaultPrimaryElectionTimeoutBase(), "base timeout before executing primary failover")
-	fs.Duration("primary-election-timeout-max-jitter", c.DefaultPrimaryElectionTimeoutMaxJitter(), "max jitter added to primary election timeout")
+	fs.Duration("primary-failover-grace-period-base", c.DefaultPrimaryFailoverGracePeriodBase(), "base grace period before executing primary failover")
+	fs.Duration("primary-failover-grace-period-max-jitter", c.DefaultPrimaryFailoverGracePeriodMaxJitter(), "max jitter added to primary failover grace period")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -352,8 +352,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.poolerHealthCheckInterval,
 		c.healthCheckWorkers,
 		c.recoveryCycleInterval,
-		c.primaryElectionTimeoutBase,
-		c.primaryElectionTimeoutMaxJitter)
+		c.primaryFailoverGracePeriodBase,
+		c.primaryFailoverGracePeriodMaxJitter)
 }
 
 // Test helper functions
@@ -365,8 +365,8 @@ func NewTestConfig(opts ...func(*Config)) *Config {
 	cfg := NewConfig(reg)
 
 	// Set safe defaults for tests - no grace period by default
-	cfg.primaryElectionTimeoutBase.Set(0)
-	cfg.primaryElectionTimeoutMaxJitter.Set(0)
+	cfg.primaryFailoverGracePeriodBase.Set(0)
+	cfg.primaryFailoverGracePeriodMaxJitter.Set(0)
 
 	for _, opt := range opts {
 		opt(cfg)
@@ -423,16 +423,16 @@ func WithRecoveryCycleInterval(d time.Duration) func(*Config) {
 	}
 }
 
-// WithPrimaryElectionTimeoutBase sets the primary election timeout base for testing.
-func WithPrimaryElectionTimeoutBase(d time.Duration) func(*Config) {
+// WithPrimaryFailoverGracePeriodBase sets the primary failover grace period base for testing.
+func WithPrimaryFailoverGracePeriodBase(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
-		cfg.primaryElectionTimeoutBase.Set(d)
+		cfg.primaryFailoverGracePeriodBase.Set(d)
 	}
 }
 
-// WithPrimaryElectionTimeoutMaxJitter sets the primary election timeout max jitter for testing.
-func WithPrimaryElectionTimeoutMaxJitter(d time.Duration) func(*Config) {
+// WithPrimaryFailoverGracePeriodMaxJitter sets the primary failover grace period max jitter for testing.
+func WithPrimaryFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
-		cfg.primaryElectionTimeoutMaxJitter.Set(d)
+		cfg.primaryFailoverGracePeriodMaxJitter.Set(d)
 	}
 }

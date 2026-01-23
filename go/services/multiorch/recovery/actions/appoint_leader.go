@@ -156,7 +156,7 @@ func (a *AppointLeaderAction) Priority() types.Priority {
 
 func (a *AppointLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	return &types.GracePeriodConfig{
-		BaseDelay: a.config.GetPrimaryElectionTimeoutBase(),
-		MaxJitter: a.config.GetPrimaryElectionTimeoutMaxJitter(),
+		BaseDelay: a.config.GetPrimaryFailoverGracePeriodBase(),
+		MaxJitter: a.config.GetPrimaryFailoverGracePeriodMaxJitter(),
 	}
 }
