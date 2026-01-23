@@ -284,7 +284,7 @@ func NewEngine(
 	rpcClient rpcclient.MultiPoolerClient,
 	coordinator *coordinator.Coordinator,
 ) *Engine {
-	shutdownCtx, cancel := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
@@ -298,7 +298,7 @@ func NewEngine(
 		shardWatchTargets: shardWatchTargets,
 		recentPollCache:   make(map[string]time.Time),
 		detectedProblems:  nil,
-		shutdownCtx:       shutdownCtx,
+		shutdownCtx:       ctx,
 		cancel:            cancel,
 	}
 
