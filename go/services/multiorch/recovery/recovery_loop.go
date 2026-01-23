@@ -69,16 +69,19 @@ func (re *Engine) performRecoveryCycle() {
 	generator := analysis.NewAnalysisGenerator(re.poolerStore)
 	analyses := generator.GenerateAnalyses()
 
+	// Track which problem codes have been detected
+	detectedProblems := make(map[types.ProblemCode]bool)
+
 	// Run all analyzers to detect problems
 	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			detected, err := analyzer.Analyze(poolerAnalysis)
 			if err != nil {
 				re.logger.ErrorContext(ctx, "analyzer error",
-					"analyzer", analyzer.Name(),
+					"analyzer", string(analyzer.Name()),
 					"pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID),
 					"error", err,
 				)
@@ -87,9 +90,18 @@ func (re *Engine) performRecoveryCycle() {
 				)
 				continue
 			}
-			problems = append(problems, detectedProblems...)
+			for _, p := range detected {
+				problems = append(problems, p)
+				// Mark this problem code as detected
+				detectedProblems[p.Code] = true
+			}
 		}
 	}
+
+	// Observe the health state of tracked problem types
+	// This resets deadline if healthy, freezes if unhealthy
+	isHealthy := !detectedProblems[types.ProblemPrimaryIsDead]
+	re.deadlineTracker.Observe(types.ProblemPrimaryIsDead, isHealthy)
 
 	// Update detected problems metric
 	re.updateDetectedProblems(problems)
@@ -232,6 +244,14 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"description", problem.Description,
 	)
 
+	// Check if deadline has expired (noop for problems without deadline tracking)
+	if !re.deadlineTracker.ShouldExecute(problem) {
+		re.logger.InfoContext(ctx, "deadline not yet expired, deferring recovery",
+			"shard", problem.ShardKey.String(),
+			"problem_code", problem.Code)
+		return
+	}
+
 	// Force re-poll to validate the problem still exists
 	stillExists, err := re.recheckProblem(ctx, problem)
 	if err != nil {
@@ -249,6 +269,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 			"problem_code", problem.Code,
 			"pooler_id", poolerIDStr,
 		)
+		// Problem resolved - Observe() in next cycle will reset deadline
 		return
 	}
 
@@ -279,6 +300,8 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"pooler_id", poolerIDStr,
 	)
 	re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess, problem.ShardKey.Database, problem.ShardKey.Shard)
+
+	// After successful recovery, Observe() in next cycle will reset deadline
 
 	// Post-recovery refresh
 	// If we ran a shard-wide recovery, force health check all poolers in the shard

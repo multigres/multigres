@@ -146,15 +146,17 @@ func ParseShardWatchTargets(targets []string) ([]WatchTarget, error) {
 // Config encapsulates all multiorch configuration.
 // This is passed to the recovery engine and other components.
 type Config struct {
-	cell                           viperutil.Value[string]
-	serviceID                      viperutil.Value[string]
-	shardWatchTargets              viperutil.Value[[]string]
-	bookkeepingInterval            viperutil.Value[time.Duration]
-	clusterMetadataRefreshInterval viperutil.Value[time.Duration]
-	clusterMetadataRefreshTimeout  viperutil.Value[time.Duration]
-	poolerHealthCheckInterval      viperutil.Value[time.Duration]
-	healthCheckWorkers             viperutil.Value[int]
-	recoveryCycleInterval          viperutil.Value[time.Duration]
+	cell                            viperutil.Value[string]
+	serviceID                       viperutil.Value[string]
+	shardWatchTargets               viperutil.Value[[]string]
+	bookkeepingInterval             viperutil.Value[time.Duration]
+	clusterMetadataRefreshInterval  viperutil.Value[time.Duration]
+	clusterMetadataRefreshTimeout   viperutil.Value[time.Duration]
+	poolerHealthCheckInterval       viperutil.Value[time.Duration]
+	healthCheckWorkers              viperutil.Value[int]
+	recoveryCycleInterval           viperutil.Value[time.Duration]
+	primaryElectionTimeoutBase      viperutil.Value[time.Duration]
+	primaryElectionTimeoutMaxJitter viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -220,6 +222,18 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_RECOVERY_CYCLE_INTERVAL"},
 		}),
+		primaryElectionTimeoutBase: viperutil.Configure(reg, "primary-election-timeout-base", viperutil.Options[time.Duration]{
+			Default:  4 * time.Second,
+			FlagName: "primary-election-timeout-base",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_PRIMARY_ELECTION_TIMEOUT_BASE"},
+		}),
+		primaryElectionTimeoutMaxJitter: viperutil.Configure(reg, "primary-election-timeout-max-jitter", viperutil.Options[time.Duration]{
+			Default:  8 * time.Second,
+			FlagName: "primary-election-timeout-max-jitter",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_PRIMARY_ELECTION_TIMEOUT_MAX_JITTER"},
+		}),
 	}
 }
 
@@ -261,6 +275,14 @@ func (c *Config) GetRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Get()
 }
 
+func (c *Config) GetPrimaryElectionTimeoutBase() time.Duration {
+	return c.primaryElectionTimeoutBase.Get()
+}
+
+func (c *Config) GetPrimaryElectionTimeoutMaxJitter() time.Duration {
+	return c.primaryElectionTimeoutMaxJitter.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -299,6 +321,14 @@ func (c *Config) DefaultRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Default()
 }
 
+func (c *Config) DefaultPrimaryElectionTimeoutBase() time.Duration {
+	return c.primaryElectionTimeoutBase.Default()
+}
+
+func (c *Config) DefaultPrimaryElectionTimeoutMaxJitter() time.Duration {
+	return c.primaryElectionTimeoutMaxJitter.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -310,6 +340,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
+	fs.Duration("primary-election-timeout-base", c.DefaultPrimaryElectionTimeoutBase(), "base timeout before executing primary failover")
+	fs.Duration("primary-election-timeout-max-jitter", c.DefaultPrimaryElectionTimeoutMaxJitter(), "max jitter added to primary election timeout")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -319,7 +351,9 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.clusterMetadataRefreshTimeout,
 		c.poolerHealthCheckInterval,
 		c.healthCheckWorkers,
-		c.recoveryCycleInterval)
+		c.recoveryCycleInterval,
+		c.primaryElectionTimeoutBase,
+		c.primaryElectionTimeoutMaxJitter)
 }
 
 // Test helper functions
@@ -380,5 +414,19 @@ func WithHealthCheckWorkers(n int) func(*Config) {
 func WithRecoveryCycleInterval(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
 		cfg.recoveryCycleInterval.Set(d)
+	}
+}
+
+// WithPrimaryElectionTimeoutBase sets the primary election timeout base for testing.
+func WithPrimaryElectionTimeoutBase(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.primaryElectionTimeoutBase.Set(d)
+	}
+}
+
+// WithPrimaryElectionTimeoutMaxJitter sets the primary election timeout max jitter for testing.
+func WithPrimaryElectionTimeoutMaxJitter(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.primaryElectionTimeoutMaxJitter.Set(d)
 	}
 }
