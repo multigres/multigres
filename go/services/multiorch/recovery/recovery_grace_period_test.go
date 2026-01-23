@@ -34,7 +34,11 @@ func TestRecoveryActionDeadlineTracker_InitialDeadlineReset(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
 
 	// First reset - should calculate jitter and set deadline
 	before := time.Now()
@@ -66,7 +70,12 @@ func TestRecoveryActionDeadlineTracker_ContinuousReset(t *testing.T) {
 
 	// Use deterministic random generator for predictable jitter
 	rng := rand.New(rand.NewPCG(12345, 67890))
-	tracker := NewRecoveryGracePeriodTracker(cfg, WithRand(rng))
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithRand(rng),
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
 
 	// First reset - will generate first jitter value
 	before1 := time.Now()
@@ -122,7 +131,11 @@ func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 10 * time.Second,
+			MaxJitter: 0,
+		}))
 
 	// Observe healthy state - sets deadline
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
@@ -172,7 +185,7 @@ func TestRecoveryActionDeadlineTracker_DeadlineNotExpired(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg, WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{BaseDelay: 10 * time.Second, MaxJitter: 0}))
 
 	shardKey := commontypes.ShardKey{
 		Database:   "testdb",
@@ -205,7 +218,11 @@ func TestRecoveryActionDeadlineTracker_DeadlineExpired(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 100 * time.Millisecond,
+			MaxJitter: 0,
+		}))
 
 	shardKey := commontypes.ShardKey{
 		Database:   "testdb",
@@ -241,7 +258,8 @@ func TestRecoveryActionDeadlineTracker_NoDeadlineTracked(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	// Don't configure ProblemPrimaryIsDead for tracking
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg)
 
 	shardKey := commontypes.ShardKey{
 		Database:   "testdb",
@@ -249,7 +267,7 @@ func TestRecoveryActionDeadlineTracker_NoDeadlineTracked(t *testing.T) {
 		Shard:      "0",
 	}
 
-	// Create a problem without resetting deadline first
+	// Create a problem without configuring it for tracking
 	problem := types.Problem{
 		Code:     types.ProblemPrimaryIsDead,
 		ShardKey: shardKey,
@@ -260,9 +278,9 @@ func TestRecoveryActionDeadlineTracker_NoDeadlineTracked(t *testing.T) {
 		},
 	}
 
-	// Should allow immediate execution when no deadline tracked
+	// Should allow immediate execution when problem type is not tracked
 	expired := tracker.ShouldExecute(problem)
-	assert.True(t, expired, "should allow immediate execution when no deadline tracked")
+	assert.True(t, expired, "should allow immediate execution when problem type is not tracked")
 }
 
 func TestRecoveryActionDeadlineTracker_JitterRecalculatedAcrossResets(t *testing.T) {
@@ -271,7 +289,11 @@ func TestRecoveryActionDeadlineTracker_JitterRecalculatedAcrossResets(t *testing
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
 
 	// Reset multiple times and collect deadlines
 	var deadlines []time.Time
@@ -301,7 +323,11 @@ func TestRecoveryActionDeadlineTracker_DifferentProblemsIndependent(t *testing.T
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
 
 	// Reset deadline (there's only one per problem type, not per shard)
 	before := time.Now()
@@ -321,13 +347,90 @@ func TestRecoveryActionDeadlineTracker_DifferentProblemsIndependent(t *testing.T
 	assert.True(t, deadline.Before(maxDeadline) || deadline.Equal(maxDeadline))
 }
 
+func TestRecoveryActionDeadlineTracker_FirstObserveUnhealthy(t *testing.T) {
+	cfg := config.NewTestConfig(
+		config.WithPrimaryElectionTimeoutBase(4*time.Second),
+		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
+	)
+
+	// Use deterministic random generator
+	rng := rand.New(rand.NewPCG(99999, 88888))
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithRand(rng),
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
+
+	shardKey := commontypes.ShardKey{
+		Database:   "testdb",
+		TableGroup: "default",
+		Shard:      "0",
+	}
+
+	problem := types.Problem{
+		Code:     types.ProblemPrimaryIsDead,
+		ShardKey: shardKey,
+		PoolerID: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "cell1",
+			Name:      "primary-1",
+		},
+	}
+
+	// Calculate expected jitter
+	testRng := rand.New(rand.NewPCG(99999, 88888))
+	expectedJitter := time.Duration(testRng.Int64N(int64(8 * time.Second)))
+
+	// First observation is unhealthy (problem detected immediately)
+	before := time.Now()
+	tracker.Observe(types.ProblemPrimaryIsDead, false)
+	after := time.Now()
+
+	// Verify deadline was initialized with base + jitter
+	tracker.mu.Lock()
+	deadline, exists := tracker.deadlines[types.ProblemPrimaryIsDead]
+	tracker.mu.Unlock()
+
+	require.True(t, exists, "deadline should be initialized even when first observation is unhealthy")
+
+	// Verify exact deadline is base + expected jitter from observation time
+	expectedMin := before.Add(4*time.Second + expectedJitter)
+	expectedMax := after.Add(4*time.Second + expectedJitter)
+	assert.True(t, deadline.After(expectedMin) || deadline.Equal(expectedMin),
+		"deadline should be at observation time + base + jitter")
+	assert.True(t, deadline.Before(expectedMax) || deadline.Equal(expectedMax),
+		"deadline should be at observation time + base + jitter")
+
+	// Should NOT execute immediately
+	shouldExecute := tracker.ShouldExecute(problem)
+	assert.False(t, shouldExecute, "should not execute immediately when first observed as unhealthy")
+
+	// Observe unhealthy again - deadline should remain frozen (exact same value)
+	tracker.Observe(types.ProblemPrimaryIsDead, false)
+
+	tracker.mu.Lock()
+	frozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
+	tracker.mu.Unlock()
+
+	assert.Equal(t, deadline, frozenDeadline, "deadline should remain frozen on subsequent unhealthy observations")
+
+	// Should still not execute (unless enough time has passed)
+	shouldExecute = tracker.ShouldExecute(problem)
+	assert.False(t, shouldExecute, "should still not execute after second unhealthy observation")
+}
+
 func TestRecoveryActionDeadlineTracker_NonTrackedProblemTypes(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
 
 	// Reset should be a noop for non-tracked problem types
 	tracker.Observe(types.ProblemReplicaNotReplicating, true)
@@ -365,7 +468,11 @@ func TestRecoveryActionDeadlineTracker_ConcurrentAccess(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
 
 	problem := types.Problem{
 		Code: types.ProblemPrimaryIsDead,
@@ -414,7 +521,11 @@ func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(t.Context(), cfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 4 * time.Second,
+			MaxJitter: 8 * time.Second,
+		}))
 
 	// First reset with original config
 	before1 := time.Now()
@@ -439,7 +550,11 @@ func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
 		config.WithPrimaryElectionTimeoutBase(2*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(4*time.Second),
 	)
-	newTracker := NewRecoveryGracePeriodTracker(newCfg)
+	newTracker := NewRecoveryGracePeriodTracker(t.Context(), newCfg,
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: 2 * time.Second,
+			MaxJitter: 4 * time.Second,
+		}))
 
 	// Reset with new config
 	before2 := time.Now()

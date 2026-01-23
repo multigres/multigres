@@ -284,7 +284,7 @@ func NewEngine(
 	rpcClient rpcclient.MultiPoolerClient,
 	coordinator *coordinator.Coordinator,
 ) *Engine {
-	ctx, cancel := context.WithCancel(context.TODO())
+	shutdownCtx, cancel := context.WithCancel(context.TODO())
 
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
@@ -298,7 +298,7 @@ func NewEngine(
 		shardWatchTargets: shardWatchTargets,
 		recentPollCache:   make(map[string]time.Time),
 		detectedProblems:  nil,
-		shutdownCtx:       ctx,
+		shutdownCtx:       shutdownCtx,
 		cancel:            cancel,
 	}
 
@@ -335,7 +335,12 @@ func NewEngine(
 	)
 
 	// Create deadline tracker for grace periods
-	engine.deadlineTracker = NewRecoveryGracePeriodTracker(config)
+	engine.deadlineTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
+		WithLogger(logger),
+		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
+			BaseDelay: config.GetPrimaryElectionTimeoutBase(),
+			MaxJitter: config.GetPrimaryElectionTimeoutMaxJitter(),
+		}))
 
 	return engine
 }

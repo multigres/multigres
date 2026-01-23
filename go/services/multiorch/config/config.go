@@ -359,9 +359,15 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 // Test helper functions
 
 // NewTestConfig creates a Config for testing with optional custom values.
+// Sets safe defaults for grace period (0 base, 0 jitter) so tests execute immediately.
 func NewTestConfig(opts ...func(*Config)) *Config {
 	reg := viperutil.NewRegistry()
 	cfg := NewConfig(reg)
+
+	// Set safe defaults for tests - no grace period by default
+	cfg.primaryElectionTimeoutBase.Set(0)
+	cfg.primaryElectionTimeoutMaxJitter.Set(0)
+
 	for _, opt := range opts {
 		opt(cfg)
 	}
