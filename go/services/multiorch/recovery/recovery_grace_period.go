@@ -35,7 +35,7 @@ type problemTiming struct {
 	jitterDuration time.Duration // Calculated once, reused on each reset
 }
 
-// RecoveryActionDeadlineTracker tracks grace periods for recovery actions.
+// RecoveryGracePeriodTracker tracks grace periods for recovery actions.
 // It implements a deadline-based model where:
 // - While healthy: deadline continuously resets to now + (base + jitter)
 // - Problem detected: deadline stops updating, counts down to expiry
@@ -43,7 +43,7 @@ type problemTiming struct {
 //
 // Thread safety: All methods are safe for concurrent use. The internal rand.Rand
 // is protected by the mutex and only accessed while holding a write lock.
-type RecoveryActionDeadlineTracker struct {
+type RecoveryGracePeriodTracker struct {
 	config *config.Config
 
 	mu        sync.Mutex
@@ -51,21 +51,21 @@ type RecoveryActionDeadlineTracker struct {
 	rng       *rand.Rand // Protected by mu - only accessed during Lock()
 }
 
-// DeadlineTrackerOption configures the deadline tracker.
-type DeadlineTrackerOption func(*RecoveryActionDeadlineTracker)
+// RecoveryGracePeriodTrackerOption configures the deadline tracker.
+type RecoveryGracePeriodTrackerOption func(*RecoveryGracePeriodTracker)
 
 // WithRand sets a custom random generator for jitter generation.
 // Useful for deterministic testing with a fixed seed.
-func WithRand(rng *rand.Rand) DeadlineTrackerOption {
-	return func(dt *RecoveryActionDeadlineTracker) {
+func WithRand(rng *rand.Rand) RecoveryGracePeriodTrackerOption {
+	return func(dt *RecoveryGracePeriodTracker) {
 		dt.rng = rng
 	}
 }
 
-// NewRecoveryActionDeadlineTracker creates a new deadline tracker.
+// NewRecoveryGracePeriodTracker creates a new deadline tracker.
 // By default, uses a random seed for jitter generation.
-func NewRecoveryActionDeadlineTracker(config *config.Config, opts ...DeadlineTrackerOption) *RecoveryActionDeadlineTracker {
-	dt := &RecoveryActionDeadlineTracker{
+func NewRecoveryGracePeriodTracker(config *config.Config, opts ...RecoveryGracePeriodTrackerOption) *RecoveryGracePeriodTracker {
+	dt := &RecoveryGracePeriodTracker{
 		config:    config,
 		deadlines: make(map[types.ProblemCode]*problemTiming),
 		rng:       rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
@@ -86,7 +86,7 @@ func NewRecoveryActionDeadlineTracker(config *config.Config, opts ...DeadlineTra
 //
 // On first call, calculates and stores jitter for this problem type.
 // If the problem type doesn't require deadline tracking, this is a noop.
-func (dt *RecoveryActionDeadlineTracker) Observe(code types.ProblemCode, isHealthy bool) {
+func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, isHealthy bool) {
 	// Only track deadlines for PrimaryIsDead initially
 	if code != types.ProblemPrimaryIsDead {
 		return
@@ -128,7 +128,7 @@ func (dt *RecoveryActionDeadlineTracker) Observe(code types.ProblemCode, isHealt
 //
 // This assumes Observe() has already been called for the problem type.
 // If the problem type doesn't require deadline tracking, returns true (execute immediately).
-func (dt *RecoveryActionDeadlineTracker) ShouldExecute(problem types.Problem) bool {
+func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool {
 	// Only check deadlines for PrimaryIsDead - other problems execute immediately
 	if problem.Code != types.ProblemPrimaryIsDead {
 		return true
@@ -150,7 +150,7 @@ func (dt *RecoveryActionDeadlineTracker) ShouldExecute(problem types.Problem) bo
 
 // Delete removes the deadline entry for a specific problem type.
 // Typically not needed as we have a small, bounded number of problem types.
-func (dt *RecoveryActionDeadlineTracker) Delete(code types.ProblemCode) {
+func (dt *RecoveryGracePeriodTracker) Delete(code types.ProblemCode) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 

@@ -33,7 +33,7 @@ func TestRecoveryActionDeadlineTracker_InitialDeadlineReset(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// First reset - should calculate jitter and set deadline
 	before := time.Now()
@@ -68,7 +68,7 @@ func TestRecoveryActionDeadlineTracker_ContinuousReset(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// First reset
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
@@ -102,7 +102,7 @@ func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// Observe healthy state - sets deadline
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
@@ -152,7 +152,7 @@ func TestRecoveryActionDeadlineTracker_DeadlineNotExpired(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	shardKey := commontypes.ShardKey{
 		Database:   "testdb",
@@ -185,7 +185,7 @@ func TestRecoveryActionDeadlineTracker_DeadlineExpired(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	shardKey := commontypes.ShardKey{
 		Database:   "testdb",
@@ -221,7 +221,7 @@ func TestRecoveryActionDeadlineTracker_NoDeadlineTracked(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	shardKey := commontypes.ShardKey{
 		Database:   "testdb",
@@ -251,7 +251,7 @@ func TestRecoveryActionDeadlineTracker_JitterReusedAcrossResets(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// Reset multiple times
 	var jitterValues []time.Duration
@@ -280,7 +280,7 @@ func TestRecoveryActionDeadlineTracker_DifferentProblemsIndependent(t *testing.T
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// Reset deadline (there's only one per problem type, not per shard)
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
@@ -301,7 +301,7 @@ func TestRecoveryActionDeadlineTracker_NonTrackedProblemTypes(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// Reset should be a noop for non-tracked problem types
 	tracker.Observe(types.ProblemReplicaNotReplicating, true)
@@ -339,7 +339,7 @@ func TestRecoveryActionDeadlineTracker_ConcurrentAccess(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	problem := types.Problem{
 		Code: types.ProblemPrimaryIsDead,
@@ -388,7 +388,7 @@ func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryActionDeadlineTracker(cfg)
+	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// First reset with original config
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
@@ -407,7 +407,7 @@ func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
 		config.WithPrimaryElectionTimeoutBase(2*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(4*time.Second),
 	)
-	newTracker := NewRecoveryActionDeadlineTracker(newCfg)
+	newTracker := NewRecoveryGracePeriodTracker(newCfg)
 
 	// Reset with new config
 	newTracker.Observe(types.ProblemPrimaryIsDead, true)
