@@ -28,7 +28,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
 
-func TestRecoveryActionDeadlineTracker_InitialDeadlineReset(t *testing.T) {
+func TestRecoveryGracePeriod_InitialDeadlineReset(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -62,7 +62,7 @@ func TestRecoveryActionDeadlineTracker_InitialDeadlineReset(t *testing.T) {
 		"deadline should not exceed base + max jitter")
 }
 
-func TestRecoveryActionDeadlineTracker_ContinuousReset(t *testing.T) {
+func TestRecoveryGracePeriod_ContinuousReset(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -125,7 +125,7 @@ func TestRecoveryActionDeadlineTracker_ContinuousReset(t *testing.T) {
 	assert.NotEqual(t, firstDeadline, secondDeadline, "deadline should be recalculated with fresh jitter")
 }
 
-func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
+func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(10*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
@@ -179,7 +179,7 @@ func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
 	assert.True(t, resetDeadline.After(frozenDeadline), "deadline should be reset when healthy again")
 }
 
-func TestRecoveryActionDeadlineTracker_DeadlineNotExpired(t *testing.T) {
+func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(10*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
@@ -212,7 +212,7 @@ func TestRecoveryActionDeadlineTracker_DeadlineNotExpired(t *testing.T) {
 	assert.False(t, expired, "deadline should not be expired immediately after reset")
 }
 
-func TestRecoveryActionDeadlineTracker_DeadlineExpired(t *testing.T) {
+func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(100*time.Millisecond),
 		config.WithPrimaryElectionTimeoutMaxJitter(0), // No jitter for predictability
@@ -252,7 +252,7 @@ func TestRecoveryActionDeadlineTracker_DeadlineExpired(t *testing.T) {
 	assert.True(t, expired, "deadline should be expired after waiting")
 }
 
-func TestRecoveryActionDeadlineTracker_NoDeadlineTracked(t *testing.T) {
+func TestRecoveryGracePeriod_NoDeadlineTracked(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -283,7 +283,7 @@ func TestRecoveryActionDeadlineTracker_NoDeadlineTracked(t *testing.T) {
 	assert.True(t, expired, "should allow immediate execution when problem type is not tracked")
 }
 
-func TestRecoveryActionDeadlineTracker_JitterRecalculatedAcrossResets(t *testing.T) {
+func TestRecoveryGracePeriod_JitterRecalculatedAcrossResets(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -317,7 +317,7 @@ func TestRecoveryActionDeadlineTracker_JitterRecalculatedAcrossResets(t *testing
 	}
 }
 
-func TestRecoveryActionDeadlineTracker_DifferentProblemsIndependent(t *testing.T) {
+func TestRecoveryGracePeriod_DifferentProblemsIndependent(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -347,7 +347,7 @@ func TestRecoveryActionDeadlineTracker_DifferentProblemsIndependent(t *testing.T
 	assert.True(t, deadline.Before(maxDeadline) || deadline.Equal(maxDeadline))
 }
 
-func TestRecoveryActionDeadlineTracker_FirstObserveUnhealthy(t *testing.T) {
+func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -420,7 +420,7 @@ func TestRecoveryActionDeadlineTracker_FirstObserveUnhealthy(t *testing.T) {
 	assert.False(t, shouldExecute, "should still not execute after second unhealthy observation")
 }
 
-func TestRecoveryActionDeadlineTracker_NonTrackedProblemTypes(t *testing.T) {
+func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -462,7 +462,7 @@ func TestRecoveryActionDeadlineTracker_NonTrackedProblemTypes(t *testing.T) {
 	assert.True(t, expired, "non-tracked problem types should execute immediately")
 }
 
-func TestRecoveryActionDeadlineTracker_ConcurrentAccess(t *testing.T) {
+func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -515,7 +515,7 @@ func TestRecoveryActionDeadlineTracker_ConcurrentAccess(t *testing.T) {
 	assert.False(t, deadline.IsZero(), "deadline should not be zero")
 }
 
-func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
+func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),

@@ -174,5 +174,17 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 	}
 
 	// Check if deadline has expired
-	return time.Now().After(deadline) || time.Now().Equal(deadline)
+	now := time.Now()
+	if now.After(deadline) || now.Equal(deadline) {
+		return true
+	}
+
+	// Deadline not reached yet - log that we're deferring
+	timeRemaining := deadline.Sub(now)
+	dt.logger.InfoContext(dt.ctx, "Deferring recovery action, waiting for grace period to expire",
+		"problem_code", problem.Code,
+		"time_remaining_seconds", timeRemaining.Seconds(),
+		"deadline", deadline,
+	)
+	return false
 }
