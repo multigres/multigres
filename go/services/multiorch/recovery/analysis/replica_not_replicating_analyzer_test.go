@@ -44,7 +44,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 		Name:      "test-coord",
 	}
 	coord := coordinator.NewCoordinator(coordID, ts, rpcClient, slog.Default())
-	factory := NewRecoveryActionFactory(poolerStore, rpcClient, ts, coord, slog.Default())
+	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 
 	analyzer := &ReplicaNotReplicatingAnalyzer{factory: factory}
 

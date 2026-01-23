@@ -87,6 +87,10 @@ func (t *trackingRecoveryAction) Priority() types.Priority {
 	return t.priority
 }
 
+func (t *trackingRecoveryAction) GracePeriod() *types.GracePeriodConfig {
+	return nil
+}
+
 // mockRecoveryAction is a test implementation of RecoveryAction
 type mockRecoveryAction struct {
 	name                   string
@@ -122,6 +126,10 @@ func (m *mockRecoveryAction) RequiresHealthyPrimary() bool {
 
 func (m *mockRecoveryAction) Priority() types.Priority {
 	return m.priority
+}
+
+func (m *mockRecoveryAction) GracePeriod() *types.GracePeriodConfig {
+	return nil
 }
 
 func TestGroupProblemsByShard(t *testing.T) {
@@ -1083,7 +1091,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
 	// Observe the problem as unhealthy (this would normally happen in performRecoveryCycle)
-	engine.deadlineTracker.Observe(types.ProblemPrimaryIsDead, false)
+	engine.deadlineTracker.Observe(types.ProblemPrimaryIsDead, problems[0].RecoveryAction, false)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{

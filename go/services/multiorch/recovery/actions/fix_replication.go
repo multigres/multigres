@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -60,6 +61,7 @@ var _ types.RecoveryAction = (*FixReplicationAction)(nil)
 // operations at the pooler level and serialized by action locks on the poolers,
 // so concurrent calls are safe and produce the same final state.
 type FixReplicationAction struct {
+	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.PoolerStore
 	topoStore   topoclient.Store
@@ -68,12 +70,14 @@ type FixReplicationAction struct {
 
 // NewFixReplicationAction creates a new fix replication action.
 func NewFixReplicationAction(
+	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *FixReplicationAction {
 	return &FixReplicationAction{
+		config:      cfg,
 		rpcClient:   rpcClient,
 		poolerStore: poolerStore,
 		topoStore:   topoStore,
@@ -540,6 +544,11 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 
 func (a *FixReplicationAction) Priority() types.Priority {
 	return types.PriorityHigh
+}
+
+func (a *FixReplicationAction) GracePeriod() *types.GracePeriodConfig {
+	// No grace period needed, execute immediately
+	return nil
 }
 
 // markPoolerDrained marks a pooler as DRAINED in the topology.

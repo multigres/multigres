@@ -101,7 +101,8 @@ func (re *Engine) performRecoveryCycle() {
 	// Observe the health state of tracked problem types
 	// This resets deadline if healthy, freezes if unhealthy
 	isHealthy := !detectedProblems[types.ProblemPrimaryIsDead]
-	re.deadlineTracker.Observe(types.ProblemPrimaryIsDead, isHealthy)
+	primaryDeadAction := re.actionFactory.NewAppointLeaderAction()
+	re.deadlineTracker.Observe(types.ProblemPrimaryIsDead, primaryDeadAction, isHealthy)
 
 	// Update detected problems metric
 	re.updateDetectedProblems(problems)

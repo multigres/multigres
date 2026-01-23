@@ -327,6 +327,7 @@ func NewEngine(
 
 	// Create action factory for recovery actions
 	engine.actionFactory = analysis.NewRecoveryActionFactory(
+		config,
 		poolerStore,
 		rpcClient,
 		ts,
@@ -336,11 +337,7 @@ func NewEngine(
 
 	// Create deadline tracker for grace periods
 	engine.deadlineTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
-		WithLogger(logger),
-		WithGracePeriodConfig(types.ProblemPrimaryIsDead, GracePeriodConfig{
-			BaseDelay: config.GetPrimaryElectionTimeoutBase(),
-			MaxJitter: config.GetPrimaryElectionTimeoutMaxJitter(),
-		}))
+		WithLogger(logger))
 
 	return engine
 }

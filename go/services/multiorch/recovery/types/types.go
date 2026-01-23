@@ -116,6 +116,12 @@ type Problem struct {
 	RecoveryAction RecoveryAction        // What to do about it
 }
 
+// GracePeriodConfig holds grace period settings for recovery actions.
+type GracePeriodConfig struct {
+	BaseDelay time.Duration
+	MaxJitter time.Duration
+}
+
 // RecoveryAction is a function that fixes a problem.
 type RecoveryAction interface {
 	// Execute performs the recovery.
@@ -133,6 +139,10 @@ type RecoveryAction interface {
 	// Priority returns the priority of this recovery action.
 	// Higher priority actions are attempted first.
 	Priority() Priority
+
+	// GracePeriod returns the grace period configuration for this action.
+	// Returns nil if no grace period is needed (action executes immediately).
+	GracePeriod() *GracePeriodConfig
 }
 
 // RecoveryMetadata describes the recovery action.

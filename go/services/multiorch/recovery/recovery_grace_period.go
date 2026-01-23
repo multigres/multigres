@@ -31,12 +31,6 @@ const (
 	maxAllowedJitter = 1 * time.Minute
 )
 
-// GracePeriodConfig holds grace period settings for a specific problem type.
-type GracePeriodConfig struct {
-	BaseDelay time.Duration
-	MaxJitter time.Duration
-}
-
 // RecoveryGracePeriodTracker tracks grace periods for recovery actions.
 // It implements a deadline-based model where:
 // - While healthy: deadline continuously resets to now + (base + jitter)
@@ -50,10 +44,9 @@ type RecoveryGracePeriodTracker struct {
 	config *config.Config
 	logger *slog.Logger
 
-	mu                 sync.Mutex
-	deadlines          map[types.ProblemCode]time.Time
-	rng                *rand.Rand // Protected by mu - only accessed during Lock()
-	gracePeriodConfigs map[types.ProblemCode]GracePeriodConfig
+	mu        sync.Mutex
+	deadlines map[types.ProblemCode]time.Time
+	rng       *rand.Rand // Protected by mu - only accessed during Lock()
 }
 
 // RecoveryGracePeriodTrackerOption configures the deadline tracker.
@@ -67,13 +60,6 @@ func WithRand(rng *rand.Rand) RecoveryGracePeriodTrackerOption {
 	}
 }
 
-// WithGracePeriodConfig configures grace period settings for a specific problem type.
-func WithGracePeriodConfig(code types.ProblemCode, cfg GracePeriodConfig) RecoveryGracePeriodTrackerOption {
-	return func(dt *RecoveryGracePeriodTracker) {
-		dt.gracePeriodConfigs[code] = cfg
-	}
-}
-
 // WithLogger sets a custom logger for the tracker.
 func WithLogger(logger *slog.Logger) RecoveryGracePeriodTrackerOption {
 	return func(dt *RecoveryGracePeriodTracker) {
@@ -83,15 +69,13 @@ func WithLogger(logger *slog.Logger) RecoveryGracePeriodTrackerOption {
 
 // NewRecoveryGracePeriodTracker creates a new deadline tracker.
 // By default, uses a random seed for jitter generation and slog.Default() for logging.
-// Use WithGracePeriodConfig to configure which problem types require grace period tracking.
 func NewRecoveryGracePeriodTracker(ctx context.Context, config *config.Config, opts ...RecoveryGracePeriodTrackerOption) *RecoveryGracePeriodTracker {
 	dt := &RecoveryGracePeriodTracker{
-		ctx:                ctx,
-		config:             config,
-		logger:             slog.Default(),
-		deadlines:          make(map[types.ProblemCode]time.Time),
-		rng:                rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
-		gracePeriodConfigs: make(map[types.ProblemCode]GracePeriodConfig),
+		ctx:       ctx,
+		config:    config,
+		logger:    slog.Default(),
+		deadlines: make(map[types.ProblemCode]time.Time),
+		rng:       rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
 	}
 
 	for _, opt := range opts {
@@ -103,7 +87,7 @@ func NewRecoveryGracePeriodTracker(ctx context.Context, config *config.Config, o
 
 // calculateDeadline computes a new deadline with base + jitter for the given grace period config.
 // Must be called while holding dt.mu lock.
-func (dt *RecoveryGracePeriodTracker) calculateDeadline(cfg GracePeriodConfig) time.Time {
+func (dt *RecoveryGracePeriodTracker) calculateDeadline(cfg types.GracePeriodConfig) time.Time {
 	base := cfg.BaseDelay
 	maxJitter := cfg.MaxJitter
 
@@ -125,14 +109,15 @@ func (dt *RecoveryGracePeriodTracker) calculateDeadline(cfg GracePeriodConfig) t
 // If isHealthy is true: resets the deadline to now + (base + jitter), with fresh jitter
 // If isHealthy is false: freezes the deadline (countdown continues)
 //
-// If the problem type doesn't require deadline tracking, this is a noop.
-func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, isHealthy bool) {
+// If the action doesn't require grace period tracking, this is a noop.
+func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, action types.RecoveryAction, isHealthy bool) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
-	// Check if this problem type requires grace period tracking
-	cfg, tracked := dt.gracePeriodConfigs[code]
-	if !tracked {
+	// Get grace period config from the action
+	gracePeriodCfg := action.GracePeriod()
+	if gracePeriodCfg == nil {
+		// Action doesn't require grace period tracking
 		return
 	}
 
@@ -140,36 +125,36 @@ func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, isHealthy 
 
 	if isHealthy {
 		// Reset deadline with fresh jitter
-		dt.deadlines[code] = dt.calculateDeadline(cfg)
+		dt.deadlines[code] = dt.calculateDeadline(*gracePeriodCfg)
 	} else if !exists {
 		// First time seeing this problem unhealthy - initialize deadline with base + jitter
-		dt.deadlines[code] = dt.calculateDeadline(cfg)
+		dt.deadlines[code] = dt.calculateDeadline(*gracePeriodCfg)
 	}
 	// If unhealthy and exists, freeze (do nothing - deadline unchanged)
 }
 
 // ShouldExecute checks if recovery action should execute for this problem.
-// Returns true if action should execute (deadline expired or no deadline tracking).
-// Returns false if still within deadline window (should wait longer).
+// Returns true if action should execute (deadline expired or no grace period needed).
+// Returns false if still within grace period window (should wait longer).
 //
 // This assumes Observe() has already been called for the problem type.
-// If the problem type doesn't require deadline tracking, returns true (execute immediately).
+// If the action doesn't require grace period tracking, returns true (execute immediately).
 func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
-	// Check if this problem type requires grace period tracking
-	_, tracked := dt.gracePeriodConfigs[problem.Code]
-	if !tracked {
-		// Not tracked - execute immediately
+	// Get grace period config from the action
+	gracePeriodCfg := problem.RecoveryAction.GracePeriod()
+	if gracePeriodCfg == nil {
+		// Action doesn't require grace period tracking - execute immediately
 		return true
 	}
 
 	deadline, exists := dt.deadlines[problem.Code]
 	if !exists {
-		// Problem is configured to be tracked but has no deadline - this is unexpected
+		// Problem has grace period but no deadline - this is unexpected
 		// Observe() should have been called before ShouldExecute()
-		dt.logger.WarnContext(dt.ctx, "Grace period tracked problem has no deadline", "problem_code", problem.Code)
+		dt.logger.WarnContext(dt.ctx, "Grace period required but no deadline exists", "problem_code", problem.Code)
 		return false
 	}
 
