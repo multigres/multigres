@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Multigres failover test script for local clusters."""
+# pylint: disable=invalid-name  # Script name uses hyphens for CLI convention
 
 import argparse
 import json
@@ -8,7 +10,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import yaml
 
@@ -22,6 +24,8 @@ CHECK_INTERVAL = 1  # seconds
 
 # Colors
 class Colors:
+    """ANSI color codes for terminal output."""
+
     RED = "\033[0;31m"
     GREEN = "\033[0;32m"
     YELLOW = "\033[1;33m"
@@ -31,6 +35,8 @@ class Colors:
 
 @dataclass
 class PoolerInfo:
+    """Pooler instance information."""
+
     cell: str
     service_id: str
     pooler_dir: str
@@ -39,28 +45,34 @@ class PoolerInfo:
 
 @dataclass
 class ClusterConfig:
+    """Cluster topology configuration."""
+
     cells: Dict[str, Dict]
 
 
 def log_info(msg: str):
+    """Log an info message."""
     print(f"{Colors.BLUE}[INFO]{Colors.NC} {msg}", file=sys.stderr)
 
 
 def log_success(msg: str):
+    """Log a success message."""
     print(f"{Colors.GREEN}[SUCCESS]{Colors.NC} {msg}", file=sys.stderr)
 
 
 def log_warn(msg: str):
+    """Log a warning message."""
     print(f"{Colors.YELLOW}[WARN]{Colors.NC} {msg}", file=sys.stderr)
 
 
 def log_error(msg: str):
+    """Log an error message."""
     print(f"{Colors.RED}[ERROR]{Colors.NC} {msg}", file=sys.stderr)
 
 
 def load_config() -> ClusterConfig:
     """Load and parse the local cluster configuration."""
-    with open(CONFIG_PATH, "r") as f:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     cells = config["provisioner-config"]["cells"]
@@ -111,7 +123,7 @@ def disable_postgres_monitoring_on_all_poolers():
             f"  Disabling monitoring on: {pooler_name} (cell={cell}, service_id={service_id})"
         )
         try:
-            result = subprocess.run(
+            subprocess.run(
                 [
                     MULTIGRES_BIN,
                     "setpostgresmonitor",
@@ -165,7 +177,9 @@ def run_sql_query(pooler_info: PoolerInfo, query: str) -> Optional[str]:
             query,
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=5, check=False
+        )
         if result.returncode == 0:
             return result.stdout.strip()
         return None
@@ -183,7 +197,7 @@ def print_timeline_info(pooler_info: PoolerInfo, label: str = ""):
         log_info(f"{label}")
 
     # Wait a moment for postgres to be queryable
-    for attempt in range(10):
+    for _ in range(10):
         checkpoint_result = run_sql_query(
             pooler_info, "SELECT timeline_id, redo_lsn FROM pg_control_checkpoint();"
         )
@@ -256,7 +270,7 @@ def print_replication_status(config: ClusterConfig):
                     ).get("ready"):
                         primary = (cell, service_id)
                         primary_service_id = service_id
-                except Exception:
+                except Exception:  # pylint: disable=broad-exception-caught
                     pass
 
         # Second pass: all non-primary poolers are treated as replicas
@@ -304,7 +318,7 @@ def print_replication_status(config: ClusterConfig):
                 if not status.get("postgres_running"):
                     print(f"  {Colors.RED}PostgreSQL not running{Colors.NC}")
                     continue
-            except Exception:
+            except Exception:  # pylint: disable=broad-exception-caught
                 print(f"  {Colors.RED}Cannot get status{Colors.NC}")
                 continue
 
@@ -342,7 +356,7 @@ def print_replication_status(config: ClusterConfig):
         print()
         print("=" * 60)
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         log_error(f"Failed to get replication status: {e}")
 
 
@@ -439,10 +453,9 @@ def wait_for_new_primary(
                     log_success(f"New primary elected: {cell}/{service_id}")
                     return True
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             if debug and attempt % 10 == 0:
                 print(f"\n  [DEBUG] Error: {e}", file=sys.stderr)
-            pass  # Ignore transient errors during failover
 
         print(".", end="", flush=True, file=sys.stderr)
         time.sleep(CHECK_INTERVAL)
@@ -458,7 +471,7 @@ def wait_for_replica_health(cell: str, service_id: str, max_attempts: int = 60) 
 
     last_lsn = None
 
-    for attempt in range(max_attempts):
+    for _ in range(max_attempts):
         try:
             # Get the replica's status
             status_data = get_pooler_status(cell, service_id)
@@ -529,7 +542,8 @@ def wait_for_replica_health(cell: str, service_id: str, max_attempts: int = 60) 
                                         f"Replica {cell}/{service_id} is healthy and replicating"
                                     )
                                     log_info(
-                                        f"  - Connected to primary: {primary_cell}/{primary_service_id}"
+                                        f"  - Connected to primary: "
+                                        f"{primary_cell}/{primary_service_id}"
                                     )
                                     log_info(
                                         f"  - Last receive LSN: {last_receive_lsn}"
@@ -540,10 +554,10 @@ def wait_for_replica_health(cell: str, service_id: str, max_attempts: int = 60) 
                                 # Track LSN for next iteration
                                 last_lsn = last_replay_lsn
 
-                        except Exception:
+                        except Exception:  # pylint: disable=broad-exception-caught
                             continue  # Try next primary
 
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             pass  # Ignore transient errors
 
         print(".", end="", flush=True, file=sys.stderr)
@@ -661,7 +675,7 @@ def failover_loop(config: ClusterConfig, auto_yes: bool = False, debug: bool = F
         # Re-disable monitoring for the next iteration (it may have been re-enabled)
         try:
             disable_postgres_monitoring_on_all_poolers()
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             log_error(f"Failed to re-disable postgres monitoring: {e}")
             return 1
 
@@ -670,6 +684,7 @@ def failover_loop(config: ClusterConfig, auto_yes: bool = False, debug: bool = F
 
 
 def main():
+    """Main entry point for the failover test script."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
         description="Multigres Failover Test Script for Local Cluster",
@@ -730,7 +745,7 @@ Examples:
     try:
         config = load_config()
         log_success(f"Loaded configuration with {len(config.cells)} cells")
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         log_error(f"Failed to load configuration: {e}")
         return 1
 
@@ -758,7 +773,7 @@ Examples:
     # Disable PostgreSQL monitoring on all poolers to prevent automatic restarts
     try:
         disable_postgres_monitoring_on_all_poolers()
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         log_error(f"Failed to disable postgres monitoring: {e}")
         return 1
 
