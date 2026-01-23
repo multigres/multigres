@@ -29,12 +29,6 @@ const (
 	maxAllowedJitter = 1 * time.Minute
 )
 
-// problemTiming tracks the deadline and jitter for a specific problem.
-type problemTiming struct {
-	deadline       time.Time     // When action can execute if problem persists
-	jitterDuration time.Duration // Calculated once, reused on each reset
-}
-
 // RecoveryGracePeriodTracker tracks grace periods for recovery actions.
 // It implements a deadline-based model where:
 // - While healthy: deadline continuously resets to now + (base + jitter)
@@ -47,7 +41,7 @@ type RecoveryGracePeriodTracker struct {
 	config *config.Config
 
 	mu        sync.Mutex
-	deadlines map[types.ProblemCode]*problemTiming
+	deadlines map[types.ProblemCode]time.Time
 	rng       *rand.Rand // Protected by mu - only accessed during Lock()
 }
 
@@ -67,7 +61,7 @@ func WithRand(rng *rand.Rand) RecoveryGracePeriodTrackerOption {
 func NewRecoveryGracePeriodTracker(config *config.Config, opts ...RecoveryGracePeriodTrackerOption) *RecoveryGracePeriodTracker {
 	dt := &RecoveryGracePeriodTracker{
 		config:    config,
-		deadlines: make(map[types.ProblemCode]*problemTiming),
+		deadlines: make(map[types.ProblemCode]time.Time),
 		rng:       rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano()))),
 	}
 
@@ -81,10 +75,9 @@ func NewRecoveryGracePeriodTracker(config *config.Config, opts ...RecoveryGraceP
 // Observe records the health state of a problem type.
 // This should be called every recovery cycle for tracked problem types.
 //
-// If isHealthy is true: resets the deadline to now + (base + jitter)
+// If isHealthy is true: resets the deadline to now + (base + jitter), with fresh jitter
 // If isHealthy is false: freezes the deadline (countdown continues)
 //
-// On first call, calculates and stores jitter for this problem type.
 // If the problem type doesn't require deadline tracking, this is a noop.
 func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, isHealthy bool) {
 	// Only track deadlines for PrimaryIsDead initially
@@ -95,9 +88,9 @@ func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, isHealthy 
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
-	timing, exists := dt.deadlines[code]
-	if !exists {
-		// First time seeing this problem type - calculate jitter once
+	// If healthy, reset deadline with fresh jitter. If unhealthy, freeze (deadline unchanged).
+	if isHealthy {
+		base := dt.config.GetPrimaryElectionTimeoutBase()
 		maxJitter := dt.config.GetPrimaryElectionTimeoutMaxJitter()
 
 		// Clamp to reasonable bounds
@@ -109,16 +102,11 @@ func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, isHealthy 
 			jitter = time.Duration(dt.rng.Int64N(int64(maxJitter)))
 		}
 
-		timing = &problemTiming{
-			jitterDuration: jitter,
-		}
-		dt.deadlines[code] = timing
-	}
-
-	// If healthy, reset deadline. If unhealthy, freeze (deadline unchanged).
-	if isHealthy {
-		base := dt.config.GetPrimaryElectionTimeoutBase()
-		timing.deadline = time.Now().Add(base + timing.jitterDuration)
+		dt.deadlines[code] = time.Now().Add(base + jitter)
+	} else if _, exists := dt.deadlines[code]; !exists {
+		// First time seeing this problem unhealthy - initialize with zero time
+		// so we have an entry, but it will be immediately expired
+		dt.deadlines[code] = time.Time{}
 	}
 }
 
@@ -137,7 +125,7 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
-	timing, exists := dt.deadlines[problem.Code]
+	deadline, exists := dt.deadlines[problem.Code]
 	if !exists {
 		// No deadline tracked yet - allow immediate action
 		// (This shouldn't happen in normal flow, but be safe)
@@ -145,7 +133,7 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 	}
 
 	// Check if deadline has expired
-	return time.Now().After(timing.deadline) || time.Now().Equal(timing.deadline)
+	return time.Now().After(deadline) || time.Now().Equal(deadline)
 }
 
 // Delete removes the deadline entry for a specific problem type.

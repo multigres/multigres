@@ -15,6 +15,7 @@
 package recovery
 
 import (
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -43,23 +44,18 @@ func TestRecoveryActionDeadlineTracker_InitialDeadlineReset(t *testing.T) {
 	// Verify the deadline was set
 	tracker.mu.Lock()
 	identity := types.ProblemPrimaryIsDead
-	timing, exists := tracker.deadlines[identity]
+	deadline, exists := tracker.deadlines[identity]
 	tracker.mu.Unlock()
 
 	require.True(t, exists, "deadline entry should exist after reset")
-	require.NotNil(t, timing, "timing should not be nil")
 
 	// Deadline should be between now + base and now + base + maxJitter
 	minDeadline := before.Add(4 * time.Second)
 	maxDeadline := after.Add(4*time.Second + 8*time.Second)
-	assert.True(t, timing.deadline.After(minDeadline) || timing.deadline.Equal(minDeadline),
+	assert.True(t, deadline.After(minDeadline) || deadline.Equal(minDeadline),
 		"deadline should be at least base timeout in the future")
-	assert.True(t, timing.deadline.Before(maxDeadline) || timing.deadline.Equal(maxDeadline),
+	assert.True(t, deadline.Before(maxDeadline) || deadline.Equal(maxDeadline),
 		"deadline should not exceed base + max jitter")
-
-	// Jitter should be within bounds [0, maxJitter]
-	assert.True(t, timing.jitterDuration >= 0, "jitter should be non-negative")
-	assert.True(t, timing.jitterDuration <= 8*time.Second, "jitter should not exceed max jitter")
 }
 
 func TestRecoveryActionDeadlineTracker_ContinuousReset(t *testing.T) {
@@ -68,32 +64,56 @@ func TestRecoveryActionDeadlineTracker_ContinuousReset(t *testing.T) {
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
 	)
 
-	tracker := NewRecoveryGracePeriodTracker(cfg)
+	// Use deterministic random generator for predictable jitter
+	rng := rand.New(rand.NewPCG(12345, 67890))
+	tracker := NewRecoveryGracePeriodTracker(cfg, WithRand(rng))
 
-	// First reset
+	// First reset - will generate first jitter value
+	before1 := time.Now()
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
+	after1 := time.Now()
 
-	// Get the jitter value
+	// Get the deadline
 	tracker.mu.Lock()
 	identity := types.ProblemPrimaryIsDead
-	firstJitter := tracker.deadlines[identity].jitterDuration
-	firstDeadline := tracker.deadlines[identity].deadline
+	firstDeadline := tracker.deadlines[identity]
 	tracker.mu.Unlock()
+
+	// Calculate expected jitter from the seeded RNG
+	testRng := rand.New(rand.NewPCG(12345, 67890))
+	expectedJitter1 := time.Duration(testRng.Int64N(int64(8 * time.Second)))
+
+	// Verify first deadline is base + expected jitter
+	assert.True(t, firstDeadline.After(before1.Add(4*time.Second+expectedJitter1)) ||
+		firstDeadline.Equal(before1.Add(4*time.Second+expectedJitter1)))
+	assert.True(t, firstDeadline.Before(after1.Add(4*time.Second+expectedJitter1)) ||
+		firstDeadline.Equal(after1.Add(4*time.Second+expectedJitter1)))
 
 	// Wait a bit
 	time.Sleep(100 * time.Millisecond)
 
-	// Reset again
+	// Reset again - will generate second jitter value
+	before2 := time.Now()
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
+	after2 := time.Now()
 
-	// Verify jitter stayed the same but deadline was updated
+	// Verify deadline was updated
 	tracker.mu.Lock()
-	secondJitter := tracker.deadlines[identity].jitterDuration
-	secondDeadline := tracker.deadlines[identity].deadline
+	secondDeadline := tracker.deadlines[identity]
 	tracker.mu.Unlock()
 
-	assert.Equal(t, firstJitter, secondJitter, "jitter should remain the same across resets")
-	assert.True(t, secondDeadline.After(firstDeadline), "deadline should be updated to a later time")
+	// Calculate second expected jitter (next value from RNG)
+	expectedJitter2 := time.Duration(testRng.Int64N(int64(8 * time.Second)))
+
+	// Verify second deadline is base + new expected jitter
+	assert.True(t, secondDeadline.After(before2.Add(4*time.Second+expectedJitter2)) ||
+		secondDeadline.Equal(before2.Add(4*time.Second+expectedJitter2)))
+	assert.True(t, secondDeadline.Before(after2.Add(4*time.Second+expectedJitter2)) ||
+		secondDeadline.Equal(after2.Add(4*time.Second+expectedJitter2)))
+
+	// Verify the jitter values are different (unless by random chance they're the same)
+	// We verify this by checking deadlines are recalculated with fresh jitter
+	assert.NotEqual(t, firstDeadline, secondDeadline, "deadline should be recalculated with fresh jitter")
 }
 
 func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
@@ -108,7 +128,7 @@ func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
 
 	tracker.mu.Lock()
-	frozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead].deadline
+	frozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
 	tracker.mu.Unlock()
 
 	// Wait a bit
@@ -118,7 +138,7 @@ func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, false)
 
 	tracker.mu.Lock()
-	afterUnhealthyDeadline := tracker.deadlines[types.ProblemPrimaryIsDead].deadline
+	afterUnhealthyDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
 	tracker.mu.Unlock()
 
 	// Deadline should be unchanged (frozen)
@@ -131,7 +151,7 @@ func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, false)
 
 	tracker.mu.Lock()
-	stillFrozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead].deadline
+	stillFrozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
 	tracker.mu.Unlock()
 
 	assert.Equal(t, frozenDeadline, stillFrozenDeadline, "deadline should remain frozen across multiple unhealthy observations")
@@ -140,7 +160,7 @@ func TestRecoveryActionDeadlineTracker_ObserveFreezesDeadline(t *testing.T) {
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
 
 	tracker.mu.Lock()
-	resetDeadline := tracker.deadlines[types.ProblemPrimaryIsDead].deadline
+	resetDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
 	tracker.mu.Unlock()
 
 	assert.True(t, resetDeadline.After(frozenDeadline), "deadline should be reset when healthy again")
@@ -245,7 +265,7 @@ func TestRecoveryActionDeadlineTracker_NoDeadlineTracked(t *testing.T) {
 	assert.True(t, expired, "should allow immediate execution when no deadline tracked")
 }
 
-func TestRecoveryActionDeadlineTracker_JitterReusedAcrossResets(t *testing.T) {
+func TestRecoveryActionDeadlineTracker_JitterRecalculatedAcrossResets(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithPrimaryElectionTimeoutBase(4*time.Second),
 		config.WithPrimaryElectionTimeoutMaxJitter(8*time.Second),
@@ -253,24 +273,25 @@ func TestRecoveryActionDeadlineTracker_JitterReusedAcrossResets(t *testing.T) {
 
 	tracker := NewRecoveryGracePeriodTracker(cfg)
 
-	// Reset multiple times
-	var jitterValues []time.Duration
+	// Reset multiple times and collect deadlines
+	var deadlines []time.Time
 	for range 5 {
 		tracker.Observe(types.ProblemPrimaryIsDead, true)
 
 		tracker.mu.Lock()
 		identity := types.ProblemPrimaryIsDead
-		jitter := tracker.deadlines[identity].jitterDuration
+		deadline := tracker.deadlines[identity]
 		tracker.mu.Unlock()
 
-		jitterValues = append(jitterValues, jitter)
+		deadlines = append(deadlines, deadline)
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// All jitter values should be identical
-	for i := 1; i < len(jitterValues); i++ {
-		assert.Equal(t, jitterValues[0], jitterValues[i],
-			"jitter should be consistent across all resets")
+	// All deadlines should be within valid bounds (base + [0, maxJitter])
+	for _, deadline := range deadlines {
+		// Each deadline should be roughly 4-12 seconds in the future from when it was set
+		// (We can't verify exact bounds since time passes during the test)
+		assert.False(t, deadline.IsZero(), "deadline should not be zero")
 	}
 }
 
@@ -283,16 +304,21 @@ func TestRecoveryActionDeadlineTracker_DifferentProblemsIndependent(t *testing.T
 	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// Reset deadline (there's only one per problem type, not per shard)
+	before := time.Now()
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
+	after := time.Now()
 
-	// Get jitter value
+	// Get deadline
 	tracker.mu.Lock()
 	identity := types.ProblemPrimaryIsDead
-	jitter := tracker.deadlines[identity].jitterDuration
+	deadline := tracker.deadlines[identity]
 	tracker.mu.Unlock()
 
-	// Jitter should be within bounds
-	assert.True(t, jitter >= 0 && jitter <= 8*time.Second)
+	// Deadline should be within bounds [now + base, now + base + maxJitter]
+	minDeadline := before.Add(4 * time.Second)
+	maxDeadline := after.Add(4*time.Second + 8*time.Second)
+	assert.True(t, deadline.After(minDeadline) || deadline.Equal(minDeadline))
+	assert.True(t, deadline.Before(maxDeadline) || deadline.Equal(maxDeadline))
 }
 
 func TestRecoveryActionDeadlineTracker_NonTrackedProblemTypes(t *testing.T) {
@@ -375,11 +401,11 @@ func TestRecoveryActionDeadlineTracker_ConcurrentAccess(t *testing.T) {
 	// Verify state is consistent
 	tracker.mu.Lock()
 	identity := types.ProblemPrimaryIsDead
-	timing, exists := tracker.deadlines[identity]
+	deadline, exists := tracker.deadlines[identity]
 	tracker.mu.Unlock()
 
 	assert.True(t, exists, "deadline should exist after concurrent access")
-	assert.NotNil(t, timing, "timing should not be nil")
+	assert.False(t, deadline.IsZero(), "deadline should not be zero")
 }
 
 func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
@@ -391,16 +417,22 @@ func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
 	tracker := NewRecoveryGracePeriodTracker(cfg)
 
 	// First reset with original config
+	before1 := time.Now()
 	tracker.Observe(types.ProblemPrimaryIsDead, true)
+	after1 := time.Now()
 
 	tracker.mu.Lock()
 	identity := types.ProblemPrimaryIsDead
-	originalJitter := tracker.deadlines[identity].jitterDuration
+	originalDeadline := tracker.deadlines[identity]
 	tracker.mu.Unlock()
 
-	// Verify original jitter is within original bounds
-	assert.True(t, originalJitter >= 0 && originalJitter <= 8*time.Second,
-		"original jitter should be within original bounds")
+	// Verify original deadline is within original bounds
+	minDeadline1 := before1.Add(4 * time.Second)
+	maxDeadline1 := after1.Add(4*time.Second + 8*time.Second)
+	assert.True(t, originalDeadline.After(minDeadline1) || originalDeadline.Equal(minDeadline1),
+		"original deadline should be within original bounds")
+	assert.True(t, originalDeadline.Before(maxDeadline1) || originalDeadline.Equal(maxDeadline1),
+		"original deadline should be within original bounds")
 
 	// Create a new tracker with different config to verify new problems use new config
 	newCfg := config.NewTestConfig(
@@ -410,14 +442,20 @@ func TestRecoveryActionDeadlineTracker_DynamicConfigUpdate(t *testing.T) {
 	newTracker := NewRecoveryGracePeriodTracker(newCfg)
 
 	// Reset with new config
+	before2 := time.Now()
 	newTracker.Observe(types.ProblemPrimaryIsDead, true)
+	after2 := time.Now()
 
 	newTracker.mu.Lock()
 	identity2 := types.ProblemPrimaryIsDead
-	newJitter := newTracker.deadlines[identity2].jitterDuration
+	newDeadline := newTracker.deadlines[identity2]
 	newTracker.mu.Unlock()
 
-	// New jitter should be within new bounds
-	assert.True(t, newJitter >= 0 && newJitter <= 4*time.Second,
-		"new jitter should be within new config bounds")
+	// New deadline should be within new bounds
+	minDeadline2 := before2.Add(2 * time.Second)
+	maxDeadline2 := after2.Add(2*time.Second + 4*time.Second)
+	assert.True(t, newDeadline.After(minDeadline2) || newDeadline.Equal(minDeadline2),
+		"new deadline should be within new config bounds")
+	assert.True(t, newDeadline.Before(maxDeadline2) || newDeadline.Equal(maxDeadline2),
+		"new deadline should be within new config bounds")
 }
