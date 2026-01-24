@@ -277,10 +277,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Assertions - after 3 failovers, term_number should be >= 3
 		assert.GreaterOrEqual(t, termNumber, int64(3), "term_number should be >= 3 after 3 failovers")
 		assert.Contains(t, leaderID, finalPrimaryName, "leader_id should contain final primary name")
-		// Verify coordinator_id matches the multiorch's cell_name format
-		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := setup.CellName + "_multiorch"
-		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
+		// Verify coordinator_id matches the multiorch's cell_name format (with multiple multiorchs, any could be coordinator)
+		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
+		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
 		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
 
