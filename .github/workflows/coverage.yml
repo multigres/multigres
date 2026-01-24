@@ -160,3 +160,17 @@ jobs:
         with:
           file: ./coverage-merged.txt
           format: golang
+          parallel: true
+          flag-name: merged
+
+  coveralls-finish:
+    name: Finish Coveralls upload
+    runs-on: ubuntu-24.04
+    needs: [coverage-direct, coverage-subprocess, merge-and-upload]
+    if: success()
+
+    steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+        with:
+          parallel-finished: true
