@@ -1129,7 +1129,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
 	// Observe the problem as unhealthy (this would normally happen in performRecoveryCycle)
-	engine.deadlineTracker.Observe(types.ProblemPrimaryIsDead, "multipooler-cell1-primary-pooler", problems[0].RecoveryAction, false)
+	engine.recoveryGracePeriodTracker.Observe(types.ProblemPrimaryIsDead, "multipooler-cell1-primary-pooler", problems[0].RecoveryAction, false)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{

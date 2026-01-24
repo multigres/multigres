@@ -91,7 +91,7 @@ func (re *Engine) performRecoveryCycle() {
 			// Observe health for this specific (pooler, analyzer) combination
 			isHealthy := problem == nil
 			poolerID := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
-			re.deadlineTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
+			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
 
 			// Only append to problems list if detected
 			if problem != nil {
@@ -242,7 +242,7 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	)
 
 	// Check if deadline has expired (noop for problems without deadline tracking)
-	if !re.deadlineTracker.ShouldExecute(problem) {
+	if !re.recoveryGracePeriodTracker.ShouldExecute(problem) {
 		return
 	}
 

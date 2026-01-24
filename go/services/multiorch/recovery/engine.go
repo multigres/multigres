@@ -264,8 +264,8 @@ type Engine struct {
 	// Action factory for creating recovery actions
 	actionFactory *analysis.RecoveryActionFactory
 
-	// Deadline tracker for grace periods before recovery actions
-	deadlineTracker *RecoveryGracePeriodTracker
+	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
+	recoveryGracePeriodTracker *RecoveryGracePeriodTracker
 
 	// Context for shutting down loops
 	shutdownCtx context.Context
@@ -336,7 +336,7 @@ func NewEngine(
 	)
 
 	// Create deadline tracker for grace periods
-	engine.deadlineTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
+	engine.recoveryGracePeriodTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
 		WithLogger(logger))
 
 	return engine
