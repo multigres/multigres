@@ -30,16 +30,19 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	commontypes "github.com/multigres/multigres/go/common/types"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/telemetry"
+
+	commontypes "github.com/multigres/multigres/go/common/types"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // customAnalyzer is a test analyzer that can use a custom analyze function.
@@ -109,11 +112,15 @@ type mockRecoveryAction struct {
 	requiresHealthyPrimary bool
 	executed               bool
 	executeErr             error
+	executeFn              func(ctx context.Context, problem types.Problem) error
 	metadata               types.RecoveryMetadata
 	gracePeriod            *types.GracePeriodConfig
 }
 
 func (m *mockRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
+	if m.executeFn != nil {
+		return m.executeFn(ctx, problem)
+	}
 	m.executed = true
 	return m.executeErr
 }
@@ -1122,7 +1129,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
 	// Observe the problem as unhealthy (this would normally happen in performRecoveryCycle)
-	engine.deadlineTracker.Observe(types.ProblemPrimaryIsDead, problems[0].RecoveryAction, false)
+	engine.deadlineTracker.Observe(types.ProblemPrimaryIsDead, "multipooler-cell1-primary-pooler", problems[0].RecoveryAction, false)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{
@@ -1806,4 +1813,175 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	// Cycle 3: Grace period expired, action should execute
 	engine.performRecoveryCycle()
 	require.True(t, mockAction.executed, "action should execute after grace period expires")
+}
+
+// TestRecoveryLoop_PerPoolerGracePeriod tests that different poolers with the same
+// problem type have independent grace periods.
+func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// Configure with a short grace period for testing (100ms base, 0 jitter)
+	cfg := config.NewTestConfig(
+		config.WithCell("cell1"),
+		config.WithPrimaryFailoverGracePeriodBase(100*time.Millisecond),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(0), // No jitter for predictable test
+	)
+
+	fakeClient := rpcclient.NewFakeClient()
+
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, newTestCoordinator(ts, fakeClient, "cell1"))
+
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "primary-pooler",
+	}
+
+	replica1ID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1-pooler",
+	}
+
+	replica2ID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica2-pooler",
+	}
+
+	// Set up store state: all poolers healthy
+	primaryPooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       primaryID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-host",
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+	}
+	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+
+	replica1Pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       replica1ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica1-host",
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+	}
+	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
+
+	replica2Pooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       replica2ID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica2-host",
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+	}
+	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
+
+	// Track action execution per pooler
+	var mu sync.Mutex
+	executedPoolers := make(map[string]bool)
+
+	mockAction := &mockRecoveryAction{
+		name:     "TestPerPoolerGracePeriodAction",
+		priority: types.PriorityNormal,
+		timeout:  10 * time.Second,
+		gracePeriod: &types.GracePeriodConfig{
+			BaseDelay: 100 * time.Millisecond,
+			MaxJitter: 0, // No jitter for predictable test
+		},
+		executeFn: func(ctx context.Context, problem types.Problem) error {
+			mu.Lock()
+			defer mu.Unlock()
+			poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+			executedPoolers[poolerIDStr] = true
+			t.Logf("Action executed for pooler: %s", poolerIDStr)
+			return nil
+		},
+	}
+
+	// Custom test problem code
+	testProblemCode := types.ProblemCode("TestPerPoolerGracePeriodProblem")
+
+	// Create custom analyzer that detects the problem for both replicas
+	analyzer := &customAnalyzer{
+		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+			// Detect problem for both replicas (not primary)
+			if a.PoolerID != nil && (a.PoolerID.Name == "replica1-pooler" || a.PoolerID.Name == "replica2-pooler") {
+				return &types.Problem{
+					Code:           testProblemCode,
+					CheckName:      "TestPerPoolerGracePeriodAnalyzer",
+					PoolerID:       a.PoolerID,
+					ShardKey:       a.ShardKey,
+					Priority:       types.PriorityNormal,
+					Scope:          types.ScopePooler, // Pooler-specific problem
+					RecoveryAction: mockAction,
+					DetectedAt:     time.Now(),
+					Description:    "Test problem for per-pooler grace period",
+				}
+			}
+			return nil // Primary doesn't detect the problem
+		},
+		name:           "TestPerPoolerGracePeriodAnalyzer",
+		problemCode:    testProblemCode,
+		recoveryAction: mockAction,
+	}
+
+	analysis.SetTestAnalyzers([]analysis.Analyzer{analyzer})
+	t.Cleanup(analysis.ResetAnalyzers)
+
+	// Cycle 1: Problems detected for both replicas, grace periods start independently
+	t.Log("=== Cycle 1: Initial detection for both replicas ===")
+	engine.performRecoveryCycle()
+
+	mu.Lock()
+	replica1Executed := executedPoolers["multipooler-cell1-replica1-pooler"]
+	replica2Executed := executedPoolers["multipooler-cell1-replica2-pooler"]
+	mu.Unlock()
+
+	require.False(t, replica1Executed, "replica1 action should not execute immediately - grace period active")
+	require.False(t, replica2Executed, "replica2 action should not execute immediately - grace period active")
+
+	// Cycle 2: Problem still exists, grace period continues (before expiry)
+	time.Sleep(50 * time.Millisecond)
+	t.Log("=== Cycle 2: Mid-grace period ===")
+	engine.performRecoveryCycle()
+
+	mu.Lock()
+	replica1Executed = executedPoolers["multipooler-cell1-replica1-pooler"]
+	replica2Executed = executedPoolers["multipooler-cell1-replica2-pooler"]
+	mu.Unlock()
+
+	require.False(t, replica1Executed, "replica1 action should not execute yet - grace period still active")
+	require.False(t, replica2Executed, "replica2 action should not execute yet - grace period still active")
+
+	// Fast-forward past grace period (100ms + buffer)
+	time.Sleep(100 * time.Millisecond)
+	t.Log("=== Cycle 3: After grace period expiry ===")
+
+	// Cycle 3: Grace period expired, both actions should execute independently
+	engine.performRecoveryCycle()
+
+	mu.Lock()
+	replica1Executed = executedPoolers["multipooler-cell1-replica1-pooler"]
+	replica2Executed = executedPoolers["multipooler-cell1-replica2-pooler"]
+	mu.Unlock()
+
+	require.True(t, replica1Executed, "replica1 action should execute after grace period expires")
+	require.True(t, replica2Executed, "replica2 action should execute after grace period expires")
 }

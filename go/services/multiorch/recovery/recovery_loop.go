@@ -73,9 +73,6 @@ func (re *Engine) performRecoveryCycle() {
 	var problems []types.Problem
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 
-	// Track which problem codes have been detected
-	detectedProblems := make(map[types.ProblemCode]bool)
-
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
 			problem, err := analyzer.Analyze(poolerAnalysis)
@@ -91,20 +88,16 @@ func (re *Engine) performRecoveryCycle() {
 				continue
 			}
 
+			// Observe health for this specific (pooler, analyzer) combination
+			isHealthy := problem == nil
+			poolerID := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
+			re.deadlineTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
+
 			// Only append to problems list if detected
 			if problem != nil {
 				problems = append(problems, *problem)
-				// Mark this problem code as detected
-				detectedProblems[problem.Code] = true
 			}
 		}
-	}
-
-	// Observe health for each analyzer (once per cycle, not once per pooler)
-	// This updates grace period tracking based on whether problems were detected
-	for _, analyzer := range analyzers {
-		isHealthy := !detectedProblems[analyzer.ProblemCode()]
-		re.deadlineTracker.Observe(analyzer.ProblemCode(), analyzer.RecoveryAction(), isHealthy)
 	}
 
 	// Update detected problems metric

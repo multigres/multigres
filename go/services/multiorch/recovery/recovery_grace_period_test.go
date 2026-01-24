@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
@@ -71,13 +72,13 @@ func TestRecoveryGracePeriod_InitialDeadlineReset(t *testing.T) {
 
 	// First reset - should calculate jitter and set deadline
 	before := time.Now()
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 	after := time.Now()
 
 	// Verify the deadline was set
 	tracker.mu.Lock()
-	identity := types.ProblemPrimaryIsDead
-	deadline, exists := tracker.deadlines[identity]
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	deadline, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
 	require.True(t, exists, "deadline entry should exist after reset")
@@ -111,13 +112,13 @@ func TestRecoveryGracePeriod_ContinuousReset(t *testing.T) {
 
 	// First reset - will generate first jitter value
 	before1 := time.Now()
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 	after1 := time.Now()
 
 	// Get the deadline
 	tracker.mu.Lock()
-	identity := types.ProblemPrimaryIsDead
-	firstDeadline := tracker.deadlines[identity]
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	firstDeadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
 	// Calculate expected jitter from the seeded RNG
@@ -135,12 +136,12 @@ func TestRecoveryGracePeriod_ContinuousReset(t *testing.T) {
 
 	// Reset again - will generate second jitter value
 	before2 := time.Now()
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 	after2 := time.Now()
 
 	// Verify deadline was updated
 	tracker.mu.Lock()
-	secondDeadline := tracker.deadlines[identity]
+	secondDeadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
 	// Calculate second expected jitter (next value from RNG)
@@ -173,20 +174,20 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	}
 
 	// Observe healthy state - sets deadline
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 	tracker.mu.Lock()
-	frozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
+	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	// Wait a bit
 	time.Sleep(100 * time.Millisecond)
 
 	// Observe unhealthy state - should NOT change deadline (freeze it)
-	tracker.Observe(types.ProblemPrimaryIsDead, action, false)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, false)
 
 	tracker.mu.Lock()
-	afterUnhealthyDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
+	afterUnhealthyDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	// Deadline should be unchanged (frozen)
@@ -196,19 +197,19 @@ func TestRecoveryGracePeriod_ObserveFreezesDeadline(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Observe unhealthy again - still frozen
-	tracker.Observe(types.ProblemPrimaryIsDead, action, false)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, false)
 
 	tracker.mu.Lock()
-	stillFrozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
+	stillFrozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	assert.Equal(t, frozenDeadline, stillFrozenDeadline, "deadline should remain frozen across multiple unhealthy observations")
 
 	// Observe healthy again - should reset deadline
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 	tracker.mu.Lock()
-	resetDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
+	resetDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}]
 	tracker.mu.Unlock()
 
 	assert.True(t, resetDeadline.After(frozenDeadline), "deadline should be reset when healthy again")
@@ -235,9 +236,6 @@ func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 		Shard:      "0",
 	}
 
-	// Reset deadline (now + 10s)
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
-
 	// Create a problem
 	problem := types.Problem{
 		Code:           types.ProblemPrimaryIsDead,
@@ -249,6 +247,9 @@ func TestRecoveryGracePeriod_DeadlineNotExpired(t *testing.T) {
 			Name:      "primary-1",
 		},
 	}
+
+	// Reset deadline (now + 10s)
+	tracker.Observe(types.ProblemPrimaryIsDead, topoclient.MultiPoolerIDString(problem.PoolerID), action, true)
 
 	// Check immediately - should not be expired
 	expired := tracker.ShouldExecute(problem)
@@ -276,9 +277,6 @@ func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 		Shard:      "0",
 	}
 
-	// Reset deadline (now + 100ms)
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
-
 	// Create a problem
 	problem := types.Problem{
 		Code:           types.ProblemPrimaryIsDead,
@@ -290,6 +288,9 @@ func TestRecoveryGracePeriod_DeadlineExpired(t *testing.T) {
 			Name:      "primary-1",
 		},
 	}
+
+	// Reset deadline (now + 100ms)
+	tracker.Observe(types.ProblemPrimaryIsDead, topoclient.MultiPoolerIDString(problem.PoolerID), action, true)
 
 	// Wait for deadline to expire
 	time.Sleep(150 * time.Millisecond)
@@ -353,11 +354,11 @@ func TestRecoveryGracePeriod_JitterRecalculatedAcrossResets(t *testing.T) {
 	// Reset multiple times and collect deadlines
 	var deadlines []time.Time
 	for range 5 {
-		tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+		tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 
 		tracker.mu.Lock()
-		identity := types.ProblemPrimaryIsDead
-		deadline := tracker.deadlines[identity]
+		key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+		deadline := tracker.deadlines[key]
 		tracker.mu.Unlock()
 
 		deadlines = append(deadlines, deadline)
@@ -389,13 +390,13 @@ func TestRecoveryGracePeriod_DifferentProblemsIndependent(t *testing.T) {
 
 	// Reset deadline (there's only one per problem type, not per shard)
 	before := time.Now()
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 	after := time.Now()
 
 	// Get deadline
 	tracker.mu.Lock()
-	identity := types.ProblemPrimaryIsDead
-	deadline := tracker.deadlines[identity]
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	deadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
 	// Deadline should be within bounds [now + base, now + base + maxJitter]
@@ -444,14 +445,16 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	testRng := rand.New(rand.NewPCG(99999, 88888))
 	expectedJitter := time.Duration(testRng.Int64N(int64(8 * time.Second)))
 
+	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+
 	// First observation is unhealthy (problem detected immediately)
 	before := time.Now()
-	tracker.Observe(types.ProblemPrimaryIsDead, action, false)
+	tracker.Observe(types.ProblemPrimaryIsDead, poolerIDStr, action, false)
 	after := time.Now()
 
 	// Verify deadline was initialized with base + jitter
 	tracker.mu.Lock()
-	deadline, exists := tracker.deadlines[types.ProblemPrimaryIsDead]
+	deadline, exists := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}]
 	tracker.mu.Unlock()
 
 	require.True(t, exists, "deadline should be initialized even when first observation is unhealthy")
@@ -469,10 +472,10 @@ func TestRecoveryGracePeriod_FirstObserveUnhealthy(t *testing.T) {
 	assert.False(t, shouldExecute, "should not execute immediately when first observed as unhealthy")
 
 	// Observe unhealthy again - deadline should remain frozen (exact same value)
-	tracker.Observe(types.ProblemPrimaryIsDead, action, false)
+	tracker.Observe(types.ProblemPrimaryIsDead, poolerIDStr, action, false)
 
 	tracker.mu.Lock()
-	frozenDeadline := tracker.deadlines[types.ProblemPrimaryIsDead]
+	frozenDeadline := tracker.deadlines[gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}]
 	tracker.mu.Unlock()
 
 	assert.Equal(t, deadline, frozenDeadline, "deadline should remain frozen on subsequent unhealthy observations")
@@ -495,17 +498,6 @@ func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 		gracePeriod: nil,
 	}
 
-	// Reset should be a noop for non-tracked problem types
-	tracker.Observe(types.ProblemReplicaNotReplicating, action, true)
-
-	// Verify no entry was created
-	tracker.mu.Lock()
-	identity := types.ProblemReplicaNotReplicating
-	_, exists := tracker.deadlines[identity]
-	tracker.mu.Unlock()
-
-	assert.False(t, exists, "should not create deadline entry for non-tracked problem types")
-
 	// IsDeadlineExpired should return true (execute immediately)
 	problem := types.Problem{
 		Code:           types.ProblemReplicaNotReplicating,
@@ -521,6 +513,19 @@ func TestRecoveryGracePeriod_NonTrackedProblemTypes(t *testing.T) {
 			Name:      "replica-1",
 		},
 	}
+
+	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+
+	// Reset should be a noop for non-tracked problem types
+	tracker.Observe(types.ProblemReplicaNotReplicating, poolerIDStr, action, true)
+
+	// Verify no entry was created
+	tracker.mu.Lock()
+	key := gracePeriodKey{code: types.ProblemReplicaNotReplicating, poolerID: poolerIDStr}
+	_, exists := tracker.deadlines[key]
+	tracker.mu.Unlock()
+
+	assert.False(t, exists, "should not create deadline entry for non-tracked problem types")
 
 	expired := tracker.ShouldExecute(problem)
 	assert.True(t, expired, "non-tracked problem types should execute immediately")
@@ -556,12 +561,14 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 		},
 	}
 
+	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
+
 	// Run concurrent operations
 	done := make(chan bool)
 	for range 10 {
 		go func() {
 			for range 100 {
-				tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+				tracker.Observe(types.ProblemPrimaryIsDead, poolerIDStr, action, true)
 				tracker.ShouldExecute(problem)
 			}
 			done <- true
@@ -575,8 +582,8 @@ func TestRecoveryGracePeriod_ConcurrentAccess(t *testing.T) {
 
 	// Verify state is consistent
 	tracker.mu.Lock()
-	identity := types.ProblemPrimaryIsDead
-	deadline, exists := tracker.deadlines[identity]
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: poolerIDStr}
+	deadline, exists := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
 	assert.True(t, exists, "deadline should exist after concurrent access")
@@ -600,12 +607,12 @@ func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 
 	// First reset with original config
 	before1 := time.Now()
-	tracker.Observe(types.ProblemPrimaryIsDead, action, true)
+	tracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", action, true)
 	after1 := time.Now()
 
 	tracker.mu.Lock()
-	identity := types.ProblemPrimaryIsDead
-	originalDeadline := tracker.deadlines[identity]
+	key := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	originalDeadline := tracker.deadlines[key]
 	tracker.mu.Unlock()
 
 	// Verify original deadline is within original bounds
@@ -632,12 +639,12 @@ func TestRecoveryGracePeriod_DynamicConfigUpdate(t *testing.T) {
 
 	// Reset with new config
 	before2 := time.Now()
-	newTracker.Observe(types.ProblemPrimaryIsDead, newAction, true)
+	newTracker.Observe(types.ProblemPrimaryIsDead, "zone1-pooler1", newAction, true)
 	after2 := time.Now()
 
 	newTracker.mu.Lock()
-	identity2 := types.ProblemPrimaryIsDead
-	newDeadline := newTracker.deadlines[identity2]
+	key2 := gracePeriodKey{code: types.ProblemPrimaryIsDead, poolerID: "zone1-pooler1"}
+	newDeadline := newTracker.deadlines[key2]
 	newTracker.mu.Unlock()
 
 	// New deadline should be within new bounds
