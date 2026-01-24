@@ -35,7 +35,15 @@ func (a *PrimaryIsDeadAnalyzer) Name() types.CheckName {
 	return "PrimaryIsDead"
 }
 
-func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (a *PrimaryIsDeadAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemPrimaryIsDead
+}
+
+func (a *PrimaryIsDeadAnalyzer) RecoveryAction() types.RecoveryAction {
+	return a.factory.NewAppointLeaderAction()
+}
+
+func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -77,7 +85,7 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, nil
 	}
 
-	return []types.Problem{{
+	return &types.Problem{
 		Code:           types.ProblemPrimaryIsDead,
 		CheckName:      "PrimaryIsDead",
 		PoolerID:       poolerAnalysis.PoolerID,
@@ -87,5 +95,5 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
 		RecoveryAction: a.factory.NewAppointLeaderAction(),
-	}}, nil
+	}, nil
 }

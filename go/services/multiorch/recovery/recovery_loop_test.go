@@ -44,15 +44,25 @@ import (
 
 // customAnalyzer is a test analyzer that can use a custom analyze function.
 type customAnalyzer struct {
-	analyzeFn func(*store.ReplicationAnalysis) []types.Problem
-	name      string
+	analyzeFn      func(*store.ReplicationAnalysis) *types.Problem
+	name           string
+	problemCode    types.ProblemCode
+	recoveryAction types.RecoveryAction
 }
 
 func (c *customAnalyzer) Name() types.CheckName {
 	return types.CheckName(c.name)
 }
 
-func (c *customAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (c *customAnalyzer) ProblemCode() types.ProblemCode {
+	return c.problemCode
+}
+
+func (c *customAnalyzer) RecoveryAction() types.RecoveryAction {
+	return c.recoveryAction
+}
+
+func (c *customAnalyzer) Analyze(a *store.ReplicationAnalysis) (*types.Problem, error) {
 	return c.analyzeFn(a), nil
 }
 
@@ -100,6 +110,7 @@ type mockRecoveryAction struct {
 	executed               bool
 	executeErr             error
 	metadata               types.RecoveryMetadata
+	gracePeriod            *types.GracePeriodConfig
 }
 
 func (m *mockRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
@@ -129,7 +140,7 @@ func (m *mockRecoveryAction) Priority() types.Priority {
 }
 
 func (m *mockRecoveryAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
+	return m.gracePeriod
 }
 
 func TestGroupProblemsByShard(t *testing.T) {
@@ -540,21 +551,27 @@ func (m *mockPrimaryDeadAnalyzer) Name() types.CheckName {
 	return "MockPrimaryDeadCheck"
 }
 
-func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (m *mockPrimaryDeadAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemPrimaryIsDead
+}
+
+func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
+	return m.recoveryAction
+}
+
+func (m *mockPrimaryDeadAnalyzer) Analyze(a *store.ReplicationAnalysis) (*types.Problem, error) {
 	// Detect if this is a primary that is unreachable
 	if a.IsPrimary && !a.LastCheckValid {
-		return []types.Problem{
-			{
-				Code:           types.ProblemPrimaryIsDead,
-				CheckName:      m.Name(),
-				PoolerID:       a.PoolerID,
-				ShardKey:       a.ShardKey,
-				Priority:       types.PriorityEmergency,
-				Scope:          types.ScopeShard,
-				RecoveryAction: m.recoveryAction,
-				DetectedAt:     time.Now(),
-				Description:    "Primary is unreachable",
-			},
+		return &types.Problem{
+			Code:           types.ProblemPrimaryIsDead,
+			CheckName:      m.Name(),
+			PoolerID:       a.PoolerID,
+			ShardKey:       a.ShardKey,
+			Priority:       types.PriorityEmergency,
+			Scope:          types.ScopeShard,
+			RecoveryAction: m.recoveryAction,
+			DetectedAt:     time.Now(),
+			Description:    "Primary is unreachable",
 		}, nil
 	}
 	return nil, nil
@@ -569,21 +586,27 @@ func (m *mockReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "MockReplicationStoppedCheck"
 }
 
-func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (m *mockReplicaNotReplicatingAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemReplicaNotReplicating
+}
+
+func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
+	return m.recoveryAction
+}
+
+func (m *mockReplicaNotReplicatingAnalyzer) Analyze(a *store.ReplicationAnalysis) (*types.Problem, error) {
 	// Detect if this is a replica with replication stopped
 	if !a.IsPrimary && a.IsWalReplayPaused {
-		return []types.Problem{
-			{
-				Code:           types.ProblemReplicaNotReplicating,
-				CheckName:      m.Name(),
-				PoolerID:       a.PoolerID,
-				ShardKey:       a.ShardKey,
-				Priority:       types.PriorityHigh,
-				Scope:          types.ScopePooler,
-				RecoveryAction: m.recoveryAction,
-				DetectedAt:     time.Now(),
-				Description:    "Replica replication is paused",
-			},
+		return &types.Problem{
+			Code:           types.ProblemReplicaNotReplicating,
+			CheckName:      m.Name(),
+			PoolerID:       a.PoolerID,
+			ShardKey:       a.ShardKey,
+			Priority:       types.PriorityHigh,
+			Scope:          types.ScopePooler,
+			RecoveryAction: m.recoveryAction,
+			DetectedAt:     time.Now(),
+			Description:    "Replica replication is paused",
 		}, nil
 	}
 	return nil, nil
@@ -719,9 +742,11 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
-				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+				problem, err := analyzer.Analyze(poolerAnalysis)
 				require.NoError(t, err)
-				problems = append(problems, detectedProblems...)
+				if problem != nil {
+					problems = append(problems, *problem)
+				}
 			}
 		}
 
@@ -791,9 +816,11 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 		for _, poolerAnalysis := range analyses {
 			for _, analyzer := range analyzers {
-				detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+				problem, err := analyzer.Analyze(poolerAnalysis)
 				require.NoError(t, err)
-				problems = append(problems, detectedProblems...)
+				if problem != nil {
+					problems = append(problems, *problem)
+				}
 			}
 		}
 
@@ -894,9 +921,11 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			problem, err := analyzer.Analyze(poolerAnalysis)
 			require.NoError(t, err)
-			problems = append(problems, detectedProblems...)
+			if problem != nil {
+				problems = append(problems, *problem)
+			}
 		}
 	}
 
@@ -1081,9 +1110,11 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			problem, err := analyzer.Analyze(poolerAnalysis)
 			require.NoError(t, err)
-			problems = append(problems, detectedProblems...)
+			if problem != nil {
+				problems = append(problems, *problem)
+			}
 		}
 	}
 
@@ -1355,14 +1386,13 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 		executionOrderMu: &mu,
 	}
 
-	// Create custom analyzer that returns multiple problems with different priorities
-	analyzeFunc := func(a *store.ReplicationAnalysis) []types.Problem {
-		if !a.IsPrimary && a.IsWalReplayPaused {
-			// Return three problems with different priorities
-			return []types.Problem{
-				{
+	// Create three separate analyzers, each detecting a problem with different priority
+	normalAnalyzer := &customAnalyzer{
+		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+			if !a.IsPrimary && a.IsWalReplayPaused {
+				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
-					CheckName:      "MultiPriorityAnalyzer",
+					CheckName:      "NormalPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
 					ShardKey:       a.ShardKey,
 					Priority:       types.PriorityNormal,
@@ -1370,10 +1400,21 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					RecoveryAction: normalRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "Normal priority problem",
-				},
-				{
+				}
+			}
+			return nil
+		},
+		name:           "NormalPriorityAnalyzer",
+		problemCode:    types.ProblemReplicaNotReplicating,
+		recoveryAction: normalRecovery,
+	}
+
+	emergencyAnalyzer := &customAnalyzer{
+		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+			if !a.IsPrimary && a.IsWalReplayPaused {
+				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
-					CheckName:      "MultiPriorityAnalyzer",
+					CheckName:      "EmergencyPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
 					ShardKey:       a.ShardKey,
 					Priority:       types.PriorityEmergency,
@@ -1381,10 +1422,21 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					RecoveryAction: emergencyRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "Emergency priority problem",
-				},
-				{
+				}
+			}
+			return nil
+		},
+		name:           "EmergencyPriorityAnalyzer",
+		problemCode:    types.ProblemReplicaNotReplicating,
+		recoveryAction: emergencyRecovery,
+	}
+
+	highAnalyzer := &customAnalyzer{
+		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+			if !a.IsPrimary && a.IsWalReplayPaused {
+				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
-					CheckName:      "MultiPriorityAnalyzer",
+					CheckName:      "HighPriorityAnalyzer",
 					PoolerID:       a.PoolerID,
 					ShardKey:       a.ShardKey,
 					Priority:       types.PriorityHigh,
@@ -1392,19 +1444,17 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 					RecoveryAction: highRecovery,
 					DetectedAt:     time.Now(),
 					Description:    "High priority problem",
-				},
+				}
 			}
-		}
-		return nil
+			return nil
+		},
+		name:           "HighPriorityAnalyzer",
+		problemCode:    types.ProblemReplicaNotReplicating,
+		recoveryAction: highRecovery,
 	}
 
-	analyzer := &customAnalyzer{
-		analyzeFn: analyzeFunc,
-		name:      "MultiPriorityAnalyzer",
-	}
-
-	// Setup test analyzers
-	analysis.SetTestAnalyzers([]analysis.Analyzer{analyzer})
+	// Setup test analyzers - all three will detect problems
+	analysis.SetTestAnalyzers([]analysis.Analyzer{normalAnalyzer, emergencyAnalyzer, highAnalyzer})
 	t.Cleanup(analysis.ResetAnalyzers)
 
 	// Set up store state: replica with problem
@@ -1432,9 +1482,11 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	analyzers := analysis.DefaultAnalyzers(engine.actionFactory)
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			problem, err := analyzer.Analyze(poolerAnalysis)
 			require.NoError(t, err)
-			problems = append(problems, detectedProblems...)
+			if problem != nil {
+				problems = append(problems, *problem)
+			}
 		}
 	}
 
@@ -1510,29 +1562,29 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		Name:      "replica-pooler",
 	}
 
-	analyzeFunc := func(a *store.ReplicationAnalysis) []types.Problem {
+	analyzeFunc := func(a *store.ReplicationAnalysis) *types.Problem {
 		// Detect replica with paused WAL replay
 		if !a.IsPrimary && a.IsWalReplayPaused {
-			return []types.Problem{
-				{
-					Code:           types.ProblemReplicaNotReplicating,
-					CheckName:      "TracingTestAnalyzer",
-					PoolerID:       a.PoolerID,
-					ShardKey:       a.ShardKey,
-					Scope:          types.ScopePooler,
-					Priority:       types.PriorityHigh,
-					RecoveryAction: successAction,
-					DetectedAt:     time.Now(),
-					Description:    "Test problem for span verification",
-				},
+			return &types.Problem{
+				Code:           types.ProblemReplicaNotReplicating,
+				CheckName:      "TracingTestAnalyzer",
+				PoolerID:       a.PoolerID,
+				ShardKey:       a.ShardKey,
+				Scope:          types.ScopePooler,
+				Priority:       types.PriorityHigh,
+				RecoveryAction: successAction,
+				DetectedAt:     time.Now(),
+				Description:    "Test problem for span verification",
 			}
 		}
 		return nil
 	}
 
 	analyzer := &customAnalyzer{
-		analyzeFn: analyzeFunc,
-		name:      "TracingTestAnalyzer",
+		analyzeFn:      analyzeFunc,
+		name:           "TracingTestAnalyzer",
+		problemCode:    types.ProblemReplicaNotReplicating,
+		recoveryAction: successAction,
 	}
 
 	// Setup test analyzers
@@ -1627,4 +1679,131 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 	assert.True(t, foundDatabase, "attempt span should have shard.database attribute")
 	assert.True(t, foundAction, "attempt span should have action.name attribute")
 	assert.True(t, foundProblem, "attempt span should have problem.code attribute")
+}
+
+// TestRecoveryLoop_GracePeriodIntegration tests the full grace period integration:
+// 1. Problem is detected and observed as unhealthy
+// 2. Grace period countdown happens over multiple cycles
+// 3. Action is eventually executed after grace period expires
+func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// Configure with a short grace period for testing (100ms base, 0 jitter)
+	cfg := config.NewTestConfig(
+		config.WithCell("cell1"),
+		config.WithPrimaryFailoverGracePeriodBase(100*time.Millisecond),
+		config.WithPrimaryFailoverGracePeriodMaxJitter(0), // No jitter for predictable test
+	)
+
+	fakeClient := rpcclient.NewFakeClient()
+
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, newTestCoordinator(ts, fakeClient, "cell1"))
+
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "primary-pooler",
+	}
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica-pooler",
+	}
+
+	// Set up store state: both poolers healthy
+	// The analyzer will detect problem only on replica
+	primaryPooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       primaryID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary-host",
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+	}
+	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+
+	replicaPooler := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id:       replicaID,
+			Database: "db1", TableGroup: "tg1", Shard: "0",
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+			Hostname: "replica-host",
+		},
+		IsLastCheckValid: true,
+		IsUpToDate:       true,
+		LastSeen:         timestamppb.Now(),
+	}
+	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
+
+	// Track action execution with grace period configured
+	mockAction := &mockRecoveryAction{
+		name:     "TestGracePeriodAction",
+		priority: types.PriorityEmergency,
+		timeout:  10 * time.Second,
+		gracePeriod: &types.GracePeriodConfig{
+			BaseDelay: 100 * time.Millisecond,
+			MaxJitter: 0, // No jitter for predictable test
+		},
+	}
+
+	// Custom test problem code
+	testProblemCode := types.ProblemCode("TestGracePeriodProblem")
+
+	// Create custom analyzer that detects the problem only for the replica
+	// This tests that observing works correctly even when different poolers
+	// in the same shard return different results
+	analyzer := &customAnalyzer{
+		analyzeFn: func(a *store.ReplicationAnalysis) *types.Problem {
+			// Only detect problem for replica (not primary)
+			// This simulates realistic scenario where problem detection
+			// varies by pooler but should still trigger grace period
+			if a.PoolerID != nil && a.PoolerID.Name == "replica-pooler" {
+				return &types.Problem{
+					Code:           testProblemCode,
+					CheckName:      "TestGracePeriodAnalyzer",
+					PoolerID:       a.PoolerID,
+					ShardKey:       a.ShardKey,
+					Priority:       types.PriorityEmergency,
+					Scope:          types.ScopeShard,
+					RecoveryAction: mockAction,
+					DetectedAt:     time.Now(),
+					Description:    "Test problem for grace period",
+				}
+			}
+			return nil // Primary doesn't detect the problem
+		},
+		name:           "TestGracePeriodAnalyzer",
+		problemCode:    testProblemCode,
+		recoveryAction: mockAction,
+	}
+
+	analysis.SetTestAnalyzers([]analysis.Analyzer{analyzer})
+	t.Cleanup(analysis.ResetAnalyzers)
+
+	// Cycle 1: Problem detected, grace period starts
+	t.Log("=== Cycle 1: Initial detection ===")
+	engine.performRecoveryCycle()
+	require.False(t, mockAction.executed, "action should not execute immediately - grace period active")
+
+	// Cycle 2: Problem still exists, grace period continues (before expiry)
+	time.Sleep(50 * time.Millisecond)
+	t.Log("=== Cycle 2: Mid-grace period ===")
+	engine.performRecoveryCycle()
+	require.False(t, mockAction.executed, "action should not execute yet - grace period still active")
+
+	// Fast-forward past grace period (100ms + buffer)
+	time.Sleep(100 * time.Millisecond)
+	t.Log("=== Cycle 3: After grace period expiry ===")
+
+	// Cycle 3: Grace period expired, action should execute
+	engine.performRecoveryCycle()
+	require.True(t, mockAction.executed, "action should execute after grace period expires")
 }

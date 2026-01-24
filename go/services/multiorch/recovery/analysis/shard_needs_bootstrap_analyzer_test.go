@@ -58,13 +58,13 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemShardNeedsBootstrap, problems[0].Code)
-		require.Equal(t, types.ScopeShard, problems[0].Scope)
-		require.Equal(t, types.PriorityShardBootstrap, problems[0].Priority)
-		require.NotNil(t, problems[0].RecoveryAction)
+		require.NotNil(t, problem)
+		require.Equal(t, types.ProblemShardNeedsBootstrap, problem.Code)
+		require.Equal(t, types.ScopeShard, problem.Scope)
+		require.Equal(t, types.PriorityShardBootstrap, problem.Priority)
+		require.NotNil(t, problem.RecoveryAction)
 	})
 
 	t.Run("ignores initialized pooler", func(t *testing.T) {
@@ -73,9 +73,9 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID: nil,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("ignores uninitialized pooler if primary exists", func(t *testing.T) {
@@ -84,9 +84,9 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("detects bootstrap needed for REPLICA type without data directory", func(t *testing.T) {
@@ -100,10 +100,10 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID:  nil,   // no primary exists
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemShardNeedsBootstrap, problems[0].Code)
+		require.NotNil(t, problem)
+		require.Equal(t, types.ProblemShardNeedsBootstrap, problem.Code)
 	})
 
 	t.Run("skips REPLICA type with data directory", func(t *testing.T) {
@@ -116,9 +116,9 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PrimaryPoolerID:  nil,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {

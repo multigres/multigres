@@ -163,17 +163,17 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			problems, err := analyzer.Analyze(tt.analysis)
+			problem, err := analyzer.Analyze(tt.analysis)
 			require.NoError(t, err)
 
 			if tt.expectProblem {
-				require.Len(t, problems, 1)
-				require.Equal(t, tt.expectedCode, problems[0].Code)
-				require.Equal(t, tt.expectedScope, problems[0].Scope)
-				require.Equal(t, tt.expectedPrio, problems[0].Priority)
-				require.NotNil(t, problems[0].RecoveryAction)
+				require.NotNil(t, problem)
+				require.Equal(t, tt.expectedCode, problem.Code)
+				require.Equal(t, tt.expectedScope, problem.Scope)
+				require.Equal(t, tt.expectedPrio, problem.Priority)
+				require.NotNil(t, problem.RecoveryAction)
 			} else {
-				require.Len(t, problems, 0)
+				require.Nil(t, problem)
 			}
 		})
 	}
@@ -192,9 +192,9 @@ func TestReplicaNotInStandbyListAnalyzer_Analyze(t *testing.T) {
 			IsInPrimaryStandbyList: false,
 		}
 
-		problems, err := nilFactoryAnalyzer.Analyze(analysis)
+		problem, err := nilFactoryAnalyzer.Analyze(analysis)
 		require.Error(t, err)
-		require.Nil(t, problems)
+		require.Nil(t, problem)
 		require.Contains(t, err.Error(), "factory not initialized")
 	})
 }

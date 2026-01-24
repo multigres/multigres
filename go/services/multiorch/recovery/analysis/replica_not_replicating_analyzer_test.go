@@ -60,13 +60,13 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ReplicationStopped:  false,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
-		require.Equal(t, types.ScopePooler, problems[0].Scope)
-		require.Equal(t, types.PriorityHigh, problems[0].Priority)
-		require.NotNil(t, problems[0].RecoveryAction)
+		require.NotNil(t, problem)
+		require.Equal(t, types.ProblemReplicaNotReplicating, problem.Code)
+		require.Equal(t, types.ScopePooler, problem.Scope)
+		require.Equal(t, types.PriorityHigh, problem.Priority)
+		require.NotNil(t, problem.RecoveryAction)
 	})
 
 	t.Run("detects replica with replication stopped", func(t *testing.T) {
@@ -81,10 +81,10 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ReplicationStopped:  true, // Replication stopped
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemReplicaNotReplicating, problems[0].Code)
+		require.NotNil(t, problem)
+		require.Equal(t, types.ProblemReplicaNotReplicating, problem.Code)
 	})
 
 	t.Run("ignores replica with healthy replication", func(t *testing.T) {
@@ -99,9 +99,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			ReplicationStopped:  false,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("ignores primary nodes", func(t *testing.T) {
@@ -113,9 +113,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("ignores uninitialized replica", func(t *testing.T) {
@@ -127,9 +127,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "",
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("ignores replica when primary is unreachable", func(t *testing.T) {
@@ -143,9 +143,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "",
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
@@ -164,9 +164,9 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PrimaryConnInfoHost: "",
 		}
 
-		problems, err := nilFactoryAnalyzer.Analyze(analysis)
+		problem, err := nilFactoryAnalyzer.Analyze(analysis)
 		require.Error(t, err)
-		require.Nil(t, problems)
+		require.Nil(t, problem)
 		require.Contains(t, err.Error(), "factory not initialized")
 	})
 }
