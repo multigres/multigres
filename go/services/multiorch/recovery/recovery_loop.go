@@ -75,10 +75,10 @@ func (re *Engine) performRecoveryCycle() {
 
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			problem, err := analyzer.Analyze(poolerAnalysis)
+			detectedProblem, err := analyzer.Analyze(poolerAnalysis)
 			if err != nil {
 				re.logger.ErrorContext(ctx, "analyzer error",
-					"analyzer", string(analyzer.Name()),
+					"analyzer", analyzer.Name(),
 					"pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID),
 					"error", err,
 				)
@@ -89,13 +89,13 @@ func (re *Engine) performRecoveryCycle() {
 			}
 
 			// Observe health for this specific (pooler, analyzer) combination
-			isHealthy := problem == nil
+			isHealthy := detectedProblem == nil
 			poolerID := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
 			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
 
 			// Only append to problems list if detected
-			if problem != nil {
-				problems = append(problems, *problem)
+			if detectedProblem != nil {
+				problems = append(problems, *detectedProblem)
 			}
 		}
 	}
@@ -263,7 +263,6 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 			"problem_code", problem.Code,
 			"pooler_id", poolerIDStr,
 		)
-		// Problem resolved - Observe() in next cycle will reset deadline
 		return
 	}
 
@@ -294,8 +293,6 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"pooler_id", poolerIDStr,
 	)
 	re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusSuccess, problem.ShardKey.Database, problem.ShardKey.Shard)
-
-	// After successful recovery, Observe() in next cycle will reset deadline
 
 	// Post-recovery refresh
 	// If we ran a shard-wide recovery, force health check all poolers in the shard
