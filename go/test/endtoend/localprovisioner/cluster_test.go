@@ -1081,14 +1081,14 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, zone2StatusOutput, "is_initialized", "zone2 getpoolerstatus should return is_initialized")
 
 		// Verify pooler types are correctly set in CLI output
-		// JSON output shows numeric enum values: 1=PRIMARY, 2=REPLICA
+		// JSON output shows string enum values: PRIMARY, REPLICA
 		// We already verified the actual types via WaitForPoolerTypeAssigned above
 		if zone1IsPrimary {
-			assert.Contains(t, zone1StatusOutput, `"pooler_type": 1`, "zone1 should be PRIMARY (1)")
-			assert.Contains(t, zone2StatusOutput, `"pooler_type": 2`, "zone2 should be REPLICA (2)")
+			assert.Contains(t, zone1StatusOutput, `"pooler_type":  "PRIMARY"`, "zone1 should be PRIMARY")
+			assert.Contains(t, zone2StatusOutput, `"pooler_type":  "REPLICA"`, "zone2 should be REPLICA")
 		} else {
-			assert.Contains(t, zone1StatusOutput, `"pooler_type": 2`, "zone1 should be REPLICA (2)")
-			assert.Contains(t, zone2StatusOutput, `"pooler_type": 1`, "zone2 should be PRIMARY (1)")
+			assert.Contains(t, zone1StatusOutput, `"pooler_type":  "REPLICA"`, "zone1 should be REPLICA")
+			assert.Contains(t, zone2StatusOutput, `"pooler_type":  "PRIMARY"`, "zone2 should be PRIMARY")
 		}
 		t.Log("Verified pooler types in CLI output")
 
