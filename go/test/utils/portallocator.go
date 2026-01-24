@@ -92,7 +92,7 @@ func GetFreePort(t *testing.T) int {
 		_ = lockFile.Close()
 
 		// Wait for coordinator to become available
-		port, ok := tryRequestPortWithRetry(t, sockPath, 2*time.Second)
+		port, ok := tryRequestPortWithRetry(t, sockPath, 4*time.Second)
 		if !ok {
 			t.Fatalf("coordinator did not become ready")
 		}
