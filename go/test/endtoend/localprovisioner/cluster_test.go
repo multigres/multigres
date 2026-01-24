@@ -1081,14 +1081,21 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, zone2StatusOutput, "is_initialized", "zone2 getpoolerstatus should return is_initialized")
 
 		// Verify pooler types are correctly set in CLI output
-		// JSON output shows string enum values: PRIMARY, REPLICA
-		// We already verified the actual types via WaitForPoolerTypeAssigned above
+		// Parse JSON to avoid brittleness from formatting differences
+		var zone1Status, zone2Status struct {
+			Status struct {
+				PoolerType string `json:"pooler_type"`
+			} `json:"status"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(zone1StatusOutput), &zone1Status), "failed to parse zone1 status JSON")
+		require.NoError(t, json.Unmarshal([]byte(zone2StatusOutput), &zone2Status), "failed to parse zone2 status JSON")
+
 		if zone1IsPrimary {
-			assert.Contains(t, zone1StatusOutput, `"pooler_type":  "PRIMARY"`, "zone1 should be PRIMARY")
-			assert.Contains(t, zone2StatusOutput, `"pooler_type":  "REPLICA"`, "zone2 should be REPLICA")
+			assert.Equal(t, "PRIMARY", zone1Status.Status.PoolerType, "zone1 should be PRIMARY")
+			assert.Equal(t, "REPLICA", zone2Status.Status.PoolerType, "zone2 should be REPLICA")
 		} else {
-			assert.Contains(t, zone1StatusOutput, `"pooler_type":  "REPLICA"`, "zone1 should be REPLICA")
-			assert.Contains(t, zone2StatusOutput, `"pooler_type":  "PRIMARY"`, "zone2 should be PRIMARY")
+			assert.Equal(t, "REPLICA", zone1Status.Status.PoolerType, "zone1 should be REPLICA")
+			assert.Equal(t, "PRIMARY", zone2Status.Status.PoolerType, "zone2 should be PRIMARY")
 		}
 		t.Log("Verified pooler types in CLI output")
 
