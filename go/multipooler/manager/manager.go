@@ -801,7 +801,7 @@ func (pm *MultiPoolerManager) validateTerm(ctx context.Context, requestTerm int6
 	// Check if consensus term has been initialized (term 0 means uninitialized)
 	if currentTerm == 0 {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized, must be explicitly set via SetTerm (use force=true to bypass)")
+			"consensus term not initialized, must be set via BeginTerm (use force=true to bypass)")
 	}
 
 	// Reject stale requests
