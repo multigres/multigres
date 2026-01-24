@@ -51,10 +51,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// Create an isolated shard for this test
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiOrchCount(3),
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
+		shardsetup.WithPrimaryFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -133,7 +134,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Wait for multiorch to detect failure and elect new primary
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
-		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 10*time.Second)
+		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 15*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -149,7 +150,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 10*time.Second)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 15*time.Second)
 
 		// Ensure monitoring is disabled on all multipoolers (multiorch recovery might have re-enabled it)
 		t.Logf("Re-disabling monitoring on all multipoolers after failover %d...", i+1)
