@@ -93,7 +93,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(primary), conn.ID())
 }
@@ -113,7 +113,7 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(localReplica), conn.ID(), "Should prefer local cell for replicas")
 }
@@ -131,7 +131,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(remotePrimary), conn.ID(), "Should find primary in remote cell")
 }
@@ -149,7 +149,7 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	_, err := lb.GetConnection(target, nil)
+	_, err := lb.GetConnection(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pooler found")
 }
@@ -170,43 +170,9 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 		Shard:      "1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(shard1), conn.ID())
-}
-
-func TestLoadBalancer_GetConnection_ExcludePoolers(t *testing.T) {
-	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
-
-	// Add two replicas
-	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	replica2 := createTestMultiPooler("replica2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	require.NoError(t, lb.AddPooler(replica1))
-	require.NoError(t, lb.AddPooler(replica2))
-
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_REPLICA,
-	}
-
-	// First request returns one of them
-	conn1, err := lb.GetConnection(target, nil)
-	require.NoError(t, err)
-
-	// Exclude the first one, should get the other
-	opts := &GetConnectionOptions{
-		ExcludePoolers: []string{conn1.ID()},
-	}
-	conn2, err := lb.GetConnection(target, opts)
-	require.NoError(t, err)
-	assert.NotEqual(t, conn1.ID(), conn2.ID(), "Should return different pooler when first is excluded")
-
-	// Exclude both, should error
-	opts.ExcludePoolers = []string{poolerID(replica1), poolerID(replica2)}
-	_, err = lb.GetConnection(target, opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no pooler found")
 }
 
 func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
@@ -224,7 +190,7 @@ func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type(), "Should default to PRIMARY")
 }
@@ -327,7 +293,7 @@ func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 10 {
-				conn, err := lb.GetConnection(target, nil)
+				conn, err := lb.GetConnection(target)
 				if err == nil {
 					assert.NotNil(t, conn)
 					successfulReads.Add(1)
@@ -406,7 +372,7 @@ func TestLoadBalancer_GetConnection_MultipleReplicasSameCell(t *testing.T) {
 
 	// Should return one of the local replicas
 	// The selection is deterministic based on map iteration order in this case
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Contains(t, []string{
 		poolerID(replica1),
@@ -424,7 +390,7 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	require.NoError(t, lb.AddPooler(pooler))
 
 	// Calling with nil target should not panic and should return error
-	_, err := lb.GetConnection(nil, nil)
+	_, err := lb.GetConnection(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "target cannot be nil")
 }
@@ -442,7 +408,7 @@ func TestLoadBalancer_GetConnection_EmptyTableGroup(t *testing.T) {
 		TableGroup: "",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	_, err := lb.GetConnection(target, nil)
+	_, err := lb.GetConnection(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pooler found")
 }
@@ -463,7 +429,7 @@ func TestLoadBalancer_GetConnection_MultipleRemoteReplicas(t *testing.T) {
 	}
 
 	// Should return one of the remote replicas (falls back when no local replica)
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Contains(t, []string{
 		poolerID(remote1),
@@ -484,7 +450,7 @@ func TestLoadBalancer_GetConnection_TablegroupMismatch(t *testing.T) {
 		TableGroup: "other-tablegroup",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	_, err := lb.GetConnection(target, nil)
+	_, err := lb.GetConnection(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pooler found")
 }
@@ -503,7 +469,7 @@ func TestLoadBalancer_GetConnection_ShardMismatch(t *testing.T) {
 		Shard:      "1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	_, err := lb.GetConnection(target, nil)
+	_, err := lb.GetConnection(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pooler found")
 }
@@ -524,7 +490,7 @@ func TestLoadBalancer_GetConnection_MultiplePrimaries(t *testing.T) {
 	}
 
 	// Should return one of them (first one found in map iteration)
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Contains(t, []string{
 		poolerID(primary1),

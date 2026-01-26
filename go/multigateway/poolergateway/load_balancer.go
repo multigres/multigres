@@ -26,13 +26,6 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// GetConnectionOptions specifies options for connection selection.
-type GetConnectionOptions struct {
-	// ExcludePoolers is a list of pooler IDs to exclude from selection.
-	// This is used for retry logic to avoid retrying on a pooler that just failed.
-	ExcludePoolers []string
-}
-
 // LoadBalancer manages PoolerConnections and selects connections for queries.
 // It creates connections based on discovery events and destroys them when poolers
 // are removed from discovery.
@@ -124,7 +117,7 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 //
 // This method never waits or retries. Retry logic should be implemented
 // at a higher level in the stack (e.g., PoolerGateway).
-func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionOptions) (*PoolerConnection, error) {
+func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")
 	}
@@ -132,14 +125,9 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	excludeSet := makeExcludeSet(opts)
-
 	// Collect candidates matching the target
 	var candidates []*PoolerConnection
 	for _, conn := range lb.connections {
-		if excludeSet[conn.ID()] {
-			continue
-		}
 		if matchesTarget(conn, target) {
 			candidates = append(candidates, conn)
 		}
@@ -206,18 +194,6 @@ func matchesTarget(conn *PoolerConnection, target *query.Target) bool {
 	default:
 		return false
 	}
-}
-
-// makeExcludeSet creates a set from the ExcludePoolers list for O(1) lookup.
-func makeExcludeSet(opts *GetConnectionOptions) map[string]bool {
-	if opts == nil || len(opts.ExcludePoolers) == 0 {
-		return nil
-	}
-	set := make(map[string]bool, len(opts.ExcludePoolers))
-	for _, id := range opts.ExcludePoolers {
-		set[id] = true
-	}
-	return set
 }
 
 // poolerIDString returns the string ID for a pooler.
