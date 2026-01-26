@@ -26,6 +26,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// BackupConfig holds backup configuration (local or S3)
+type BackupConfig struct {
+	Type  string       `yaml:"type"` // "local", "s3", "azure", etc.
+	Local *LocalBackup `yaml:"local,omitempty"`
+	S3    *S3Backup    `yaml:"s3,omitempty"`
+}
+
+// LocalBackup holds filesystem backup configuration
+type LocalBackup struct {
+	Path string `yaml:"path"`
+}
+
+// S3Backup holds S3 backup configuration
+type S3Backup struct {
+	Bucket            string `yaml:"bucket"`
+	Region            string `yaml:"region"`
+	Endpoint          string `yaml:"endpoint,omitempty"`
+	KeyPrefix         string `yaml:"key-prefix,omitempty"`
+	UseEnvCredentials bool   `yaml:"use-env-credentials,omitempty"`
+}
+
 // CellConfig holds the configuration for a single cell
 type CellConfig struct {
 	Name     string `yaml:"name"`
@@ -51,7 +72,7 @@ type CellServicesConfig struct {
 type LocalProvisionerConfig struct {
 	RootWorkingDir string                        `yaml:"root-working-dir"`
 	DefaultDbName  string                        `yaml:"default-db-name"`
-	BackupRepoPath string                        `yaml:"backup-repo-path,omitempty"`
+	Backup         BackupConfig                  `yaml:"backup"`
 	Etcd           EtcdConfig                    `yaml:"etcd"`
 	Topology       TopologyConfig                `yaml:"topology"`
 	Multiadmin     MultiadminConfig              `yaml:"multiadmin"`
@@ -175,8 +196,40 @@ func (p *localProvisioner) LoadConfig(configPaths []string) error {
 	return fmt.Errorf("multigres.yaml not found in any of the provided paths: %v", configPaths)
 }
 
+// buildBackupConfig creates a BackupConfig from flag values
+// buildBackupConfig creates a BackupConfig from flag values
+func buildBackupConfig(backupConfig map[string]string, baseDir string) BackupConfig {
+	backupType := backupConfig["type"]
+	if backupType == "" {
+		backupType = "local" // default
+	}
+
+	config := BackupConfig{Type: backupType}
+
+	switch backupType {
+	case "local":
+		path := backupConfig["path"]
+		if path == "" {
+			path = filepath.Join(baseDir, "data", "backups")
+		}
+		config.Local = &LocalBackup{
+			Path: path,
+		}
+	case "s3":
+		config.S3 = &S3Backup{
+			Bucket:            backupConfig["s3-bucket"],
+			Region:            backupConfig["s3-region"],
+			Endpoint:          backupConfig["s3-endpoint"],
+			KeyPrefix:         backupConfig["s3-key-prefix"],
+			UseEnvCredentials: backupConfig["s3-use-env-credentials"] == "true",
+		}
+	}
+
+	return config
+}
+
 // DefaultConfig returns the default configuration for the local provisioner
-func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
+func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[string]string) map[string]any {
 	baseDir := configPaths[0]
 	binDir, err := getExecutablePath()
 	if err != nil {
@@ -196,7 +249,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string) map[string]any {
 	localConfig := LocalProvisionerConfig{
 		RootWorkingDir: baseDir,
 		DefaultDbName:  dbName,
-		BackupRepoPath: filepath.Join(baseDir, "data", "backups"),
+		Backup:         buildBackupConfig(backupConfig, baseDir),
 		Etcd: EtcdConfig{
 			Version: "3.5.9",
 			DataDir: filepath.Join(baseDir, "data", "etcd-data"),

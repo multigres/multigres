@@ -46,6 +46,8 @@ jobs:
       - name: Run integration tests
         env:
           TEST_PRINT_LOGS: "1"
+          AWS_ACCESS_KEY_ID: test-access-key
+          AWS_SECRET_ACCESS_KEY: test-secret-key
         run: go test -json -v -skip TestPostgreSQLRegression ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report

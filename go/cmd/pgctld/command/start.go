@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -247,6 +248,17 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	cmd := exec.Command("pg_ctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// On macOS, ensure locale environment variables are set for PostgreSQL
+	// PostgreSQL 17+ requires valid locale settings to avoid multithreading errors during startup
+	// This is specific to macOS where LC_ALL may not be set by default
+	if runtime.GOOS == "darwin" {
+		cmd.Env = os.Environ()
+		if os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
+			// Set LC_ALL=C as a safe default if no locale is configured
+			cmd.Env = append(cmd.Env, "LC_ALL=C")
+		}
+	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start PostgreSQL with pg_ctl: %w", err)
