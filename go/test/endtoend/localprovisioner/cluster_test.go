@@ -472,7 +472,7 @@ func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) err
 			return fmt.Errorf("timeout waiting for multigateway to be ready after %d attempts: %w", attempt, err)
 		}
 
-		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=2", pgPort)
+		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2", pgPort, shardsetup.TestPostgresPassword)
 		db, err := sql.Open("postgres", connStr)
 		if err != nil {
 			continue

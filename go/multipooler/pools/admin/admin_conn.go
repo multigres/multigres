@@ -17,7 +17,9 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -28,6 +30,9 @@ import (
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.
 // This is used when cancelling a backend query due to context cancellation.
 const DefaultCancelTimeout = 5 * time.Second
+
+// ErrUserNotFound is returned when a requested PostgreSQL role doesn't exist in pg_authid.
+var ErrUserNotFound = errors.New("user not found in pg_authid")
 
 // Conn wraps a client.Conn for administrative operations.
 // It implements connpool.Connection with no settings support.
@@ -75,6 +80,45 @@ func (c *Conn) ResetSettings(_ context.Context) error {
 }
 
 // --- Admin operations ---
+
+// GetRolPassword retrieves the role password hash from pg_authid for a given username.
+// Returns the SCRAM-SHA-256 password hash, or empty string if the user has no password set.
+// Returns an error if the user doesn't exist or if the query fails.
+//
+// This is used during authentication to retrieve password hashes for SCRAM-SHA-256 verification.
+// It works even during bootstrap before the executor is fully initialized.
+func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, error) {
+	// Query pg_authid for the user's password hash.
+	// Note: This requires superuser access to read pg_authid.
+	// We don't use parameterized queries here because admin connections don't support
+	// the extended query protocol - they're meant for simple administrative operations.
+	sql := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
+		quoteStringLiteral(username))
+
+	results, err := c.conn.Query(ctx, sql)
+	if err != nil {
+		return "", fmt.Errorf("failed to query role password: %w", err)
+	}
+
+	// Check if user exists
+	if len(results) == 0 || len(results[0].Rows) == 0 {
+		return "", fmt.Errorf("%w: %q", ErrUserNotFound, username)
+	}
+
+	// Extract the password hash (may be NULL/empty if no password set)
+	var scramHash string
+	if len(results[0].Rows[0].Values) > 0 && !results[0].Rows[0].Values[0].IsNull() {
+		scramHash = string(results[0].Rows[0].Values[0])
+	}
+
+	return scramHash, nil
+}
+
+// quoteStringLiteral quotes a string literal for use in SQL.
+// This escapes single quotes by doubling them.
+func quoteStringLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
 
 // TerminateBackend terminates a backend process using pg_terminate_backend().
 // Returns true if the backend was terminated, false if it was not found or
