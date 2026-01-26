@@ -59,7 +59,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	}
 
 	// Execute the query and stream results
-	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *sqltypes.Result) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, func(ctx context.Context, result *sqltypes.Result) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
 			Result: result.ToProto(),
