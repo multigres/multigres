@@ -409,7 +409,7 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 	// Handle case where client sends no initial data (length = -1).
 	// This shouldn't happen for SCRAM-SHA-256, but some clients may do this.
 	if dataLen == -1 {
-		return "", fmt.Errorf("client sent SASLInitialResponse with no initial data (length=-1)")
+		return "", errors.New("client sent SASLInitialResponse with no initial data (length=-1)")
 	}
 	if dataLen < 0 {
 		return "", fmt.Errorf("invalid SASL data length: %d", dataLen)

@@ -154,7 +154,7 @@ func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstM
 	if username == "" {
 		if fallbackUsername == "" {
 			a.state = stateFailed
-			return "", fmt.Errorf("auth: no username provided in client-first-message and no fallback")
+			return "", errors.New("auth: no username provided in client-first-message and no fallback")
 		}
 		username = fallbackUsername
 	}

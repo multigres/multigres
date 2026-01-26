@@ -109,7 +109,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 
 	// HashProvider is required unless TrustAuthProvider is set
 	if config.HashProvider == nil && config.TrustAuthProvider == nil {
-		return nil, fmt.Errorf("hash provider is required (or TrustAuthProvider for testing)")
+		return nil, errors.New("hash provider is required (or TrustAuthProvider for testing)")
 	}
 
 	netListener, err := net.Listen("tcp", config.Address)
