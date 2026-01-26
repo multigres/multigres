@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -139,9 +140,9 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 
 		Repo1Path: pm.backupLocation,
 
-		Pg1SocketPath: filepath.Join(pm.config.PoolerDir, "pg_sockets"),
-		Pg1Port:       pm.config.PgPort,
-		Pg1Path:       filepath.Join(pm.config.PoolerDir, "pg_data"),
+		Pg1SocketPath: filepath.Join(pm.multipooler.PoolerDir, "pg_sockets"),
+		Pg1Port:       func() int { return int(pm.multipooler.PortMap["postgres"]) }(),
+		Pg1Path:       filepath.Join(pm.multipooler.PoolerDir, "pg_data"),
 
 		// Use configured certificate paths for server
 		ServerCertFile: pm.config.PgBackRestCertFile,
@@ -219,16 +220,10 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
-	tableGroup := pm.getTableGroup()
-	shard := pm.getShard()
-	multipoolerID, err := pm.getMultipoolerIDString()
-	if err != nil {
-		return "", err
-	}
-	multipoolerName, err := pm.getMultipoolerName()
-	if err != nil {
-		return "", err
-	}
+	tableGroup := pm.multipooler.TableGroup
+	shard := pm.multipooler.Shard
+	multipoolerID := topoclient.MultiPoolerIDString(pm.multipooler.Id)
+	multipoolerName := pm.multipooler.Id.Name
 
 	// Use provided job_id or generate one (same format as multiadmin)
 	effectiveJobID := jobID
@@ -558,7 +553,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	}
 
 	// Get current pooler's table_group and shard for filtering
-	currentTableGroup := pm.config.TableGroup
+	currentTableGroup := pm.multipooler.TableGroup
 	currentShard := pm.getShardID()
 
 	// Extract backups from the first stanza (should be the only one)
@@ -876,7 +871,7 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 
 // pgbackrestPath returns the path to the pgbackrest config and data directory
 func (pm *MultiPoolerManager) pgbackrestPath() string {
-	return filepath.Join(pm.config.PoolerDir, "pgbackrest")
+	return filepath.Join(pm.multipooler.PoolerDir, "pgbackrest")
 }
 
 // runLongCommand executes a long-running command with periodic progress logging.

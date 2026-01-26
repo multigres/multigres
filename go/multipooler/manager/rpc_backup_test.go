@@ -27,7 +27,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -62,14 +61,13 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		Name:      "test-multipooler",
 	}
 
-	multipoolerInfo := &topoclient.MultiPoolerInfo{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         multipoolerID,
-			Type:       poolerType,
-			TableGroup: tableGroup,
-			Shard:      shard,
-			Database:   database,
-		},
+	multipoolerProto := &clustermetadatapb.MultiPooler{
+		Id:         multipoolerID,
+		Type:       poolerType,
+		TableGroup: tableGroup,
+		Shard:      shard,
+		Database:   database,
+		PoolerDir:  poolerDir,
 	}
 
 	// Create a topology store with backup location (base path) if provided
@@ -96,26 +94,15 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 	monitorRunner := timer.NewPeriodicRunner(context.TODO(), 10*time.Second)
 
 	pm := &MultiPoolerManager{
-		config: &Config{
-			PoolerDir:  poolerDir,
-			ServiceID:  &clustermetadatapb.ID{Name: "test-service"},
-			TableGroup: tableGroup,
-			Shard:      shard,
-		},
+		config:         &Config{},
 		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
 		topoClient:     topoClient,
-		multipooler:    multipoolerInfo,
+		multipooler:    multipoolerProto,
 		state:          ManagerStateReady,
 		backupLocation: fullBackupLocation,
 		actionLock:     NewActionLock(),
 		logger:         slog.Default(),
 		pgMonitor:      monitorRunner,
-		cachedMultipooler: cachedMultiPoolerInfo{
-			multipooler: topoclient.NewMultiPoolerInfo(
-				proto.Clone(multipoolerInfo.MultiPooler).(*clustermetadatapb.MultiPooler),
-				multipoolerInfo.Version(),
-			),
-		},
 	}
 	return pm
 }
@@ -994,7 +981,7 @@ func TestInitPgBackRest(t *testing.T) {
 				clustermetadatapb.PoolerType_REPLICA,
 				tt.backupLocation,
 			)
-			pm.config.PgPort = tt.pgPort
+			pm.multipooler.PortMap = map[string]int32{"postgres": int32(tt.pgPort)}
 
 			configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 
@@ -1193,7 +1180,7 @@ func TestInitPgBackRest_TemplateExecution(t *testing.T) {
 		clustermetadatapb.PoolerType_REPLICA,
 		backupLocation,
 	)
-	pm.config.PgPort = pgPort
+	pm.multipooler.PortMap = map[string]int32{"postgres": int32(pgPort)}
 
 	configPath, err := pm.initPgBackRest(context.Background(), NotForBackup)
 	require.NoError(t, err)

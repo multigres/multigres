@@ -122,14 +122,12 @@ func TestPrimaryPosition(t *testing.T) {
 			}
 			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
+			multipooler.PoolerDir = poolerDir
+
 			config := &Config{
 				TopoClient: ts,
-				ServiceID:  serviceID,
-				PoolerDir:  poolerDir,
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      constants.DefaultShard,
 			}
-			manager, err := NewMultiPoolerManager(logger, config)
+			manager, err := NewMultiPoolerManager(logger, multipooler, config)
 			require.NoError(t, err)
 			defer manager.Close()
 
@@ -202,14 +200,12 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
+	multipooler.PoolerDir = poolerDir
+
 	config := &Config{
 		TopoClient: ts,
-		ServiceID:  serviceID,
-		PoolerDir:  poolerDir,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
 	}
-	manager, err := NewMultiPoolerManager(logger, config)
+	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -349,7 +345,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 				})
 				require.NoError(t, err)
 				manager.mu.Lock()
-				manager.multipooler.MultiPooler = updatedMultipooler
+				manager.multipooler = updatedMultipooler
 				manager.mu.Unlock()
 			}
 
@@ -437,15 +433,13 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &Config{
 		TopoClient: ts,
-		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
 	}
-	pm, err := NewMultiPoolerManager(logger, config)
+	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.Close() })
 
@@ -1090,15 +1084,13 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	tmpDir := t.TempDir()
 	createPgDataDir(t, tmpDir)
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &Config{
 		TopoClient: ts,
-		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
 	}
-	pm, err := NewMultiPoolerManager(logger, config)
+	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer pm.Close()
 
@@ -1199,15 +1191,13 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
@@ -1278,15 +1268,13 @@ func TestReplicationStatus(t *testing.T) {
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
 
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
@@ -1362,15 +1350,13 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
@@ -1444,15 +1430,13 @@ func TestReplicationStatus(t *testing.T) {
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
 
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
@@ -1533,15 +1517,13 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
 
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
@@ -1597,15 +1579,13 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
 
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
@@ -1660,15 +1640,13 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
 
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
@@ -1717,15 +1695,13 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
 
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 
@@ -1780,15 +1756,13 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
 
+		multipooler.PoolerDir = tmpDir
+
 		config := &Config{
 			TopoClient: ts,
-			ServiceID:  serviceID,
 			PgctldAddr: pgctldAddr,
-			PoolerDir:  tmpDir,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
 		}
-		pm, err := NewMultiPoolerManager(logger, config)
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Close() })
 

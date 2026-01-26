@@ -35,6 +35,16 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
+// NewTestMultiPoolerManager creates a MultiPoolerManager for testing with MultiPooler field populated
+func NewTestMultiPoolerManager(t *testing.T, multiPooler *clustermetadatapb.MultiPooler, config *Config) *MultiPoolerManager {
+	t.Helper()
+	logger := slog.Default()
+	pm, err := NewMultiPoolerManager(logger, multiPooler, config)
+	require.NoError(t, err)
+
+	return pm
+}
+
 func TestInitializeEmptyPrimary(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -90,20 +100,18 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 				Name:      "test-pooler",
 			}
 
+			multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
+			multiPooler.Shard = constants.DefaultShard
+			multiPooler.PoolerDir = poolerDir
+			multiPooler.PortMap = map[string]int32{"postgres": 5432}
+			multiPooler.Database = database
+
 			config := &Config{
-				PoolerDir:  poolerDir,
-				PgPort:     5432,
-				Database:   database,
 				TopoClient: store,
-				ServiceID:  serviceID,
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      constants.DefaultShard,
 				// Note: pgctldClient is nil - operations that need it will fail gracefully
 			}
 
-			logger := slog.Default()
-			pm, err := NewMultiPoolerManager(logger, config)
-			require.NoError(t, err)
+			pm := NewTestMultiPoolerManager(t, multiPooler, config)
 
 			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
@@ -152,8 +160,8 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 func TestHelperMethods(t *testing.T) {
 	t.Run("hasDataDirectory", func(t *testing.T) {
 		poolerDir := t.TempDir()
-		config := &Config{PoolerDir: poolerDir}
-		pm := &MultiPoolerManager{config: config}
+		multiPooler := &clustermetadatapb.MultiPooler{PoolerDir: poolerDir}
+		pm := &MultiPoolerManager{config: &Config{}, multipooler: multiPooler}
 
 		// Initially no data directory
 		assert.False(t, pm.hasDataDirectory())
@@ -183,7 +191,7 @@ func TestHelperMethods(t *testing.T) {
 		}
 
 		pm := &MultiPoolerManager{
-			multipooler: &topoclient.MultiPoolerInfo{MultiPooler: multipooler},
+			multipooler: multipooler,
 		}
 
 		assert.Equal(t, "shard-123", pm.getShardID())
@@ -191,8 +199,8 @@ func TestHelperMethods(t *testing.T) {
 
 	t.Run("removeDataDirectory safety checks", func(t *testing.T) {
 		poolerDir := t.TempDir()
-		config := &Config{PoolerDir: poolerDir}
-		pm := &MultiPoolerManager{config: config, logger: slog.Default()}
+		multiPooler := &clustermetadatapb.MultiPooler{PoolerDir: poolerDir}
+		pm := &MultiPoolerManager{config: &Config{}, multipooler: multiPooler, logger: slog.Default()}
 
 		// Create data directory
 		dataDir := filepath.Join(poolerDir, "pg_data")
@@ -238,7 +246,8 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 		actionLock:   NewActionLock(),
-		config:       &Config{PoolerDir: t.TempDir()},
+		config:       &Config{},
+		multipooler:  &clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -338,7 +347,11 @@ func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
 	ctx := context.Background()
 
 	pm := &MultiPoolerManager{
-		logger: slog.Default(),
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_REPLICA,
+		},
 	}
 
 	state := postgresState{
@@ -427,7 +440,11 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	ctx := context.Background()
 
 	pm := &MultiPoolerManager{
-		logger: slog.Default(),
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_REPLICA,
+		},
 	}
 
 	state := postgresState{
@@ -459,9 +476,10 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	poolerDir := t.TempDir()
 
 	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: NewActionLock(),
-		config:     &Config{PoolerDir: poolerDir},
+		logger:      slog.Default(),
+		actionLock:  NewActionLock(),
+		config:      &Config{},
+		multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
 	}
 
 	// Mock listBackups to return a complete backup
@@ -478,9 +496,10 @@ func TestHasCompleteBackups_NoBackups(t *testing.T) {
 	poolerDir := t.TempDir()
 
 	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: NewActionLock(),
-		config:     &Config{PoolerDir: poolerDir},
+		logger:      slog.Default(),
+		actionLock:  NewActionLock(),
+		config:      &Config{},
+		multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
 	}
 
 	result := pm.hasCompleteBackups(ctx)
@@ -492,9 +511,10 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	poolerDir := t.TempDir()
 
 	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: NewActionLock(),
-		config:     &Config{PoolerDir: poolerDir},
+		logger:      slog.Default(),
+		actionLock:  NewActionLock(),
+		config:      &Config{},
+		multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
 	}
 
 	// Acquire the action lock to block hasCompleteBackups
@@ -613,6 +633,10 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 		readyChan:    readyChan,
 		pgctldClient: mockPgctld,
 		state:        ManagerStateReady,
+		actionLock:   NewActionLock(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			Type: clustermetadatapb.PoolerType_PRIMARY,
+		},
 	}
 
 	// Call iteration - should discover running state and not call Start

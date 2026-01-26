@@ -92,8 +92,8 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context) error {
 // pooler. For simplicity in the MVP, we do this as part of InitializePrimary since
 // we only support a single tablegroup/shard for now.
 func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) error {
-	tableGroup := pm.getTableGroup()
-	shard := pm.getShard()
+	tableGroup := pm.multipooler.TableGroup
+	shard := pm.multipooler.Shard
 
 	// MVP validation: only default tablegroup with shard 0-inf is supported
 	// This is an extra guardrail. Multipoolers shouldn't start unless they
