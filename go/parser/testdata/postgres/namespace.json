@@ -2,7 +2,7 @@
   {
     "comment": "namespace - Statement 1",
     "query": "SELECT pg_catalog.set_config('search_path', ' ', false)",
-    "expected": "SELECT set_config('search_path', ' ', FALSE)"
+    "expected": "SELECT pg_catalog.set_config('search_path', ' ', FALSE)"
   },
   {
     "comment": "namespace - Statement 2",
