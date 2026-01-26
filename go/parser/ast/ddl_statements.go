@@ -2996,7 +2996,7 @@ func (c *CreateExtensionStmt) SqlString() string {
 		parts = append(parts, "IF NOT EXISTS")
 	}
 
-	parts = append(parts, c.Extname)
+	parts = append(parts, QuoteIdentifier(c.Extname))
 
 	// Add options if present
 	if c.Options != nil && c.Options.Len() > 0 {
