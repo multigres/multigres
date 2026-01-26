@@ -3088,22 +3088,22 @@
   {
     "comment": "foreign_key - Statement 670",
     "query": "UPDATE fkpart11.pk SET a = a + 1 RETURNING tableoid::pg_catalog.regclass, *",
-    "expected": "UPDATE fkpart11.pk SET a = a + 1 RETURNING CAST(tableoid AS regclass), *"
+    "expected": "UPDATE fkpart11.pk SET a = a + 1 RETURNING CAST(tableoid AS pg_catalog.regclass), *"
   },
   {
     "comment": "foreign_key - Statement 671",
     "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk",
-    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.fk"
+    "expected": "SELECT CAST(tableoid AS pg_catalog.regclass), * FROM fkpart11.fk"
   },
   {
     "comment": "foreign_key - Statement 672",
     "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk_parted",
-    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.fk_parted"
+    "expected": "SELECT CAST(tableoid AS pg_catalog.regclass), * FROM fkpart11.fk_parted"
   },
   {
     "comment": "foreign_key - Statement 673",
     "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.fk_another",
-    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.fk_another"
+    "expected": "SELECT CAST(tableoid AS pg_catalog.regclass), * FROM fkpart11.fk_another"
   },
   {
     "comment": "foreign_key - Statement 674",
@@ -3129,7 +3129,7 @@
   {
     "comment": "foreign_key - Statement 679",
     "query": "SELECT tableoid::pg_catalog.regclass, * FROM fkpart11.pk",
-    "expected": "SELECT CAST(tableoid AS regclass), * FROM fkpart11.pk"
+    "expected": "SELECT CAST(tableoid AS pg_catalog.regclass), * FROM fkpart11.pk"
   },
   {
     "comment": "foreign_key - Statement 680",

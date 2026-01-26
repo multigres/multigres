@@ -1168,7 +1168,7 @@ func (cps *CreatePolicyStmt) StatementType() string {
 // SqlString returns the SQL representation of CREATE POLICY statement
 func (cps *CreatePolicyStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE POLICY", cps.PolicyName, "ON")
+	parts = append(parts, "CREATE POLICY", QuoteIdentifier(cps.PolicyName), "ON")
 
 	if cps.Table != nil {
 		parts = append(parts, cps.Table.SqlString())
