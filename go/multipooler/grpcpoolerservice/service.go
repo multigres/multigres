@@ -80,9 +80,8 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 		return nil, errors.New("executor not initialized")
 	}
 
-	// Execute the query and stream results
-	options := &querypb.ExecuteOptions{MaxRows: req.MaxRows}
-	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, options)
+	// Execute the query
+	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.Options)
 	if err != nil {
 		return nil, err
 	}
