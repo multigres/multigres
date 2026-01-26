@@ -101,10 +101,6 @@ func NewPoolerConnection(
 		logger:        logger,
 	}
 
-	logger.Debug("pooler connection established",
-		"pooler_id", poolerID,
-		"addr", addr)
-
 	return pc, nil
 }
 
