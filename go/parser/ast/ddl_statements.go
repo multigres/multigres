@@ -740,12 +740,12 @@ func normalizeTypeName(nameParts []string) string {
 
 	// For qualified names, handle schema qualification
 	if len(nameParts) > 1 {
-		// Strip pg_catalog or public schema for built-in types
+		// Strip pg_catalog or public schema for built-in types only
 		if len(nameParts) == 2 && (nameParts[0] == "pg_catalog" || nameParts[0] == "public") {
-			// Check if it's a built-in type
 			typeName := nameParts[1]
-			normalized := normalizeSingleTypeName(typeName)
-			return normalized
+			if isBuiltInType(typeName) {
+				return normalizeSingleTypeName(typeName)
+			}
 		}
 
 		// For other qualified names, quote each part individually if needed
@@ -758,6 +758,21 @@ func normalizeTypeName(nameParts []string) string {
 
 	// For single names, normalize if it's a built-in type
 	return normalizeSingleTypeName(nameParts[0])
+}
+
+// isBuiltInType checks if a type name is a built-in PostgreSQL type
+func isBuiltInType(typeName string) bool {
+	switch strings.ToLower(typeName) {
+	case "int4", "int", "int8", "bigint", "int2", "smallint",
+		"float", "float4", "real", "float8", "double precision",
+		"bool", "boolean", "bpchar", "char", "varchar", "text",
+		"numeric", "decimal", "timestamp", "timestamptz",
+		"time", "timetz", "date", "interval", "bytea",
+		"uuid", "json", "jsonb", "xml":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeSingleTypeName(typeName string) string {
