@@ -1420,10 +1420,18 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 
 	pm.logger.InfoContext(ctx, "Stopping postgres if running")
 
-	// Close manager to release connections
-	if err := pm.Close(); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to close manager", "error", err)
+	// Close ONLY connection pools to release database connections.
+	// This allows postgres to stop cleanly without waiting for connections,
+	// but keeps the manager operational for subsequent operations.
+	pm.mu.Lock()
+	if pm.replTracker != nil {
+		pm.replTracker.Close()
+		pm.replTracker = nil
 	}
+	if pm.connPoolMgr != nil {
+		pm.connPoolMgr.Close()
+	}
+	pm.mu.Unlock()
 
 	// Stop postgres (no-op if already stopped)
 	stopReq := &pgctldpb.StopRequest{Mode: "fast"}
@@ -1439,6 +1447,23 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) (bool, error) {
 	if pm.pgctldClient == nil {
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
+	}
+
+	// Run crash recovery if needed before pg_rewind
+	pm.logger.InfoContext(ctx, "Checking if crash recovery needed before pg_rewind")
+	crashRecoveryResp, err := pm.pgctldClient.CrashRecovery(ctx, &pgctldpb.CrashRecoveryRequest{})
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Crash recovery check failed", "error", err)
+		return false, mterrors.Wrap(err, "crash recovery check failed")
+	}
+
+	if crashRecoveryResp.RecoveryPerformed {
+		pm.logger.InfoContext(ctx, "Crash recovery performed successfully",
+			"state_before", crashRecoveryResp.StateBefore,
+			"state_after", crashRecoveryResp.StateAfter)
+	} else {
+		pm.logger.InfoContext(ctx, "No crash recovery needed, database already clean",
+			"state", crashRecoveryResp.StateBefore)
 	}
 
 	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run", "source_host", sourceHost, "source_port", sourcePort)

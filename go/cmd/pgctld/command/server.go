@@ -431,3 +431,49 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		Output:  result.Output,
 	}, nil
 }
+
+func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecoveryRequest) (*pb.CrashRecoveryResponse, error) {
+	s.logger.InfoContext(ctx, "gRPC CrashRecovery request")
+
+	// Check if crash recovery is needed
+	needsRecovery, stateBefore, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if crash recovery needed: %w", err)
+	}
+
+	if !needsRecovery {
+		s.logger.InfoContext(ctx, "Database is already clean, no crash recovery needed",
+			"state", stateBefore)
+		return &pb.CrashRecoveryResponse{
+			RecoveryPerformed: false,
+			StateBefore:       stateBefore,
+			StateAfter:        stateBefore,
+			Message:           "Database is already in clean state",
+		}, nil
+	}
+
+	s.logger.InfoContext(ctx, "Database requires crash recovery, running single-user recovery",
+		"state_before", stateBefore)
+
+	// Run crash recovery
+	if err := runCrashRecovery(ctx, s.logger, s.poolerDir); err != nil {
+		return nil, fmt.Errorf("crash recovery failed: %w", err)
+	}
+
+	// Verify recovery completed successfully
+	_, stateAfter, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify recovery: %w", err)
+	}
+
+	s.logger.InfoContext(ctx, "Crash recovery completed successfully",
+		"state_before", stateBefore,
+		"state_after", stateAfter)
+
+	return &pb.CrashRecoveryResponse{
+		RecoveryPerformed: true,
+		StateBefore:       stateBefore,
+		StateAfter:        stateAfter,
+		Message:           "Crash recovery completed successfully",
+	}, nil
+}
