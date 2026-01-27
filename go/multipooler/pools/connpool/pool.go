@@ -110,6 +110,10 @@ type Pool[C Connection] struct {
 	// borrowed is the number of connections that the pool has given out to clients
 	// and that haven't been returned yet
 	borrowed atomic.Int64
+	// requested is the number of pending connection requests (Get calls in progress).
+	// This includes both waiting requests and borrowed connections.
+	// Used for demand tracking: incremented on Get() start, decremented on Get() fail or Recycle().
+	requested atomic.Int64
 	// active is the number of connections that the pool has opened; this includes connections
 	// in the pool and borrowed by clients
 	active atomic.Int64
@@ -428,6 +432,7 @@ func (pool *Pool[C]) GetWithSettings(ctx context.Context, settings *connstate.Se
 // Return connections to the pool by calling Pooled.Recycle.
 func (pool *Pool[C]) put(conn *Pooled[C]) {
 	pool.borrowed.Add(-1)
+	pool.requested.Add(-1) // Track demand: decrement on return
 	pool.otelConnectionCount.Add(pool.ctx, -1, pool.Name, dbconv.ClientConnectionStateUsed)
 
 	if conn == nil {
@@ -606,6 +611,13 @@ func (pool *Pool[C]) getNew(ctx context.Context) (*Pooled[C], error) {
 func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
+	// Track demand: increment at start, decrement on error (success decrements in put on Recycle)
+	pool.requested.Add(1)
+	returnErr := func(err error) (*Pooled[C], error) {
+		pool.requested.Add(-1)
+		return nil, err
+	}
+
 	// best case: if there's a connection in the clean stack, return it right away
 	if conn := pool.pop(&pool.clean); conn != nil {
 		pool.borrowed.Add(1)
@@ -616,7 +628,7 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	// check if we have enough capacity to open a brand-new connection to return
 	conn, err := pool.getNew(ctx)
 	if err != nil {
-		return nil, err
+		return returnErr(err)
 	}
 	// if we don't have capacity, try popping a connection from any of the settings stacks
 	if conn == nil {
@@ -627,19 +639,19 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	if conn == nil {
 		closeChan := pool.close.Load()
 		if closeChan == nil {
-			return nil, ErrPoolClosed
+			return returnErr(ErrPoolClosed)
 		}
 
 		start := time.Now()
 		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan)
 		if err != nil {
-			return nil, ErrTimeout
+			return returnErr(ErrTimeout)
 		}
 		pool.recordWait(start)
 	}
 	// no connections available and no connections to wait for (pool is closed)
 	if conn == nil {
-		return nil, ErrTimeout
+		return returnErr(ErrTimeout)
 	}
 
 	// if the connection we've acquired has settings applied, we must reset them before returning
@@ -652,7 +664,7 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 			err = pool.connReopen(ctx, conn, monotonicNow())
 			if err != nil {
 				pool.closedConn()
-				return nil, err
+				return returnErr(err)
 			}
 		}
 	}
@@ -665,6 +677,13 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 // getWithSettings returns a connection from the pool with the given settings applied.
 func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Settings) (*Pooled[C], error) {
 	pool.Metrics.getWithStateCount.Add(1)
+
+	// Track demand: increment at start, decrement on error (success decrements in put on Recycle)
+	pool.requested.Add(1)
+	returnErr := func(err error) (*Pooled[C], error) {
+		pool.requested.Add(-1)
+		return nil, err
+	}
 
 	bucket := settings.Bucket() & stackMask
 
@@ -679,7 +698,7 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	if conn == nil {
 		conn, err = pool.getNew(ctx)
 		if err != nil {
-			return nil, err
+			return returnErr(err)
 		}
 	}
 	// try on the _other_ settings stacks, even if we have to reset the settings for the returned
@@ -692,19 +711,19 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	if conn == nil {
 		closeChan := pool.close.Load()
 		if closeChan == nil {
-			return nil, ErrPoolClosed
+			return returnErr(ErrPoolClosed)
 		}
 
 		start := time.Now()
 		conn, err = pool.wait.waitForConn(ctx, settings, *closeChan)
 		if err != nil {
-			return nil, ErrTimeout
+			return returnErr(ErrTimeout)
 		}
 		pool.recordWait(start)
 	}
 	// no connections available and no connections to wait for (pool is closed)
 	if conn == nil {
-		return nil, ErrTimeout
+		return returnErr(ErrTimeout)
 	}
 
 	// ensure that the settings applied to the connection matches the one we want
@@ -720,7 +739,7 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 				err = pool.connReopen(ctx, conn, monotonicNow())
 				if err != nil {
 					pool.closedConn()
-					return nil, err
+					return returnErr(err)
 				}
 			}
 		}
@@ -729,7 +748,7 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 		if err := conn.Conn.ApplySettings(ctx, settings); err != nil {
 			conn.Close()
 			pool.closedConn()
-			return nil, err
+			return returnErr(err)
 		}
 	}
 
@@ -839,6 +858,13 @@ func (pool *Pool[C]) closeIdleResources(now time.Time) {
 	closeInStack(&pool.clean)
 }
 
+// Requested returns the current demand (pending connection requests + borrowed connections).
+// This is used for demand tracking: it represents how many connections would be needed
+// if all current requests were served immediately.
+func (pool *Pool[C]) Requested() int64 {
+	return pool.requested.Load()
+}
+
 // Stats returns pool statistics.
 func (pool *Pool[C]) Stats() PoolStats {
 	return PoolStats{
@@ -847,6 +873,7 @@ func (pool *Pool[C]) Stats() PoolStats {
 		Idle:      pool.active.Load() - pool.borrowed.Load(),
 		Capacity:  pool.capacity.Load(),
 		Available: pool.Available(),
+		Requested: pool.requested.Load(),
 	}
 }
 
@@ -857,4 +884,5 @@ type PoolStats struct {
 	Idle      int64 // Connections available in pool
 	Capacity  int64 // Maximum connections
 	Available int64 // Connections available for immediate use
+	Requested int64 // Pending requests + borrowed (demand)
 }
