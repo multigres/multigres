@@ -91,8 +91,9 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 // GetAuthCredentials retrieves authentication credentials (SCRAM hash) for a PostgreSQL user.
 // This is used by multigateway to authenticate clients using SCRAM-SHA-256.
 //
-// This method uses an admin connection directly rather than the executor, so it works
-// even during bootstrap before the executor is fully initialized.
+// This method uses an admin connection directly since normally a non-superuser wouldn't
+// have access to password hashes and at the time of this request we wouldn't have authenticated
+// that we have permission to run queries under any other user's role.
 func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	// Validate request.
 	if req.Username == "" {
