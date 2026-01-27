@@ -1,0 +1,536 @@
+# Dynamic Fair Share Pool Allocation
+
+## Problem Statement
+
+The current connection pool implementation uses **static per-user pool sizes**
+configured at startup. This creates a fundamental problem when the number of
+users is unknown and PostgreSQL's `max_connections` is fixed:
+
+```text
+Scenario:
+- PostgreSQL max_connections = 500
+- Static per-user capacity = 100
+
+State 1: 5 users connect
+  → 5 users × 100 connections = 500 (at capacity)
+
+State 2: 6th user arrives
+  → No connections available
+  → User 6 either errors or waits indefinitely
+```
+
+### How Other Poolers Handle This
+
+| Pooler | Approach | Limitation |
+|--------|----------|------------|
+| **PgBouncer** | Static `max_user_connections` per user; queues when exhausted | No dynamic rebalancing |
+| **Supavisor** | Per-tenant pools with fixed `default_pool_size` | Designed for separate databases per tenant |
+
+Neither actively resizes existing user pools when new users arrive. They simply
+queue requests when connections are exhausted.
+
+### What We Want
+
+Dynamic fair share allocation that:
+
+1. Distributes available connections fairly among active users
+2. Automatically rebalances when users join or leave
+3. Treats regular and reserved pools as separate resources with independent allocation
+4. Runs as a background task without impacting query latency
+
+## Goals
+
+1. **Fair allocation**: Each user gets a fair share of the global connection budget
+2. **Adaptive**: Automatically rebalance as users come and go
+3. **Demand-aware**: Allocate based on actual usage, not just equal splits
+4. **Non-blocking**: Rebalancing happens in background, not on the query hot path
+5. **Separate resources**: Regular and reserved pools have independent budgets
+
+## Non-Goals
+
+1. **Weighted fairness by subscription tier** - Future enhancement, not in initial scope
+2. **Cross-multipooler coordination** - Each multipooler manages its own pools independently
+3. **Predictive scaling** - We react to demand, not predict it
+
+## Implementation Checklist
+
+### Phase 1: Lock-Free Hot Path
+
+- [ ] Replace `sync.Mutex` with `atomic.Pointer[map[string]*UserPool]` in Manager
+- [ ] Implement copy-on-write for new user pool creation
+- [ ] Add separate `createMu` mutex only for pool creation (cold path)
+- [ ] Update `Close()` and `Stats()` to work with atomic snapshot
+- [ ] Benchmark before/after to measure latency improvement
+- [ ] Verify correctness with race detector (`go test -race`)
+
+### Phase 2: Demand Tracking
+
+- [ ] Create `DemandTracker` struct with atomic counters
+- [ ] Add `regularPeak` and `reservedPeak` tracking
+- [ ] Implement sliding window with configurable duration (default 30s)
+- [ ] Add `GetPeakAndReset()` method for rebalancer consumption
+- [ ] Integrate `DemandTracker` into `UserPool`
+- [ ] Expose demand metrics in `UserPoolStats`
+- [ ] Unit tests for demand tracking accuracy
+
+### Phase 3: Fair Share Allocator
+
+- [ ] Create `FairShareAllocator` struct
+- [ ] Add configuration flags:
+  - [ ] `--connpool-global-capacity`
+  - [ ] `--connpool-reserved-ratio`
+- [ ] Implement max-min fairness algorithm for regular pools
+- [ ] Implement max-min fairness algorithm for reserved pools
+- [ ] Unit tests for allocation edge cases
+- [ ] Property-based tests (total <= capacity, each user >= 1)
+
+### Phase 4: UserPool Resize Support
+
+- [ ] Add `SetCapacity(ctx, regularCap, reservedCap)` to `UserPool`
+- [ ] Add `SetCapacity()` to `regular.Pool` (wire to underlying connpool)
+- [ ] Add `SetCapacity()` to `reserved.Pool` (wire to underlying connpool)
+- [ ] Handle proportional `MaxIdle` adjustment on resize
+- [ ] Test resize up (capacity increase)
+- [ ] Test resize down (capacity decrease)
+- [ ] Test resize while connections are borrowed
+
+### Phase 5: Background Rebalancer
+
+- [ ] Add configuration flags:
+  - [ ] `--connpool-rebalance-interval` (default 10s)
+  - [ ] `--connpool-demand-window` (default 30s)
+  - [ ] `--connpool-inactive-timeout` (default 5m)
+- [ ] Create `rebalancer` goroutine in Manager
+- [ ] Implement rebalance loop: collect demand → allocate → apply
+- [ ] Add garbage collection for inactive user pools
+- [ ] Add logging for rebalancing events
+- [ ] Add metrics for rebalancing (allocations changed, pools removed)
+- [ ] Integration tests with multiple users joining/leaving
+- [ ] Benchmark to ensure rebalancing doesn't impact query latency
+
+### Phase 6: End-to-End Testing
+
+- [ ] Add e2e test: users with different workload patterns
+- [ ] Add e2e test: user arrival/departure during load
+- [ ] Add e2e test: capacity exhaustion and recovery
+- [ ] Add e2e test: graceful degradation under overload
+- [ ] Performance benchmarks comparing static vs dynamic allocation
+- [ ] Update documentation with final configuration recommendations
+
+## Design
+
+### Architecture Overview
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Manager                                         │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                      FairShareAllocator                                │  │
+│  │                                                                        │  │
+│  │  Global Budget:                                                        │  │
+│  │  ├── Regular: 400 connections (80% of 500)                            │  │
+│  │  └── Reserved: 100 connections (20% of 500)                           │  │
+│  │                                                                        │  │
+│  │  Per-User Allocation (based on demand):                               │  │
+│  │  ├── User A: Regular=80, Reserved=20  (high transaction user)         │  │
+│  │  ├── User B: Regular=90, Reserved=10  (read-heavy user)               │  │
+│  │  └── User C: Regular=85, Reserved=15  (mixed workload)                │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  userPoolsSnapshot (atomic pointer - lock-free reads)                        │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
+│  │  UserPool[A]    │  │  UserPool[B]    │  │  UserPool[C]    │              │
+│  │  Regular: 80    │  │  Regular: 90    │  │  Regular: 85    │              │
+│  │  Reserved: 20   │  │  Reserved: 10   │  │  Reserved: 15   │              │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Two Separate Resources
+
+Regular and reserved pools serve fundamentally different workloads:
+
+| Resource | Use Case | Typical Pattern |
+|----------|----------|-----------------|
+| **Regular** | Simple queries, reads | High throughput, short duration |
+| **Reserved** | Transactions, cursors | Lower throughput, longer duration |
+
+A transaction-heavy user needs more reserved capacity, while a read-heavy user
+needs more regular capacity. Treating them as a single resource would lead to
+suboptimal allocation.
+
+**Configuration:**
+
+```text
+--connpool-global-capacity=500        # Total PostgreSQL connections
+--connpool-reserved-ratio=0.2         # 20% reserved, 80% regular
+
+Derived:
+  globalRegularCapacity  = 500 * 0.8 = 400
+  globalReservedCapacity = 500 * 0.2 = 100
+```
+
+### Demand Metric: Peak Borrowed (Sliding Window)
+
+To allocate based on actual demand, we track the **peak borrowed connections**
+over a configurable sliding window:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    30-second sliding window                      │
+│                                                                  │
+│  Borrowed ───────────────┐                                       │
+│           │              │                                       │
+│        20 │    ┌──┐      │  ← Peak = 25 (used for allocation)   │
+│        15 │ ┌──┘  └──┐   │                                       │
+│        10 ├─┘        └───│                                       │
+│         5 │              │                                       │
+│         0 └──────────────┴─────────────────────────────────────  │
+│           t-30s        t-15s                                  t  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why peak (not average)?**
+
+- Peak captures burst patterns that need capacity headroom
+- Average would under-provision for spiky workloads
+- Peak over a window smooths out transient spikes
+
+**Configuration:**
+
+```text
+--connpool-demand-window=30s          # Sliding window for peak tracking
+```
+
+### Fair Share Algorithm: Max-Min Fairness
+
+We use [max-min fairness](https://en.wikipedia.org/wiki/Max-min_fairness) to
+allocate capacity based on demand:
+
+```text
+Algorithm: Progressive Filling
+
+1. Start with all allocations at 0
+2. Increase all allocations equally until:
+   a. A user's allocation reaches their demand (they're satisfied)
+   b. Total allocation reaches global capacity (resource exhausted)
+3. Satisfied users stop growing; continue increasing others
+4. Repeat until all users satisfied or capacity exhausted
+
+Example with globalRegularCapacity=400:
+
+  User A demand: 150    User B demand: 100    User C demand: 80
+
+  Step 1: Allocate equally until someone is satisfied
+    A=80, B=80, C=80 (total=240) → C is satisfied (demand=80)
+
+  Step 2: Continue with A and B
+    A=110, B=100, C=80 (total=290) → B is satisfied (demand=100)
+
+  Step 3: Continue with A only
+    A=150, B=100, C=80 (total=330) → A is satisfied (demand=150)
+
+  Remaining capacity: 400-330 = 70 (distributed proportionally or held in reserve)
+```
+
+**Bounds:**
+
+- **Minimum**: 1 connection per user (hard floor to ensure usability)
+- **Maximum**: Full global capacity (single user can use everything)
+
+```text
+1 user  with globalCapacity=400 → user gets 400
+2 users with globalCapacity=400 → each gets up to 200 (based on demand)
+400 users with globalCapacity=400 → each gets 1
+```
+
+### Rebalancing: Periodic Background Task
+
+Rebalancing runs as a **background goroutine** at a configurable interval:
+
+```text
+--connpool-rebalance-interval=10s     # How often to rebalance
+```
+
+**Why purely periodic (not event-driven)?**
+
+1. **Simplicity**: No complex event handling or race conditions
+2. **Batching**: Multiple user arrivals/departures handled in one pass
+3. **Stability**: Prevents oscillation from rapid changes
+4. **Predictable**: Easier to reason about and debug
+
+**Rebalance Flow:**
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    Rebalance Goroutine                           │
+│                                                                  │
+│  Every 10 seconds:                                               │
+│                                                                  │
+│  1. Collect demand metrics from all UserPools                    │
+│     └─ demandTracker.GetPeakAndReset() for each pool            │
+│                                                                  │
+│  2. Run fair share algorithm                                     │
+│     └─ Calculate new allocations for regular and reserved       │
+│                                                                  │
+│  3. Apply new capacities                                         │
+│     └─ pool.SetCapacity(ctx, newCapacity) for each pool         │
+│        (may block briefly if shrinking and connections in use)  │
+│                                                                  │
+│  4. Garbage collect inactive pools                               │
+│     └─ Remove pools with no activity for > inactivity threshold │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Lock-Free Hot Path: Atomic Snapshot
+
+The current implementation holds a mutex on every `GetRegularConn` call:
+
+```go
+// Current: mutex on every request (bad)
+func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPool, error) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    // ...
+}
+```
+
+We replace this with an **atomic pointer to an immutable snapshot**:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    Atomic Snapshot Pattern                       │
+│                                                                  │
+│  Hot Path (every query):                                         │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │  pools := m.userPoolsSnapshot.Load()  // atomic, no lock    │ │
+│  │  if pool, ok := (*pools)[user]; ok {                        │ │
+│  │      return pool, nil                 // fast path done     │ │
+│  │  }                                                           │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  Cold Path (new user arrives - rare):                            │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │  m.createMu.Lock()                    // serialize creates  │ │
+│  │  defer m.createMu.Unlock()                                  │ │
+│  │                                                              │ │
+│  │  // Double-check after lock                                 │ │
+│  │  pools := m.userPoolsSnapshot.Load()                        │ │
+│  │  if pool, ok := (*pools)[user]; ok {                        │ │
+│  │      return pool, nil                                       │ │
+│  │  }                                                           │ │
+│  │                                                              │ │
+│  │  // Create new pool                                         │ │
+│  │  pool := m.createUserPool(ctx, user)                        │ │
+│  │                                                              │ │
+│  │  // Copy-on-write: create new map                           │ │
+│  │  newPools := make(map[string]*UserPool, len(*pools)+1)      │ │
+│  │  for k, v := range *pools { newPools[k] = v }               │ │
+│  │  newPools[user] = pool                                      │ │
+│  │                                                              │ │
+│  │  // Atomic publish                                          │ │
+│  │  m.userPoolsSnapshot.Store(&newPools)                       │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why this approach?**
+
+- Hot path is a single atomic load + map lookup (nanoseconds)
+- New users are rare; copy-on-write overhead is acceptable
+- Iteration for stats/rebalancing works on consistent snapshot
+- No lock contention between readers
+
+## Configuration Summary
+
+### New Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--connpool-global-capacity` | 100 | Total PostgreSQL connections to manage |
+| `--connpool-reserved-ratio` | 0.2 | Fraction of global capacity for reserved pools |
+| `--connpool-demand-window` | 30s | Sliding window for peak demand tracking |
+| `--connpool-rebalance-interval` | 10s | How often to run rebalancing |
+| `--connpool-inactive-timeout` | 5m | Remove user pools after this inactivity |
+
+**Note:** There are no per-user min/max bounds. A single user can use the full
+global capacity, and with many users each could scale down to 1 connection.
+
+### Derived Values
+
+```text
+globalRegularCapacity  = globalCapacity * (1 - reservedRatio)
+globalReservedCapacity = globalCapacity * reservedRatio
+```
+
+### Example Configuration
+
+```bash
+multipooler \
+  --connpool-global-capacity=500 \
+  --connpool-reserved-ratio=0.2 \
+  --connpool-demand-window=30s \
+  --connpool-rebalance-interval=10s
+```
+
+## Implementation Plan
+
+### Phase 1: Lock-Free Hot Path
+
+**Goal:** Remove mutex contention from the query path.
+
+**Changes:**
+
+1. Replace `sync.Mutex` with atomic pointer to map snapshot in `Manager`
+2. Implement copy-on-write for new user pool creation
+3. Add separate mutex only for pool creation (cold path)
+
+**Files:**
+
+- `go/multipooler/connpoolmanager/manager.go`
+
+**Validation:**
+
+- Benchmark before/after to measure latency improvement
+- Verify correctness with race detector (`go test -race`)
+
+### Phase 2: Demand Tracking
+
+**Goal:** Collect per-user demand metrics without changing allocation.
+
+**Changes:**
+
+1. Add `DemandTracker` struct with atomic counters
+2. Track peak borrowed for regular and reserved pools
+3. Add sliding window reset logic
+4. Expose demand metrics in `UserPoolStats`
+
+**Files:**
+
+- `go/multipooler/connpoolmanager/demand_tracker.go` (new)
+- `go/multipooler/connpoolmanager/user_pool.go`
+
+**Validation:**
+
+- Unit tests for demand tracking
+- Verify metrics are accurate under load
+
+### Phase 3: Fair Share Allocator
+
+**Goal:** Implement the allocation algorithm as a separate module.
+
+**Changes:**
+
+1. Create `FairShareAllocator` struct
+2. Implement max-min fairness algorithm
+3. Add configuration for global capacity, ratios, bounds
+4. Unit test allocation logic in isolation
+
+**Files:**
+
+- `go/multipooler/connpoolmanager/fair_share_allocator.go` (new)
+- `go/multipooler/connpoolmanager/config.go`
+
+**Validation:**
+
+- Extensive unit tests for allocation edge cases
+- Property-based tests (total allocation <= capacity, all users >= min)
+
+### Phase 4: UserPool Resize Support
+
+**Goal:** Enable dynamic capacity changes on existing pools.
+
+**Changes:**
+
+1. Add `SetCapacity(ctx, regularCap, reservedCap)` to `UserPool`
+2. Wire through to underlying `connpool.Pool.SetCapacity()`
+3. Handle proportional MaxIdle adjustment
+
+**Files:**
+
+- `go/multipooler/connpoolmanager/user_pool.go`
+- `go/multipooler/pools/regular/regular_pool.go`
+- `go/multipooler/pools/reserved/reserved_pool.go`
+
+**Validation:**
+
+- Test resize up and down
+- Test resize while connections are borrowed
+
+### Phase 5: Background Rebalancer
+
+**Goal:** Connect everything with periodic rebalancing.
+
+**Changes:**
+
+1. Add rebalancer goroutine to `Manager`
+2. Collect demand → calculate allocation → apply capacities
+3. Add garbage collection for inactive user pools
+4. Add logging and metrics for rebalancing events
+
+**Files:**
+
+- `go/multipooler/connpoolmanager/manager.go`
+- `go/multipooler/connpoolmanager/rebalancer.go` (new)
+
+**Validation:**
+
+- Integration tests with multiple users joining/leaving
+- Verify fair allocation under various demand patterns
+- Benchmark to ensure rebalancing doesn't impact query latency
+
+### Phase 6: End-to-End Testing
+
+**Goal:** Validate the complete system under realistic conditions.
+
+**Changes:**
+
+1. Add e2e tests in `go/test/endtoend/queryserving/`
+2. Test scenarios:
+   - Users with different workload patterns
+   - User arrival/departure during load
+   - Capacity exhaustion and recovery
+   - Graceful degradation under overload
+
+**Validation:**
+
+- All scenarios pass
+- Performance benchmarks show improvement over static allocation
+
+## Future Enhancements
+
+### Weighted Fair Share
+
+Allow different users to have different weights (e.g., based on subscription tier):
+
+```text
+--connpool-user-weight-file=/path/to/weights.json
+
+{
+  "premium_user": 2.0,
+  "standard_user": 1.0,
+  "free_user": 0.5
+}
+```
+
+### Predictive Scaling
+
+Use historical patterns to predict demand and pre-allocate:
+
+- Time-of-day patterns
+- Day-of-week patterns
+- Trend detection
+
+### Cross-Multipooler Coordination
+
+For deployments with multiple multipooler instances, coordinate allocation
+through the topology service to ensure global fairness.
+
+## References
+
+- [Wikipedia: Max-min fairness](https://en.wikipedia.org/wiki/Max-min_fairness)
+- [Dominant Resource Fairness (DRF)](https://amplab.cs.berkeley.edu/wp-content/uploads/2011/06/Dominant-Resource-Fairness-Fair-Allocation-of-Multiple-Resource-Types.pdf)
+- [Cloudflare: Performance isolation in multi-tenant databases](https://blog.cloudflare.com/performance-isolation-in-a-multi-tenant-database-environment/)
+- [HikariCP: About Pool Sizing](https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing)
+- [PgBouncer Configuration](https://www.pgbouncer.org/config.html)

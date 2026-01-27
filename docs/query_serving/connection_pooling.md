@@ -483,3 +483,5 @@ pooler runs on separate hosts from PostgreSQL.
 
 - [Prepared Statements Design](./prepared_statements_design.md) - Extended Query
   Protocol and statement management
+- [Dynamic Fair Share Pool Allocation](./dynamic_pool_allocation.md) - Dynamic
+  rebalancing of connection pools based on user demand
