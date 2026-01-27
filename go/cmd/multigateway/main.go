@@ -21,7 +21,7 @@ import (
 	"os"
 
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/multigateway"
+	"github.com/multigres/multigres/go/services/multigateway"
 
 	"github.com/spf13/cobra"
 )
