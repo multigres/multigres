@@ -89,8 +89,10 @@ func (a *DemoteStalePrimaryAction) RequiresHealthyPrimary() bool {
 }
 
 func (a *DemoteStalePrimaryAction) GracePeriod() *types.GracePeriodConfig {
-	// No grace period needed, execute immediately
-	return nil
+	return &types.GracePeriodConfig{
+		BaseDelay: a.config.GetPrimaryFailoverGracePeriodBase(),
+		MaxJitter: a.config.GetPrimaryFailoverGracePeriodMaxJitter(),
+	}
 }
 
 // Execute demotes the stale primary using the Demote RPC with the correct primary's term.
