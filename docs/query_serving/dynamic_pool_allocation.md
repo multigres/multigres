@@ -65,12 +65,14 @@ Dynamic fair share allocation that:
 
 **Benchmark Results:**
 
-| Benchmark | Time | Allocations |
-|-----------|------|-------------|
-| `HasUserPool` (hot path lookup) | **0.77 ns/op** | 0 B/op |
-| `GetRegularConn` (existing user) | **625.7 ns/op** | 1184 B/op |
+| Approach | Latency | Speedup |
+|----------|---------|---------|
+| Mutex (old) | 67.33 ns/op | baseline |
+| RWMutex | 100.8 ns/op | 0.67x (worse) |
+| **AtomicPointer (new)** | **0.82 ns/op** | **82x faster** |
 
-The lock-free hot path achieves sub-nanosecond latency for pool lookups.
+The lock-free hot path achieves sub-nanosecond latency, an **82x improvement** over the
+previous mutex-based approach under parallel load.
 
 ### Phase 2: Demand Tracking
 
