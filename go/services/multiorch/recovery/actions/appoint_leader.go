@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/coordinator"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -40,6 +41,7 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 // both cases by selecting the most advanced node based on WAL position and running
 // the full consensus protocol to establish a new primary.
 type AppointLeaderAction struct {
+	config      *config.Config
 	coordinator *coordinator.Coordinator
 	poolerStore *store.PoolerHealthStore
 	topoStore   topoclient.Store
@@ -48,12 +50,14 @@ type AppointLeaderAction struct {
 
 // NewAppointLeaderAction creates a new leader appointment action
 func NewAppointLeaderAction(
+	cfg *config.Config,
 	coordinator *coordinator.Coordinator,
 	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *AppointLeaderAction {
 	return &AppointLeaderAction{
+		config:      cfg,
 		coordinator: coordinator,
 		poolerStore: poolerStore,
 		topoStore:   topoStore,
@@ -66,7 +70,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	a.logger.InfoContext(ctx, "executing appoint leader action",
 		"shard_key", problem.ShardKey.String())
 
-	// Fetch cohort and recheck the problem after acquiring lock
+	// Fetch cohort and recheck the problem
 	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
 		return fmt.Errorf("no poolers found for shard %s", problem.ShardKey)
@@ -148,4 +152,11 @@ func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {
 
 func (a *AppointLeaderAction) Priority() types.Priority {
 	return types.PriorityShardBootstrap
+}
+
+func (a *AppointLeaderAction) GracePeriod() *types.GracePeriodConfig {
+	return &types.GracePeriodConfig{
+		BaseDelay: a.config.GetPrimaryFailoverGracePeriodBase(),
+		MaxJitter: a.config.GetPrimaryFailoverGracePeriodMaxJitter(),
+	}
 }

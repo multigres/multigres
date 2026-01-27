@@ -33,12 +33,13 @@ type ReplicationAnalysis struct {
 	PoolerType           clustermetadatapb.PoolerType
 	CurrentServingStatus clustermetadatapb.PoolerServingStatus
 	IsPrimary            bool
-	LastCheckValid       bool
-	IsStale              bool
-	IsUnreachable        bool
-	IsInitialized        bool // Whether this pooler has been initialized
-	HasDataDirectory     bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
-	AnalyzedAt           time.Time
+	// Represents if the poolerID is reachable and it's returing a
+	// valid status response
+	LastCheckValid   bool
+	IsStale          bool
+	IsInitialized    bool // Whether this pooler has been initialized
+	HasDataDirectory bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
+	AnalyzedAt       time.Time
 
 	// Primary-specific fields
 	PrimaryLSN               string

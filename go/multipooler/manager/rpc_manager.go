@@ -287,7 +287,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 
 	// Get consensus term if available (use inconsistent read for monitoring)
 	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetInconsistentCurrentTermNumber()
+		term, err := pm.consensusState.GetInconsistentTerm()
 		if err == nil {
 			poolerStatus.ConsensusTerm = term
 		}

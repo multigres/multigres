@@ -218,8 +218,8 @@ message Status {
   // Current WAL position (empty if db not connected)
   string wal_position = 8;
 
-  // Current consensus term
-  int64 consensus_term = 9;
+  // Current consensus term information
+  ConsensusTerm consensus_term = 9;
 
   // Shard ID that this pooler belongs to
   string shard_id = 10;

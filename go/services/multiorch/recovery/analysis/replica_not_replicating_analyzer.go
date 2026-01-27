@@ -33,7 +33,15 @@ func (a *ReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "ReplicaNotReplicating"
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemReplicaNotReplicating
+}
+
+func (a *ReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
+	return a.factory.NewFixReplicationAction()
+}
+
+func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -58,7 +66,7 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.Replicatio
 		return nil, nil
 	}
 
-	return []types.Problem{{
+	return &types.Problem{
 		Code:           types.ProblemReplicaNotReplicating,
 		CheckName:      "ReplicaNotReplicating",
 		PoolerID:       poolerAnalysis.PoolerID,
@@ -68,7 +76,7 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.Replicatio
 		Scope:          types.ScopePooler,
 		DetectedAt:     time.Now(),
 		RecoveryAction: a.factory.NewFixReplicationAction(),
-	}}, nil
+	}, nil
 }
 
 // needsReplicationFix returns true if replication is not configured or stopped.

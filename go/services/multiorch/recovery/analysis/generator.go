@@ -188,7 +188,6 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 
 	// Compute staleness
 	analysis.IsStale = !pooler.IsUpToDate
-	analysis.IsUnreachable = !pooler.IsLastCheckValid
 
 	// Store consensus term for stale primary detection
 	if pooler.ConsensusStatus != nil {
@@ -231,7 +230,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		}
 
 		// Lookup primary info
-		g.populatePrimaryInfo(analysis, shardKey, pooler)
+		g.populatePrimaryInfo(analysis, shardKey)
 	}
 
 	return analysis
@@ -331,7 +330,6 @@ func (g *AnalysisGenerator) aggregateReplicaStats(
 func (g *AnalysisGenerator) populatePrimaryInfo(
 	analysis *store.ReplicationAnalysis,
 	shardKey commontypes.ShardKey,
-	replica *multiorchdatapb.PoolerHealthState,
 ) {
 	poolers, ok := g.poolersByShard[shardKey.Database][shardKey.TableGroup][shardKey.Shard]
 	if !ok {

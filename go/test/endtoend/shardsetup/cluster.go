@@ -272,7 +272,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 // CreateMultiOrchInstance creates a new multiorch instance and adds it to the setup.
 // Returns the instance and a cleanup function that should be deferred or called manually.
 // The cleanup function gracefully terminates the process if it's still running.
-func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, watchTargets []string) (*ProcessInstance, func()) {
+func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTargets []string, config *SetupConfig) (*ProcessInstance, func()) {
 	t.Helper()
 
 	if s.MultiOrchInstances == nil {
@@ -290,17 +290,27 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, wa
 	httpPort := utils.GetFreePort(t)
 
 	instance := &ProcessInstance{
-		Name:         name,
-		DataDir:      orchDataDir,
-		LogFile:      logFile,
-		GrpcPort:     grpcPort,
-		HttpPort:     httpPort,
-		Cell:         cell,
-		EtcdAddr:     s.EtcdClientAddr,
-		WatchTargets: watchTargets,
-		ServiceID:    name, // Use the instance name as the service ID
-		Binary:       "multiorch",
-		Environment:  os.Environ(),
+		Name:                                name,
+		DataDir:                             orchDataDir,
+		LogFile:                             logFile,
+		GrpcPort:                            grpcPort,
+		HttpPort:                            httpPort,
+		Cell:                                config.CellName,
+		EtcdAddr:                            s.EtcdClientAddr,
+		WatchTargets:                        watchTargets,
+		ServiceID:                           name, // Use the instance name as the service ID
+		Binary:                              "multiorch",
+		Environment:                         os.Environ(),
+		PrimaryFailoverGracePeriodBase:      config.PrimaryFailoverGracePeriodBase,
+		PrimaryFailoverGracePeriodMaxJitter: config.PrimaryFailoverGracePeriodMaxJitter,
+	}
+
+	// Apply defaults if not specified (0s for fast tests)
+	if instance.PrimaryFailoverGracePeriodBase == "" {
+		instance.PrimaryFailoverGracePeriodBase = "0s"
+	}
+	if instance.PrimaryFailoverGracePeriodMaxJitter == "" {
+		instance.PrimaryFailoverGracePeriodMaxJitter = "0s"
 	}
 
 	s.MultiOrchInstances[name] = instance

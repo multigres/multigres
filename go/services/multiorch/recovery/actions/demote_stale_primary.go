@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -44,6 +45,7 @@ const StalePrimaryDrainTimeout = 5 * time.Second
 // It uses the Demote RPC with the correct primary's term to force the stale primary
 // to accept the term and demote, preventing further writes.
 type DemoteStalePrimaryAction struct {
+	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.PoolerHealthStore
 	topoStore   topoclient.Store
@@ -52,12 +54,14 @@ type DemoteStalePrimaryAction struct {
 
 // NewDemoteStalePrimaryAction creates a new action to demote a stale primary.
 func NewDemoteStalePrimaryAction(
+	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *DemoteStalePrimaryAction {
 	return &DemoteStalePrimaryAction{
+		config:      cfg,
 		rpcClient:   rpcClient,
 		poolerStore: poolerStore,
 		topoStore:   topoStore,
@@ -82,6 +86,13 @@ func (a *DemoteStalePrimaryAction) Priority() types.Priority {
 func (a *DemoteStalePrimaryAction) RequiresHealthyPrimary() bool {
 	// We're demoting a primary, so we can't require a healthy primary
 	return false
+}
+
+func (a *DemoteStalePrimaryAction) GracePeriod() *types.GracePeriodConfig {
+	return &types.GracePeriodConfig{
+		BaseDelay: a.config.GetPrimaryFailoverGracePeriodBase(),
+		MaxJitter: a.config.GetPrimaryFailoverGracePeriodMaxJitter(),
+	}
 }
 
 // Execute demotes the stale primary using the Demote RPC with the correct primary's term.
