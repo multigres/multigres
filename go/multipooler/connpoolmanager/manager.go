@@ -20,7 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
+	"sync/atomic"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/connstate"
@@ -33,6 +35,10 @@ import (
 // Manager orchestrates per-user connection pools with a shared admin pool.
 // Each user gets their own RegularPool and ReservedPool that connect directly
 // as that user via trust/peer authentication.
+//
+// The manager uses an atomic snapshot pattern for lock-free reads on the hot path.
+// Most connection requests (for existing users) complete with just an atomic load
+// and map lookup. Only new user pool creation requires acquiring a mutex.
 //
 // Usage:
 //
@@ -56,9 +62,17 @@ type Manager struct {
 	settingsCache *connstate.SettingsCache // Shared settings cache for all users
 	metrics       *Metrics                 // OpenTelemetry metrics
 
-	mu        sync.Mutex
-	userPools map[string]*UserPool // Per-user connection pools
-	closed    bool
+	// userPoolsSnapshot holds an atomic pointer to an immutable map of user pools.
+	// This enables lock-free reads on the hot path (existing users).
+	// The map is replaced atomically via copy-on-write when new users are added.
+	userPoolsSnapshot atomic.Pointer[map[string]*UserPool]
+
+	// createMu serializes user pool creation (cold path only).
+	// This mutex is only acquired when a new user pool needs to be created.
+	createMu sync.Mutex
+
+	// closed indicates whether the manager has been closed.
+	closed atomic.Bool
 }
 
 // Open initializes the manager and creates the shared admin pool.
@@ -68,13 +82,14 @@ type Manager struct {
 //   - ctx: Context for pool operations
 //   - connConfig: Connection settings (socket file, host, port, database)
 func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
 
 	m.connConfig = connConfig
-	m.userPools = make(map[string]*UserPool)
+	emptyPools := make(map[string]*UserPool)
+	m.userPoolsSnapshot.Store(&emptyPools)
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
-	m.closed = false
+	m.closed.Store(false)
 
 	// Build admin client config
 	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
@@ -116,28 +131,55 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 }
 
 // getOrCreateUserPool returns the pool for the given user, creating it if needed.
+//
+// This method uses an atomic snapshot pattern for lock-free reads on the hot path.
+// For existing users, this completes with just an atomic load and map lookup.
+// Only new user creation acquires the createMu mutex.
 func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPool, error) {
 	if user == "" {
 		return nil, errors.New("user cannot be empty")
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Hot path: atomic load + map lookup (no lock)
+	if pools := m.userPoolsSnapshot.Load(); pools != nil {
+		if pool, ok := (*pools)[user]; ok {
+			return pool, nil
+		}
+	}
 
-	// Check if closed
-	if m.closed {
+	// Check if closed before attempting to create
+	if m.closed.Load() {
 		return nil, errors.New("manager is closed")
 	}
 
-	// Check if pool already exists
-	if pool, ok := m.userPools[user]; ok {
-		return pool, nil
+	// Cold path: need to create a new user pool
+	return m.createUserPoolSlow(ctx, user)
+}
+
+// createUserPoolSlow creates a new user pool. This is the cold path that requires
+// acquiring the createMu mutex.
+func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPool, error) {
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+
+	// Double-check after acquiring lock
+	pools := m.userPoolsSnapshot.Load()
+	if pools != nil {
+		if pool, ok := (*pools)[user]; ok {
+			return pool, nil
+		}
+	}
+
+	// Check if closed (with lock held)
+	if m.closed.Load() {
+		return nil, errors.New("manager is closed")
 	}
 
 	// Check max users limit
 	// TODO: Consider garbage collecting user pools after a period of inactivity
 	// to reduce the odds of reaching the user pool maximum.
-	if maxUsers := m.config.MaxUsers(); maxUsers > 0 && int64(len(m.userPools)) >= maxUsers {
+	currentPools := *pools
+	if maxUsers := m.config.MaxUsers(); maxUsers > 0 && int64(len(currentPools)) >= maxUsers {
 		return nil, fmt.Errorf("maximum number of user pools (%d) reached", maxUsers)
 	}
 
@@ -169,28 +211,38 @@ func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPo
 		Logger:                    m.logger,
 	})
 
-	m.userPools[user] = pool
-	m.logger.InfoContext(ctx, "created user pool", "user", user, "total_users", len(m.userPools))
+	// Copy-on-write: create new map with the new pool
+	newPools := make(map[string]*UserPool, len(currentPools)+1)
+	maps.Copy(newPools, currentPools)
+	newPools[user] = pool
+
+	// Atomic publish
+	m.userPoolsSnapshot.Store(&newPools)
+	m.logger.InfoContext(ctx, "created user pool", "user", user, "total_users", len(newPools))
 
 	return pool, nil
 }
 
 // Close shuts down all connection pools.
 func (m *Manager) Close() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
 
-	if m.closed {
+	if m.closed.Load() {
 		return
 	}
-	m.closed = true
+	m.closed.Store(true)
 
 	// Close all user pools first
-	for user, pool := range m.userPools {
-		pool.Close()
-		m.logger.Debug("closed user pool", "user", user)
+	if pools := m.userPoolsSnapshot.Load(); pools != nil {
+		for user, pool := range *pools {
+			pool.Close()
+			m.logger.Debug("closed user pool", "user", user)
+		}
 	}
-	m.userPools = nil
+	// Clear the snapshot
+	emptyPools := make(map[string]*UserPool)
+	m.userPoolsSnapshot.Store(&emptyPools)
 
 	// Close shared admin pool last
 	if m.adminPool != nil {
@@ -254,10 +306,13 @@ func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]strin
 // GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 // Returns nil, false if the user pool doesn't exist, the connection is not found, or has timed out.
 func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bool) {
-	m.mu.Lock()
-	pool, ok := m.userPools[user]
-	m.mu.Unlock()
+	// Lock-free read via atomic snapshot
+	pools := m.userPoolsSnapshot.Load()
+	if pools == nil {
+		return nil, false
+	}
 
+	pool, ok := (*pools)[user]
 	if !ok {
 		return nil, false
 	}
@@ -268,24 +323,52 @@ func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bo
 // --- Stats ---
 
 // Stats returns statistics for all pools.
+// This reads from the atomic snapshot, providing a consistent view of all pools.
 func (m *Manager) Stats() ManagerStats {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	pools := m.userPoolsSnapshot.Load()
 
-	stats := ManagerStats{
+	var userPoolStats map[string]UserPoolStats
+	if pools != nil {
+		userPoolStats = make(map[string]UserPoolStats, len(*pools))
+		for user, pool := range *pools {
+			userPoolStats[user] = pool.Stats()
+		}
+	} else {
+		userPoolStats = make(map[string]UserPoolStats)
+	}
+
+	return ManagerStats{
 		Admin:     m.adminPool.Stats(),
-		UserPools: make(map[string]UserPoolStats, len(m.userPools)),
+		UserPools: userPoolStats,
 	}
-
-	for user, pool := range m.userPools {
-		stats.UserPools[user] = pool.Stats()
-	}
-
-	return stats
 }
 
 // ManagerStats holds statistics for all managed pools.
 type ManagerStats struct {
 	Admin     connpool.PoolStats       // Shared admin pool stats
 	UserPools map[string]UserPoolStats // Per-user pool stats
+}
+
+// IsClosed returns whether the manager has been closed.
+func (m *Manager) IsClosed() bool {
+	return m.closed.Load()
+}
+
+// UserPoolCount returns the number of user pools currently managed.
+func (m *Manager) UserPoolCount() int {
+	pools := m.userPoolsSnapshot.Load()
+	if pools == nil {
+		return 0
+	}
+	return len(*pools)
+}
+
+// HasUserPool returns whether a pool exists for the given user.
+func (m *Manager) HasUserPool(user string) bool {
+	pools := m.userPoolsSnapshot.Load()
+	if pools == nil {
+		return false
+	}
+	_, ok := (*pools)[user]
+	return ok
 }

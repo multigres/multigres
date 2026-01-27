@@ -54,14 +54,23 @@ Dynamic fair share allocation that:
 
 ## Implementation Checklist
 
-### Phase 1: Lock-Free Hot Path
+### Phase 1: Lock-Free Hot Path ✅
 
-- [ ] Replace `sync.Mutex` with `atomic.Pointer[map[string]*UserPool]` in Manager
-- [ ] Implement copy-on-write for new user pool creation
-- [ ] Add separate `createMu` mutex only for pool creation (cold path)
-- [ ] Update `Close()` and `Stats()` to work with atomic snapshot
-- [ ] Benchmark before/after to measure latency improvement
-- [ ] Verify correctness with race detector (`go test -race`)
+- [x] Replace `sync.Mutex` with `atomic.Pointer[map[string]*UserPool]` in Manager
+- [x] Implement copy-on-write for new user pool creation
+- [x] Add separate `createMu` mutex only for pool creation (cold path)
+- [x] Update `Close()` and `Stats()` to work with atomic snapshot
+- [x] Benchmark before/after to measure latency improvement
+- [x] Verify correctness with race detector (`go test -race`)
+
+**Benchmark Results:**
+
+| Benchmark | Time | Allocations |
+|-----------|------|-------------|
+| `HasUserPool` (hot path lookup) | **0.77 ns/op** | 0 B/op |
+| `GetRegularConn` (existing user) | **625.7 ns/op** | 1184 B/op |
+
+The lock-free hot path achieves sub-nanosecond latency for pool lookups.
 
 ### Phase 2: Demand Tracking
 

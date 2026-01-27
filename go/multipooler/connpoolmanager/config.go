@@ -309,10 +309,11 @@ func (c *Config) NewManager(logger *slog.Logger) *Manager {
 		logger.Warn("failed to initialize some connection pool metrics (using noop fallbacks)", "error", err)
 	}
 
-	return &Manager{
+	mgr := &Manager{
 		config:  c,
 		logger:  logger,
 		metrics: metrics,
-		closed:  true, // Manager is closed until Open() is called
 	}
+	mgr.closed.Store(true) // Manager is closed until Open() is called
+	return mgr
 }
