@@ -74,15 +74,28 @@ Dynamic fair share allocation that:
 The lock-free hot path achieves sub-nanosecond latency, an **82x improvement** over the
 previous mutex-based approach under parallel load.
 
-### Phase 2: Demand Tracking
+### Phase 2: Demand Tracking ✅
 
-- [ ] Create `DemandTracker` struct with atomic counters
-- [ ] Add `regularPeak` and `reservedPeak` tracking
-- [ ] Implement sliding window with configurable duration (default 30s)
-- [ ] Add `GetPeakAndReset()` method for rebalancer consumption
-- [ ] Integrate `DemandTracker` into `UserPool`
-- [ ] Expose demand metrics in `UserPoolStats`
-- [ ] Unit tests for demand tracking accuracy
+- [x] Add `requested` atomic counter to `connpool.Pool` (like `borrowed`)
+- [x] Increment on `Get()` start, decrement on `Get()` fail or `Recycle()`
+- [x] Remove `BorrowCallback` - no longer needed
+- [x] Create `DemandTracker` with sliding window buckets
+- [x] Implement bucket rotation on rebalance interval
+- [x] Add sampling goroutine (read `requested` at configured interval, update current bucket max)
+- [x] Add `Requested()` method to `connpool.Pool` and include in `PoolStats`
+- [x] Unit tests for sliding window accuracy
+
+**Design:**
+- Pool tracks `requested` count directly (no callback needed)
+- `DemandTracker` maintains N buckets where N = window / poll_interval
+- Each bucket stores max `requested` seen during that interval
+- Sampling goroutine reads pool's `requested` at configured interval, updates current bucket max
+- `GetPeakAndRotate()` returns max across all buckets and rotates to next bucket
+- On rebalance: call `GetPeakAndRotate()` to get peak and start fresh bucket
+- Configuration (window, poll interval, sample interval) set via flags on connpoolmanager
+
+**Note:** Integration of `DemandTracker` into `UserPool` and exposing demand metrics will happen
+in Phase 5 alongside the rebalancer, which owns the tracker lifecycle.
 
 ### Phase 3: Fair Share Allocator
 
@@ -110,9 +123,12 @@ previous mutex-based approach under parallel load.
 - [ ] Add configuration flags:
   - [ ] `--connpool-rebalance-interval` (default 10s)
   - [ ] `--connpool-demand-window` (default 30s)
+  - [ ] `--connpool-demand-sample-interval` (default 100ms)
   - [ ] `--connpool-inactive-timeout` (default 5m)
 - [ ] Create `rebalancer` goroutine in Manager
+- [ ] Create `DemandTracker` instances per UserPool (regular + reserved)
 - [ ] Implement rebalance loop: collect demand → allocate → apply
+- [ ] Expose demand metrics in `UserPoolStats`
 - [ ] Add garbage collection for inactive user pools
 - [ ] Add logging for rebalancing events
 - [ ] Add metrics for rebalancing (allocations changed, pools removed)
@@ -182,36 +198,63 @@ Derived:
   globalReservedCapacity = 500 * 0.2 = 100
 ```
 
-### Demand Metric: Peak Borrowed (Sliding Window)
+### Demand Metric: Peak Requested (Sliding Window)
 
-To allocate based on actual demand, we track the **peak borrowed connections**
-over a configurable sliding window:
+To allocate based on actual demand, we track the **peak requested connections**
+(not just borrowed) over a configurable sliding window. This captures true demand
+including users who are waiting for connections.
+
+**Pool-Level Tracking:**
+
+The connection pool tracks a `requested` counter (similar to `borrowed`):
+- Incremented when `Get()` is called (request starts)
+- Decremented when `Get()` fails OR when `Recycle()` is called (request ends)
+
+This allows reading demand directly from the pool without callbacks.
+
+**Memory-Efficient Sliding Window:**
+
+Instead of storing all samples, we use a bucketed approach:
+
+```text
+Configuration:
+  --connpool-demand-window=30s       # Total sliding window
+  --connpool-rebalance-interval=10s  # Poll/rebalance interval
+
+Buckets = window / interval = 30s / 10s = 3 buckets
+```
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                    30-second sliding window                      │
+│                    Sliding Window (3 buckets)                    │
 │                                                                  │
-│  Borrowed ───────────────┐                                       │
-│           │              │                                       │
-│        20 │    ┌──┐      │  ← Peak = 25 (used for allocation)   │
-│        15 │ ┌──┘  └──┐   │                                       │
-│        10 ├─┘        └───│                                       │
-│         5 │              │                                       │
-│         0 └──────────────┴─────────────────────────────────────  │
-│           t-30s        t-15s                                  t  │
+│   Bucket 0        Bucket 1        Bucket 2 (current)            │
+│   [t-30s,t-20s]   [t-20s,t-10s]   [t-10s,now]                   │
+│   max=15          max=25          max=20                         │
+│                                                                  │
+│   Peak for window = max(15, 25, 20) = 25                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Why peak (not average)?**
+**Sampling Strategy:**
 
-- Peak captures burst patterns that need capacity headroom
-- Average would under-provision for spiky workloads
-- Peak over a window smooths out transient spikes
+- Sampling goroutine reads `requested` count from pool at configured interval
+- Update current bucket's max: `bucket[current] = max(bucket[current], sample)`
+- On rebalance: call `GetPeakAndRotate()` which returns max across buckets and rotates
+
+**Why this approach?**
+
+- **Memory efficient**: Only N integers (where N = window/poll_interval)
+- **No callback overhead**: Just read atomic counter from pool
+- **Accurate peaks**: Fast sampling catches most spikes
+- **Sliding window**: Smooths out transient spikes while capturing sustained demand
 
 **Configuration:**
 
 ```text
---connpool-demand-window=30s          # Sliding window for peak tracking
+--connpool-demand-window=30s            # Sliding window duration (default)
+--connpool-rebalance-interval=10s       # Poll/rebalance interval (default)
+--connpool-demand-sample-interval=100ms # How often to sample (default)
 ```
 
 ### Fair Share Algorithm: Max-Min Fairness
@@ -363,6 +406,7 @@ We replace this with an **atomic pointer to an immutable snapshot**:
 | `--connpool-reserved-ratio` | 0.2 | Fraction of global capacity for reserved pools |
 | `--connpool-demand-window` | 30s | Sliding window for peak demand tracking |
 | `--connpool-rebalance-interval` | 10s | How often to run rebalancing |
+| `--connpool-demand-sample-interval` | 100ms | How often to sample pool demand |
 | `--connpool-inactive-timeout` | 5m | Remove user pools after this inactivity |
 
 **Note:** There are no per-user min/max bounds. A single user can use the full
@@ -382,7 +426,8 @@ multipooler \
   --connpool-global-capacity=500 \
   --connpool-reserved-ratio=0.2 \
   --connpool-demand-window=30s \
-  --connpool-rebalance-interval=10s
+  --connpool-rebalance-interval=10s \
+  --connpool-demand-sample-interval=100ms
 ```
 
 ## Implementation Plan

@@ -26,16 +26,18 @@ import (
 type DemandSampler func() int64
 
 // DemandTrackerConfig holds configuration for creating a DemandTracker.
+// All durations must be set by the caller (defaults are applied at the flag level).
 type DemandTrackerConfig struct {
-	// WindowDuration is the total sliding window duration (default: 30s).
+	// WindowDuration is the total sliding window duration.
 	// The tracker keeps demand history for this duration.
+	// Number of buckets = WindowDuration / PollInterval.
 	WindowDuration time.Duration
 
-	// PollInterval is how often the rebalancer polls for demand (default: 10s).
-	// Number of buckets = WindowDuration / PollInterval.
+	// PollInterval is how often the rebalancer polls for demand.
+	// This determines bucket granularity.
 	PollInterval time.Duration
 
-	// SampleInterval is how often to sample the pool's requested count (default: 100ms).
+	// SampleInterval is how often to sample the pool's requested count.
 	SampleInterval time.Duration
 
 	// Sampler is the function that returns current demand (pool.Requested()).
