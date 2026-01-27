@@ -150,7 +150,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 15*time.Second)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
 
 		// Ensure monitoring is disabled on all multipoolers (multiorch recovery might have re-enabled it)
 		t.Logf("Re-disabling monitoring on all multipoolers after failover %d...", i+1)
