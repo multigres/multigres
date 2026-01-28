@@ -318,6 +318,12 @@ func (p *Pool) Stats() PoolStats {
 	}
 }
 
+// SetCapacity changes the pool's maximum capacity.
+// If reducing capacity, may block waiting for borrowed connections to return.
+func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
+	return p.conns.SetCapacity(ctx, newcap)
+}
+
 // PoolStats contains pool statistics for reserved connections.
 type PoolStats struct {
 	// Active is the number of currently reserved connections.

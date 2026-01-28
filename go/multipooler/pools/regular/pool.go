@@ -100,6 +100,12 @@ func (p *Pool) Stats() connpool.PoolStats {
 	return p.pool.Stats()
 }
 
+// SetCapacity changes the pool's maximum capacity.
+// If reducing capacity, may block waiting for borrowed connections to return.
+func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
+	return p.pool.SetCapacity(ctx, newcap)
+}
+
 // InnerPool returns the underlying connpool.Pool.
 // Use with caution - prefer the wrapped methods.
 func (p *Pool) InnerPool() *connpool.Pool[*Conn] {

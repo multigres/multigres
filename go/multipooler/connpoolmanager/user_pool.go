@@ -16,6 +16,8 @@ package connpoolmanager
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -165,6 +167,33 @@ func (p *UserPool) Stats() UserPoolStats {
 		Regular:  p.regularPool.Stats(),
 		Reserved: p.reservedPool.Stats(),
 	}
+}
+
+// SetCapacity updates the capacity of both regular and reserved pools.
+// If reducing capacity, may block waiting for borrowed connections to return.
+func (p *UserPool) SetCapacity(ctx context.Context, regularCap, reservedCap int64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed {
+		return errors.New("pool is closed")
+	}
+
+	// Set regular pool capacity
+	if err := p.regularPool.SetCapacity(ctx, regularCap); err != nil {
+		return fmt.Errorf("regular pool: %w", err)
+	}
+
+	// Set reserved pool capacity
+	if err := p.reservedPool.SetCapacity(ctx, reservedCap); err != nil {
+		return fmt.Errorf("reserved pool: %w", err)
+	}
+
+	p.logger.InfoContext(ctx, "user pool capacity updated",
+		"regular_capacity", regularCap,
+		"reserved_capacity", reservedCap)
+
+	return nil
 }
 
 // UserPoolStats holds statistics for a user's pools.

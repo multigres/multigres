@@ -127,15 +127,21 @@ reservedResult := reservedAlloc.Allocate(reservedDemands) // map[string]int64
 - 14 unit tests + 4 property-based tests in `fair_share_allocator_test.go`
 - Algorithm: max-min fairness with progressive filling, minimum 1 connection per user
 
-### Phase 4: UserPool Resize Support
+### Phase 4: UserPool Resize Support ✅
 
-- [ ] Add `SetCapacity(ctx, regularCap, reservedCap)` to `UserPool`
-- [ ] Add `SetCapacity()` to `regular.Pool` (wire to underlying connpool)
-- [ ] Add `SetCapacity()` to `reserved.Pool` (wire to underlying connpool)
-- [ ] Handle proportional `MaxIdle` adjustment on resize
-- [ ] Test resize up (capacity increase)
-- [ ] Test resize down (capacity decrease)
-- [ ] Test resize while connections are borrowed
+- [x] Add `SetCapacity(ctx, regularCap, reservedCap)` to `UserPool`
+- [x] Add `SetCapacity()` to `regular.Pool` (wire to underlying connpool)
+- [x] Add `SetCapacity()` to `reserved.Pool` (wire to underlying connpool)
+- [x] Handle proportional `MaxIdle` adjustment on resize (handled by underlying connpool)
+- [x] Test resize up (capacity increase)
+- [x] Test resize down (capacity decrease)
+- [x] Test resize while connections are borrowed (context timeout supported)
+
+**Implementation:**
+- `regular.Pool.SetCapacity()` delegates to `connpool.Pool.SetCapacity()`
+- `reserved.Pool.SetCapacity()` delegates to internal regular pool
+- `UserPool.SetCapacity()` calls both with mutex protection
+- 3 tests in `user_pool_test.go`: basic resize, with idle connections, closed pool
 
 ### Phase 5: Background Rebalancer
 
