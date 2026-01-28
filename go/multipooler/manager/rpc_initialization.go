@@ -471,6 +471,30 @@ func (pm *MultiPoolerManager) removeRestoreCommandFromAutoConf() error {
 	return os.WriteFile(autoConfPath, []byte(strings.Join(filtered, "\n")), 0o644)
 }
 
+// hasRestoreCommand checks if restore_command is configured in postgresql.auto.conf.
+// Returns false if the file doesn't exist or restore_command is not present.
+func (pm *MultiPoolerManager) hasRestoreCommand() (bool, error) {
+	autoConfPath := filepath.Join(pm.multipooler.PoolerDir, "pg_data", "postgresql.auto.conf")
+
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to read postgresql.auto.conf: %w", err)
+	}
+
+	for line := range strings.SplitSeq(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Check for restore_command (not commented out)
+		if strings.HasPrefix(trimmed, "restore_command") {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
 // This must be called after InitDataDir but BEFORE starting PostgreSQL
 func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
