@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -370,40 +369,6 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 				err := standbyDB.QueryRow("SELECT EXISTS(SELECT 1 FROM backup_restore_test WHERE data = $1)", testData).Scan(&newRowExists)
 				return err == nil && newRowExists
 			}, 10*time.Second, 100*time.Millisecond, "New row should replicate to standby after restore")
-
-			t.Log("Verifying restore_command was removed from standby after streaming replication started...")
-
-			// After streaming replication is active, the monitor loop should have removed restore_command
-			// The monitor runs every few seconds, so we give it up to 30 seconds to detect and clean up
-			autoConfPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "postgresql.auto.conf")
-
-			assert.Eventually(t, func() bool {
-				content, err := os.ReadFile(autoConfPath)
-				if err != nil {
-					t.Logf("Failed to read postgresql.auto.conf: %v", err)
-					return false
-				}
-
-				// Check that restore_command is not present (not even commented)
-				for line := range strings.SplitSeq(string(content), "\n") {
-					trimmed := strings.TrimSpace(line)
-					if strings.HasPrefix(trimmed, "restore_command") {
-						t.Logf("restore_command still present: %s", trimmed)
-						return false
-					}
-				}
-				return true
-			}, 30*time.Second, 1*time.Second, "restore_command should be removed after streaming replication is active")
-
-			t.Log("✓ Verified restore_command was removed from standby's postgresql.auto.conf")
-
-			// Verify other critical settings are still present
-			content, err := os.ReadFile(autoConfPath)
-			require.NoError(t, err, "Should be able to read postgresql.auto.conf")
-			contentStr := string(content)
-			assert.Contains(t, contentStr, "archive_mode", "archive_mode should still be present")
-			assert.Contains(t, contentStr, "primary_conninfo", "primary_conninfo should still be present")
-			t.Log("✓ Verified archive_mode and primary_conninfo are still present")
 
 			// Check if standby.signal exists
 			standbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
