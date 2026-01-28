@@ -182,12 +182,12 @@ func TestConnWriteAndReadMessage(t *testing.T) {
 	conn.bufferedReader.Reset(&buf)
 
 	// Read message type.
-	msgType, err := conn.readMessageType()
+	msgType, err := conn.ReadMessageType()
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.MsgQuery), msgType)
 
 	// Read message length.
-	length, err := conn.readMessageLength()
+	length, err := conn.ReadMessageLength()
 	require.NoError(t, err)
 	assert.Equal(t, len(body), length)
 

@@ -389,3 +389,9 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 		return res.val, res.err
 	}
 }
+
+// ClientConn returns the underlying PostgreSQL client connection.
+// This is used for low-level protocol operations like COPY.
+func (c *Conn) ClientConn() *client.Conn {
+	return c.conn
+}
