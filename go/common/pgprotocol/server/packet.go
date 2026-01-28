@@ -22,9 +22,9 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
 
-// readMessageType reads a single byte message type from the connection.
+// ReadMessageType reads a single byte message type from the connection.
 // Returns 0 and io.EOF if the connection is closed gracefully.
-func (c *Conn) readMessageType() (byte, error) {
+func (c *Conn) ReadMessageType() (byte, error) {
 	var msgType [1]byte
 	_, err := io.ReadFull(c.bufferedReader, msgType[:])
 	if err != nil {
@@ -33,10 +33,10 @@ func (c *Conn) readMessageType() (byte, error) {
 	return msgType[0], nil
 }
 
-// readMessageLength reads the 4-byte message length from the connection.
+// ReadMessageLength reads the 4-byte message length from the connection.
 // The length includes itself but excludes the message type byte.
 // Returns the length of the message body (length - 4).
-func (c *Conn) readMessageLength() (int, error) {
+func (c *Conn) ReadMessageLength() (int, error) {
 	var lenBuf [4]byte
 	_, err := io.ReadFull(c.bufferedReader, lenBuf[:])
 	if err != nil {
@@ -94,7 +94,7 @@ func (c *Conn) returnReadBuffer(buf []byte) {
 // readStartupPacket reads a startup packet (no message type byte).
 // Startup packets only have a length field followed by the body.
 func (c *Conn) readStartupPacket() ([]byte, error) {
-	length, err := c.readMessageLength()
+	length, err := c.ReadMessageLength()
 	if err != nil {
 		return nil, err
 	}

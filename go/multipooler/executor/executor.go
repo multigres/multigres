@@ -426,6 +426,216 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	return canonicalName, nil
 }
 
+// HandleCopyInitiate handles the INITIATE phase of a COPY operation
+// It sends the COPY command to PostgreSQL and reads the CopyInResponse or CopyOutResponse
+// Returns: reservedConnID, poolerID, format, error
+// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
+func (e *Executor) HandleCopyInitiate(
+	ctx context.Context,
+	copyQuery string,
+	options *query.ExecuteOptions,
+) (uint64, []byte, int32, []int32, error) {
+	user := e.getUserFromOptions(options)
+
+	e.logger.DebugContext(ctx, "handling COPY INITIATE",
+		"query", copyQuery,
+		"user", user)
+
+	// Get session settings from options
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
+	}
+
+	// Create a reserved connection (COPY requires connection affinity)
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
+	if err != nil {
+		return 0, nil, 0, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
+	}
+
+	connID := reservedConn.ConnID
+
+	// Get the underlying PostgreSQL client connection
+	clientConn := reservedConn.Conn().ClientConn()
+
+	// Send COPY command and read CopyInResponse
+	format, columnFormats, err := clientConn.InitiateCopyFromStdin(ctx, copyQuery)
+	if err != nil {
+		// Connection is in bad state after failed COPY initiation - close it instead of recycling
+		reservedConn.Close()
+		return 0, nil, 0, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+	}
+
+	e.logger.DebugContext(ctx, "COPY INITIATE successful",
+		"conn_id", connID,
+		"format", format,
+		"num_columns", len(columnFormats))
+
+	// Convert columnFormats from []int16 to []int32 for protobuf
+	columnFormats32 := make([]int32, len(columnFormats))
+	for i, f := range columnFormats {
+		columnFormats32[i] = int32(f)
+	}
+
+	// Return reserved connection ID, format, and column formats
+	// Note: poolerID is passed as nil for now (TODO: implement pooler ID retrieval)
+	return uint64(connID), nil, int32(format), columnFormats32, nil
+}
+
+// HandleCopyData handles the DATA phase of a COPY FROM STDIN operation
+// It writes the data chunk to PostgreSQL
+// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
+func (e *Executor) HandleCopyData(
+	ctx context.Context,
+	reservedConnID uint64,
+	user string,
+	data []byte,
+) error {
+	e.logger.DebugContext(ctx, "handling COPY DATA",
+		"reserved_conn_id", reservedConnID,
+		"data_size", len(data))
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(reservedConnID), user)
+	if !ok {
+		return fmt.Errorf("reserved connection %d not found for user %s", reservedConnID, user)
+	}
+
+	// Get the underlying PostgreSQL client connection
+	clientConn := reservedConn.Conn().ClientConn()
+
+	// Write CopyData to PostgreSQL
+	if err := clientConn.WriteCopyData(data); err != nil {
+		e.logger.ErrorContext(ctx, "failed to write COPY data",
+			"error", err,
+			"data_size", len(data))
+		return fmt.Errorf("failed to write COPY data: %w", err)
+	}
+
+	e.logger.DebugContext(ctx, "COPY DATA sent successfully",
+		"data_size", len(data))
+
+	return nil
+}
+
+// HandleCopyDone handles the DONE phase of a COPY operation
+// For COPY FROM STDIN: sends remaining data and CopyDone, waits for CommandComplete
+// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
+func (e *Executor) HandleCopyDone(
+	ctx context.Context,
+	reservedConnID uint64,
+	user string,
+	finalData []byte,
+) (*sqltypes.Result, error) {
+	e.logger.DebugContext(ctx, "handling COPY DONE",
+		"reserved_conn_id", reservedConnID,
+		"final_data_size", len(finalData))
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(reservedConnID), user)
+	if !ok {
+		return nil, fmt.Errorf("reserved connection %d not found for user %s", reservedConnID, user)
+	}
+
+	// Get the underlying PostgreSQL client connection
+	clientConn := reservedConn.Conn().ClientConn()
+
+	// Send any remaining data first
+	if len(finalData) > 0 {
+		if err := clientConn.WriteCopyData(finalData); err != nil {
+			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
+			// Connection is in bad state - close it instead of recycling
+			reservedConn.Close()
+			return nil, fmt.Errorf("failed to write final COPY data: %w", err)
+		}
+		e.logger.DebugContext(ctx, "sent final COPY data", "size", len(finalData))
+	}
+
+	// Send CopyDone to signal completion
+	if err := clientConn.WriteCopyDone(); err != nil {
+		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
+		// Connection is in bad state - close it instead of recycling
+		reservedConn.Close()
+		return nil, fmt.Errorf("failed to write CopyDone: %w", err)
+	}
+
+	// Read CommandComplete response from PostgreSQL
+	commandTag, rowsAffected, err := clientConn.ReadCopyDoneResponse(ctx)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
+		// Connection might be in bad state - close it instead of recycling
+		reservedConn.Close()
+		return nil, fmt.Errorf("COPY operation failed: %w", err)
+	}
+
+	e.logger.DebugContext(ctx, "COPY DONE successful",
+		"rows_affected", rowsAffected,
+		"command_tag", commandTag)
+
+	// Build result
+	result := &sqltypes.Result{
+		CommandTag:   commandTag,
+		RowsAffected: rowsAffected,
+	}
+
+	// Success - release connection back to pool for reuse
+	reservedConn.Release(reserved.ReleasePortalComplete)
+
+	return result, nil
+}
+
+// HandleCopyFail handles the FAIL phase of a COPY operation
+// It sends CopyFail to PostgreSQL to abort the operation
+// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
+func (e *Executor) HandleCopyFail(
+	ctx context.Context,
+	reservedConnID uint64,
+	user string,
+	errorMsg string,
+) error {
+	e.logger.DebugContext(ctx, "handling COPY FAIL",
+		"reserved_conn_id", reservedConnID,
+		"error", errorMsg)
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(reservedConnID), user)
+	if !ok {
+		// Already cleaned up
+		return nil
+	}
+
+	// Get the underlying PostgreSQL client connection
+	clientConn := reservedConn.Conn().ClientConn()
+
+	// Send CopyFail to abort the operation
+	writeFailed := false
+	if err := clientConn.WriteCopyFail(errorMsg); err != nil {
+		e.logger.ErrorContext(ctx, "failed to write CopyFail", "error", err)
+		writeFailed = true
+		// Continue to try reading response
+	}
+
+	// Read ErrorResponse from PostgreSQL
+	// After CopyFail, PostgreSQL should respond with ErrorResponse and ReadyForQuery
+	// We can try to read it, but if it fails, that's okay since we're aborting anyway
+	_, _, readErr := clientConn.ReadCopyDoneResponse(ctx)
+	if readErr != nil {
+		e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)", "error", readErr)
+	}
+
+	e.logger.DebugContext(ctx, "COPY FAIL completed")
+
+	// If write or read failed, connection might be in bad state - close it
+	if writeFailed || readErr != nil {
+		reservedConn.Close()
+	} else {
+		// Clean abort - release connection back to pool
+		reservedConn.Release(reserved.ReleasePortalComplete)
+	}
+
+	return nil
+}
+
 // getUserFromOptions extracts the user from ExecuteOptions.
 // Returns "postgres" as default if no user is specified.
 func (e *Executor) getUserFromOptions(options *query.ExecuteOptions) string {
