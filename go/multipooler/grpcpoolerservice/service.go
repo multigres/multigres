@@ -103,19 +103,15 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 		return nil, status.Error(codes.InvalidArgument, "database is required")
 	}
 
-	// Check if pooler is initialized.
 	if s.pooler == nil {
 		return nil, status.Error(codes.Unavailable, "pooler not initialized")
 	}
 
-	// Get the pool manager from the pooler.
 	poolManager := s.pooler.PoolManager()
 	if poolManager == nil {
 		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
 	}
 
-	// Get an admin connection. This works even before the executor is initialized,
-	// which is critical for authentication during bootstrap.
 	conn, err := poolManager.GetAdminConn(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
