@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // needsCrashRecovery checks if PostgreSQL requires crash recovery.
@@ -92,7 +93,12 @@ func runCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir string
 		return fmt.Errorf("failed to start postgres --single: %w", err)
 	}
 
-	// Close stdin immediately to signal EOF (causes postgres to exit after recovery)
+	// Give postgres a brief moment to attach to stdin before closing it.
+	// Without this, there's a race where stdin.Close() can execute before
+	// postgres has attached, causing postgres to wait indefinitely for input.
+	time.Sleep(50 * time.Millisecond)
+
+	// Close stdin to signal EOF (causes postgres to exit after recovery)
 	stdin.Close()
 
 	// Wait for the command to complete
