@@ -231,8 +231,6 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 // isWALReceiverStreaming checks if the WAL receiver is actively streaming from the primary.
 // Returns true only if pg_stat_wal_receiver shows status='streaming'.
 // Returns false if not in recovery, WAL receiver not running, or not yet streaming.
-//
-//nolint:unused // Will be used in the monitor loop (next task)
 func (pm *MultiPoolerManager) isWALReceiverStreaming(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
