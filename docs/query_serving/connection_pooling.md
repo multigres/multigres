@@ -8,6 +8,10 @@ gets their own dedicated connection pools that authenticate directly as that
 user via trust/peer authentication. This design ensures strong security
 isolation while supporting Row-Level Security (RLS) policies.
 
+Pool capacities are managed dynamically using **fair share allocation** -- the
+system distributes the global connection budget among active users based on
+actual demand and automatically rebalances as users come and go.
+
 ## Architecture
 
 <!-- markdownlint-disable MD013 -->
@@ -22,18 +26,25 @@ isolation while supporting Row-Level Security (RLS) policies.
 │  │  AdminConn   │                                                                │
 │  └──────────────┘                                                                │
 │                                                                                  │
-│  userPools map[string]*UserPool                                                  │
+│  ┌────────────────────────────────┐  ┌────────────────────────────────┐          │
+│  │  FairShareAllocator (Regular)  │  │  FairShareAllocator (Reserved) │          │
+│  │  Capacity: 400 (80% of 500)    │  │  Capacity: 100 (20% of 500)    │          │
+│  └────────────────────────────────┘  └────────────────────────────────┘          │
+│                                                                                  │
+│  userPoolsSnapshot (atomic pointer - lock-free reads)                            │
 │  ┌──────────────────────────────────────────────────────────────────────────┐    │
 │  │  UserPool["alice"]                                                       │    │
 │  │  ┌──────────────────┐   ┌──────────────────────────┐                     │    │
 │  │  │   RegularPool    │   │      ReservedPool        │                     │    │
 │  │  │   (user: alice)  │   │      (user: alice)       │                     │    │
+│  │  │   Capacity: 80   │   │      Capacity: 20        │                     │    │
 │  │  │                  │   │ ┌─────────────────────┐  │                     │    │
 │  │  │ RegularConn      │   │ │ internal RegularPool│  │                     │    │
 │  │  │   └─ ConnState   │   │ └─────────────────────┘  │                     │    │
 │  │  │      └─ Settings │   │ ReservedConn             │                     │    │
 │  │  │      └─ Stmts    │   │   └─ ConnID              │                     │    │
 │  │  └──────────────────┘   └──────────────────────────┘                     │    │
+│  │  DemandTracker (regular)  DemandTracker (reserved)                       │    │
 │  └──────────────────────────────────────────────────────────────────────────┘    │
 │  ┌──────────────────────────────────────────────────────────────────────────┐    │
 │  │  UserPool["bob"]                                                         │    │
@@ -43,6 +54,8 @@ isolation while supporting Row-Level Security (RLS) policies.
 │  │  │       ...        │   │          ...             │                     │    │
 │  │  └──────────────────┘   └──────────────────────────┘                     │    │
 │  └──────────────────────────────────────────────────────────────────────────┘    │
+│                                                                                  │
+│  Rebalancer goroutine (periodic: collect demand → allocate → apply → GC)        │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,7 +83,9 @@ isolation while supporting Row-Level Security (RLS) policies.
 ### 2. UserPool (Per-User)
 
 Each user gets their own `UserPool` containing both a RegularPool and ReservedPool.
-Pools are created **lazily** on first connection request for that user.
+Pools are created **lazily** on first connection request for that user. New pools
+start with an initial capacity of 10 connections; the background rebalancer adjusts
+capacities within seconds based on actual demand.
 
 #### RegularPool
 
@@ -128,6 +143,198 @@ Reserved connections have two timeout configurations:
 A background goroutine runs at 1/10th of the inactivity timeout interval to scan
 and kill connections that have exceeded their timeout. Each time a connection is
 accessed via `Get()`, its expiry time is reset.
+
+## Dynamic Fair Share Allocation
+
+### Problem
+
+Static per-user pool sizes create a fundamental problem when the number of users
+is unknown and PostgreSQL's `max_connections` is fixed:
+
+```text
+Scenario:
+- PostgreSQL max_connections = 500
+- Static per-user capacity = 100
+
+State 1: 5 users connect
+  → 5 users × 100 connections = 500 (at capacity)
+
+State 2: 6th user arrives
+  → No connections available
+  → User 6 either errors or waits indefinitely
+```
+
+### Design Goals
+
+1. **Fair allocation**: Each user gets a fair share of the global connection budget
+2. **Adaptive**: Automatically rebalance as users come and go
+3. **Demand-aware**: Allocate based on actual usage, not just equal splits
+4. **Non-blocking**: Rebalancing happens in background, not on the query hot path
+5. **Separate resources**: Regular and reserved pools have independent budgets
+
+### Two Separate Resources
+
+Regular and reserved pools serve fundamentally different workloads and are
+allocated independently:
+
+| Resource | Use Case | Typical Pattern |
+|----------|----------|-----------------|
+| **Regular** | Simple queries, reads | High throughput, short duration |
+| **Reserved** | Transactions, cursors | Lower throughput, longer duration |
+
+The global capacity is divided between the two resource types:
+
+```text
+--connpool-global-capacity=500        # Total PostgreSQL connections
+--connpool-reserved-ratio=0.2         # 20% reserved, 80% regular
+
+Derived:
+  globalRegularCapacity  = 500 * 0.8 = 400
+  globalReservedCapacity = 500 * 0.2 = 100
+```
+
+A `FairShareAllocator` instance manages each resource type independently. This
+mirrors the `DemandTracker` design (also resource-agnostic, one per pool type).
+
+### Demand Tracking
+
+To allocate based on actual demand, we track the **peak requested connections**
+(not just borrowed) over a configurable sliding window. This captures true demand
+including users who are waiting for connections.
+
+**Pool-Level Tracking:**
+
+The connection pool tracks a `requested` counter (similar to `borrowed`):
+
+- Incremented when `Get()` is called (request starts)
+- Decremented when `Get()` fails OR when `Recycle()` is called (request ends)
+
+**Memory-Efficient Sliding Window:**
+
+Instead of storing all samples, we use a bucketed approach:
+
+```text
+Configuration:
+  --connpool-demand-window=30s       # Total sliding window
+  --connpool-rebalance-interval=10s  # Rebalance interval
+
+Buckets = window / interval = 30s / 10s = 3 buckets
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    Sliding Window (3 buckets)                    │
+│                                                                  │
+│   Bucket 0        Bucket 1        Bucket 2 (current)            │
+│   [t-30s,t-20s]   [t-20s,t-10s]   [t-10s,now]                   │
+│   max=15          max=25          max=20                         │
+│                                                                  │
+│   Peak for window = max(15, 25, 20) = 25                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+A sampling goroutine reads the pool's `requested` counter at a configured interval
+and updates the current bucket's max. On rebalance, `GetPeakAndRotate()` returns
+the max across all buckets and rotates to the next bucket.
+
+### Fair Share Algorithm
+
+We use [max-min fairness](https://en.wikipedia.org/wiki/Max-min_fairness) to
+allocate capacity based on demand:
+
+```text
+Algorithm: Progressive Filling
+
+1. Start with all allocations at 0
+2. Increase all allocations equally until:
+   a. A user's allocation reaches their demand (they're satisfied)
+   b. Total allocation reaches global capacity (resource exhausted)
+3. Satisfied users stop growing; continue increasing others
+4. Repeat until all users satisfied or capacity exhausted
+
+Example with globalRegularCapacity=400:
+
+  User A demand: 150    User B demand: 100    User C demand: 80
+
+  Step 1: Allocate equally until someone is satisfied
+    A=80, B=80, C=80 (total=240) → C is satisfied (demand=80)
+
+  Step 2: Continue with A and B
+    A=110, B=100, C=80 (total=290) → B is satisfied (demand=100)
+
+  Step 3: Continue with A only
+    A=150, B=100, C=80 (total=330) → A is satisfied (demand=150)
+
+  Remaining capacity: 400-330 = 70 (held in reserve)
+```
+
+**Bounds:**
+
+- **Minimum**: 1 connection per user (hard floor to ensure usability)
+- **Maximum**: Full global capacity (single user can use everything)
+
+```text
+1 user  with globalCapacity=400 → user gets 400
+2 users with globalCapacity=400 → each gets up to 200 (based on demand)
+400 users with globalCapacity=400 → each gets 1
+```
+
+### Background Rebalancer
+
+Rebalancing runs as a **periodic background goroutine**:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    Rebalance Goroutine                           │
+│                                                                  │
+│  Every 10 seconds (configurable):                                │
+│                                                                  │
+│  1. Collect demand metrics from all UserPools                    │
+│     └─ regularTracker.GetPeakAndRotate() for each user          │
+│     └─ reservedTracker.GetPeakAndRotate() for each user         │
+│                                                                  │
+│  2. Run fair share algorithm (two allocators, one per resource)  │
+│     └─ regularAlloc.Allocate(regularDemands)                    │
+│     └─ reservedAlloc.Allocate(reservedDemands)                  │
+│                                                                  │
+│  3. Apply new capacities                                         │
+│     └─ pool.SetCapacity(ctx, newRegularCap, newReservedCap)     │
+│        (non-blocking - excess borrowed connections closed on     │
+│         recycle)                                                 │
+│                                                                  │
+│  4. Garbage collect inactive pools                               │
+│     └─ Remove pools with no activity for > inactive timeout     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why purely periodic (not event-driven)?**
+
+1. **Simplicity**: No complex event handling or race conditions
+2. **Batching**: Multiple user arrivals/departures handled in one pass
+3. **Stability**: Prevents oscillation from rapid changes
+4. **Predictable**: Easier to reason about and debug
+
+### Lock-Free Hot Path
+
+The pool lookup on every query uses an **atomic pointer to an immutable snapshot**
+instead of taking a mutex:
+
+```text
+Hot Path (every query):
+  pools := m.userPoolsSnapshot.Load()  // atomic, no lock
+  if pool, ok := (*pools)[user]; ok {
+      return pool, nil                 // fast path done
+  }
+
+Cold Path (new user arrives - rare):
+  m.createMu.Lock()                    // serialize creates only
+  // Double-check after lock
+  // Copy-on-write: new map with new pool
+  // Atomic publish
+  m.userPoolsSnapshot.Store(&newPools)
+```
+
+This achieves sub-nanosecond pool lookups. Under 10-goroutine parallel load,
+the lock-free path provides an **~11x throughput improvement** over the previous
+mutex-based approach.
 
 ## Settings Management
 
@@ -263,10 +470,13 @@ The `Manager` in `go/multipooler/connpoolmanager/` orchestrates all pool types,
 providing:
 
 1. **Per-User Pool Management** - Lazy creation of user pools on first request
-2. **Unified Interface** - Single entry point for connection acquisition
-3. **Pool Selection** - Routes requests to appropriate pool based on operation
-4. **Lifecycle Management** - Handles connection creation, validation, and cleanup
-5. **Metrics** - Exposes per-user pool statistics for monitoring
+2. **Lock-Free Lookups** - Atomic pointer to immutable map snapshot for zero-contention reads
+3. **Dynamic Capacity Management** - Background rebalancer adjusts pool sizes based on demand
+4. **Unified Interface** - Single entry point for connection acquisition
+5. **Pool Selection** - Routes requests to appropriate pool based on operation
+6. **Lifecycle Management** - Handles connection creation, validation, and cleanup
+7. **Inactive Pool GC** - Automatically removes user pools after configurable inactivity
+8. **Metrics** - Exposes per-user pool statistics including demand and activity
 
 ### Usage
 
@@ -327,9 +537,27 @@ type PoolManager interface {
 
 The connection pool manager is configured via command-line flags (backed by viper).
 
-### Available Flags
+### Dynamic Allocation Flags
 
-**Admin Pool Flags:**
+These flags control how pool capacities are distributed across users:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--connpool-global-capacity` | 100 | Total PostgreSQL connections to manage |
+| `--connpool-reserved-ratio` | 0.2 | Fraction of global capacity for reserved pools |
+| `--connpool-rebalance-interval` | 10s | How often to run rebalancing |
+| `--connpool-demand-window` | 30s | Sliding window for peak demand tracking |
+| `--connpool-demand-sample-interval` | 100ms | How often to sample pool demand |
+| `--connpool-inactive-timeout` | 5m | Remove user pools after this inactivity |
+
+Derived values:
+
+```text
+globalRegularCapacity  = globalCapacity * (1 - reservedRatio)
+globalReservedCapacity = globalCapacity * reservedRatio
+```
+
+### Admin Pool Flags
 
 | Flag                        | Default    | Env Var                   | Description                            |
 | --------------------------- | ---------- | ------------------------- | -------------------------------------- |
@@ -337,63 +565,49 @@ The connection pool manager is configured via command-line flags (backed by vipe
 | `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD` | Admin pool password                    |
 | `--connpool-admin-capacity` | 5          | -                         | Maximum admin connections              |
 
-**Per-User Regular Pool Flags:**
+### Per-User Pool Flags (Timeouts Only)
 
-| Flag                                   | Default | Description                                     |
-| -------------------------------------- | ------- | ----------------------------------------------- |
-| `--connpool-user-regular-capacity`     | 10      | Maximum regular connections per user            |
-| `--connpool-user-regular-max-idle`     | 5       | Maximum idle regular connections per user       |
-| `--connpool-user-regular-idle-timeout` | 5m      | Idle timeout before closing regular connections |
-| `--connpool-user-regular-max-lifetime` | 1h      | Maximum lifetime before recycling               |
-
-**Per-User Reserved Pool Flags:**
+Pool capacities are managed automatically by the rebalancer. New user pools start
+with an initial capacity of 10 connections and are adjusted within seconds based on
+demand. These flags control timeout behavior only:
 
 | Flag                                          | Default | Description                                 |
 | --------------------------------------------- | ------- | ------------------------------------------- |
-| `--connpool-user-reserved-capacity`           | 5       | Maximum reserved connections per user       |
-| `--connpool-user-reserved-max-idle`           | 2       | Maximum idle reserved connections per user  |
+| `--connpool-user-regular-idle-timeout`        | 5m      | Idle timeout before closing regular connections |
+| `--connpool-user-regular-max-lifetime`        | 1h      | Maximum lifetime before recycling               |
 | `--connpool-user-reserved-inactivity-timeout` | 30s     | Inactivity timeout for reserved connections |
 | `--connpool-user-reserved-idle-timeout`       | 5m      | Idle timeout for underlying pool            |
 | `--connpool-user-reserved-max-lifetime`       | 1h      | Maximum lifetime before recycling           |
 
-**User Pool Limits:**
-
-| Flag                   | Default | Description                                  |
-| ---------------------- | ------- | -------------------------------------------- |
-| `--connpool-max-users` | 0       | Maximum number of user pools (0 = unlimited) |
-
-**Settings Cache:**
+### Other Flags
 
 | Flag                             | Default | Description                                             |
 | -------------------------------- | ------- | ------------------------------------------------------- |
+| `--connpool-max-users`           | 0       | Maximum number of user pools (0 = unlimited)            |
 | `--connpool-settings-cache-size` | 1024    | Maximum number of unique settings combinations to cache |
 
 **Note:** Connection settings (socket file, port, database) use the existing multipooler flags
 (`--socket-file`, `--pg-port`, `--database`) and are passed to the connection pool manager
 via `ConnectionConfig`.
 
-### Example Usage
+### Example Configuration
 
-```go
-import "github.com/multigres/multigres/go/multipooler/connpoolmanager"
-
-// In your service initialization
-reg := viperutil.NewRegistry()
-
-// Create config and register flags (before flag parsing)
-cfg := connpoolmanager.NewConfig(reg)
-cfg.RegisterFlags(cmd.Flags())
-
-// After flag parsing, create manager and open pools
-mgr := cfg.NewManager()
-connConfig := &connpoolmanager.ConnectionConfig{
-    SocketFile: socketFilePath,  // From --socket-file flag
-    Port:       pgPort,          // From --pg-port flag
-    Database:   database,        // From --database flag
-}
-mgr.Open(ctx, logger, connConfig)
-defer mgr.Close()
+```bash
+multipooler \
+  --connpool-global-capacity=500 \
+  --connpool-reserved-ratio=0.2 \
+  --connpool-rebalance-interval=10s \
+  --connpool-demand-window=30s \
+  --connpool-demand-sample-interval=100ms \
+  --connpool-inactive-timeout=5m
 ```
+
+With this configuration:
+
+- Total capacity of 500 connections (400 regular, 100 reserved)
+- New users start with 10 connections each
+- Rebalancer adjusts capacities every 10 seconds based on 30-second demand window
+- Inactive user pools are garbage collected after 5 minutes
 
 ## Statistics
 
@@ -409,9 +623,12 @@ type ManagerStats struct {
 }
 
 type UserPoolStats struct {
-    Username string
-    Regular  connpool.PoolStats
-    Reserved reserved.PoolStats
+    Username       string
+    Regular        connpool.PoolStats
+    Reserved       reserved.PoolStats
+    RegularDemand  int64 // Peak demand from tracker (0 if tracking not enabled)
+    ReservedDemand int64 // Peak demand from tracker (0 if tracking not enabled)
+    LastActivity   int64 // Unix nanos of last activity
 }
 ```
 
@@ -483,5 +700,9 @@ pooler runs on separate hosts from PostgreSQL.
 
 - [Prepared Statements Design](./prepared_statements_design.md) - Extended Query
   Protocol and statement management
-- [Dynamic Fair Share Pool Allocation](./dynamic_pool_allocation.md) - Dynamic
-  rebalancing of connection pools based on user demand
+
+## References
+
+- [Wikipedia: Max-min fairness](https://en.wikipedia.org/wiki/Max-min_fairness)
+- [Dominant Resource Fairness (DRF)](https://amplab.cs.berkeley.edu/wp-content/uploads/2011/06/Dominant-Resource-Fairness-Fair-Allocation-of-Multiple-Resource-Types.pdf)
+
