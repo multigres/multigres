@@ -457,6 +457,94 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 	return nil
 }
 
+// WriteCopyInResponse writes a CopyInResponse ('G') message to the client
+// This tells the client that the server is ready to receive COPY data
+func (c *Conn) WriteCopyInResponse(format int16, columnFormats []int16) error {
+	// Calculate message size: 4 (length) + 1 (format as Int8) + 2 (num columns) + 2*numCols (column formats)
+	size := 4 + 1 + 2 + (2 * len(columnFormats))
+
+	w := c.getWriter()
+
+	// Write message type
+	if err := writeByte(w, protocol.MsgCopyInResponse); err != nil {
+		return err
+	}
+
+	// Write message length
+	if err := writeInt32(w, int32(size)); err != nil {
+		return err
+	}
+
+	// Write overall format as Int8 (1 byte) - 0=text, 1=binary
+	if err := writeByte(w, byte(format)); err != nil {
+		return err
+	}
+
+	// Write number of columns (Int16, 2 bytes)
+	if err := writeInt16(w, int16(len(columnFormats))); err != nil {
+		return err
+	}
+
+	// Write format code for each column (Int16 each)
+	for _, fmt := range columnFormats {
+		if err := writeInt16(w, fmt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ReadCopyDataMessage reads a CopyData ('d') message body
+// The message type byte has already been read
+// length is the body length (already has 4 subtracted by ReadMessageLength)
+func (c *Conn) ReadCopyDataMessage(length int) ([]byte, error) {
+	if length < 0 {
+		return nil, fmt.Errorf("invalid CopyData message length: %d", length)
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(c.bufferedReader, data); err != nil {
+		return nil, fmt.Errorf("failed to read CopyData: %w", err)
+	}
+
+	return data, nil
+}
+
+// ReadCopyDoneMessage reads a CopyDone ('c') message
+// The message type byte has already been read
+// CopyDone has no body, just validates the length
+// length is the body length (already has 4 subtracted by ReadMessageLength)
+func (c *Conn) ReadCopyDoneMessage(length int) error {
+	// CopyDone has no body, so length should be 0
+	if length != 0 {
+		return fmt.Errorf("invalid CopyDone message length: %d (expected 0)", length)
+	}
+	return nil
+}
+
+// ReadCopyFailMessage reads a CopyFail ('f') message
+// The message type byte has already been read
+// Returns the error message string from the client
+// length is the body length (already has 4 subtracted by ReadMessageLength)
+func (c *Conn) ReadCopyFailMessage(length int) (string, error) {
+	if length < 0 {
+		return "", fmt.Errorf("invalid CopyFail message length: %d", length)
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(c.bufferedReader, data); err != nil {
+		return "", fmt.Errorf("failed to read CopyFail: %w", err)
+	}
+
+	// Message should be null-terminated
+	if len(data) > 0 && data[len(data)-1] == 0 {
+		data = data[:len(data)-1]
+	}
+
+	return string(data), nil
+}
+
 // Helper functions for writing protocol data types.
 
 func writeByte(w io.Writer, b byte) error {

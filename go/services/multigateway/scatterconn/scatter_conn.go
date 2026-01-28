@@ -23,6 +23,7 @@ package scatterconn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -265,6 +267,242 @@ func (sc *ScatterConn) Describe(
 		"shard", shard)
 
 	return description, nil
+}
+
+// --- COPY FROM STDIN methods ---
+
+// CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
+// Returns: reservedConnID, poolerID, format, columnFormats, error
+func (sc *ScatterConn) CopyInitiate(
+	ctx context.Context,
+	conn *server.Conn,
+	queryStr string,
+	callback func(ctx context.Context, result *sqltypes.Result) error,
+) (uint64, *clustermetadatapb.ID, int16, []int16, error) {
+	sc.logger.DebugContext(ctx, "initiating COPY FROM STDIN",
+		"query", queryStr,
+		"user", conn.User(),
+		"database", conn.Database())
+
+	// For COPY operations, we need to get the table group from somewhere
+	// Since ScatterConn doesn't have access to the planner, we'll use a default
+	// In practice, this will be called by CopyStatement which knows the table group
+	// but we need to extract it from context or pass it differently
+	// For now, hardcode to "default" - this matches what Executor does
+	const defaultTableGroup = "default"
+
+	// Create target for routing - COPY always goes to PRIMARY
+	target := &query.Target{
+		TableGroup: defaultTableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      "",
+	}
+
+	// Get connection state
+	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
+
+	// Create bidirectional stream
+	stream, err := sc.gateway.GetBidirectionalExecuteStream(ctx, target)
+	if err != nil {
+		return 0, nil, 0, nil, fmt.Errorf("failed to create bidirectional execute stream: %w", err)
+	}
+
+	// Send INITIATE message (but don't store stream yet)
+	execOptions := &query.ExecuteOptions{
+		User:            conn.User(),
+		SessionSettings: state.GetSessionSettings(),
+	}
+
+	initiateReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase:   multipoolerservice.BidirectionalExecuteRequest_INITIATE,
+		Query:   queryStr,
+		Target:  target,
+		Options: execOptions,
+	}
+
+	if err := stream.Send(initiateReq); err != nil {
+		return 0, nil, 0, nil, fmt.Errorf("failed to send INITIATE: %w", err)
+	}
+
+	sc.logger.DebugContext(ctx, "sent INITIATE message")
+
+	// Receive READY response (CopyInResponse for COPY FROM STDIN)
+	resp, err := stream.Recv()
+	if err != nil {
+		return 0, nil, 0, nil, fmt.Errorf("failed to receive READY response: %w", err)
+	}
+
+	// Check for ERROR response
+	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
+		return 0, nil, 0, nil, fmt.Errorf("operation failed: %s", resp.Error)
+	}
+
+	// Validate READY response
+	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_READY {
+		return 0, nil, 0, nil, fmt.Errorf("expected READY, got %v", resp.Phase)
+	}
+
+	// SUCCESS - Store stream ONLY after initiation succeeds
+	state.SetCopyStream(stream)
+
+	// Convert columnFormats from []int32 to []int16
+	columnFormats := make([]int16, len(resp.ColumnFormats))
+	for i, f := range resp.ColumnFormats {
+		columnFormats[i] = int16(f)
+	}
+
+	sc.logger.DebugContext(ctx, "received READY response",
+		"reserved_conn_id", resp.ReservedConnectionId,
+		"format", resp.Format,
+		"num_columns", len(columnFormats))
+
+	return resp.ReservedConnectionId, resp.PoolerId, int16(resp.Format), columnFormats, nil
+}
+
+// CopySendData sends a chunk of COPY data via bidirectional stream.
+func (sc *ScatterConn) CopySendData(
+	ctx context.Context,
+	conn *server.Conn,
+	reservedConnID uint64,
+	poolerID *clustermetadatapb.ID,
+	data []byte,
+) error {
+	sc.logger.DebugContext(ctx, "sending COPY data chunk",
+		"size", len(data),
+		"reserved_conn_id", reservedConnID)
+
+	// Get the stream from connection state
+	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
+	stream := state.GetCopyStream()
+	if stream == nil {
+		return errors.New("no active bidirectional execute stream")
+	}
+
+	// Send DATA message
+	dataReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase: multipoolerservice.BidirectionalExecuteRequest_DATA,
+		Data:  data,
+	}
+
+	if err := stream.Send(dataReq); err != nil {
+		return fmt.Errorf("failed to send DATA: %w", err)
+	}
+
+	sc.logger.DebugContext(ctx, "sent DATA message", "size", len(data))
+
+	return nil
+}
+
+// CopyFinalize sends the final chunk and CopyDone via bidirectional stream.
+func (sc *ScatterConn) CopyFinalize(
+	ctx context.Context,
+	conn *server.Conn,
+	reservedConnID uint64,
+	poolerID *clustermetadatapb.ID,
+	finalData []byte,
+	callback func(ctx context.Context, result *sqltypes.Result) error,
+) error {
+	sc.logger.DebugContext(ctx, "finalizing COPY",
+		"final_chunk_size", len(finalData),
+		"reserved_conn_id", reservedConnID)
+
+	// Get the stream from connection state
+	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
+	stream := state.GetCopyStream()
+	if stream == nil {
+		return errors.New("no active bidirectional execute stream")
+	}
+
+	// Send DONE message with final data
+	doneReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase: multipoolerservice.BidirectionalExecuteRequest_DONE,
+		Data:  finalData,
+	}
+
+	if err := stream.Send(doneReq); err != nil {
+		return fmt.Errorf("failed to send DONE: %w", err)
+	}
+
+	// Close our side of the stream
+	if err := stream.CloseSend(); err != nil {
+		return fmt.Errorf("failed to close send: %w", err)
+	}
+
+	sc.logger.DebugContext(ctx, "sent DONE message, waiting for result")
+
+	// Receive RESULT message
+	resp, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("failed to receive RESULT: %w", err)
+	}
+
+	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
+		return fmt.Errorf("operation failed: %s", resp.Error)
+	}
+
+	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_RESULT {
+		return fmt.Errorf("expected RESULT, got %v", resp.Phase)
+	}
+
+	sc.logger.DebugContext(ctx, "received RESULT message")
+
+	// Convert result and call callback
+	result := sqltypes.ResultFromProto(resp.Result)
+	if err := callback(ctx, result); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// CopyAbort aborts the COPY operation via bidirectional stream.
+func (sc *ScatterConn) CopyAbort(
+	ctx context.Context,
+	conn *server.Conn,
+	reservedConnID uint64,
+	poolerID *clustermetadatapb.ID,
+) error {
+	sc.logger.DebugContext(ctx, "aborting COPY",
+		"reserved_conn_id", reservedConnID)
+
+	// Get the stream from connection state
+	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
+	stream := state.GetCopyStream()
+	if stream == nil {
+		// Already cleaned up
+		return nil
+	}
+
+	// Send FAIL message
+	failReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase:        multipoolerservice.BidirectionalExecuteRequest_FAIL,
+		ErrorMessage: "operation aborted by client",
+	}
+
+	if err := stream.Send(failReq); err != nil {
+		sc.logger.WarnContext(ctx, "failed to send FAIL message", "error", err)
+	}
+
+	// Close our side of the stream
+	if err := stream.CloseSend(); err != nil {
+		sc.logger.WarnContext(ctx, "failed to close send", "error", err)
+	}
+
+	// Drain any remaining responses until stream ends
+	// We intentionally ignore errors here as stream closure is expected
+	for {
+		_, recvErr := stream.Recv()
+		if recvErr != nil {
+			// Expected to fail with io.EOF or stream closed
+			// This is the normal exit condition, not an error to return
+			sc.logger.DebugContext(ctx, "stream closed as expected", "error", recvErr)
+			break
+		}
+	}
+
+	sc.logger.DebugContext(ctx, "operation aborted")
+
+	return nil
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.

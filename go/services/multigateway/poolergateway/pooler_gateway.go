@@ -62,6 +62,9 @@ type Gateway interface {
 
 	// QueryServiceByID returns a QueryService
 	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
+
+	// GetBidirectionalExecuteStream creates a bidirectional stream for commands requiring streaming (e.g., COPY)
+	GetBidirectionalExecuteStream(ctx context.Context, target *query.Target) (multipoolerservice.MultiPoolerService_BidirectionalExecuteClient, error)
 }
 
 // PoolerGateway selects and manages connections to multipooler instances.
@@ -387,4 +390,56 @@ func (pg *PoolerGateway) Stats() map[string]any {
 		"active_connections": len(pg.connections),
 		"poolers_discovered": pg.discovery.PoolerCount(),
 	}
+}
+
+// GetBidirectionalExecuteStream creates a bidirectional stream for commands requiring streaming.
+// This is used for COPY commands (both FROM STDIN and TO STDOUT) and potentially other
+// commands that require bidirectional communication.
+// It selects an appropriate pooler based on the target and returns the gRPC stream.
+func (pg *PoolerGateway) GetBidirectionalExecuteStream(
+	ctx context.Context,
+	target *query.Target,
+) (multipoolerservice.MultiPoolerService_BidirectionalExecuteClient, error) {
+	// Get a pooler matching the target
+	pooler := pg.discovery.GetPooler(target)
+	if pooler == nil {
+		return nil, fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s",
+			target.TableGroup, target.Shard, target.PoolerType.String())
+	}
+
+	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+
+	pg.logger.DebugContext(ctx, "creating bidirectional execute stream to pooler",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", poolerID)
+
+	// Get or create connection to this pooler
+	pg.mu.Lock()
+	conn, ok := pg.connections[poolerID]
+	if !ok {
+		pg.mu.Unlock()
+		// Need to create connection
+		_, err := pg.getOrCreateConnection(ctx, pooler)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get connection to pooler %s: %w", poolerID, err)
+		}
+		pg.mu.Lock()
+		conn = pg.connections[poolerID]
+	}
+	pg.mu.Unlock()
+
+	// Create the gRPC client
+	client := multipoolerservice.NewMultiPoolerServiceClient(conn.conn)
+
+	// Start the bidirectional stream
+	stream, err := client.BidirectionalExecute(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
+	}
+
+	pg.logger.DebugContext(ctx, "bidirectional execute stream created successfully", "pooler_id", poolerID)
+
+	return stream, nil
 }

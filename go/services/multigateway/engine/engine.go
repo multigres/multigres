@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -98,6 +99,44 @@ type IExecute interface {
 		portalInfo *preparedstatement.PortalInfo,
 		preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 	) (*query.StatementDescription, error)
+
+	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---
+
+	// CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
+	// Returns: reservedConnID, poolerID, format, columnFormats, error
+	CopyInitiate(
+		ctx context.Context,
+		conn *server.Conn,
+		queryStr string,
+		callback func(ctx context.Context, result *sqltypes.Result) error,
+	) (reservedConnID uint64, poolerID *clustermetadata.ID, format int16, columnFormats []int16, err error)
+
+	// CopySendData sends a chunk of COPY data via bidirectional stream.
+	CopySendData(
+		ctx context.Context,
+		conn *server.Conn,
+		reservedConnID uint64,
+		poolerID *clustermetadata.ID,
+		data []byte,
+	) error
+
+	// CopyFinalize sends the final chunk and CopyDone via bidirectional stream.
+	CopyFinalize(
+		ctx context.Context,
+		conn *server.Conn,
+		reservedConnID uint64,
+		poolerID *clustermetadata.ID,
+		finalData []byte,
+		callback func(ctx context.Context, result *sqltypes.Result) error,
+	) error
+
+	// CopyAbort aborts the COPY operation via bidirectional stream.
+	CopyAbort(
+		ctx context.Context,
+		conn *server.Conn,
+		reservedConnID uint64,
+		poolerID *clustermetadata.ID,
+	) error
 }
 
 // Primitive is the building block of the query execution plan.

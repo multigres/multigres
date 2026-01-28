@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -197,4 +198,143 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 	}
 
 	return nil
+}
+
+// BidirectionalExecute handles bidirectional streaming operations (e.g., COPY commands).
+// The gateway sends: INITIATE → DATA (repeated) → DONE/FAIL
+// The pooler responds: READY → DATA (for COPY TO) → RESULT/ERROR
+func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerService_BidirectionalExecuteServer) error {
+	ctx := stream.Context()
+
+	// Receive INITIATE message
+	req, err := stream.Recv()
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "failed to receive INITIATE: %v", err)
+	}
+
+	if req.Phase != multipoolerpb.BidirectionalExecuteRequest_INITIATE {
+		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
+	}
+
+	// Get the executor from the pooler
+	exec, err := s.pooler.Executor()
+	if err != nil {
+		return status.Errorf(codes.Unavailable, "executor not initialized: %v", err)
+	}
+
+	// Cast to concrete executor type to access COPY methods
+	poolerExecutor, ok := exec.(*executor.Executor)
+	if !ok {
+		return status.Error(codes.Internal, "executor is not of expected type")
+	}
+
+	// Phase 1: INITIATE - Send COPY command and get reserved connection
+	reservedConnID, poolerIDBytes, format, columnFormats, err := poolerExecutor.HandleCopyInitiate(ctx, req.Query, req.Options)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to initiate COPY: %v", err)
+	}
+
+	// TODO: Convert poolerIDBytes to proper clustermetadata.ID
+	// For now, pass nil since this is stub code
+	_ = poolerIDBytes
+
+	// Send READY response with reserved connection info
+	readyResp := &multipoolerpb.BidirectionalExecuteResponse{
+		Phase:                multipoolerpb.BidirectionalExecuteResponse_READY,
+		ReservedConnectionId: reservedConnID,
+		PoolerId:             nil, // TODO: construct proper ID from poolerIDBytes
+		Format:               format,
+		ColumnFormats:        columnFormats,
+	}
+	if err := stream.Send(readyResp); err != nil {
+		// Clean up reserved connection on send failure
+		user := getUserFromOptions(req.Options)
+		_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "failed to send READY response")
+		return status.Errorf(codes.Internal, "failed to send READY response: %v", err)
+	}
+
+	// Extract user for subsequent operations
+	user := getUserFromOptions(req.Options)
+
+	// Phase 2: Handle DATA/DONE/FAIL messages
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			// Stream closed or error
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "context canceled")
+				return status.Errorf(codes.Canceled, "stream canceled: %v", err)
+			}
+			_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "stream receive error")
+			return status.Errorf(codes.Internal, "failed to receive message: %v", err)
+		}
+
+		switch req.Phase {
+		case multipoolerpb.BidirectionalExecuteRequest_DATA:
+			// Phase 2a: DATA - Write data chunk to PostgreSQL
+			if err := poolerExecutor.HandleCopyData(ctx, reservedConnID, user, req.Data); err != nil {
+				_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "failed to write data")
+				return status.Errorf(codes.Internal, "failed to handle COPY data: %v", err)
+			}
+
+		case multipoolerpb.BidirectionalExecuteRequest_DONE:
+			// Phase 2b: DONE - Finalize COPY operation
+			result, err := poolerExecutor.HandleCopyDone(ctx, reservedConnID, user, req.Data)
+			if err != nil {
+				// Call HandleCopyFail to ensure protocol cleanup
+				// (even though connection might already be closed in HandleCopyDone)
+				_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, fmt.Sprintf("COPY failed: %v", err))
+
+				// Send ERROR response
+				errorResp := &multipoolerpb.BidirectionalExecuteResponse{
+					Phase: multipoolerpb.BidirectionalExecuteResponse_ERROR,
+					Error: err.Error(),
+				}
+				_ = stream.Send(errorResp)
+				return status.Errorf(codes.Internal, "COPY operation failed: %v", err)
+			}
+
+			// Send RESULT response with final result
+			resultResp := &multipoolerpb.BidirectionalExecuteResponse{
+				Phase:  multipoolerpb.BidirectionalExecuteResponse_RESULT,
+				Result: result.ToProto(),
+			}
+			if err := stream.Send(resultResp); err != nil {
+				return status.Errorf(codes.Internal, "failed to send RESULT: %v", err)
+			}
+
+			// Operation completed successfully
+			return nil
+
+		case multipoolerpb.BidirectionalExecuteRequest_FAIL:
+			// Phase 2c: FAIL - Abort COPY operation
+			errorMsg := req.ErrorMessage
+			if errorMsg == "" {
+				errorMsg = "operation aborted by client"
+			}
+			if err := poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, errorMsg); err != nil {
+				return status.Errorf(codes.Internal, "failed to abort COPY: %v", err)
+			}
+
+			// Send ERROR response
+			errorResp := &multipoolerpb.BidirectionalExecuteResponse{
+				Phase: multipoolerpb.BidirectionalExecuteResponse_ERROR,
+				Error: errorMsg,
+			}
+			_ = stream.Send(errorResp)
+			return status.Errorf(codes.Aborted, "COPY aborted: %s", errorMsg)
+
+		default:
+			_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "unexpected phase")
+			return status.Errorf(codes.InvalidArgument, "unexpected phase: %v", req.Phase)
+		}
+	}
+}
+
+// getUserFromOptions extracts the user from ExecuteOptions, defaulting to "postgres"
+func getUserFromOptions(options *querypb.ExecuteOptions) string {
+	if options != nil && options.User != "" {
+		return options.User
+	}
+	return "postgres"
 }
