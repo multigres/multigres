@@ -2263,11 +2263,13 @@
   },
   {
     "comment": "CREATE USER MAPPING with OPTIONS",
-    "query": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (user 'remote_user', password 'secret')"
+    "query": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (user 'remote_user', password 'secret')",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (\"user\" 'remote_user', password 'secret')"
   },
   {
     "comment": "CREATE USER MAPPING for specific user",
-    "query": "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (user 'alice_remote')"
+    "query": "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (user 'alice_remote')",
+    "expected": "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (\"user\" 'alice_remote')"
   },
   {
     "comment": "ALTER TABLE ADD COLUMN",
@@ -2946,5 +2948,9 @@
     "comment": "SET NULL with column list",
     "query": "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET NULL (id));",
     "expected": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL (id))"
+  },
+  {
+    "comment": "CREATE TABLE with reserved keyword column name",
+    "query": "CREATE TABLE IF NOT EXISTS public.grant_on_token (id BIGINT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, token_id UUID NOT NULL, \"grant\" public.token_grants NOT NULL, user_id UUID NOT NULL)"
   }
 ]
