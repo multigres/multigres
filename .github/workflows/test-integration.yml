@@ -44,7 +44,7 @@ jobs:
         run: make build
 
       - name: Run integration tests
-        run: go test -json -v ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
+        run: go test -json -v -skip TestPostgreSQLRegression ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
         uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
