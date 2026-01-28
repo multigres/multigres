@@ -771,3 +771,56 @@ func (m *mockPgctldClientWithCounter) Start(ctx context.Context, req *pgctldpb.S
 	m.startCallCount++
 	return m.mockPgctldClient.Start(ctx, req, opts...)
 }
+
+func TestRemoveRestoreCommandFromAutoConf(t *testing.T) {
+	// Create a temp directory for test
+	tmpDir := t.TempDir()
+	autoConfPath := filepath.Join(tmpDir, "pg_data", "postgresql.auto.conf")
+
+	// Create pg_data directory
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "pg_data"), 0o755))
+
+	// Write test content with restore_command
+	testContent := `# Archive mode for pgbackrest backups
+archive_mode = 'on'
+archive_command = 'pgbackrest --stanza=multigres --config=/path/to/config archive-push %p'
+restore_command = 'pgbackrest --config=/path/to/config --stanza=multigres archive-get %f "%p"'
+primary_conninfo = 'host=primary port=5432'
+`
+	err := os.WriteFile(autoConfPath, []byte(testContent), 0o644)
+	require.NoError(t, err)
+
+	// Create a minimal MultiPoolerManager with just the path
+	pm := &MultiPoolerManager{
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: tmpDir,
+		},
+	}
+
+	// Call removeRestoreCommandFromAutoConf
+	err = pm.removeRestoreCommandFromAutoConf()
+	require.NoError(t, err)
+
+	// Read the file back and verify restore_command was removed
+	content, err := os.ReadFile(autoConfPath)
+	require.NoError(t, err)
+
+	contentStr := string(content)
+	assert.NotContains(t, contentStr, "restore_command")
+	assert.Contains(t, contentStr, "archive_mode")
+	assert.Contains(t, contentStr, "archive_command")
+	assert.Contains(t, contentStr, "primary_conninfo")
+}
+
+func TestRemoveRestoreCommandFromAutoConf_FileNotExist(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm := &MultiPoolerManager{
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: tmpDir,
+		},
+	}
+
+	// Should not error if file doesn't exist
+	err := pm.removeRestoreCommandFromAutoConf()
+	require.NoError(t, err)
+}
