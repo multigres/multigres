@@ -228,6 +228,36 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	return status, nil
 }
 
+// isWALReceiverStreaming checks if the WAL receiver is actively streaming from the primary.
+// Returns true only if pg_stat_wal_receiver shows status='streaming'.
+// Returns false if not in recovery, WAL receiver not running, or not yet streaming.
+//
+//nolint:unused // Will be used in the monitor loop (next task)
+func (pm *MultiPoolerManager) isWALReceiverStreaming(ctx context.Context) (bool, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	// Query pg_stat_wal_receiver for status
+	// This view only has rows when the instance is a standby with an active WAL receiver
+	result, err := pm.query(queryCtx, "SELECT status FROM pg_stat_wal_receiver")
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to query pg_stat_wal_receiver")
+	}
+
+	// If no rows, WAL receiver is not active
+	if result == nil || len(result.Rows) == 0 {
+		return false, nil
+	}
+
+	var status string
+	if err := executor.ScanSingleRow(result, &status); err != nil {
+		return false, mterrors.Wrap(err, "failed to scan WAL receiver status")
+	}
+
+	// Status should be 'streaming' when actively receiving WAL from primary
+	return status == "streaming", nil
+}
+
 // waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
 // This ensures the LSN returned represents the exact point at which replication stopped.
 func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
