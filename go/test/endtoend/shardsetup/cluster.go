@@ -350,8 +350,8 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=2",
-		s.MultigatewayPgPort)
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
+		s.MultigatewayPgPort, TestPostgresPassword)
 
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	ticker := time.NewTicker(200 * time.Millisecond)

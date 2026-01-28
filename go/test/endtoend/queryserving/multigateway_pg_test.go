@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -45,8 +46,8 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect to the multigateway
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort)
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
+		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -197,8 +198,8 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect using pgx (which uses Extended Query Protocol by default)
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable",
-		setup.MultigatewayPgPort)
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
