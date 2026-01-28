@@ -48,7 +48,15 @@ func (a *StalePrimaryAnalyzer) Name() types.CheckName {
 	return "StalePrimary"
 }
 
-func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (a *StalePrimaryAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemStalePrimary
+}
+
+func (a *StalePrimaryAnalyzer) RecoveryAction() types.RecoveryAction {
+	return a.factory.NewDemoteStalePrimaryAction()
+}
+
+func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -99,7 +107,7 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 	}
 
 	// Report the stale primary for demotion
-	return []types.Problem{{
+	return &types.Problem{
 		Code:      types.ProblemStalePrimary,
 		CheckName: "StalePrimary",
 		PoolerID:  stalePrimaryID,
@@ -113,5 +121,5 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
 		RecoveryAction: a.factory.NewDemoteStalePrimaryAction(),
-	}}, nil
+	}, nil
 }

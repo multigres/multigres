@@ -84,7 +84,7 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	coord := newTestCoordinator(ts, nil, logger)
 
-	action := NewBootstrapShardAction(nil, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -104,7 +104,7 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 func TestBootstrapShardAction_ParsePolicyANY_2(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
 
 	rule, err := action.parsePolicy("ANY_2")
 	assert.NoError(t, err)
@@ -117,7 +117,7 @@ func TestBootstrapShardAction_ParsePolicyANY_2(t *testing.T) {
 func TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
 
 	rule, err := action.parsePolicy("MULTI_CELL_ANY_2")
 	assert.NoError(t, err)
@@ -130,7 +130,7 @@ func TestBootstrapShardAction_ParsePolicyMULTI_CELL_ANY_2(t *testing.T) {
 func TestBootstrapShardAction_ParsePolicyInvalid(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
 
 	rule, err := action.parsePolicy("INVALID_POLICY")
 	assert.Error(t, err)
@@ -175,7 +175,7 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 
 	// Now try to execute recovery - should fail to acquire lock
 	coord := newTestCoordinator(ts, nil, logger)
-	action := NewBootstrapShardAction(nil, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, poolerStore, ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -200,7 +200,7 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 func TestBootstrapShardAction_Metadata(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
 
 	metadata := action.Metadata()
 
@@ -212,7 +212,7 @@ func TestBootstrapShardAction_Metadata(t *testing.T) {
 func TestBootstrapShardAction_RequiresHealthyPrimary(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
 
 	// Bootstrap doesn't require healthy primary - it's creating one
 	assert.False(t, action.RequiresHealthyPrimary())
@@ -221,7 +221,7 @@ func TestBootstrapShardAction_RequiresHealthyPrimary(t *testing.T) {
 func TestBootstrapShardAction_Priority(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, nil, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, nil, nil, coord, logger)
 
 	assert.Equal(t, types.PriorityShardBootstrap, action.Priority())
 }
@@ -342,7 +342,7 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 
 	// Execute bootstrap action
 	coord := newTestCoordinator(ts, mockClient, logger)
-	action := NewBootstrapShardAction(mockClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, mockClient, poolerStore, ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -463,7 +463,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -557,7 +557,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -630,7 +630,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	}
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -728,7 +728,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -767,7 +767,7 @@ func TestBootstrapShardAction_CountReachablePoolers(t *testing.T) {
 	})
 
 	coord := newTestCoordinator(nil, fakeClient, logger)
-	action := NewBootstrapShardAction(fakeClient, nil, nil, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, nil, nil, coord, logger)
 
 	cohort := []*multiorchdatapb.PoolerHealthState{
 		{
@@ -821,7 +821,7 @@ func TestBootstrapShardAction_CountReachablePoolersTimeout(t *testing.T) {
 	}, 100*time.Millisecond)
 
 	coord := newTestCoordinator(nil, fakeClient, logger)
-	action := NewBootstrapShardAction(fakeClient, nil, nil, coord, logger).
+	action := NewBootstrapShardAction(nil, fakeClient, nil, nil, coord, logger).
 		WithStatusRPCTimeout(10 * time.Millisecond)
 
 	cohort := []*multiorchdatapb.PoolerHealthState{

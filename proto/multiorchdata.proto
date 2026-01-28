@@ -73,6 +73,9 @@ message PoolerHealthState {
   // Determined from the Status RPC's has_data_directory field.
   bool has_data_directory = 12;
 
+  // Consensus term information from Status RPC
+  multipoolermanagerdata.ConsensusTerm consensus_term = 13;
+
   // Consensus status from ConsensusStatus RPC (for divergence detection)
-  consensusdata.StatusResponse consensus_status = 13;
+  consensusdata.StatusResponse consensus_status = 14;
 }

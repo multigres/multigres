@@ -34,11 +34,19 @@ func (a *ShardNeedsBootstrapAnalyzer) Name() types.CheckName {
 	return "ShardNeedsBootstrap"
 }
 
-func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (a *ShardNeedsBootstrapAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemShardNeedsBootstrap
+}
+
+func (a *ShardNeedsBootstrapAnalyzer) RecoveryAction() types.RecoveryAction {
+	return a.factory.NewBootstrapShardAction()
+}
+
+func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
 	// Skip unreachable nodes - we can't determine their true initialization state.
 	// An unreachable node might be perfectly initialized but just temporarily down.
 	// PrimaryIsDead analyzer will handle dead primaries.
-	if poolerAnalysis.IsUnreachable {
+	if !poolerAnalysis.LastCheckValid {
 		return nil, nil
 	}
 
@@ -76,7 +84,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 			return nil, errors.New("recovery action factory not initialized")
 		}
 
-		return []types.Problem{{
+		return &types.Problem{
 			Code:           types.ProblemShardNeedsBootstrap,
 			CheckName:      "ShardNeedsBootstrap",
 			PoolerID:       poolerAnalysis.PoolerID,
@@ -86,7 +94,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),
 			RecoveryAction: a.factory.NewBootstrapShardAction(),
-		}}, nil
+		}, nil
 	}
 
 	return nil, nil

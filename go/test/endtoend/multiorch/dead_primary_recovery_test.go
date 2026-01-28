@@ -51,10 +51,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// Create an isolated shard for this test
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiOrchCount(3),
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
+		shardsetup.WithPrimaryFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -133,7 +134,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Wait for multiorch to detect failure and elect new primary
 		t.Logf("Waiting for multiorch to detect primary failure and elect new leader...")
-		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 10*time.Second)
+		newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 15*time.Second)
 		require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary automatically")
 		t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -145,11 +146,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		status, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		newPrimaryClient.Close()
 		require.NoError(t, err, "should be able to get status from new primary")
-		newPrimaryTerm := status.Status.ConsensusTerm
+		newPrimaryTerm := status.Status.ConsensusTerm.TermNumber
 		t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
-		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 10*time.Second)
+		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
 
 		// Ensure monitoring is disabled on all multipoolers (multiorch recovery might have re-enabled it)
 		t.Logf("Re-disabling monitoring on all multipoolers after failover %d...", i+1)
@@ -276,10 +277,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Assertions - after 3 failovers, term_number should be >= 3
 		assert.GreaterOrEqual(t, termNumber, int64(3), "term_number should be >= 3 after 3 failovers")
 		assert.Contains(t, leaderID, finalPrimaryName, "leader_id should contain final primary name")
-		// Verify coordinator_id matches the multiorch's cell_name format
-		// The coordinator ID uses ClusterIDString which returns cell_name format
-		expectedCoordinatorID := setup.CellName + "_multiorch"
-		assert.Equal(t, expectedCoordinatorID, coordinatorID, "coordinator_id should match multiorch's cell_name format")
+		// Verify coordinator_id matches the multiorch's cell_name format (with multiple multiorchs, any could be coordinator)
+		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
+		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
 		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
 
@@ -528,8 +528,12 @@ func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.Multipoo
 	}
 
 	// Verify on the correct consensus term (must match the new primary's term exactly)
-	if status.Status.ConsensusTerm != expectedTerm {
-		t.Logf("Multipooler %s on wrong term %d (expected %d)", multipoolerName, status.Status.ConsensusTerm, expectedTerm)
+	if status.Status.ConsensusTerm == nil || status.Status.ConsensusTerm.TermNumber != expectedTerm {
+		termNum := int64(0)
+		if status.Status.ConsensusTerm != nil {
+			termNum = status.Status.ConsensusTerm.TermNumber
+		}
+		t.Logf("Multipooler %s on wrong term %d (expected %d)", multipoolerName, termNum, expectedTerm)
 		return false
 	}
 
@@ -540,7 +544,7 @@ func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.Multipoo
 	}
 
 	t.Logf("Multipooler %s successfully rejoined (term=%d, replicating from %s, state=%s)",
-		multipoolerName, status.Status.ConsensusTerm, expectedPrimaryName, status.Status.ReplicationStatus.WalReceiverStatus)
+		multipoolerName, status.Status.ConsensusTerm.TermNumber, expectedPrimaryName, status.Status.ReplicationStatus.WalReceiverStatus)
 	return true
 }
 

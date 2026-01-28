@@ -43,15 +43,17 @@ import (
 
 // SetupConfig holds the configuration for creating a ShardSetup.
 type SetupConfig struct {
-	MultipoolerCount   int
-	MultiOrchCount     int
-	EnableMultigateway bool // Enable multigateway (opt-in, default: false)
-	Database           string
-	TableGroup         string
-	Shard              string
-	CellName           string
-	DurabilityPolicy   string // Durability policy (e.g., "ANY_2")
-	SkipInitialization bool   // Start processes but don't initialize postgres (for bootstrap tests)
+	MultipoolerCount                    int
+	MultiOrchCount                      int
+	EnableMultigateway                  bool // Enable multigateway (opt-in, default: false)
+	Database                            string
+	TableGroup                          string
+	Shard                               string
+	CellName                            string
+	DurabilityPolicy                    string // Durability policy (e.g., "ANY_2")
+	SkipInitialization                  bool   // Start processes but don't initialize postgres (for bootstrap tests)
+	PrimaryFailoverGracePeriodBase      string // Grace period base before primary failover (default: "0s" for tests)
+	PrimaryFailoverGracePeriodMaxJitter string // Max jitter for grace period (default: "0s" for tests)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -109,6 +111,16 @@ func WithoutInitialization() SetupOption {
 func WithMultigateway() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
+	}
+}
+
+// WithPrimaryFailoverGracePeriod sets the grace period configuration for primary failover.
+// Default is "0s" for both base and maxJitter to make tests run fast.
+// Use this to test grace period behavior explicitly.
+func WithPrimaryFailoverGracePeriod(base, maxJitter string) SetupOption {
+	return func(c *SetupConfig) {
+		c.PrimaryFailoverGracePeriodBase = base
+		c.PrimaryFailoverGracePeriodMaxJitter = maxJitter
 	}
 }
 
@@ -364,7 +376,7 @@ func (s *ShardSetup) createMultiOrchInstances(t *testing.T, config *SetupConfig)
 	watchTargets := []string{fmt.Sprintf("%s/%s/%s", config.Database, config.TableGroup, config.Shard)}
 	for i := 0; i < config.MultiOrchCount; i++ {
 		name := multiOrchName(i)
-		s.CreateMultiOrchInstance(t, name, config.CellName, watchTargets)
+		s.CreateMultiOrchInstance(t, name, watchTargets, config)
 		t.Logf("Created multiorch '%s' (will start after replication is configured)", name)
 	}
 }
@@ -408,7 +420,7 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 	} else {
 		// Create a temporary multiorch for initialization
 		watchTargets := []string{fmt.Sprintf("%s/%s/%s", config.Database, config.TableGroup, config.Shard)}
-		mo, moCleanup = setup.CreateMultiOrchInstance(t, "temp-multiorch", config.CellName, watchTargets)
+		mo, moCleanup = setup.CreateMultiOrchInstance(t, "temp-multiorch", watchTargets, config)
 		moName = "temp-multiorch"
 		isTemporary = true
 		t.Logf("Created temporary multiorch for initialization")

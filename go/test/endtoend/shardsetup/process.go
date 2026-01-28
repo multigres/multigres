@@ -54,10 +54,12 @@ type ProcessInstance struct {
 	Environment []string
 
 	// Multiorch-specific fields
-	HttpPort     int      // HTTP port (used by multiorch for /ready endpoint)
-	Cell         string   // Cell name (used by multipooler and multiorch)
-	WatchTargets []string // Database/tablegroup/shard targets to watch (multiorch)
-	ServiceID    string   // Service ID (used by multipooler and multiorch)
+	HttpPort                            int      // HTTP port (used by multiorch for /ready endpoint)
+	Cell                                string   // Cell name (used by multipooler and multiorch)
+	WatchTargets                        []string // Database/tablegroup/shard targets to watch (multiorch)
+	ServiceID                           string   // Service ID (used by multipooler and multiorch)
+	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (e.g., "0s", "10s")
+	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
 
 	// PgBackRest-specific fields (used by multipooler)
 	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths
@@ -185,6 +187,14 @@ func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 		"--pooler-health-check-interval", "500ms",
 		"--recovery-cycle-interval", "500ms",
 		"--log-level", "debug",
+	}
+
+	// Add grace period flags if configured (defaults to 0 for fast tests)
+	if p.PrimaryFailoverGracePeriodBase != "" {
+		args = append(args, "--primary-failover-grace-period-base", p.PrimaryFailoverGracePeriodBase)
+	}
+	if p.PrimaryFailoverGracePeriodMaxJitter != "" {
+		args = append(args, "--primary-failover-grace-period-max-jitter", p.PrimaryFailoverGracePeriodMaxJitter)
 	}
 
 	p.Process = exec.Command(p.Binary, args...)

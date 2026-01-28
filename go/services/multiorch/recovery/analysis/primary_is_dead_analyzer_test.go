@@ -44,7 +44,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		Name:      "test-coord",
 	}
 	coord := coordinator.NewCoordinator(coordID, ts, rpcClient, slog.Default())
-	factory := NewRecoveryActionFactory(poolerStore, rpcClient, ts, coord, slog.Default())
+	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 
 	analyzer := &PrimaryIsDeadAnalyzer{factory: factory}
 
@@ -59,13 +59,13 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false,     // But is unreachable (DEAD)
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
-		require.Equal(t, types.ScopeShard, problems[0].Scope)
-		require.Equal(t, types.PriorityEmergency, problems[0].Priority)
-		require.NotNil(t, problems[0].RecoveryAction)
+		require.NotNil(t, problem)
+		require.Equal(t, types.ProblemPrimaryIsDead, problem.Code)
+		require.Equal(t, types.ScopeShard, problem.Scope)
+		require.Equal(t, types.PriorityEmergency, problem.Priority)
+		require.NotNil(t, problem.RecoveryAction)
 	})
 
 	t.Run("ignores healthy primary (reachable)", func(t *testing.T) {
@@ -77,9 +77,9 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: true,      // And is reachable (HEALTHY)
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("ignores no primary scenario (future analysis)", func(t *testing.T) {
@@ -90,9 +90,9 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false, // N/A
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0) // Future analyzer will handle this case
+		require.Nil(t, problem) // Future analyzer will handle this case
 	})
 
 	t.Run("ignores primary itself", func(t *testing.T) {
@@ -103,9 +103,9 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0) // Primaries don't report themselves as dead
+		require.Nil(t, problem) // Primaries don't report themselves as dead
 	})
 
 	t.Run("ignores uninitialized replica", func(t *testing.T) {
@@ -117,9 +117,9 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PrimaryReachable: false,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0) // ShardNeedsBootstrap handles uninitialized nodes
+		require.Nil(t, problem) // ShardNeedsBootstrap handles uninitialized nodes
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
@@ -140,9 +140,9 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			ReplicasConnectedToPrimary: true,  // But replicas are still connected to postgres
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 0, "should not trigger failover when pooler is down but replicas are connected")
+		require.Nil(t, problem, "should not trigger failover when pooler is down but replicas are connected")
 	})
 
 	t.Run("triggers failover when primary pooler up but postgres down", func(t *testing.T) {
@@ -159,10 +159,10 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			ReplicasConnectedToPrimary: false, // Replicas lost connection
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should trigger failover when pooler is up but postgres is down")
-		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
+		require.NotNil(t, problem, "should trigger failover when pooler is up but postgres is down")
+		require.Equal(t, types.ProblemPrimaryIsDead, problem.Code)
 	})
 
 	t.Run("triggers failover when both pooler and replicas disconnected", func(t *testing.T) {
@@ -179,9 +179,9 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			ReplicasConnectedToPrimary: false, // Replicas also disconnected
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should trigger failover when pooler down and replicas disconnected")
-		require.Equal(t, types.ProblemPrimaryIsDead, problems[0].Code)
+		require.NotNil(t, problem, "should trigger failover when pooler down and replicas disconnected")
+		require.Equal(t, types.ProblemPrimaryIsDead, problem.Code)
 	})
 }
