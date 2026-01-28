@@ -272,6 +272,9 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: t.TempDir(),
+		},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -295,6 +298,9 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: t.TempDir(),
+		},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -315,6 +321,9 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: t.TempDir(),
+		},
 	}
 
 	state := pm.discoverPostgresState(ctx)
