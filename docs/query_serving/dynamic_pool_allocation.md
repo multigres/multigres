@@ -157,8 +157,6 @@ reservedResult := reservedAlloc.Allocate(reservedDemands) // map[string]int64
 - [x] Add garbage collection for inactive user pools
 - [x] Add logging for rebalancing events
 - [x] Integration tests with multiple users joining/leaving
-- [ ] Add metrics for rebalancing (allocations changed, pools removed)
-- [ ] Benchmark to ensure rebalancing doesn't impact query latency
 
 **Implementation:**
 - Configuration flags in `go/multipooler/connpoolmanager/config.go`
@@ -176,14 +174,29 @@ reservedResult := reservedAlloc.Allocate(reservedDemands) // map[string]int64
 - Manager lifecycle manages rebalancer goroutine (start in `Open()`, stop in `Close()`)
 - 10 integration tests in `rebalancer_test.go` covering rebalancer lifecycle, GC, and allocation
 
-### Phase 6: End-to-End Testing
+### Phase 6: End-to-End Testing ✅
 
-- [ ] Add e2e test: users with different workload patterns
-- [ ] Add e2e test: user arrival/departure during load
-- [ ] Add e2e test: capacity exhaustion and recovery
-- [ ] Add e2e test: graceful degradation under overload
-- [ ] Performance benchmarks comparing static vs dynamic allocation
-- [ ] Update documentation with final configuration recommendations
+- [x] Add e2e test: users with different workload patterns
+- [x] Add e2e test: user arrival/departure during load
+- [x] Add e2e test: capacity exhaustion and recovery
+- [x] Add e2e test: graceful degradation under overload
+- [x] Performance benchmarks comparing static vs dynamic allocation
+- [x] Update documentation with final configuration recommendations
+
+**Implementation:**
+- Lightweight integration tests in `go/multipooler/connpoolmanager/dynamic_allocation_integration_test.go`:
+  - `TestDynamicAllocation_DifferentWorkloadPatterns`
+  - `TestDynamicAllocation_UserArrivalDuringLoad`
+  - `TestDynamicAllocation_UserDepartureDuringLoad`
+  - `TestDynamicAllocation_CapacityExhaustion`
+  - `TestDynamicAllocation_CapacityRecovery`
+  - `TestDynamicAllocation_GracefulDegradation`
+- Full e2e tests with real PostgreSQL in `go/test/endtoend/dynamicpooling/`:
+  - `TestE2E_MultiUserWorkload`
+  - `TestE2E_UserArrivalDeparture`
+  - `TestE2E_CapacityUnderLoad`
+- Performance benchmarking: Build binaries from old and new code, run load tests against
+  real PostgreSQL to compare throughput and latency
 
 ## Design
 
@@ -627,6 +640,122 @@ With this configuration:
 
 - All scenarios pass
 - Performance benchmarks show improvement over static allocation
+
+## Production Configuration Recommendations
+
+### Sizing Global Capacity
+
+Set `--connpool-global-capacity` based on your PostgreSQL `max_connections` setting:
+
+```text
+global-capacity = max_connections - reserved_for_admin - reserved_for_replication
+
+Example:
+  max_connections = 500
+  reserved_for_admin = 5 (superuser connections)
+  reserved_for_replication = 10 (streaming replicas)
+  global-capacity = 500 - 5 - 10 = 485
+```
+
+**Guidelines:**
+
+| Workload Type | Reserved Ratio | Notes |
+|---------------|----------------|-------|
+| Read-heavy (OLAP, analytics) | 0.1 - 0.15 | Few transactions, many simple queries |
+| Mixed (typical web app) | 0.2 (default) | Balance of reads and transactions |
+| Write-heavy (OLTP) | 0.25 - 0.3 | Many transactions, prepared statements |
+| Transaction-intensive | 0.3 - 0.4 | Heavy use of cursors, long transactions |
+
+### Tuning for Workload Patterns
+
+**High User Churn (many short-lived connections):**
+
+```bash
+--connpool-rebalance-interval=5s     # Faster rebalancing
+--connpool-inactive-timeout=2m       # Faster GC of idle pools
+--connpool-demand-window=15s         # Shorter demand history
+```
+
+**Stable User Base (long-lived connections):**
+
+```bash
+--connpool-rebalance-interval=30s    # Less frequent rebalancing
+--connpool-inactive-timeout=15m      # Longer idle tolerance
+--connpool-demand-window=60s         # Longer demand history for stability
+```
+
+**Bursty Workloads (periodic spikes):**
+
+```bash
+--connpool-rebalance-interval=10s    # Default
+--connpool-demand-window=60s         # Capture burst patterns
+--connpool-demand-sample-interval=50ms  # Finer-grained sampling
+```
+
+### Monitoring Recommendations
+
+Monitor these key metrics to validate allocation behavior:
+
+1. **Per-user allocation vs demand:**
+   - Check `UserPoolStats.Regular.Capacity` vs `UserPoolStats.RegularDemand`
+   - If demand consistently exceeds capacity, consider increasing global capacity
+
+2. **Connection utilization:**
+   - Monitor `UserPoolStats.Regular.Borrowed` / `UserPoolStats.Regular.Capacity`
+   - High utilization (>80%) across many users indicates capacity pressure
+
+3. **Rebalancer activity:**
+   - Log messages show when capacities are adjusted
+   - Frequent large adjustments may indicate demand-window is too short
+
+4. **Inactive pool garbage collection:**
+   - Monitor `Manager.UserPoolCount()` over time
+   - Unexpected growth may indicate inactive-timeout is too long
+
+### Example Production Configuration
+
+**Small deployment (< 100 users, PostgreSQL max_connections=200):**
+
+```bash
+multipooler \
+  --connpool-global-capacity=180 \
+  --connpool-reserved-ratio=0.2 \
+  --connpool-rebalance-interval=10s \
+  --connpool-demand-window=30s \
+  --connpool-inactive-timeout=5m
+```
+
+**Medium deployment (100-500 users, PostgreSQL max_connections=500):**
+
+```bash
+multipooler \
+  --connpool-global-capacity=480 \
+  --connpool-reserved-ratio=0.2 \
+  --connpool-rebalance-interval=10s \
+  --connpool-demand-window=30s \
+  --connpool-inactive-timeout=5m
+```
+
+**Large deployment (500+ users, PostgreSQL max_connections=1000):**
+
+```bash
+multipooler \
+  --connpool-global-capacity=950 \
+  --connpool-reserved-ratio=0.2 \
+  --connpool-rebalance-interval=15s \
+  --connpool-demand-window=45s \
+  --connpool-inactive-timeout=10m
+```
+
+### Common Issues and Solutions
+
+| Symptom | Likely Cause | Solution |
+|---------|--------------|----------|
+| New users get slow connections | Initial capacity too low, rebalance too slow | Decrease `rebalance-interval` |
+| Idle users consuming capacity | Inactive timeout too long | Decrease `inactive-timeout` |
+| Capacity oscillating rapidly | Demand window too short | Increase `demand-window` |
+| Users starving under load | Global capacity too low | Increase `global-capacity` or reduce users |
+| Too many reserved connections | Reserved ratio too high for workload | Decrease `reserved-ratio` |
 
 ## Future Enhancements
 
