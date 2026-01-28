@@ -1463,6 +1463,10 @@ type postgresState struct {
 	postgresRunning  bool
 	backupsAvailable bool
 	isPrimary        bool
+	// Recovery tracking for restore_command cleanup
+	inRecovery        bool //nolint:unused // Currently in recovery
+	streamingActive   bool //nolint:unused // WAL receiver is streaming from primary
+	hadRestoreCommand bool //nolint:unused // restore_command was present in auto.conf
 }
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
