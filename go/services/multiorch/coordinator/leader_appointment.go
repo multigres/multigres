@@ -464,9 +464,11 @@ func (c *Coordinator) preVote(ctx context.Context, cohort []*multiorchdatapb.Poo
 	// Check 1: Verify we have enough healthy initialized poolers with consensus term data
 	// PreVote is conservative and doesn't handle bootstrap - if poolers lack consensus
 	// term information, we can't make an informed decision about election safety.
+	// We also skip poolers where postgres is not running, as they cannot participate
+	// in an election.
 	var healthyInitializedPoolers []*multiorchdatapb.PoolerHealthState
 	for _, pooler := range cohort {
-		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil {
+		if pooler.IsLastCheckValid && pooler.IsInitialized && pooler.ConsensusTerm != nil && pooler.IsPostgresRunning {
 			healthyInitializedPoolers = append(healthyInitializedPoolers, pooler)
 		}
 	}
