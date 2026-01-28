@@ -143,22 +143,34 @@ reservedResult := reservedAlloc.Allocate(reservedDemands) // map[string]int64
 - `UserPool.SetCapacity()` calls both with mutex protection
 - 3 tests in `user_pool_test.go`: basic resize, with idle connections, closed pool
 
-### Phase 5: Background Rebalancer
+### Phase 5: Background Rebalancer ✅
 
-- [ ] Add configuration flags:
-  - [ ] `--connpool-rebalance-interval` (default 10s)
-  - [ ] `--connpool-demand-window` (default 30s)
-  - [ ] `--connpool-demand-sample-interval` (default 100ms)
-  - [ ] `--connpool-inactive-timeout` (default 5m)
-- [ ] Create `rebalancer` goroutine in Manager
-- [ ] Create `DemandTracker` instances per UserPool (regular + reserved)
-- [ ] Implement rebalance loop: collect demand → allocate → apply
-- [ ] Expose demand metrics in `UserPoolStats`
-- [ ] Add garbage collection for inactive user pools
-- [ ] Add logging for rebalancing events
+- [x] Add configuration flags:
+  - [x] `--connpool-rebalance-interval` (default 10s)
+  - [x] `--connpool-demand-window` (default 30s)
+  - [x] `--connpool-demand-sample-interval` (default 100ms)
+  - [x] `--connpool-inactive-timeout` (default 5m)
+- [x] Create `rebalancer` goroutine in Manager
+- [x] Create `DemandTracker` instances per UserPool (regular + reserved)
+- [x] Implement rebalance loop: collect demand → allocate → apply
+- [x] Expose demand metrics in `UserPoolStats`
+- [x] Add garbage collection for inactive user pools
+- [x] Add logging for rebalancing events
+- [x] Integration tests with multiple users joining/leaving
 - [ ] Add metrics for rebalancing (allocations changed, pools removed)
-- [ ] Integration tests with multiple users joining/leaving
 - [ ] Benchmark to ensure rebalancing doesn't impact query latency
+
+**Implementation:**
+- Configuration flags in `go/multipooler/connpoolmanager/config.go`
+- `DemandTracker` per UserPool created in `user_pool.go` with `TouchActivity()` and `LastActivity()`
+- `UserPoolStats` now includes `RegularDemand`, `ReservedDemand`, and `LastActivity`
+- `rebalancer.go` implements the rebalance loop with periodic:
+  1. Demand collection from all UserPools
+  2. Fair share allocation via two `FairShareAllocator` instances
+  3. Capacity application via `UserPool.SetCapacity()`
+  4. Garbage collection of inactive pools (lastActivity > inactiveTimeout)
+- Manager lifecycle manages rebalancer goroutine (start in `Open()`, stop in `Close()`)
+- 10 integration tests in `rebalancer_test.go` covering rebalancer lifecycle, GC, and allocation
 
 ### Phase 6: End-to-End Testing
 

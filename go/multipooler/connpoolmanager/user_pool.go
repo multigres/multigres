@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -40,6 +41,13 @@ type UserPool struct {
 	reservedPool *reserved.Pool
 	adminPool    *admin.Pool // Shared reference for kill operations
 	logger       *slog.Logger
+
+	// Demand tracking for rebalancer
+	regularDemandTracker  *DemandTracker
+	reservedDemandTracker *DemandTracker
+
+	// Last activity timestamp (Unix nanos) for garbage collection
+	lastActivity atomic.Int64
 
 	mu     sync.Mutex
 	closed bool
@@ -63,6 +71,11 @@ type UserPoolConfig struct {
 	// ReservedInactivityTimeout is how long a reserved connection can be inactive (no client activity)
 	// before being killed. This is typically more aggressive (e.g., 30s) than pool idle timeout.
 	ReservedInactivityTimeout time.Duration
+
+	// Demand tracking configuration
+	DemandWindow         time.Duration // Sliding window for peak demand
+	DemandSampleInterval time.Duration // How often to sample demand
+	RebalanceInterval    time.Duration // For bucket calculation
 
 	// Logger for pool operations.
 	Logger *slog.Logger
@@ -99,22 +112,75 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
 		},
 	})
 
+	// Create demand trackers for rebalancer
+	// DemandTrackerConfig: WindowDuration, PollInterval (rebalance interval), SampleInterval, Sampler
+	var regularDemandTracker, reservedDemandTracker *DemandTracker
+	if config.DemandWindow > 0 && config.DemandSampleInterval > 0 && config.RebalanceInterval > 0 {
+		regularDemandTracker = NewDemandTracker(ctx, &DemandTrackerConfig{
+			WindowDuration: config.DemandWindow,
+			PollInterval:   config.RebalanceInterval,
+			SampleInterval: config.DemandSampleInterval,
+			Sampler:        regularPool.Requested,
+		})
+
+		reservedDemandTracker = NewDemandTracker(ctx, &DemandTrackerConfig{
+			WindowDuration: config.DemandWindow,
+			PollInterval:   config.RebalanceInterval,
+			SampleInterval: config.DemandSampleInterval,
+			Sampler:        reservedPool.InnerRegularPool().Requested,
+		})
+	}
+
 	logger.InfoContext(ctx, "user pool created",
 		"regular_capacity", config.RegularPoolConfig.Capacity,
 		"reserved_capacity", config.ReservedPoolConfig.Capacity)
 
-	return &UserPool{
-		username:     config.ClientConfig.User,
-		regularPool:  regularPool,
-		reservedPool: reservedPool,
-		adminPool:    config.AdminPool,
-		logger:       logger,
+	up := &UserPool{
+		username:              config.ClientConfig.User,
+		regularPool:           regularPool,
+		reservedPool:          reservedPool,
+		adminPool:             config.AdminPool,
+		logger:                logger,
+		regularDemandTracker:  regularDemandTracker,
+		reservedDemandTracker: reservedDemandTracker,
 	}
+	up.lastActivity.Store(time.Now().UnixNano())
+	return up
 }
 
 // Username returns the username for this pool.
 func (p *UserPool) Username() string {
 	return p.username
+}
+
+// TouchActivity updates the last activity timestamp.
+// Called by the manager when a connection is acquired.
+func (p *UserPool) TouchActivity() {
+	p.lastActivity.Store(time.Now().UnixNano())
+}
+
+// LastActivity returns the last activity timestamp (Unix nanos).
+// Used by the rebalancer for garbage collection.
+func (p *UserPool) LastActivity() int64 {
+	return p.lastActivity.Load()
+}
+
+// RegularDemand returns the peak demand for regular connections.
+// Returns 0 if demand tracking is not enabled.
+func (p *UserPool) RegularDemand() int64 {
+	if p.regularDemandTracker == nil {
+		return 0
+	}
+	return p.regularDemandTracker.GetPeakAndRotate()
+}
+
+// ReservedDemand returns the peak demand for reserved connections.
+// Returns 0 if demand tracking is not enabled.
+func (p *UserPool) ReservedDemand() int64 {
+	if p.reservedDemandTracker == nil {
+		return 0
+	}
+	return p.reservedDemandTracker.GetPeakAndRotate()
 }
 
 // GetRegularConn acquires a regular connection from the pool.
@@ -151,6 +217,14 @@ func (p *UserPool) Close() {
 	}
 	p.closed = true
 
+	// Close demand trackers first
+	if p.regularDemandTracker != nil {
+		p.regularDemandTracker.Close()
+	}
+	if p.reservedDemandTracker != nil {
+		p.reservedDemandTracker.Close()
+	}
+
 	// Close reserved pool first (it has its own internal regular pool)
 	p.reservedPool.Close()
 
@@ -162,10 +236,21 @@ func (p *UserPool) Close() {
 
 // Stats returns statistics for both pools.
 func (p *UserPool) Stats() UserPoolStats {
+	var regularDemand, reservedDemand int64
+	if p.regularDemandTracker != nil {
+		regularDemand = p.regularDemandTracker.Peak()
+	}
+	if p.reservedDemandTracker != nil {
+		reservedDemand = p.reservedDemandTracker.Peak()
+	}
+
 	return UserPoolStats{
-		Username: p.username,
-		Regular:  p.regularPool.Stats(),
-		Reserved: p.reservedPool.Stats(),
+		Username:       p.username,
+		Regular:        p.regularPool.Stats(),
+		Reserved:       p.reservedPool.Stats(),
+		RegularDemand:  regularDemand,
+		ReservedDemand: reservedDemand,
+		LastActivity:   p.lastActivity.Load(),
 	}
 }
 
@@ -198,7 +283,10 @@ func (p *UserPool) SetCapacity(ctx context.Context, regularCap, reservedCap int6
 
 // UserPoolStats holds statistics for a user's pools.
 type UserPoolStats struct {
-	Username string
-	Regular  connpool.PoolStats
-	Reserved reserved.PoolStats
+	Username       string
+	Regular        connpool.PoolStats
+	Reserved       reserved.PoolStats
+	RegularDemand  int64 // Peak demand from tracker (0 if tracking not enabled)
+	ReservedDemand int64 // Peak demand from tracker (0 if tracking not enabled)
+	LastActivity   int64 // Unix nanos of last activity
 }

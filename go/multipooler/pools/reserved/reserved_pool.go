@@ -324,6 +324,12 @@ func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
 	return p.conns.SetCapacity(ctx, newcap)
 }
 
+// InnerRegularPool returns the underlying regular pool.
+// Used for demand tracking in the rebalancer.
+func (p *Pool) InnerRegularPool() *regular.Pool {
+	return p.conns
+}
+
 // PoolStats contains pool statistics for reserved connections.
 type PoolStats struct {
 	// Active is the number of currently reserved connections.

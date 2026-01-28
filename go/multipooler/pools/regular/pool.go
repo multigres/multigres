@@ -111,3 +111,9 @@ func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
 func (p *Pool) InnerPool() *connpool.Pool[*Conn] {
 	return p.pool
 }
+
+// Requested returns the number of currently requested connections (borrowed + waiters).
+// Used for demand tracking in the rebalancer.
+func (p *Pool) Requested() int64 {
+	return p.pool.Requested()
+}

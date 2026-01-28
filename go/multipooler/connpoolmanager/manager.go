@@ -73,6 +73,15 @@ type Manager struct {
 
 	// closed indicates whether the manager has been closed.
 	closed atomic.Bool
+
+	// Rebalancer goroutine management
+	rebalancerCtx    context.Context
+	rebalancerCancel context.CancelFunc
+	rebalancerWg     sync.WaitGroup
+
+	// Fair share allocators (created once in Open)
+	regularAllocator  *FairShareAllocator
+	reservedAllocator *FairShareAllocator
 }
 
 // Open initializes the manager and creates the shared admin pool.
@@ -108,6 +117,19 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	})
 	m.adminPool.Open()
 
+	// Create fair share allocators based on global capacity and reserved ratio
+	globalCapacity := m.config.GlobalCapacity()
+	reservedRatio := m.config.ReservedRatio()
+	regularCapacity := int64(float64(globalCapacity) * (1 - reservedRatio))
+	reservedCapacity := globalCapacity - regularCapacity
+
+	m.regularAllocator = NewFairShareAllocator(regularCapacity)
+	m.reservedAllocator = NewFairShareAllocator(reservedCapacity)
+
+	// Start the rebalancer goroutine
+	m.rebalancerCtx, m.rebalancerCancel = context.WithCancel(ctx)
+	m.startRebalancer()
+
 	m.logger.InfoContext(ctx, "connection pool manager opened",
 		"admin_user", m.config.AdminUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
@@ -115,6 +137,11 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 		"user_reserved_capacity", m.config.UserReservedCapacity(),
 		"max_users", m.config.MaxUsers(),
 		"settings_cache_size", m.config.SettingsCacheSize(),
+		"global_capacity", globalCapacity,
+		"reserved_ratio", reservedRatio,
+		"regular_allocation", regularCapacity,
+		"reserved_allocation", reservedCapacity,
+		"rebalance_interval", m.config.RebalanceInterval(),
 	)
 }
 
@@ -208,6 +235,9 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 			Logger:          m.logger,
 		},
 		ReservedInactivityTimeout: m.config.UserReservedInactivityTimeout(),
+		DemandWindow:              m.config.DemandWindow(),
+		DemandSampleInterval:      m.config.DemandSampleInterval(),
+		RebalanceInterval:         m.config.RebalanceInterval(),
 		Logger:                    m.logger,
 	})
 
@@ -233,7 +263,13 @@ func (m *Manager) Close() {
 	}
 	m.closed.Store(true)
 
-	// Close all user pools first
+	// Stop the rebalancer goroutine first
+	if m.rebalancerCancel != nil {
+		m.rebalancerCancel()
+		m.rebalancerWg.Wait()
+	}
+
+	// Close all user pools
 	if pools := m.userPoolsSnapshot.Load(); pools != nil {
 		for user, pool := range *pools {
 			pool.Close()

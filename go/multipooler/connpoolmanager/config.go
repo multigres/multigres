@@ -89,6 +89,20 @@ type Config struct {
 	// Reserved ratio is the fraction of global capacity allocated to reserved pools (0.0-1.0).
 	// Regular pools get (1 - reservedRatio) of the global capacity.
 	reservedRatio viperutil.Value[float64]
+
+	// --- Rebalancer configuration ---
+
+	// Rebalance interval is how often the rebalancer runs to adjust pool capacities.
+	rebalanceInterval viperutil.Value[time.Duration]
+
+	// Demand window is the sliding window duration for tracking peak demand.
+	demandWindow viperutil.Value[time.Duration]
+
+	// Demand sample interval is how often to sample pool demand within the window.
+	demandSampleInterval viperutil.Value[time.Duration]
+
+	// Inactive timeout is how long a user pool can be inactive before being garbage collected.
+	inactiveTimeout viperutil.Value[time.Duration]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -120,6 +134,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		// Fair share allocation defaults
 		globalCapacity int64 = 100
 		reservedRatio        = 0.2
+
+		// Rebalancer defaults
+		rebalanceInterval    = 10 * time.Second
+		demandWindow         = 30 * time.Second
+		demandSampleInterval = 100 * time.Millisecond
+		inactiveTimeout      = 5 * time.Minute
 	)
 
 	return &Config{
@@ -202,6 +222,24 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  reservedRatio,
 			FlagName: "connpool-reserved-ratio",
 		}),
+
+		// Rebalancer
+		rebalanceInterval: viperutil.Configure(reg, "connpool.rebalance-interval", viperutil.Options[time.Duration]{
+			Default:  rebalanceInterval,
+			FlagName: "connpool-rebalance-interval",
+		}),
+		demandWindow: viperutil.Configure(reg, "connpool.demand-window", viperutil.Options[time.Duration]{
+			Default:  demandWindow,
+			FlagName: "connpool-demand-window",
+		}),
+		demandSampleInterval: viperutil.Configure(reg, "connpool.demand-sample-interval", viperutil.Options[time.Duration]{
+			Default:  demandSampleInterval,
+			FlagName: "connpool-demand-sample-interval",
+		}),
+		inactiveTimeout: viperutil.Configure(reg, "connpool.inactive-timeout", viperutil.Options[time.Duration]{
+			Default:  inactiveTimeout,
+			FlagName: "connpool-inactive-timeout",
+		}),
 	}
 }
 
@@ -237,6 +275,12 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools)")
 	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
 
+	// Rebalancer flags
+	fs.Duration("connpool-rebalance-interval", c.rebalanceInterval.Default(), "How often to rebalance pool capacities")
+	fs.Duration("connpool-demand-window", c.demandWindow.Default(), "Sliding window duration for peak demand tracking")
+	fs.Duration("connpool-demand-sample-interval", c.demandSampleInterval.Default(), "How often to sample pool demand within the window")
+	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
+
 	viperutil.BindFlags(fs,
 		c.adminUser,
 		c.adminPassword,
@@ -254,6 +298,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.settingsCacheSize,
 		c.globalCapacity,
 		c.reservedRatio,
+		c.rebalanceInterval,
+		c.demandWindow,
+		c.demandSampleInterval,
+		c.inactiveTimeout,
 	)
 }
 
@@ -340,6 +388,26 @@ func (c *Config) GlobalCapacity() int64 {
 // Regular pools get (1 - reservedRatio) of the global capacity.
 func (c *Config) ReservedRatio() float64 {
 	return c.reservedRatio.Get()
+}
+
+// RebalanceInterval returns how often the rebalancer runs to adjust pool capacities.
+func (c *Config) RebalanceInterval() time.Duration {
+	return c.rebalanceInterval.Get()
+}
+
+// DemandWindow returns the sliding window duration for peak demand tracking.
+func (c *Config) DemandWindow() time.Duration {
+	return c.demandWindow.Get()
+}
+
+// DemandSampleInterval returns how often to sample pool demand within the window.
+func (c *Config) DemandSampleInterval() time.Duration {
+	return c.demandSampleInterval.Get()
+}
+
+// InactiveTimeout returns how long a user pool can be inactive before garbage collection.
+func (c *Config) InactiveTimeout() time.Duration {
+	return c.inactiveTimeout.Get()
 }
 
 // NewManager creates a new connection pool manager from this config.
