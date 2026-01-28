@@ -162,8 +162,12 @@ reservedResult := reservedAlloc.Allocate(reservedDemands) // map[string]int64
 
 **Implementation:**
 - Configuration flags in `go/multipooler/connpoolmanager/config.go`
-- `DemandTracker` per UserPool created in `user_pool.go` with `TouchActivity()` and `LastActivity()`
+- `DemandTracker` per UserPool created in `user_pool.go`
+- Activity tracking via internal `touchActivity()` method, automatically called by all connection acquisition methods (`GetRegularConn`, `GetRegularConnWithSettings`, `NewReservedConn`, `GetReservedConn`)
 - `UserPoolStats` now includes `RegularDemand`, `ReservedDemand`, and `LastActivity`
+- `reserved.Pool` exposes `Requested()` method for demand sampling (cleaner API than exposing inner pool)
+- New user pools start with initial capacity of 10 connections; rebalancer adjusts within seconds
+- Per-user capacity/maxIdle config flags removed - rebalancer manages all capacity dynamically
 - `rebalancer.go` implements the rebalance loop with periodic:
   1. Demand collection from all UserPools
   2. Fair share allocation via two `FairShareAllocator` instances
@@ -235,6 +239,16 @@ Derived:
   globalRegularCapacity  = 500 * 0.8 = 400
   globalReservedCapacity = 500 * 0.2 = 100
 ```
+
+**Initial Capacity:**
+
+New user pools start with an initial capacity of 10 connections for both regular
+and reserved pools. The rebalancer adjusts these capacities within seconds based
+on actual demand. This approach:
+
+- Allows new users to immediately start working without waiting for rebalancing
+- Prevents over-allocation when many users connect simultaneously
+- Lets the rebalancer quickly right-size pools based on actual usage
 
 ### Demand Metric: Peak Requested (Sliding Window)
 
@@ -438,7 +452,7 @@ We replace this with an **atomic pointer to an immutable snapshot**:
 
 ## Configuration Summary
 
-### New Flags
+### Dynamic Allocation Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -449,8 +463,20 @@ We replace this with an **atomic pointer to an immutable snapshot**:
 | `--connpool-demand-sample-interval` | 100ms | How often to sample pool demand |
 | `--connpool-inactive-timeout` | 5m | Remove user pools after this inactivity |
 
-**Note:** There are no per-user min/max bounds. A single user can use the full
-global capacity, and with many users each could scale down to 1 connection.
+### Per-User Pool Flags (Timeouts Only)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--connpool-user-regular-idle-timeout` | 5m | How long a regular connection can remain idle |
+| `--connpool-user-regular-max-lifetime` | 1h | Maximum lifetime of a regular connection |
+| `--connpool-user-reserved-inactivity-timeout` | 30s | How long a reserved connection can be inactive |
+| `--connpool-user-reserved-idle-timeout` | 5m | How long a reserved pool connection can remain idle |
+| `--connpool-user-reserved-max-lifetime` | 1h | Maximum lifetime of a reserved connection |
+
+**Note:** Per-user capacity and max-idle settings are managed automatically by the rebalancer.
+New user pools start with an initial capacity of 10 connections and are adjusted within
+seconds based on demand. A single user can use the full global capacity, and with many
+users each could scale down to 1 connection.
 
 ### Derived Values
 
@@ -467,8 +493,15 @@ multipooler \
   --connpool-reserved-ratio=0.2 \
   --connpool-demand-window=30s \
   --connpool-rebalance-interval=10s \
-  --connpool-demand-sample-interval=100ms
+  --connpool-demand-sample-interval=100ms \
+  --connpool-inactive-timeout=5m
 ```
+
+With this configuration:
+- Total capacity of 500 connections (400 regular, 100 reserved)
+- New users start with 10 connections each
+- Rebalancer adjusts capacities every 10 seconds based on 30-second demand window
+- Inactive user pools are garbage collected after 5 minutes
 
 ## Implementation Plan
 

@@ -127,7 +127,7 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
 			WindowDuration: config.DemandWindow,
 			PollInterval:   config.RebalanceInterval,
 			SampleInterval: config.DemandSampleInterval,
-			Sampler:        reservedPool.InnerRegularPool().Requested,
+			Sampler:        reservedPool.Requested,
 		})
 	}
 
@@ -153,9 +153,9 @@ func (p *UserPool) Username() string {
 	return p.username
 }
 
-// TouchActivity updates the last activity timestamp.
-// Called by the manager when a connection is acquired.
-func (p *UserPool) TouchActivity() {
+// touchActivity updates the last activity timestamp.
+// Called internally when a connection is acquired.
+func (p *UserPool) touchActivity() {
 	p.lastActivity.Store(time.Now().UnixNano())
 }
 
@@ -186,24 +186,28 @@ func (p *UserPool) ReservedDemand() int64 {
 // GetRegularConn acquires a regular connection from the pool.
 // The connection is already authenticated as the pool's user.
 func (p *UserPool) GetRegularConn(ctx context.Context) (regular.PooledConn, error) {
+	p.touchActivity()
 	return p.regularPool.Get(ctx)
 }
 
 // GetRegularConnWithSettings acquires a regular connection with the given settings.
 // The connection is already authenticated as the pool's user.
 func (p *UserPool) GetRegularConnWithSettings(ctx context.Context, settings *connstate.Settings) (regular.PooledConn, error) {
+	p.touchActivity()
 	return p.regularPool.GetWithSettings(ctx, settings)
 }
 
 // NewReservedConn creates a new reserved connection for transactions or portal operations.
 // The connection is already authenticated as the pool's user.
 func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Settings) (*reserved.Conn, error) {
+	p.touchActivity()
 	return p.reservedPool.NewConn(ctx, settings)
 }
 
 // GetReservedConn retrieves an existing reserved connection by ID.
 // Returns nil, false if the connection is not found or has timed out.
 func (p *UserPool) GetReservedConn(connID int64) (*reserved.Conn, bool) {
+	p.touchActivity()
 	return p.reservedPool.Get(connID)
 }
 

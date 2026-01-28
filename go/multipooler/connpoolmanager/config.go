@@ -61,15 +61,14 @@ type Config struct {
 	adminCapacity viperutil.Value[int64]
 
 	// Per-user regular pool configuration (for simple queries without transactions)
-	userRegularCapacity    viperutil.Value[int64]
-	userRegularMaxIdle     viperutil.Value[int64]
+	// Note: Capacity is managed by the rebalancer, not configured here.
+	// New pools start with initialUserCapacity (10) and the rebalancer adjusts them.
 	userRegularIdleTimeout viperutil.Value[time.Duration]
 	userRegularMaxLifetime viperutil.Value[time.Duration]
 
 	// Per-user reserved pool configuration (for transactions)
 	// Each user's reserved pool has its own underlying connection pool.
-	userReservedCapacity          viperutil.Value[int64]
-	userReservedMaxIdle           viperutil.Value[int64]
+	// Note: Capacity is managed by the rebalancer, not configured here.
 	userReservedInactivityTimeout viperutil.Value[time.Duration] // For reserved connections (client inactivity)
 	userReservedIdleTimeout       viperutil.Value[time.Duration] // For underlying pool connections
 	userReservedMaxLifetime       viperutil.Value[time.Duration]
@@ -113,17 +112,13 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		adminCapacity int64 = 5
 
 		// Per-user regular pool defaults (for simple queries without transactions)
-		userRegularCapacity    int64 = 10
-		userRegularMaxIdle     int64 = 5
-		userRegularIdleTimeout       = 5 * time.Minute
-		userRegularMaxLifetime       = 1 * time.Hour
+		userRegularIdleTimeout = 5 * time.Minute
+		userRegularMaxLifetime = 1 * time.Hour
 
 		// Per-user reserved pool defaults (for transactions)
-		userReservedCapacity          int64 = 5
-		userReservedMaxIdle           int64 = 2
-		userReservedInactivityTimeout       = 30 * time.Second // Aggressive - kills reserved connections if client inactive
-		userReservedIdleTimeout             = 5 * time.Minute  // Less aggressive - for pool size reduction
-		userReservedMaxLifetime             = 1 * time.Hour
+		userReservedInactivityTimeout = 30 * time.Second // Aggressive - kills reserved connections if client inactive
+		userReservedIdleTimeout       = 5 * time.Minute  // Less aggressive - for pool size reduction
+		userReservedMaxLifetime       = 1 * time.Hour
 
 		// Maximum number of user pools (0 = unlimited)
 		maxUsers int64 = 0
@@ -162,14 +157,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		}),
 
 		// Per-user regular pool (for simple queries)
-		userRegularCapacity: viperutil.Configure(reg, "connpool.user.regular.capacity", viperutil.Options[int64]{
-			Default:  userRegularCapacity,
-			FlagName: "connpool-user-regular-capacity",
-		}),
-		userRegularMaxIdle: viperutil.Configure(reg, "connpool.user.regular.max-idle", viperutil.Options[int64]{
-			Default:  userRegularMaxIdle,
-			FlagName: "connpool-user-regular-max-idle",
-		}),
 		userRegularIdleTimeout: viperutil.Configure(reg, "connpool.user.regular.idle-timeout", viperutil.Options[time.Duration]{
 			Default:  userRegularIdleTimeout,
 			FlagName: "connpool-user-regular-idle-timeout",
@@ -180,14 +167,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		}),
 
 		// Per-user reserved pool (for transactions)
-		userReservedCapacity: viperutil.Configure(reg, "connpool.user.reserved.capacity", viperutil.Options[int64]{
-			Default:  userReservedCapacity,
-			FlagName: "connpool-user-reserved-capacity",
-		}),
-		userReservedMaxIdle: viperutil.Configure(reg, "connpool.user.reserved.max-idle", viperutil.Options[int64]{
-			Default:  userReservedMaxIdle,
-			FlagName: "connpool-user-reserved-max-idle",
-		}),
 		userReservedInactivityTimeout: viperutil.Configure(reg, "connpool.user.reserved.inactivity-timeout", viperutil.Options[time.Duration]{
 			Default:  userReservedInactivityTimeout,
 			FlagName: "connpool-user-reserved-inactivity-timeout",
@@ -253,14 +232,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
 
 	// Per-user regular pool flags (for simple queries)
-	fs.Int64("connpool-user-regular-capacity", c.userRegularCapacity.Default(), "Maximum regular connections per user")
-	fs.Int64("connpool-user-regular-max-idle", c.userRegularMaxIdle.Default(), "Maximum idle regular connections per user")
 	fs.Duration("connpool-user-regular-idle-timeout", c.userRegularIdleTimeout.Default(), "How long a user's regular connection can remain idle before being closed")
 	fs.Duration("connpool-user-regular-max-lifetime", c.userRegularMaxLifetime.Default(), "Maximum lifetime of a user's regular connection before recycling")
 
 	// Per-user reserved pool flags (for transactions)
-	fs.Int64("connpool-user-reserved-capacity", c.userReservedCapacity.Default(), "Maximum reserved connections per user")
-	fs.Int64("connpool-user-reserved-max-idle", c.userReservedMaxIdle.Default(), "Maximum idle reserved connections per user")
 	fs.Duration("connpool-user-reserved-inactivity-timeout", c.userReservedInactivityTimeout.Default(), "How long a reserved connection can be inactive (no client activity) before being killed")
 	fs.Duration("connpool-user-reserved-idle-timeout", c.userReservedIdleTimeout.Default(), "How long a connection in the reserved pool can remain idle before being closed")
 	fs.Duration("connpool-user-reserved-max-lifetime", c.userReservedMaxLifetime.Default(), "Maximum lifetime of a user's reserved connection before recycling")
@@ -285,12 +260,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.adminUser,
 		c.adminPassword,
 		c.adminCapacity,
-		c.userRegularCapacity,
-		c.userRegularMaxIdle,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
-		c.userReservedCapacity,
-		c.userReservedMaxIdle,
 		c.userReservedInactivityTimeout,
 		c.userReservedIdleTimeout,
 		c.userReservedMaxLifetime,
@@ -322,16 +293,6 @@ func (c *Config) AdminCapacity() int64 {
 	return c.adminCapacity.Get()
 }
 
-// UserRegularCapacity returns the per-user regular pool capacity.
-func (c *Config) UserRegularCapacity() int64 {
-	return c.userRegularCapacity.Get()
-}
-
-// UserRegularMaxIdle returns the per-user regular pool max idle count.
-func (c *Config) UserRegularMaxIdle() int64 {
-	return c.userRegularMaxIdle.Get()
-}
-
 // UserRegularIdleTimeout returns the per-user regular pool idle timeout.
 func (c *Config) UserRegularIdleTimeout() time.Duration {
 	return c.userRegularIdleTimeout.Get()
@@ -340,16 +301,6 @@ func (c *Config) UserRegularIdleTimeout() time.Duration {
 // UserRegularMaxLifetime returns the per-user regular pool max lifetime.
 func (c *Config) UserRegularMaxLifetime() time.Duration {
 	return c.userRegularMaxLifetime.Get()
-}
-
-// UserReservedCapacity returns the per-user reserved pool capacity.
-func (c *Config) UserReservedCapacity() int64 {
-	return c.userReservedCapacity.Get()
-}
-
-// UserReservedMaxIdle returns the per-user reserved pool max idle count.
-func (c *Config) UserReservedMaxIdle() int64 {
-	return c.userReservedMaxIdle.Get()
 }
 
 // UserReservedInactivityTimeout returns the reserved connection inactivity timeout.

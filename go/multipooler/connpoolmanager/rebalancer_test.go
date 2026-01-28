@@ -99,12 +99,6 @@ func TestManager_RebalanceWithUsers(t *testing.T) {
 	require.NoError(t, err)
 	conn2.Recycle()
 
-	// Touch activity so pools don't get GC'd
-	pools := manager.userPoolsSnapshot.Load()
-	for _, pool := range *pools {
-		pool.TouchActivity()
-	}
-
 	// Manually trigger a rebalance
 	manager.rebalance(ctx)
 
@@ -163,10 +157,6 @@ func TestManager_GarbageCollectPreservesActivePool(t *testing.T) {
 	require.NoError(t, err)
 	conn.Recycle()
 
-	// Touch activity to keep it active (recent activity)
-	pools := manager.userPoolsSnapshot.Load()
-	(*pools)["active-user"].TouchActivity()
-
 	// Trigger garbage collection
 	manager.garbageCollectInactivePools(ctx)
 
@@ -201,7 +191,7 @@ func TestManager_GarbageCollectMixedPools(t *testing.T) {
 	(*pools)["user2"].lastActivity.Store(time.Now().Add(-10 * time.Minute).UnixNano())
 
 	// Keep user1 active
-	(*pools)["user1"].TouchActivity()
+	(*pools)["user1"].lastActivity.Store(time.Now().UnixNano())
 
 	// Trigger garbage collection
 	manager.garbageCollectInactivePools(ctx)
@@ -226,10 +216,6 @@ func TestManager_RebalancerLoop(t *testing.T) {
 	conn, err := manager.GetRegularConn(ctx, "testuser")
 	require.NoError(t, err)
 	conn.Recycle()
-
-	// Touch activity so pool doesn't get GC'd
-	pools := manager.userPoolsSnapshot.Load()
-	(*pools)["testuser"].TouchActivity()
 
 	// Wait for at least one rebalance cycle (default is 10s, but we'll just wait briefly)
 	// The rebalancer runs in the background; we just want to verify it doesn't crash.
@@ -281,7 +267,7 @@ func TestManager_DemandTrackersCreated(t *testing.T) {
 	assert.Greater(t, stats.LastActivity, int64(0))
 }
 
-func TestUserPool_TouchActivity(t *testing.T) {
+func TestUserPool_GetConnUpdatesActivity(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -293,11 +279,13 @@ func TestUserPool_TouchActivity(t *testing.T) {
 	initial := pool.LastActivity()
 	assert.Greater(t, initial, int64(0))
 
-	// Wait a bit and touch
+	// Wait a bit and get a connection (which should touch activity)
 	time.Sleep(10 * time.Millisecond)
-	pool.TouchActivity()
+	conn, err := pool.GetRegularConn(context.Background())
+	require.NoError(t, err)
+	conn.Recycle()
 
-	// Activity should be updated
+	// Activity should be updated by GetRegularConn
 	updated := pool.LastActivity()
 	assert.Greater(t, updated, initial)
 }

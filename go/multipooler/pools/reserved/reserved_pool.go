@@ -324,10 +324,10 @@ func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
 	return p.conns.SetCapacity(ctx, newcap)
 }
 
-// InnerRegularPool returns the underlying regular pool.
+// Requested returns the number of currently requested connections (borrowed + waiters).
 // Used for demand tracking in the rebalancer.
-func (p *Pool) InnerRegularPool() *regular.Pool {
-	return p.conns
+func (p *Pool) Requested() int64 {
+	return p.conns.Requested()
 }
 
 // PoolStats contains pool statistics for reserved connections.

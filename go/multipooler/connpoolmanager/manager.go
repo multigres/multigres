@@ -32,6 +32,12 @@ import (
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
 )
 
+const (
+	// initialUserPoolCapacity is the initial capacity for new user pools.
+	// The rebalancer will adjust this based on demand.
+	initialUserPoolCapacity int64 = 10
+)
+
 // Manager orchestrates per-user connection pools with a shared admin pool.
 // Each user gets their own RegularPool and ReservedPool that connect directly
 // as that user via trust/peer authentication.
@@ -133,8 +139,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.logger.InfoContext(ctx, "connection pool manager opened",
 		"admin_user", m.config.AdminUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
-		"user_regular_capacity", m.config.UserRegularCapacity(),
-		"user_reserved_capacity", m.config.UserReservedCapacity(),
+		"initial_user_capacity", initialUserPoolCapacity,
 		"max_users", m.config.MaxUsers(),
 		"settings_cache_size", m.config.SettingsCacheSize(),
 		"global_capacity", globalCapacity,
@@ -213,13 +218,14 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 	// Create new user pool with per-user pool names for metric cardinality.
 	// Note: Including username in pool names enables per-user monitoring but increases
 	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
+	// Create new user pool with initial capacity. The rebalancer will adjust
+	// the capacity based on demand within a few seconds.
 	pool := NewUserPool(ctx, &UserPoolConfig{
 		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
 			Name:            "regular:" + user,
-			Capacity:        m.config.UserRegularCapacity(),
-			MaxIdleCount:    m.config.UserRegularMaxIdle(),
+			Capacity:        initialUserPoolCapacity,
 			IdleTimeout:     m.config.UserRegularIdleTimeout(),
 			MaxLifetime:     m.config.UserRegularMaxLifetime(),
 			ConnectionCount: m.metrics.RegularConnCount(),
@@ -227,8 +233,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		},
 		ReservedPoolConfig: &connpool.Config{
 			Name:            "reserved:" + user,
-			Capacity:        m.config.UserReservedCapacity(),
-			MaxIdleCount:    m.config.UserReservedMaxIdle(),
+			Capacity:        initialUserPoolCapacity,
 			IdleTimeout:     m.config.UserReservedIdleTimeout(),
 			MaxLifetime:     m.config.UserReservedMaxLifetime(),
 			ConnectionCount: m.metrics.ReservedConnCount(),
