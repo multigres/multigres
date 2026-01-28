@@ -249,7 +249,10 @@ type ImportQual struct {
 %nonassoc        IDENT SET PARTITION RANGE ROWS GROUPS PRECEDING FOLLOWING CUBE ROLLUP
                 KEYS OBJECT_P SCALAR VALUE_P WITH WITHOUT PATH
 %left            Op OPERATOR
-/* Expression precedence */
+/* Expression precedence - matching PostgreSQL's gram.y */
+%left            '+' '-'
+%left            '*' '/' '%'
+%left            '^'
 %left            AT                /* sets precedence for AT TIME ZONE, AT LOCAL */
 %left            COLLATE
 %right           UMINUS
@@ -257,9 +260,6 @@ type ImportQual struct {
 %left            '(' ')'
 %left            TYPECAST
 %left            '.'
-%left            '+' '-'
-%left            '*' '/' '%'
-%left            '^'
 /* JOIN operators - high precedence to support use as function names */
 %left            JOIN CROSS LEFT FULL RIGHT INNER_P NATURAL
 
