@@ -177,9 +177,9 @@ State 2: 6th user arrives
 Regular and reserved pools serve fundamentally different workloads and are
 allocated independently:
 
-| Resource | Use Case | Typical Pattern |
-|----------|----------|-----------------|
-| **Regular** | Simple queries, reads | High throughput, short duration |
+| Resource     | Use Case              | Typical Pattern                   |
+| ------------ | --------------------- | --------------------------------- |
+| **Regular**  | Simple queries, reads | High throughput, short duration   |
 | **Reserved** | Transactions, cursors | Lower throughput, longer duration |
 
 The global capacity is divided between the two resource types:
@@ -541,14 +541,14 @@ The connection pool manager is configured via command-line flags (backed by vipe
 
 These flags control how pool capacities are distributed across users:
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--connpool-global-capacity` | 100 | Total PostgreSQL connections to manage |
-| `--connpool-reserved-ratio` | 0.2 | Fraction of global capacity for reserved pools |
-| `--connpool-rebalance-interval` | 10s | How often to run rebalancing |
-| `--connpool-demand-window` | 30s | Sliding window for peak demand tracking |
-| `--connpool-demand-sample-interval` | 100ms | How often to sample pool demand |
-| `--connpool-inactive-timeout` | 5m | Remove user pools after this inactivity |
+| Flag                                | Default | Description                                    |
+| ----------------------------------- | ------- | ---------------------------------------------- |
+| `--connpool-global-capacity`        | 100     | Total PostgreSQL connections to manage         |
+| `--connpool-reserved-ratio`         | 0.2     | Fraction of global capacity for reserved pools |
+| `--connpool-rebalance-interval`     | 10s     | How often to run rebalancing                   |
+| `--connpool-demand-window`          | 30s     | Sliding window for peak demand tracking        |
+| `--connpool-demand-sample-interval` | 100ms   | How often to sample pool demand                |
+| `--connpool-inactive-timeout`       | 5m      | Remove user pools after this inactivity        |
 
 Derived values:
 
@@ -571,13 +571,13 @@ Pool capacities are managed automatically by the rebalancer. New user pools star
 with an initial capacity of 10 connections and are adjusted within seconds based on
 demand. These flags control timeout behavior only:
 
-| Flag                                          | Default | Description                                 |
-| --------------------------------------------- | ------- | ------------------------------------------- |
+| Flag                                          | Default | Description                                     |
+| --------------------------------------------- | ------- | ----------------------------------------------- |
 | `--connpool-user-regular-idle-timeout`        | 5m      | Idle timeout before closing regular connections |
 | `--connpool-user-regular-max-lifetime`        | 1h      | Maximum lifetime before recycling               |
-| `--connpool-user-reserved-inactivity-timeout` | 30s     | Inactivity timeout for reserved connections |
-| `--connpool-user-reserved-idle-timeout`       | 5m      | Idle timeout for underlying pool            |
-| `--connpool-user-reserved-max-lifetime`       | 1h      | Maximum lifetime before recycling           |
+| `--connpool-user-reserved-inactivity-timeout` | 30s     | Inactivity timeout for reserved connections     |
+| `--connpool-user-reserved-idle-timeout`       | 5m      | Idle timeout for underlying pool                |
+| `--connpool-user-reserved-max-lifetime`       | 1h      | Maximum lifetime before recycling               |
 
 ### Other Flags
 
@@ -705,4 +705,3 @@ pooler runs on separate hosts from PostgreSQL.
 
 - [Wikipedia: Max-min fairness](https://en.wikipedia.org/wiki/Max-min_fairness)
 - [Dominant Resource Fairness (DRF)](https://amplab.cs.berkeley.edu/wp-content/uploads/2011/06/Dominant-Resource-Fairness-Fair-Allocation-of-Multiple-Resource-Types.pdf)
-
