@@ -259,7 +259,9 @@ func (p *UserPool) Stats() UserPoolStats {
 }
 
 // SetCapacity updates the capacity of both regular and reserved pools.
-// If reducing capacity, may block waiting for borrowed connections to return.
+// This is a non-blocking operation: capacity is set immediately, idle connections
+// are closed aggressively, and any remaining over-capacity connections are closed
+// when they are recycled back to the pool.
 func (p *UserPool) SetCapacity(ctx context.Context, regularCap, reservedCap int64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

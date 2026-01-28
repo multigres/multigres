@@ -297,15 +297,31 @@ func (pool *Pool[C]) CloseWithContext(ctx context.Context) error {
 		return nil
 	}
 
-	// close all the connections in the pool; if we time out while waiting for
-	// users to return our connections, we still want to finish the shutdown
-	// for the pool
-	err := pool.setCapacity(ctx, 0)
+	// Set capacity to 0 and close all idle connections immediately
+	_ = pool.setCapacity(0)
+
+	// Wait for borrowed connections to be returned (with timeout).
+	// Unlike SetCapacity (which is non-blocking for rebalancer use),
+	// Close should wait for graceful shutdown.
+	err := pool.waitForDrain(ctx)
 
 	close(*closeChan)
 	pool.workers.Wait()
 	pool.close.Store(nil)
 	return err
+}
+
+// waitForDrain waits for all active connections to be closed.
+// This is used during graceful shutdown to wait for borrowed connections.
+func (pool *Pool[C]) waitForDrain(ctx context.Context) error {
+	const delay = 10 * time.Millisecond
+	for pool.active.Load() > 0 {
+		if err := ctx.Err(); err != nil {
+			return errors.New("timed out while waiting for connections to be returned to the pool")
+		}
+		time.Sleep(delay)
+	}
+	return nil
 }
 
 func (pool *Pool[C]) reopen() {
@@ -320,15 +336,16 @@ func (pool *Pool[C]) reopen() {
 	ctx, cancel := context.WithTimeout(pool.ctx, PoolCloseTimeout)
 	defer cancel()
 
-	// to re-open the connection pool, first set the capacity to 0 so we close
-	// all the existing connections
-	if err := pool.setCapacity(ctx, 0); err != nil {
+	// Set capacity to 0 to close all connections, then wait for drain
+	if err := pool.setCapacity(0); err != nil {
 		pool.logger.Error("failed to reopen pool", "pool", pool.Name, "error", err)
 	}
+	if err := pool.waitForDrain(ctx); err != nil {
+		pool.logger.Error("failed to drain pool during reopen", "pool", pool.Name, "error", err)
+	}
 
-	// the second call to setCapacity cannot fail because it's only increasing the number
-	// of connections and doesn't need to shut down any
-	_ = pool.setCapacity(ctx, capacity)
+	// Restore original capacity
+	_ = pool.setCapacity(capacity)
 }
 
 // IsOpen returns whether the pool is open.
@@ -460,6 +477,12 @@ func (pool *Pool[C]) put(conn *Pooled[C]) {
 }
 
 func (pool *Pool[C]) tryReturnConn(conn *Pooled[C]) bool {
+	// If we're over capacity, close the connection instead of returning to pool.
+	// This enables non-blocking SetCapacity - excess connections are closed on recycle.
+	// Check this first, before handing to waiters, to converge to target capacity.
+	if pool.closeOnOverCapacity(conn) {
+		return false
+	}
 	if pool.wait.tryReturnConn(conn) {
 		// Direct handoff to waiter: used→used, waiter will do otel used +1
 		return true
@@ -507,6 +530,22 @@ func (pool *Pool[C]) tryReturnAnyConn() bool {
 		}
 	}
 	return false
+}
+
+// closeOnOverCapacity closes a connection if the number of active connections exceeds capacity.
+// This enables non-blocking SetCapacity: capacity is set immediately, and excess connections
+// are closed as they are recycled. Returns true if the connection was closed.
+func (pool *Pool[C]) closeOnOverCapacity(conn *Pooled[C]) bool {
+	for {
+		open := pool.active.Load()
+		if open <= pool.capacity.Load() {
+			return false
+		}
+		if pool.active.CompareAndSwap(open, open-1) {
+			conn.Close()
+			return true
+		}
+	}
 }
 
 // closeOnIdleLimitReached closes a connection if the number of idle connections (active - inuse) in the pool
@@ -758,20 +797,21 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 }
 
 // SetCapacity changes the capacity (number of open connections) on the pool.
-// If the capacity is smaller than the number of connections that there are
-// currently open, we'll close enough connections before returning, even if
-// that means waiting for clients to return connections to the pool.
-// If the given context times out before we've managed to close enough connections
-// an error will be returned.
-func (pool *Pool[C]) SetCapacity(ctx context.Context, newcap int64) error {
+// This is a non-blocking operation: capacity is set immediately, and idle
+// connections are closed aggressively. Any remaining over-capacity connections
+// will be closed when they are recycled back to the pool.
+//
+// This design ensures the rebalancer is never blocked waiting for borrowed
+// connections to be returned.
+func (pool *Pool[C]) SetCapacity(_ context.Context, newcap int64) error {
 	pool.capacityMu.Lock()
 	defer pool.capacityMu.Unlock()
-	return pool.setCapacity(ctx, newcap)
+	return pool.setCapacity(newcap)
 }
 
 // setCapacity is the internal implementation for SetCapacity; it must be called
 // with pool.capacityMu being held.
-func (pool *Pool[C]) setCapacity(ctx context.Context, newcap int64) error {
+func (pool *Pool[C]) setCapacity(newcap int64) error {
 	if newcap < 0 {
 		panic("negative capacity")
 	}
@@ -780,26 +820,23 @@ func (pool *Pool[C]) setCapacity(ctx context.Context, newcap int64) error {
 	if oldcap == newcap {
 		return nil
 	}
-	// update the idle count to match the new capacity if necessary
-	// wait for connections to be returned to the pool if we're reducing the capacity.
+
+	// Update the idle count to match the new capacity
 	defer pool.setIdleCount()
 
-	const delay = 10 * time.Millisecond
-
-	// close connections until we're under capacity
+	// Aggressively close idle connections to get closer to new capacity.
+	// Don't wait for borrowed connections - they will be closed on recycle
+	// via closeOnOverCapacity() in tryReturnConn().
 	for pool.active.Load() > newcap {
-		if err := ctx.Err(); err != nil {
-			return errors.New("timed out while waiting for connections to be returned to the pool")
-		}
-
-		// try closing from connections which are currently idle in the stacks
+		// Try closing from connections which are currently idle in the stacks
 		conn := pool.getFromSettingsStack(nil)
 		if conn == nil {
 			conn = pool.pop(&pool.clean)
 		}
 		if conn == nil {
-			time.Sleep(delay)
-			continue
+			// No idle connections available to close.
+			// Remaining over-capacity connections will be closed when recycled.
+			break
 		}
 		conn.Close()
 		pool.closedConn()
