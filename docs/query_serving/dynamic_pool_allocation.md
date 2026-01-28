@@ -97,16 +97,35 @@ previous mutex-based approach under parallel load.
 **Note:** Integration of `DemandTracker` into `UserPool` and exposing demand metrics will happen
 in Phase 5 alongside the rebalancer, which owns the tracker lifecycle.
 
-### Phase 3: Fair Share Allocator
+### Phase 3: Fair Share Allocator ✅
 
-- [ ] Create `FairShareAllocator` struct
-- [ ] Add configuration flags:
-  - [ ] `--connpool-global-capacity`
-  - [ ] `--connpool-reserved-ratio`
-- [ ] Implement max-min fairness algorithm for regular pools
-- [ ] Implement max-min fairness algorithm for reserved pools
-- [ ] Unit tests for allocation edge cases
-- [ ] Property-based tests (total <= capacity, each user >= 1)
+- [x] Create `FairShareAllocator` struct (resource-agnostic, single-resource allocator)
+- [x] Add configuration flags:
+  - [x] `--connpool-global-capacity`
+  - [x] `--connpool-reserved-ratio`
+- [x] Implement max-min fairness algorithm
+- [x] Unit tests for allocation edge cases
+- [x] Property-based tests (total <= capacity, each user >= 1)
+
+**Design:**
+- `FairShareAllocator` is resource-agnostic - it allocates a single resource type
+- Create two instances: one for regular pools, one for reserved pools
+- This mirrors the `DemandTracker` design (also resource-agnostic)
+
+**Usage:**
+```go
+regularAlloc := NewFairShareAllocator(globalRegularCapacity)
+reservedAlloc := NewFairShareAllocator(globalReservedCapacity)
+
+regularResult := regularAlloc.Allocate(regularDemands)   // map[string]int64
+reservedResult := reservedAlloc.Allocate(reservedDemands) // map[string]int64
+```
+
+**Implementation:**
+- `FairShareAllocator` in `go/multipooler/connpoolmanager/fair_share_allocator.go`
+- Config flags in `go/multipooler/connpoolmanager/config.go`
+- 14 unit tests + 4 property-based tests in `fair_share_allocator_test.go`
+- Algorithm: max-min fairness with progressive filling, minimum 1 connection per user
 
 ### Phase 4: UserPool Resize Support
 
@@ -152,18 +171,15 @@ in Phase 5 alongside the rebalancer, which owns the tracker lifecycle.
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              Manager                                         │
 │                                                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                      FairShareAllocator                                │  │
-│  │                                                                        │  │
-│  │  Global Budget:                                                        │  │
-│  │  ├── Regular: 400 connections (80% of 500)                            │  │
-│  │  └── Reserved: 100 connections (20% of 500)                           │  │
-│  │                                                                        │  │
-│  │  Per-User Allocation (based on demand):                               │  │
-│  │  ├── User A: Regular=80, Reserved=20  (high transaction user)         │  │
-│  │  ├── User B: Regular=90, Reserved=10  (read-heavy user)               │  │
-│  │  └── User C: Regular=85, Reserved=15  (mixed workload)                │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────┐  ┌────────────────────────────────┐     │
+│  │  FairShareAllocator (Regular)  │  │  FairShareAllocator (Reserved) │     │
+│  │  Capacity: 400 (80% of 500)    │  │  Capacity: 100 (20% of 500)    │     │
+│  │                                │  │                                │     │
+│  │  Allocations:                  │  │  Allocations:                  │     │
+│  │  ├── User A: 80                │  │  ├── User A: 20                │     │
+│  │  ├── User B: 90                │  │  ├── User B: 10                │     │
+│  │  └── User C: 85                │  │  └── User C: 15                │     │
+│  └────────────────────────────────┘  └────────────────────────────────┘     │
 │                                                                              │
 │  userPoolsSnapshot (atomic pointer - lock-free reads)                        │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
@@ -173,6 +189,10 @@ in Phase 5 alongside the rebalancer, which owns the tracker lifecycle.
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The `FairShareAllocator` is resource-agnostic - it allocates a single resource type.
+We create two instances: one for regular pools, one for reserved pools. This mirrors
+the `DemandTracker` design.
 
 ### Two Separate Resources
 
@@ -323,13 +343,15 @@ Rebalancing runs as a **background goroutine** at a configurable interval:
 │  Every 10 seconds:                                               │
 │                                                                  │
 │  1. Collect demand metrics from all UserPools                    │
-│     └─ demandTracker.GetPeakAndReset() for each pool            │
+│     └─ regularTracker.GetPeakAndRotate() for each user          │
+│     └─ reservedTracker.GetPeakAndRotate() for each user         │
 │                                                                  │
-│  2. Run fair share algorithm                                     │
-│     └─ Calculate new allocations for regular and reserved       │
+│  2. Run fair share algorithm (two allocators, one per resource)  │
+│     └─ regularAlloc.Allocate(regularDemands)                    │
+│     └─ reservedAlloc.Allocate(reservedDemands)                  │
 │                                                                  │
 │  3. Apply new capacities                                         │
-│     └─ pool.SetCapacity(ctx, newCapacity) for each pool         │
+│     └─ pool.SetCapacity(ctx, newRegularCap, newReservedCap)     │
 │        (may block briefly if shrinking and connections in use)  │
 │                                                                  │
 │  4. Garbage collect inactive pools                               │
@@ -474,14 +496,15 @@ multipooler \
 
 ### Phase 3: Fair Share Allocator
 
-**Goal:** Implement the allocation algorithm as a separate module.
+**Goal:** Implement the allocation algorithm as a separate, resource-agnostic module.
 
 **Changes:**
 
-1. Create `FairShareAllocator` struct
+1. Create `FairShareAllocator` struct (single-resource allocator)
 2. Implement max-min fairness algorithm
-3. Add configuration for global capacity, ratios, bounds
+3. Add configuration for global capacity and reserved ratio
 4. Unit test allocation logic in isolation
+5. Create two instances at runtime: one for regular, one for reserved
 
 **Files:**
 

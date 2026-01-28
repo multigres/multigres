@@ -79,6 +79,16 @@ type Config struct {
 
 	// Settings cache size (0 = use default)
 	settingsCacheSize viperutil.Value[int64]
+
+	// --- Fair share allocation configuration ---
+
+	// Global capacity is the total number of PostgreSQL connections to manage.
+	// This is divided between regular and reserved pools based on reservedRatio.
+	globalCapacity viperutil.Value[int64]
+
+	// Reserved ratio is the fraction of global capacity allocated to reserved pools (0.0-1.0).
+	// Regular pools get (1 - reservedRatio) of the global capacity.
+	reservedRatio viperutil.Value[float64]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -106,6 +116,10 @@ func NewConfig(reg *viperutil.Registry) *Config {
 
 		// Settings cache size
 		settingsCacheSize int64 = 1024
+
+		// Fair share allocation defaults
+		globalCapacity int64 = 100
+		reservedRatio        = 0.2
 	)
 
 	return &Config{
@@ -178,6 +192,16 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  settingsCacheSize,
 			FlagName: "connpool-settings-cache-size",
 		}),
+
+		// Fair share allocation
+		globalCapacity: viperutil.Configure(reg, "connpool.global-capacity", viperutil.Options[int64]{
+			Default:  globalCapacity,
+			FlagName: "connpool-global-capacity",
+		}),
+		reservedRatio: viperutil.Configure(reg, "connpool.reserved-ratio", viperutil.Options[float64]{
+			Default:  reservedRatio,
+			FlagName: "connpool-reserved-ratio",
+		}),
 	}
 }
 
@@ -209,6 +233,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Settings cache size flag
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
 
+	// Fair share allocation flags
+	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools)")
+	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
+
 	viperutil.BindFlags(fs,
 		c.adminUser,
 		c.adminPassword,
@@ -224,6 +252,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.userReservedMaxLifetime,
 		c.maxUsers,
 		c.settingsCacheSize,
+		c.globalCapacity,
+		c.reservedRatio,
 	)
 }
 
@@ -298,6 +328,18 @@ func (c *Config) MaxUsers() int64 {
 // SettingsCacheSize returns the settings cache size.
 func (c *Config) SettingsCacheSize() int {
 	return int(c.settingsCacheSize.Get())
+}
+
+// GlobalCapacity returns the total PostgreSQL connections to manage.
+// This is divided between regular and reserved pools based on ReservedRatio.
+func (c *Config) GlobalCapacity() int64 {
+	return c.globalCapacity.Get()
+}
+
+// ReservedRatio returns the fraction of global capacity allocated to reserved pools (0.0-1.0).
+// Regular pools get (1 - reservedRatio) of the global capacity.
+func (c *Config) ReservedRatio() float64 {
+	return c.reservedRatio.Get()
 }
 
 // NewManager creates a new connection pool manager from this config.
