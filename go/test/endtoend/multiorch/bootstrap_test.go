@@ -190,6 +190,73 @@ func TestBootstrapInitialization(t *testing.T) {
 		assert.GreaterOrEqual(t, standbyCount, 1, "Should have at least one standby")
 	})
 
+	t.Run("verify restore_command cleanup on initial standbys", func(t *testing.T) {
+		// Find all standby instances
+		var standbyInstances []*shardsetup.MultipoolerInstance
+		var standbyNames []string
+
+		for name, inst := range setup.Multipoolers {
+			if name == setup.PrimaryName {
+				continue
+			}
+			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+			require.NoError(t, err)
+
+			ctx := utils.WithTimeout(t, 5*time.Second)
+			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+			client.Close()
+
+			require.NoError(t, err)
+			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+				standbyInstances = append(standbyInstances, inst)
+				standbyNames = append(standbyNames, name)
+			}
+		}
+
+		require.NotEmpty(t, standbyInstances, "Should have at least one standby")
+		t.Logf("Checking restore_command cleanup on %d standbys: %v", len(standbyNames), standbyNames)
+
+		// Verify restore_command is removed on all standbys
+		for i, inst := range standbyInstances {
+			name := standbyNames[i]
+			autoConfPath := filepath.Join(inst.Pgctld.DataDir, "pg_data", "postgresql.auto.conf")
+
+			// Allow time for monitor loop to detect streaming and remove restore_command
+			assert.Eventually(t, func() bool {
+				content, err := os.ReadFile(autoConfPath)
+				if err != nil {
+					t.Logf("Failed to read postgresql.auto.conf on %s: %v", name, err)
+					return false
+				}
+
+				// Check that restore_command is not present
+				for line := range strings.SplitSeq(string(content), "\n") {
+					trimmed := strings.TrimSpace(line)
+					if strings.HasPrefix(trimmed, "restore_command") {
+						t.Logf("restore_command still present on %s: %s", name, trimmed)
+						return false
+					}
+				}
+				return true
+			}, 45*time.Second, 1*time.Second,
+				"restore_command should be removed from standby %s after streaming replication is active", name)
+
+			t.Logf("✓ Verified restore_command removed from %s", name)
+
+			// Verify other settings remain
+			content, err := os.ReadFile(autoConfPath)
+			require.NoError(t, err)
+			contentStr := string(content)
+
+			assert.Contains(t, contentStr, "archive_mode",
+				"archive_mode should still be present on %s", name)
+			assert.Contains(t, contentStr, "primary_conninfo",
+				"primary_conninfo should still be present on %s", name)
+		}
+
+		t.Logf("✓ All %d standbys have restore_command removed and other settings intact", len(standbyNames))
+	})
+
 	t.Run("verify multigres internal tables exist", func(t *testing.T) {
 		// Verify tables exist on all initialized nodes
 		for name, inst := range setup.Multipoolers {
@@ -395,6 +462,43 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
 			status.Status.IsInitialized, status.Status.HasDataDirectory,
 			status.Status.PostgresRunning, status.Status.PostgresRole)
+
+		// Verify restore_command cleanup after streaming replication starts
+		t.Log("Verifying restore_command was removed after streaming replication started...")
+
+		// After auto-restore, the standby should have restore_command initially
+		// Once streaming replication is active, the monitor loop should remove it
+		autoConfPath := filepath.Join(standbyInst.Pgctld.DataDir, "pg_data", "postgresql.auto.conf")
+
+		// Give the monitor loop time to detect streaming and remove restore_command
+		// The monitor runs every few seconds, so we allow up to 45 seconds
+		assert.Eventually(t, func() bool {
+			content, err := os.ReadFile(autoConfPath)
+			if err != nil {
+				t.Logf("Failed to read postgresql.auto.conf: %v", err)
+				return false
+			}
+
+			// Check that restore_command is not present (not even commented)
+			for line := range strings.SplitSeq(string(content), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "restore_command") {
+					t.Logf("restore_command still present in %s: %s", standbyName, trimmed)
+					return false
+				}
+			}
+			t.Logf("✓ restore_command removed from %s", standbyName)
+			return true
+		}, 45*time.Second, 1*time.Second, "restore_command should be removed after streaming replication is active")
+
+		// Verify other critical settings are still present
+		content, err := os.ReadFile(autoConfPath)
+		require.NoError(t, err, "Should be able to read postgresql.auto.conf")
+		contentStr := string(content)
+
+		assert.Contains(t, contentStr, "archive_mode", "archive_mode should still be present")
+		assert.Contains(t, contentStr, "primary_conninfo", "primary_conninfo should still be present")
+		t.Logf("✓ Verified archive_mode and primary_conninfo are still present on %s", standbyName)
 	})
 
 	t.Run("verify archive_command config on all nodes", func(t *testing.T) {

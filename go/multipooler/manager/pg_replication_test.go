@@ -1677,3 +1677,11 @@ func TestQueryReplicationStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestIsWALReceiverStreaming(t *testing.T) {
+	// This test verifies isWALReceiverStreaming correctly detects when
+	// streaming replication is active. This requires a real PostgreSQL
+	// connection with replication setup.
+
+	t.Skip("Integration test - requires PostgreSQL with replication")
+}

@@ -272,6 +272,9 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: t.TempDir(),
+		},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -295,6 +298,9 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: t.TempDir(),
+		},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -315,6 +321,9 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: t.TempDir(),
+		},
 	}
 
 	state := pm.discoverPostgresState(ctx)
@@ -770,4 +779,125 @@ type mockPgctldClientWithCounter struct {
 func (m *mockPgctldClientWithCounter) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
 	m.startCallCount++
 	return m.mockPgctldClient.Start(ctx, req, opts...)
+}
+
+func TestRemoveRestoreCommandFromAutoConf(t *testing.T) {
+	// Create a temp directory for test
+	tmpDir := t.TempDir()
+	autoConfPath := filepath.Join(tmpDir, "pg_data", "postgresql.auto.conf")
+
+	// Create pg_data directory
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "pg_data"), 0o755))
+
+	// Write test content with restore_command
+	testContent := `# Archive mode for pgbackrest backups
+archive_mode = 'on'
+archive_command = 'pgbackrest --stanza=multigres --config=/path/to/config archive-push %p'
+restore_command = 'pgbackrest --config=/path/to/config --stanza=multigres archive-get %f "%p"'
+primary_conninfo = 'host=primary port=5432'
+`
+	err := os.WriteFile(autoConfPath, []byte(testContent), 0o644)
+	require.NoError(t, err)
+
+	// Create a minimal MultiPoolerManager with just the path
+	pm := &MultiPoolerManager{
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: tmpDir,
+		},
+	}
+
+	// Call removeRestoreCommandFromAutoConf
+	err = pm.removeRestoreCommandFromAutoConf()
+	require.NoError(t, err)
+
+	// Read the file back and verify restore_command was removed
+	content, err := os.ReadFile(autoConfPath)
+	require.NoError(t, err)
+
+	contentStr := string(content)
+	assert.NotContains(t, contentStr, "restore_command")
+	assert.Contains(t, contentStr, "archive_mode")
+	assert.Contains(t, contentStr, "archive_command")
+	assert.Contains(t, contentStr, "primary_conninfo")
+}
+
+func TestRemoveRestoreCommandFromAutoConf_FileNotExist(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm := &MultiPoolerManager{
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: tmpDir,
+		},
+	}
+
+	// Should not error if file doesn't exist
+	err := pm.removeRestoreCommandFromAutoConf()
+	require.NoError(t, err)
+}
+
+func TestHasRestoreCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		expectExists bool
+	}{
+		{
+			name: "restore_command present",
+			content: `restore_command = 'pgbackrest archive-get %f "%p"'
+archive_mode = 'on'`,
+			expectExists: true,
+		},
+		{
+			name: "restore_command commented out",
+			content: `# restore_command = 'pgbackrest archive-get %f "%p"'
+archive_mode = 'on'`,
+			expectExists: false,
+		},
+		{
+			name: "no restore_command",
+			content: `archive_mode = 'on'
+archive_command = 'pgbackrest archive-push %p'`,
+			expectExists: false,
+		},
+		{
+			name:         "empty file",
+			content:      "",
+			expectExists: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			autoConfPath := filepath.Join(tmpDir, "pg_data", "postgresql.auto.conf")
+
+			// Create pg_data directory
+			require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "pg_data"), 0o755))
+
+			err := os.WriteFile(autoConfPath, []byte(tt.content), 0o644)
+			require.NoError(t, err)
+
+			pm := &MultiPoolerManager{
+				multipooler: &clustermetadatapb.MultiPooler{
+					PoolerDir: tmpDir,
+				},
+			}
+
+			exists, err := pm.hasRestoreCommand()
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectExists, exists)
+		})
+	}
+}
+
+func TestHasRestoreCommand_FileNotExist(t *testing.T) {
+	tmpDir := t.TempDir()
+	pm := &MultiPoolerManager{
+		multipooler: &clustermetadatapb.MultiPooler{
+			PoolerDir: tmpDir,
+		},
+	}
+
+	exists, err := pm.hasRestoreCommand()
+	require.NoError(t, err)
+	assert.False(t, exists)
 }

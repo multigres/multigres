@@ -1463,6 +1463,10 @@ type postgresState struct {
 	postgresRunning  bool
 	backupsAvailable bool
 	isPrimary        bool
+	// Recovery tracking for restore_command cleanup
+	inRecovery        bool // Currently in recovery
+	streamingActive   bool // WAL receiver is streaming from primary
+	hadRestoreCommand bool // restore_command was present in auto.conf
 }
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -1509,6 +1513,43 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 		state.isPrimary, err = pm.isPrimary(ctx)
 		if err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to determine primary status", "error", err)
+		}
+
+		// Update recovery state
+		state.inRecovery = !state.isPrimary
+
+		// Check if restore_command is present (only check once)
+		if !state.hadRestoreCommand {
+			hasRestore, err := pm.hasRestoreCommand()
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to check for restore_command", "error", err)
+			} else {
+				state.hadRestoreCommand = hasRestore
+			}
+		}
+
+		// For standbys with restore_command, check if streaming replication is active
+		if state.inRecovery && state.hadRestoreCommand {
+			isStreaming, err := pm.isWALReceiverStreaming(ctx)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to check WAL receiver status", "error", err)
+			} else {
+				state.streamingActive = isStreaming
+
+				// If streaming is active, we can remove restore_command
+				// At this point, the standby has completed archive recovery and
+				// is receiving WAL via streaming replication
+				if isStreaming {
+					pm.logger.InfoContext(ctx, "MonitorPostgres: standby is streaming, removing restore_command")
+
+					if err := pm.removeRestoreCommandFromAutoConf(); err != nil {
+						pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to remove restore_command", "error", err)
+					} else {
+						pm.logger.InfoContext(ctx, "MonitorPostgres: successfully removed restore_command from auto.conf")
+						state.hadRestoreCommand = false
+					}
+				}
+			}
 		}
 	}
 

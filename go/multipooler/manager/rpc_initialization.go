@@ -444,6 +444,57 @@ func (pm *MultiPoolerManager) removeArchiveConfigFromAutoConf() error {
 	return os.WriteFile(autoConfPath, []byte(strings.Join(filtered, "\n")), 0o644)
 }
 
+// removeRestoreCommandFromAutoConf removes the restore_command line from postgresql.auto.conf.
+// This should be called after archive recovery completes to prevent PostgreSQL from
+// entering archive recovery mode on future restarts after unclean shutdowns.
+func (pm *MultiPoolerManager) removeRestoreCommandFromAutoConf() error {
+	autoConfPath := filepath.Join(pm.multipooler.PoolerDir, "pg_data", "postgresql.auto.conf")
+
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // File doesn't exist, nothing to remove
+		}
+		return fmt.Errorf("failed to read postgresql.auto.conf: %w", err)
+	}
+
+	var filtered []string
+	for line := range strings.SplitSeq(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Skip restore_command line
+		if strings.HasPrefix(trimmed, "restore_command") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	return os.WriteFile(autoConfPath, []byte(strings.Join(filtered, "\n")), 0o644)
+}
+
+// hasRestoreCommand checks if restore_command is configured in postgresql.auto.conf.
+// Returns false if the file doesn't exist or restore_command is not present.
+func (pm *MultiPoolerManager) hasRestoreCommand() (bool, error) {
+	autoConfPath := filepath.Join(pm.multipooler.PoolerDir, "pg_data", "postgresql.auto.conf")
+
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to read postgresql.auto.conf: %w", err)
+	}
+
+	for line := range strings.SplitSeq(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Check for restore_command (not commented out)
+		if strings.HasPrefix(trimmed, "restore_command") {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
 // This must be called after InitDataDir but BEFORE starting PostgreSQL
 func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {

@@ -16,8 +16,10 @@ package actions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -101,6 +103,12 @@ func (a *DemoteStalePrimaryAction) GracePeriod() *types.GracePeriodConfig {
 // 2. The stale primary accepts term >= its current term and demotes
 // 3. Both primaries end up with the same term (no term inconsistency)
 func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Problem) error {
+	// Check if the skip file exists (debugging mechanism)
+	// WILL REMOVE THIS BEFORE MARKING PR NON-DRAFT
+	if _, err := os.Stat("/tmp/SKIP_STALE_PRIMARY"); err == nil {
+		return errors.New("skipping stale primary demotion: /tmp/SKIP_STALE_PRIMARY exists")
+	}
+
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
 	a.logger.InfoContext(ctx, "executing demote stale primary action",
