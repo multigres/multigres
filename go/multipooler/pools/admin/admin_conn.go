@@ -19,12 +19,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
+	"github.com/multigres/multigres/go/parser/ast"
 )
 
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.
@@ -86,14 +86,10 @@ func (c *Conn) ResetSettings(_ context.Context) error {
 // Returns an error if the user doesn't exist or if the query fails.
 //
 // This is used during authentication to retrieve password hashes for SCRAM-SHA-256 verification.
-// It works even during bootstrap before the executor is fully initialized.
 func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, error) {
 	// Query pg_authid for the user's password hash.
-	// Note: This requires superuser access to read pg_authid.
-	// We don't use parameterized queries here because admin connections don't support
-	// the extended query protocol - they're meant for simple administrative operations.
 	sql := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
-		quoteStringLiteral(username))
+		ast.QuoteStringLiteral(username))
 
 	results, err := c.conn.Query(ctx, sql)
 	if err != nil {
@@ -112,12 +108,6 @@ func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, err
 	}
 
 	return scramHash, nil
-}
-
-// quoteStringLiteral quotes a string literal for use in SQL.
-// This escapes single quotes by doubling them.
-func quoteStringLiteral(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // TerminateBackend terminates a backend process using pg_terminate_backend().
