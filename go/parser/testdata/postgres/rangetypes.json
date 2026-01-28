@@ -1230,12 +1230,12 @@
   {
     "comment": "rangetypes - Statement 249",
     "query": "create type textrange1 as range(subtype=text, collation=\"C\")",
-    "expected": "CREATE TYPE textrange1 AS RANGE (subtype = TEXT, collation = \"C\")"
+    "expected": "CREATE TYPE textrange1 AS RANGE (subtype = TEXT, \"collation\" = \"C\")"
   },
   {
     "comment": "rangetypes - Statement 250",
     "query": "create type textrange2 as range(subtype=text, collation=\"C\")",
-    "expected": "CREATE TYPE textrange2 AS RANGE (subtype = TEXT, collation = \"C\")"
+    "expected": "CREATE TYPE textrange2 AS RANGE (subtype = TEXT, \"collation\" = \"C\")"
   },
   {
     "comment": "rangetypes - Statement 251",
@@ -1485,7 +1485,7 @@
   {
     "comment": "rangetypes - Statement 300",
     "query": "create function table_succeed(r anyrange) returns table(l anyelement, u anyelement) as $$ select lower($1), upper($1) $$ language sql",
-    "expected": "CREATE FUNCTION table_succeed (r anyrange) AS $$ select lower($1), upper($1) $$ LANGUAGE sql"
+    "expected": "CREATE FUNCTION table_succeed (r anyrange) RETURNS TABLE (l anyelement, u anyelement) AS $$ select lower($1), upper($1) $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 301",
@@ -1505,7 +1505,7 @@
   {
     "comment": "rangetypes - Statement 304",
     "query": "create function table_fail(i anyelement) returns table(i anyelement, r anyrange) as $$ select $1, '[1,10]' $$ language sql",
-    "expected": "CREATE FUNCTION table_fail (i anyelement) AS $$ select $1, '[1,10]' $$ LANGUAGE sql"
+    "expected": "CREATE FUNCTION table_fail (i anyelement) RETURNS TABLE (i anyelement, r anyrange) AS $$ select $1, '[1,10]' $$ LANGUAGE sql"
   },
   {
     "comment": "rangetypes - Statement 305",

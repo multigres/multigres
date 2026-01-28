@@ -27,7 +27,7 @@
   {
     "comment": "join_hash - Statement 15",
     "query": "create or replace function hash_join_batches(query text) returns table (original int, final int) language plpgsql as $$ declare whole_plan json $$",
-    "expected": "CREATE OR REPLACE FUNCTION hash_join_batches (query TEXT) LANGUAGE plpgsql AS $$ declare whole_plan json $$"
+    "expected": "CREATE OR REPLACE FUNCTION hash_join_batches (query TEXT) RETURNS TABLE (original INT, final INT) LANGUAGE plpgsql AS $$ declare whole_plan json $$"
   },
   {
     "comment": "join_hash - Statement 21",

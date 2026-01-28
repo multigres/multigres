@@ -153,22 +153,22 @@
   {
     "comment": "float8 - Statement 32",
     "query": "SELECT 'Infinity'::float8 / 'Infinity'::float8",
-    "expected": "SELECT CAST(CAST('Infinity' AS FLOAT8) / 'Infinity' AS FLOAT8)"
+    "expected": "SELECT CAST('Infinity' AS FLOAT8) / CAST('Infinity' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 33",
     "query": "SELECT '42'::float8 / 'Infinity'::float8",
-    "expected": "SELECT CAST(CAST('42' AS FLOAT8) / 'Infinity' AS FLOAT8)"
+    "expected": "SELECT CAST('42' AS FLOAT8) / CAST('Infinity' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 34",
     "query": "SELECT 'nan'::float8 / 'nan'::float8",
-    "expected": "SELECT CAST(CAST('nan' AS FLOAT8) / 'nan' AS FLOAT8)"
+    "expected": "SELECT CAST('nan' AS FLOAT8) / CAST('nan' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 35",
     "query": "SELECT 'nan'::float8 / '0'::float8",
-    "expected": "SELECT CAST(CAST('nan' AS FLOAT8) / '0' AS FLOAT8)"
+    "expected": "SELECT CAST('nan' AS FLOAT8) / CAST('0' AS FLOAT8)"
   },
   {
     "comment": "float8 - Statement 36",

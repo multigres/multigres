@@ -48,9 +48,10 @@ var (
 	// SQL identifier regex: must start with letter or underscore, followed by letters, digits, underscores, or dollar signs
 	sqlIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_$]*$`)
 
-	// PostgreSQL reserved keywords that always need quoting when used as identifiers
-	// This list matches reserved_keyword in postgres.y exactly
-	reservedKeywords = map[string]bool{
+	// PostgreSQL keywords that need quoting when used as column identifiers
+	// Includes reserved_keyword and type_func_name_keyword from postgres.y
+	keywordsNeedingQuotes = map[string]bool{
+		// reserved_keyword (from postgres.y lines 1513-1591)
 		"all": true, "analyse": true, "analyze": true, "and": true, "any": true, "array": true,
 		"as": true, "asc": true, "asymmetric": true, "both": true, "case": true, "cast": true,
 		"check": true, "collate": true, "column": true, "constraint": true, "create": true,
@@ -66,6 +67,12 @@ var (
 		"then": true, "to": true, "trailing": true, "true": true, "union": true, "unique": true,
 		"user": true, "using": true, "variadic": true, "when": true, "where": true, "window": true,
 		"with": true,
+		// type_func_name_keyword (from postgres.y lines 1481-1505)
+		"authorization": true, "binary": true, "collation": true, "concurrently": true,
+		"cross": true, "current_schema": true, "freeze": true, "full": true, "ilike": true,
+		"inner": true, "is": true, "isnull": true, "join": true, "left": true, "like": true,
+		"natural": true, "notnull": true, "outer": true, "overlaps": true, "right": true,
+		"similar": true, "tablesample": true, "verbose": true,
 	}
 )
 
@@ -80,8 +87,8 @@ func QuoteIdentifier(name string) string {
 	// Must quote if doesn't match identifier pattern
 	needsQuoting := !sqlIdentifierRegex.MatchString(name)
 
-	// Must quote if it's a reserved keyword (case-insensitive check)
-	if reservedKeywords[strings.ToLower(name)] {
+	// Must quote if it's a keyword that can't be used as a column name (case-insensitive check)
+	if keywordsNeedingQuotes[strings.ToLower(name)] {
 		needsQuoting = true
 	}
 
