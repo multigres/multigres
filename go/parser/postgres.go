@@ -34514,17 +34514,17 @@ yydefault:
 		yyDollar = yyS[yypt-12 : yypt+1]
 //line postgres.y:10182
 		{
-			// Handle RETURNS TABLE variant
+			// Handle RETURNS TABLE variant - merge table columns into parameters
+			// and create a RECORD return type, matching PostgreSQL's approach
 			stmt := &ast.CreateFunctionStmt{
 				IsProcedure: false,
 				Replace:     yyDollar[2].bval,
 				FuncName:    yyDollar[4].list,
-				Parameters:  yyDollar[5].list,
-				ReturnType:  nil, // TODO: Handle table return type
+				Parameters:  ast.MergeTableFuncParameters(yyDollar[5].list, yyDollar[9].list),
+				ReturnType:  ast.TableFuncTypeName(yyDollar[9].list),
 				Options:     yyDollar[11].list,
 				SQLBody:     yyDollar[12].node,
 			}
-			// TODO: Process table_func_column_list into appropriate return type
 			yyVAL.stmt = stmt
 		}
 	case 2458:
