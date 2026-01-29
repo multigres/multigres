@@ -26,11 +26,13 @@ package poolergateway
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -192,6 +194,40 @@ func (pg *PoolerGateway) Close() error {
 
 // Ensure PoolerGateway implements Gateway
 var _ Gateway = (*PoolerGateway)(nil)
+
+// getSystemServiceClient returns a MultiPoolerServiceClient for the given database.
+// This can be used for authentication or other system-level operations.
+// It finds any available pooler and returns a client connected to it.
+func (pg *PoolerGateway) getSystemServiceClient(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
+	// Find any pooler - for authentication we just need access to pg_authid
+	// which is available from any pooler connected to this database.
+	// Try PRIMARY first, fall back to REPLICA if not found in this cell.
+	// TODO: Once multigateway discovers poolers across all cells, we can
+	// remove the REPLICA fallback and always use PRIMARY.
+	target := &query.Target{
+		TableGroup: "default", // TODO: Make configurable or discover from database
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		// PRIMARY not found, try REPLICA
+		target.PoolerType = clustermetadatapb.PoolerType_REPLICA
+		conn, err = pg.loadBalancer.GetConnection(target)
+		if err != nil {
+			return nil, fmt.Errorf("no pooler found for database %q: %w", database, err)
+		}
+	}
+
+	// Return the service client from the connection
+	return conn.ServiceClient(), nil
+}
+
+// SystemClientFunc returns a function that can be used with auth.PoolerHashProvider.
+// The returned function discovers an available pooler and returns a system client for it.
+func (pg *PoolerGateway) SystemClientFunc() func(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
+	return pg.getSystemServiceClient
+}
 
 // Stats returns statistics about the gateway.
 func (pg *PoolerGateway) Stats() map[string]any {

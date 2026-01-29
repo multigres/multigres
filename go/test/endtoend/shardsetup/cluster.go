@@ -29,6 +29,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -122,6 +124,36 @@ func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
 		t.Fatal("GetPrimary: no primary has been elected yet")
 	}
 	return s.GetMultipoolerInstance(s.PrimaryName)
+}
+
+// RefreshPrimary queries all multipoolers to find the current primary and updates PrimaryName.
+func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
+	t.Helper()
+
+	for name, inst := range s.Multipoolers {
+		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		if err != nil {
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		cancel()
+		client.Close()
+
+		if err != nil {
+			continue
+		}
+
+		if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+			s.PrimaryName = name
+			t.Logf("RefreshPrimary: current primary is %s", name)
+			return inst
+		}
+	}
+
+	t.Fatal("RefreshPrimary: no primary found in cluster")
+	return nil
 }
 
 // GetStandbys returns all multipooler instances that are not the primary.
@@ -240,7 +272,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 // CreateMultiOrchInstance creates a new multiorch instance and adds it to the setup.
 // Returns the instance and a cleanup function that should be deferred or called manually.
 // The cleanup function gracefully terminates the process if it's still running.
-func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, watchTargets []string) (*ProcessInstance, func()) {
+func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTargets []string, config *SetupConfig) (*ProcessInstance, func()) {
 	t.Helper()
 
 	if s.MultiOrchInstances == nil {
@@ -258,17 +290,27 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name, cell string, wa
 	httpPort := utils.GetFreePort(t)
 
 	instance := &ProcessInstance{
-		Name:         name,
-		DataDir:      orchDataDir,
-		LogFile:      logFile,
-		GrpcPort:     grpcPort,
-		HttpPort:     httpPort,
-		Cell:         cell,
-		EtcdAddr:     s.EtcdClientAddr,
-		WatchTargets: watchTargets,
-		ServiceID:    name, // Use the instance name as the service ID
-		Binary:       "multiorch",
-		Environment:  os.Environ(),
+		Name:                                name,
+		DataDir:                             orchDataDir,
+		LogFile:                             logFile,
+		GrpcPort:                            grpcPort,
+		HttpPort:                            httpPort,
+		Cell:                                config.CellName,
+		EtcdAddr:                            s.EtcdClientAddr,
+		WatchTargets:                        watchTargets,
+		ServiceID:                           name, // Use the instance name as the service ID
+		Binary:                              "multiorch",
+		Environment:                         os.Environ(),
+		PrimaryFailoverGracePeriodBase:      config.PrimaryFailoverGracePeriodBase,
+		PrimaryFailoverGracePeriodMaxJitter: config.PrimaryFailoverGracePeriodMaxJitter,
+	}
+
+	// Apply defaults if not specified (0s for fast tests)
+	if instance.PrimaryFailoverGracePeriodBase == "" {
+		instance.PrimaryFailoverGracePeriodBase = "0s"
+	}
+	if instance.PrimaryFailoverGracePeriodMaxJitter == "" {
+		instance.PrimaryFailoverGracePeriodMaxJitter = "0s"
 	}
 
 	s.MultiOrchInstances[name] = instance
@@ -313,8 +355,8 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=2",
-		s.MultigatewayPgPort)
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
+		s.MultigatewayPgPort, TestPostgresPassword)
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)

@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -70,6 +72,148 @@ func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
 func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
 
+// pipeConn wraps two pipes to create a bidirectional net.Conn for testing.
+// serverReader/serverWriter are used by the server, clientReader/clientWriter by the test client.
+type pipeConn struct {
+	reader *io.PipeReader
+	writer *io.PipeWriter
+}
+
+func (p *pipeConn) Read(b []byte) (n int, err error)  { return p.reader.Read(b) }
+func (p *pipeConn) Write(b []byte) (n int, err error) { return p.writer.Write(b) }
+func (p *pipeConn) Close() error                      { p.reader.Close(); p.writer.Close(); return nil }
+func (p *pipeConn) LocalAddr() net.Addr               { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5432} }
+func (p *pipeConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 54321}
+}
+func (p *pipeConn) SetDeadline(t time.Time) error      { return nil }
+func (p *pipeConn) SetReadDeadline(t time.Time) error  { return nil }
+func (p *pipeConn) SetWriteDeadline(t time.Time) error { return nil }
+
+// newPipeConnPair creates a connected pair of pipeConns for testing.
+// serverConn is used by the server side, clientConn by the test client.
+func newPipeConnPair() (serverConn, clientConn *pipeConn) {
+	// Client writes -> Server reads
+	clientToServerR, clientToServerW := io.Pipe()
+	// Server writes -> Client reads
+	serverToClientR, serverToClientW := io.Pipe()
+
+	serverConn = &pipeConn{reader: clientToServerR, writer: serverToClientW}
+	clientConn = &pipeConn{reader: serverToClientR, writer: clientToServerW}
+	return serverConn, clientConn
+}
+
+// scramClientHelper performs SCRAM authentication from the client side.
+// It reads server messages from clientConn and responds appropriately.
+func scramClientHelper(t *testing.T, clientConn *pipeConn, username, password string) {
+	t.Helper()
+	client := scram.NewSCRAMClientWithPassword(username, password)
+
+	// Read AuthenticationSASL from server.
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	authType := binary.BigEndian.Uint32(body[:4])
+	require.Equal(t, uint32(protocol.AuthSASL), authType)
+
+	// Send SASLInitialResponse with client-first-message.
+	clientFirst, err := client.ClientFirstMessage()
+	require.NoError(t, err)
+	writeSASLInitialResponse(t, clientConn, "SCRAM-SHA-256", clientFirst)
+
+	// Read AuthenticationSASLContinue from server.
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	authType = binary.BigEndian.Uint32(body[:4])
+	require.Equal(t, uint32(protocol.AuthSASLContinue), authType)
+	serverFirst := string(body[4:])
+
+	// Send SASLResponse with client-final-message.
+	clientFinal, err := client.ProcessServerFirst(serverFirst)
+	require.NoError(t, err)
+	writeSASLResponse(t, clientConn, clientFinal)
+
+	// Read AuthenticationSASLFinal from server.
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	authType = binary.BigEndian.Uint32(body[:4])
+	require.Equal(t, uint32(protocol.AuthSASLFinal), authType)
+	serverFinal := string(body[4:])
+
+	// Verify server signature.
+	err = client.VerifyServerFinal(serverFinal)
+	require.NoError(t, err)
+
+	// Read AuthenticationOk.
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	authType = binary.BigEndian.Uint32(body[:4])
+	require.Equal(t, uint32(protocol.AuthOk), authType)
+
+	// Read remaining messages until ReadyForQuery.
+	for {
+		msgType, _ = readMessage(t, clientConn)
+		if msgType == byte(protocol.MsgReadyForQuery) {
+			break
+		}
+	}
+}
+
+// readMessage reads a PostgreSQL message from the connection.
+func readMessage(t *testing.T, conn *pipeConn) (byte, []byte) {
+	t.Helper()
+	header := make([]byte, 5)
+	_, err := io.ReadFull(conn, header)
+	require.NoError(t, err)
+
+	msgType := header[0]
+	length := binary.BigEndian.Uint32(header[1:5]) - 4 // Length includes itself
+
+	body := make([]byte, length)
+	_, err = io.ReadFull(conn, body)
+	require.NoError(t, err)
+
+	return msgType, body
+}
+
+// writeSASLInitialResponse writes a SASLInitialResponse message.
+func writeSASLInitialResponse(t *testing.T, conn *pipeConn, mechanism, data string) {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString(mechanism)
+	buf.WriteByte(0)
+	_ = binary.Write(&buf, binary.BigEndian, int32(len(data)))
+	buf.WriteString(data)
+
+	writeMessage(t, conn, 'p', buf.Bytes())
+}
+
+// writeSASLResponse writes a SASLResponse message.
+func writeSASLResponse(t *testing.T, conn *pipeConn, data string) {
+	t.Helper()
+	writeMessage(t, conn, 'p', []byte(data))
+}
+
+// writeMessage writes a PostgreSQL message to the connection.
+func writeMessage(t *testing.T, conn *pipeConn, msgType byte, body []byte) {
+	t.Helper()
+	header := make([]byte, 5)
+	header[0] = msgType
+	binary.BigEndian.PutUint32(header[1:5], uint32(len(body)+4))
+	_, err := conn.Write(header)
+	require.NoError(t, err)
+	_, err = conn.Write(body)
+	require.NoError(t, err)
+}
+
+// writeStartupPacketToPipe writes a startup packet to a pipeConn.
+func writeStartupPacketToPipe(t *testing.T, conn *pipeConn, protocolCode uint32, params map[string]string) {
+	t.Helper()
+	var buf bytes.Buffer
+	writeStartupPacket(&buf, protocolCode, params)
+	_, err := conn.Write(buf.Bytes())
+	require.NoError(t, err)
+}
+
 // testLogger creates a logger for testing.
 func testLogger(t *testing.T) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -80,9 +224,10 @@ func testLogger(t *testing.T) *slog.Logger {
 // testListener creates a test listener using NewListener.
 func testListener(t *testing.T) *Listener {
 	listener, err := NewListener(ListenerConfig{
-		Address: "localhost:0", // Use random available port
-		Handler: &mockHandler{},
-		Logger:  testLogger(t),
+		Address:      "localhost:0", // Use random available port
+		Handler:      &mockHandler{},
+		HashProvider: newMockHashProvider("postgres"),
+		Logger:       testLogger(t),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -120,6 +265,34 @@ func (m *mockHandler) HandleClose(ctx context.Context, conn *Conn, typ byte, nam
 
 func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
+}
+
+// mockHashProvider implements scram.PasswordHashProvider for testing.
+// It accepts a single password for any user/database combination.
+type mockHashProvider struct {
+	hash *scram.ScramHash
+}
+
+func newMockHashProvider(password string) *mockHashProvider {
+	// Use a fixed salt for reproducibility in testing.
+	salt := []byte("multigres-test-salt!")
+	iterations := 4096
+
+	saltedPassword := scram.ComputeSaltedPassword(password, salt, iterations)
+	clientKey := scram.ComputeClientKey(saltedPassword)
+
+	return &mockHashProvider{
+		hash: &scram.ScramHash{
+			Iterations: iterations,
+			Salt:       salt,
+			StoredKey:  scram.ComputeStoredKey(clientKey),
+			ServerKey:  scram.ComputeServerKey(saltedPassword),
+		},
+	}
+}
+
+func (p *mockHashProvider) GetPasswordHash(_ context.Context, _, _ string) (*scram.ScramHash, error) {
+	return p.hash, nil
 }
 
 // writeStartupPacket writes a startup packet to the buffer.
@@ -202,26 +375,37 @@ func TestHandleStartupMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock connection.
-			mock := newMockConn()
-
-			// Write startup packet.
-			writeStartupPacket(mock.readBuf, protocol.ProtocolVersionNumber, tt.params)
+			// Create pipe-based connection for bidirectional communication.
+			serverConn, clientConn := newPipeConnPair()
+			defer serverConn.Close()
+			defer clientConn.Close()
 
 			// Create a test listener.
 			listener := testListener(t)
 			c := &Conn{
-				conn:           mock,
+				conn:           serverConn,
 				listener:       listener,
-				bufferedReader: bufio.NewReader(mock),
-				bufferedWriter: bufio.NewWriter(mock),
+				hashProvider:   listener.hashProvider,
+				bufferedReader: bufio.NewReader(serverConn),
+				bufferedWriter: bufio.NewWriter(serverConn),
 				params:         make(map[string]string),
 				txnStatus:      protocol.TxnStatusIdle,
 			}
+			c.ctx = context.Background()
 			c.logger = testLogger(t)
 
-			// Actually call handleStartup to test the full flow.
-			err := c.handleStartup()
+			// Run server-side handleStartup in a goroutine.
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- c.handleStartup()
+			}()
+
+			// Client side: send startup packet and perform SCRAM auth.
+			writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, tt.params)
+			scramClientHelper(t, clientConn, tt.expectedUser, "postgres") // password is "postgres" per mockHashProvider
+
+			// Wait for server to complete.
+			err := <-errCh
 			require.NoError(t, err)
 
 			// Verify connection state was set correctly.
@@ -229,48 +413,60 @@ func TestHandleStartupMessage(t *testing.T) {
 			assert.Equal(t, tt.expectedDB, c.database)
 			assert.Equal(t, tt.expectedParams, c.params)
 			assert.Equal(t, protocol.ProtocolVersion(protocol.ProtocolVersionNumber), c.protocolVersion)
-
-			// Verify authentication messages were sent.
-			output := mock.writeBuf.Bytes()
-			assert.NotEmpty(t, output, "should have sent authentication messages")
 		})
 	}
 }
 
 func TestSSLRequest(t *testing.T) {
-	// Create mock connection.
-	mock := newMockConn()
-
-	// Write SSL request followed by startup message.
-	_ = binary.Write(mock.readBuf, binary.BigEndian, uint32(8))
-	_ = binary.Write(mock.readBuf, binary.BigEndian, uint32(protocol.SSLRequestCode))
-
-	params := map[string]string{
-		"user":     "testuser",
-		"database": "testdb",
-	}
-	writeStartupPacket(mock.readBuf, protocol.ProtocolVersionNumber, params)
+	// Create pipe-based connection for bidirectional communication.
+	serverConn, clientConn := newPipeConnPair()
+	defer serverConn.Close()
+	defer clientConn.Close()
 
 	// Create a test listener.
 	listener := testListener(t)
 	c := &Conn{
-		conn:           mock,
+		conn:           serverConn,
 		listener:       listener,
-		bufferedReader: bufio.NewReader(mock),
-		bufferedWriter: bufio.NewWriter(mock),
+		hashProvider:   listener.hashProvider,
+		bufferedReader: bufio.NewReader(serverConn),
+		bufferedWriter: bufio.NewWriter(serverConn),
 		params:         make(map[string]string),
 		txnStatus:      protocol.TxnStatusIdle,
 	}
+	c.ctx = context.Background()
 	c.logger = testLogger(t)
 
-	// Test handleSSLRequest through handleStartup.
-	err := c.handleStartup()
+	// Run server-side handleStartup in a goroutine.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+	}()
+
+	// Client side: send SSL request.
+	var sslReqBuf bytes.Buffer
+	_ = binary.Write(&sslReqBuf, binary.BigEndian, uint32(8))
+	_ = binary.Write(&sslReqBuf, binary.BigEndian, uint32(protocol.SSLRequestCode))
+	_, err := clientConn.Write(sslReqBuf.Bytes())
 	require.NoError(t, err)
 
-	// Verify 'N' was sent to decline SSL.
-	output := mock.writeBuf.Bytes()
-	assert.NotEmpty(t, output)
-	assert.Equal(t, byte('N'), output[0], "should send 'N' to decline SSL")
+	// Read 'N' response for SSL decline.
+	sslResponse := make([]byte, 1)
+	_, err = io.ReadFull(clientConn, sslResponse)
+	require.NoError(t, err)
+	assert.Equal(t, byte('N'), sslResponse[0], "should send 'N' to decline SSL")
+
+	// Now send startup packet and complete SCRAM auth.
+	params := map[string]string{
+		"user":     "testuser",
+		"database": "testdb",
+	}
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, params)
+	scramClientHelper(t, clientConn, "testuser", "postgres")
+
+	// Wait for server to complete.
+	err = <-errCh
+	require.NoError(t, err)
 
 	// Verify startup completed successfully.
 	assert.Equal(t, "testuser", c.user)
@@ -278,43 +474,130 @@ func TestSSLRequest(t *testing.T) {
 }
 
 func TestGSSENCRequest(t *testing.T) {
-	// Create mock connection.
-	mock := newMockConn()
-
-	// Write GSSENC request followed by startup message.
-	_ = binary.Write(mock.readBuf, binary.BigEndian, uint32(8))
-	_ = binary.Write(mock.readBuf, binary.BigEndian, uint32(protocol.GSSENCRequestCode))
-
-	params := map[string]string{
-		"user":     "gssuser",
-		"database": "gssdb",
-	}
-	writeStartupPacket(mock.readBuf, protocol.ProtocolVersionNumber, params)
+	// Create pipe-based connection for bidirectional communication.
+	serverConn, clientConn := newPipeConnPair()
+	defer serverConn.Close()
+	defer clientConn.Close()
 
 	// Create a test listener.
 	listener := testListener(t)
 	c := &Conn{
-		conn:           mock,
+		conn:           serverConn,
 		listener:       listener,
-		bufferedReader: bufio.NewReader(mock),
-		bufferedWriter: bufio.NewWriter(mock),
+		hashProvider:   listener.hashProvider,
+		bufferedReader: bufio.NewReader(serverConn),
+		bufferedWriter: bufio.NewWriter(serverConn),
 		params:         make(map[string]string),
 		txnStatus:      protocol.TxnStatusIdle,
 	}
+	c.ctx = context.Background()
 	c.logger = testLogger(t)
 
-	// Test handleGSSENCRequest through handleStartup.
-	err := c.handleStartup()
+	// Run server-side handleStartup in a goroutine.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+	}()
+
+	// Client side: send GSSENC request.
+	var gssReqBuf bytes.Buffer
+	_ = binary.Write(&gssReqBuf, binary.BigEndian, uint32(8))
+	_ = binary.Write(&gssReqBuf, binary.BigEndian, uint32(protocol.GSSENCRequestCode))
+	_, err := clientConn.Write(gssReqBuf.Bytes())
 	require.NoError(t, err)
 
-	// Verify 'N' was sent to decline GSSENC.
-	output := mock.writeBuf.Bytes()
-	assert.NotEmpty(t, output)
-	assert.Equal(t, byte('N'), output[0], "should send 'N' to decline GSSENC")
+	// Read 'N' response for GSSENC decline.
+	gssResponse := make([]byte, 1)
+	_, err = io.ReadFull(clientConn, gssResponse)
+	require.NoError(t, err)
+	assert.Equal(t, byte('N'), gssResponse[0], "should send 'N' to decline GSSENC")
+
+	// Now send startup packet and complete SCRAM auth.
+	params := map[string]string{
+		"user":     "gssuser",
+		"database": "gssdb",
+	}
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, params)
+	scramClientHelper(t, clientConn, "gssuser", "postgres")
+
+	// Wait for server to complete.
+	err = <-errCh
+	require.NoError(t, err)
 
 	// Verify startup completed successfully.
 	assert.Equal(t, "gssuser", c.user)
 	assert.Equal(t, "gssdb", c.database)
+}
+
+func TestSCRAMAuthenticationWrongPassword(t *testing.T) {
+	// Create pipe-based connection for bidirectional communication.
+	serverConn, clientConn := newPipeConnPair()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	// Create a test listener with password "postgres".
+	listener := testListener(t)
+	c := &Conn{
+		conn:           serverConn,
+		listener:       listener,
+		hashProvider:   listener.hashProvider,
+		bufferedReader: bufio.NewReader(serverConn),
+		bufferedWriter: bufio.NewWriter(serverConn),
+		params:         make(map[string]string),
+		txnStatus:      protocol.TxnStatusIdle,
+	}
+	c.ctx = context.Background()
+	c.logger = testLogger(t)
+
+	// Run server-side handleStartup in a goroutine.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+	}()
+
+	// Client side: send startup packet.
+	params := map[string]string{
+		"user":     "testuser",
+		"database": "testdb",
+	}
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, params)
+
+	// Perform SCRAM handshake with WRONG password.
+	client := scram.NewSCRAMClientWithPassword("testuser", "wrongpassword")
+
+	// Read AuthenticationSASL from server.
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	authType := binary.BigEndian.Uint32(body[:4])
+	require.Equal(t, uint32(protocol.AuthSASL), authType)
+
+	// Send SASLInitialResponse with client-first-message.
+	clientFirst, err := client.ClientFirstMessage()
+	require.NoError(t, err)
+	writeSASLInitialResponse(t, clientConn, "SCRAM-SHA-256", clientFirst)
+
+	// Read AuthenticationSASLContinue from server.
+	msgType, body = readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgAuthenticationRequest), msgType)
+	authType = binary.BigEndian.Uint32(body[:4])
+	require.Equal(t, uint32(protocol.AuthSASLContinue), authType)
+	serverFirst := string(body[4:])
+
+	// Send SASLResponse with client-final-message (wrong proof due to wrong password).
+	clientFinal, err := client.ProcessServerFirst(serverFirst)
+	require.NoError(t, err)
+	writeSASLResponse(t, clientConn, clientFinal)
+
+	// Server should send ErrorResponse.
+	msgType, body = readMessage(t, clientConn)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+
+	// Verify error contains auth failure message.
+	assert.Contains(t, string(body), "password authentication failed")
+
+	// Server should return nil (auth error was sent successfully).
+	err = <-errCh
+	require.NoError(t, err)
 }
 
 func TestAuthenticationMessages(t *testing.T) {
@@ -326,6 +609,7 @@ func TestAuthenticationMessages(t *testing.T) {
 	c := &Conn{
 		conn:           mock,
 		listener:       listener,
+		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(mock),
 		bufferedWriter: bufio.NewWriter(mock),
 		params:         make(map[string]string),

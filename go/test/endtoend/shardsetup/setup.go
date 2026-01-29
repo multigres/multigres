@@ -43,15 +43,17 @@ import (
 
 // SetupConfig holds the configuration for creating a ShardSetup.
 type SetupConfig struct {
-	MultipoolerCount   int
-	MultiOrchCount     int
-	EnableMultigateway bool // Enable multigateway (opt-in, default: false)
-	Database           string
-	TableGroup         string
-	Shard              string
-	CellName           string
-	DurabilityPolicy   string // Durability policy (e.g., "ANY_2")
-	SkipInitialization bool   // Start processes but don't initialize postgres (for bootstrap tests)
+	MultipoolerCount                    int
+	MultiOrchCount                      int
+	EnableMultigateway                  bool // Enable multigateway (opt-in, default: false)
+	Database                            string
+	TableGroup                          string
+	Shard                               string
+	CellName                            string
+	DurabilityPolicy                    string // Durability policy (e.g., "ANY_2")
+	SkipInitialization                  bool   // Start processes but don't initialize postgres (for bootstrap tests)
+	PrimaryFailoverGracePeriodBase      string // Grace period base before primary failover (default: "0s" for tests)
+	PrimaryFailoverGracePeriodMaxJitter string // Max jitter for grace period (default: "0s" for tests)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -109,6 +111,16 @@ func WithoutInitialization() SetupOption {
 func WithMultigateway() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
+	}
+}
+
+// WithPrimaryFailoverGracePeriod sets the grace period configuration for primary failover.
+// Default is "0s" for both base and maxJitter to make tests run fast.
+// Use this to test grace period behavior explicitly.
+func WithPrimaryFailoverGracePeriod(base, maxJitter string) SetupOption {
+	return func(c *SetupConfig) {
+		c.PrimaryFailoverGracePeriodBase = base
+		c.PrimaryFailoverGracePeriodMaxJitter = maxJitter
 	}
 }
 
@@ -364,7 +376,7 @@ func (s *ShardSetup) createMultiOrchInstances(t *testing.T, config *SetupConfig)
 	watchTargets := []string{fmt.Sprintf("%s/%s/%s", config.Database, config.TableGroup, config.Shard)}
 	for i := 0; i < config.MultiOrchCount; i++ {
 		name := multiOrchName(i)
-		s.CreateMultiOrchInstance(t, name, config.CellName, watchTargets)
+		s.CreateMultiOrchInstance(t, name, watchTargets, config)
 		t.Logf("Created multiorch '%s' (will start after replication is configured)", name)
 	}
 }
@@ -408,7 +420,7 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 	} else {
 		// Create a temporary multiorch for initialization
 		watchTargets := []string{fmt.Sprintf("%s/%s/%s", config.Database, config.TableGroup, config.Shard)}
-		mo, moCleanup = setup.CreateMultiOrchInstance(t, "temp-multiorch", config.CellName, watchTargets)
+		mo, moCleanup = setup.CreateMultiOrchInstance(t, "temp-multiorch", watchTargets, config)
 		moName = "temp-multiorch"
 		isTemporary = true
 		t.Logf("Created temporary multiorch for initialization")
@@ -662,9 +674,12 @@ func startEtcd(t *testing.T, dataDir string) (string, *exec.Cmd, error) {
 
 // ValidateCleanState checks that all multipoolers are in the expected clean state.
 // Clean state is defined by the baseline GUCs captured after bootstrap:
-//   - Primary: not in recovery, GUCs match baseline, term=1, type=PRIMARY
-//   - Standbys: in recovery, GUCs match baseline, wal_replay not paused, term=1, type=REPLICA
+//   - Primary: not in recovery, GUCs match baseline, type=PRIMARY
+//   - Standbys: in recovery, GUCs match baseline, wal_replay not paused, type=REPLICA
 //   - MultiOrch: NOT running (multiorch starts in SetupTest and stops in cleanup)
+//
+// Note: Term is NOT validated. It can increase across tests and there's no safe
+// way to reset it. Tests should work with whatever term they start with.
 //
 // Returns an error if state is not clean.
 func (s *ShardSetup) ValidateCleanState() error {
@@ -742,18 +757,19 @@ func (s *ShardSetup) ValidateCleanState() error {
 			}
 		}
 
-		// Validate term is 1 for all nodes
-		if err := ValidateTerm(ctx, client.Consensus, 1, name); err != nil {
-			return err
-		}
+		// Note: We intentionally don't validate term here.
+		// Term can increase across tests (e.g., when BeginTerm is called) and
+		// there's no safe way to reset it without an RPC. Tests should work with
+		// whatever term they start with and use relative term values.
 	}
 
 	return nil
 }
 
 // ResetToCleanState resets all multipoolers to the baseline clean state.
-// This restores GUCs to baseline values, resets terms to 1, pooler types to PRIMARY/REPLICA,
+// This restores GUCs to baseline values, pooler types to PRIMARY/REPLICA,
 // resumes WAL replay, and stops multiorch instances.
+// Note: Term is NOT reset. It can only increase and tests should handle any starting term.
 func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	t.Helper()
 
@@ -788,7 +804,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 				t.Logf("Reset: Failed to check if %s is in recovery: %v", name, err)
 			} else if inRecovery == "t" {
 				t.Logf("Reset: %s was demoted, restoring to primary state...", name)
-				if err := RestorePrimaryAfterDemotion(ctx, client.Manager); err != nil {
+				if err := RestorePrimaryAfterDemotion(ctx, t, client.Manager); err != nil {
 					t.Logf("Reset: Failed to restore %s after demotion: %v", name, err)
 				}
 			}
@@ -813,10 +829,8 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 			t.Logf("Reset: Failed to set pooler type on %s: %v", name, err)
 		}
 
-		// Reset term
-		if err := ResetTerm(ctx, client.Manager); err != nil {
-			t.Logf("Reset: Failed to reset term on %s: %v", name, err)
-		}
+		// Note: We don't reset term here. Term can only increase and there's no
+		// safe way to reset it without an RPC. Tests should handle any starting term.
 
 		client.Close()
 	}
@@ -918,7 +932,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 					t.Logf("Cleanup: failed to check if %s is in recovery: %v", name, err)
 				} else if inRecovery == "t" {
 					t.Logf("Cleanup: %s was demoted, restoring to primary state...", name)
-					if err := RestorePrimaryAfterDemotion(cleanupCtx, client.Manager); err != nil {
+					if err := RestorePrimaryAfterDemotion(cleanupCtx, t, client.Manager); err != nil {
 						t.Logf("Cleanup: failed to restore %s after demotion: %v", name, err)
 					}
 				}
@@ -944,10 +958,8 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 				t.Logf("Cleanup: failed to set pooler type on %s: %v", name, err)
 			}
 
-			// Reset term
-			if err := ResetTerm(cleanupCtx, client.Manager); err != nil {
-				t.Logf("Cleanup: failed to reset term on %s: %v", name, err)
-			}
+			// Note: We don't reset term here. Term can only increase and there's no
+			// safe way to reset it without an RPC. Tests should handle any starting term.
 
 			client.Close()
 		}

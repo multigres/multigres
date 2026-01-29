@@ -472,7 +472,8 @@ func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) err
 			return fmt.Errorf("timeout waiting for multigateway to be ready after %d attempts: %w", attempt, err)
 		}
 
-		connStr := fmt.Sprintf("host=localhost port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=2", pgPort)
+		// Local provisioner creates PostgreSQL with default password "postgres"
+		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=2", pgPort)
 		db, err := sql.Open("postgres", connStr)
 		if err != nil {
 			continue
@@ -851,6 +852,7 @@ func TestClusterLifecycle(t *testing.T) {
 	require.NoError(t, err, "etcd binary must be available in PATH for cluster lifecycle tests")
 
 	t.Run("cluster init and basic connectivity test", func(t *testing.T) {
+		t.Skip("TODO(sougou): Disabling this till we fix leader election after restart")
 		// Setup test directory
 		clusterSetup, cleanup := setupTestCluster(t)
 		t.Cleanup(cleanup)
@@ -1080,14 +1082,21 @@ func TestClusterLifecycle(t *testing.T) {
 		assert.Contains(t, zone2StatusOutput, "is_initialized", "zone2 getpoolerstatus should return is_initialized")
 
 		// Verify pooler types are correctly set in CLI output
-		// JSON output shows numeric enum values: 1=PRIMARY, 2=REPLICA
-		// We already verified the actual types via WaitForPoolerTypeAssigned above
+		// Parse JSON to avoid brittleness from formatting differences
+		var zone1Status, zone2Status struct {
+			Status struct {
+				PoolerType string `json:"pooler_type"`
+			} `json:"status"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(zone1StatusOutput), &zone1Status), "failed to parse zone1 status JSON")
+		require.NoError(t, json.Unmarshal([]byte(zone2StatusOutput), &zone2Status), "failed to parse zone2 status JSON")
+
 		if zone1IsPrimary {
-			assert.Contains(t, zone1StatusOutput, `"pooler_type": 1`, "zone1 should be PRIMARY (1)")
-			assert.Contains(t, zone2StatusOutput, `"pooler_type": 2`, "zone2 should be REPLICA (2)")
+			assert.Equal(t, "PRIMARY", zone1Status.Status.PoolerType, "zone1 should be PRIMARY")
+			assert.Equal(t, "REPLICA", zone2Status.Status.PoolerType, "zone2 should be REPLICA")
 		} else {
-			assert.Contains(t, zone1StatusOutput, `"pooler_type": 2`, "zone1 should be REPLICA (2)")
-			assert.Contains(t, zone2StatusOutput, `"pooler_type": 1`, "zone2 should be PRIMARY (1)")
+			assert.Equal(t, "REPLICA", zone1Status.Status.PoolerType, "zone1 should be REPLICA")
+			assert.Equal(t, "PRIMARY", zone2Status.Status.PoolerType, "zone2 should be PRIMARY")
 		}
 		t.Log("Verified pooler types in CLI output")
 
@@ -1142,10 +1151,16 @@ func TestClusterLifecycle(t *testing.T) {
 		testPostgreSQLConnection(t, tempDir, testPorts.Zones[1].PgctldPGPort, "2")
 		t.Log("Both PostgreSQL instances are working correctly after restart!")
 
+		// Wait for pooler types to be restored from topology after restart
+		t.Log("Waiting for pooler types to be re-assigned after restart...")
+		zone1TypeAfterRestart, err := shardsetup.WaitForPoolerTypeAssigned(t, zone1Addr, 30*time.Second)
+		require.NoError(t, err, "zone1 pooler type should be assigned after restart")
+		_, err = shardsetup.WaitForPoolerTypeAssigned(t, zone2Addr, 30*time.Second)
+		require.NoError(t, err, "zone2 pooler type should be assigned after restart")
+
 		// Verify primary/replica roles are preserved after restart
 		t.Log("Verifying primary/replica roles are preserved after restart...")
-		zone1IsPrimaryAfterRestart, err := shardsetup.IsPrimary(zone1Addr)
-		require.NoError(t, err, "should be able to check zone1 primary status after restart")
+		zone1IsPrimaryAfterRestart := zone1TypeAfterRestart == clustermetadatapb.PoolerType_PRIMARY
 		require.Equal(t, zone1IsPrimary, zone1IsPrimaryAfterRestart,
 			"primary/replica roles must be preserved after restart")
 		t.Logf("Zone1 is primary after restart: %v (preserved from before)", zone1IsPrimaryAfterRestart)

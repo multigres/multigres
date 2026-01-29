@@ -305,12 +305,6 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		if err != nil {
 			return fmt.Errorf("failed reading existing mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
 		}
-
-		// Check we have the same database / shard, and if not,
-		// require the allowDifferentShard flag.
-		if oldMtPooler.Database != mtpooler.Database || oldMtPooler.Shard != mtpooler.Shard {
-			return fmt.Errorf("old mtpooler has shard %v/%v. Cannot override with shard %v/%v. Delete and re-add mtpooler if you want to change the mtpooler's database/shard", oldMtPooler.Database, oldMtPooler.Shard, mtpooler.Database, mtpooler.Shard)
-		}
 		oldMtPooler.MultiPooler = proto.Clone(mtpooler).(*clustermetadatapb.MultiPooler)
 		if err := ts.UpdateMultiPooler(ctx, oldMtPooler); err != nil {
 			return fmt.Errorf("failed updating mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)

@@ -75,7 +75,7 @@ func (re *Engine) performRecoveryCycle() {
 
 	for _, poolerAnalysis := range analyses {
 		for _, analyzer := range analyzers {
-			detectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			detectedProblem, err := analyzer.Analyze(poolerAnalysis)
 			if err != nil {
 				re.logger.ErrorContext(ctx, "analyzer error",
 					"analyzer", analyzer.Name(),
@@ -87,7 +87,16 @@ func (re *Engine) performRecoveryCycle() {
 				)
 				continue
 			}
-			problems = append(problems, detectedProblems...)
+
+			// Observe health for this specific (pooler, analyzer) combination
+			isHealthy := detectedProblem == nil
+			poolerID := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
+			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), poolerID, analyzer.RecoveryAction(), isHealthy)
+
+			// Only append to problems list if detected
+			if detectedProblem != nil {
+				problems = append(problems, *detectedProblem)
+			}
 		}
 	}
 
@@ -232,6 +241,11 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"description", problem.Description,
 	)
 
+	// Check if deadline has expired (noop for problems without deadline tracking)
+	if !re.recoveryGracePeriodTracker.ShouldExecute(problem) {
+		return
+	}
+
 	// Force re-poll to validate the problem still exists
 	stillExists, err := re.recheckProblem(ctx, problem)
 	if err != nil {
@@ -356,7 +370,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 	analyzers := analysis.DefaultAnalyzers(re.actionFactory)
 	for _, analyzer := range analyzers {
 		if analyzer.Name() == problem.CheckName {
-			redetectedProblems, err := analyzer.Analyze(poolerAnalysis)
+			redetectedProblem, err := analyzer.Analyze(poolerAnalysis)
 			if err != nil {
 				re.metrics.errorsTotal.Add(ctx, "analyzer",
 					attribute.String("analyzer", string(analyzer.Name())),
@@ -365,24 +379,24 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 			}
 
 			// Check if the same problem code is still detected
-			for _, p := range redetectedProblems {
-				if p.Code == problem.Code {
-					re.logger.DebugContext(ctx, "problem still exists after re-poll",
-						"pooler_id", poolerIDStr,
-						"problem_code", problem.Code,
-					)
-					return true, nil
-				}
+			if redetectedProblem != nil && redetectedProblem.Code == problem.Code {
+				re.logger.DebugContext(ctx, "problem still exists after re-poll",
+					"pooler_id", poolerIDStr,
+					"problem_code", problem.Code,
+				)
+				return true, nil
 			}
+
+			// Problem was not re-detected
+			re.logger.DebugContext(ctx, "problem no longer exists after re-poll",
+				"pooler_id", poolerIDStr,
+				"problem_code", problem.Code,
+			)
+			return false, nil
 		}
 	}
 
-	// Problem was not re-detected
-	re.logger.DebugContext(ctx, "problem no longer exists after re-poll",
-		"pooler_id", poolerIDStr,
-		"problem_code", problem.Code,
-	)
-	return false, nil
+	return false, fmt.Errorf("analyzer %s not found", problem.CheckName)
 }
 
 // findPrimaryInShard finds the primary pooler ID for a given shard.

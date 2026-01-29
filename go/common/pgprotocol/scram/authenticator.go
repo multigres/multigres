@@ -127,9 +127,14 @@ func (a *ScramAuthenticator) StartAuthentication() []string {
 // The client-first-message comes from SASLInitialResponse and contains
 // the GS2 header and client-first-message-bare (username, client nonce).
 //
+// The fallbackUsername is used when the client sends an empty username in the
+// client-first-message. PostgreSQL allows this and uses the username from
+// the startup message. This parameter should be the username from the startup
+// message.
+//
 // This method looks up the user's password hash and generates the
 // server-first-message containing the combined nonce, salt, and iteration count.
-func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstMessage string) (string, error) {
+func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstMessage, fallbackUsername string) (string, error) {
 	// Verify state.
 	if a.state != stateStarted {
 		return "", fmt.Errorf("auth: invalid state for HandleClientFirst (expected started, got %d)", a.state)
@@ -142,8 +147,20 @@ func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstM
 		return "", fmt.Errorf("auth: invalid client-first-message: %w", err)
 	}
 
+	// Use the username from the client-first-message if provided,
+	// otherwise use the fallback username from the startup message.
+	// PostgreSQL allows empty username in SCRAM and uses the startup username.
+	username := parsed.username
+	if username == "" {
+		if fallbackUsername == "" {
+			a.state = stateFailed
+			return "", errors.New("auth: no username provided in client-first-message and no fallback")
+		}
+		username = fallbackUsername
+	}
+
 	// Store values for later verification.
-	a.username = parsed.username
+	a.username = username
 	a.clientNonce = parsed.clientNonce
 	a.clientFirstMessageBare = parsed.clientFirstMessageBare
 

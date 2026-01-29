@@ -146,15 +146,17 @@ func ParseShardWatchTargets(targets []string) ([]WatchTarget, error) {
 // Config encapsulates all multiorch configuration.
 // This is passed to the recovery engine and other components.
 type Config struct {
-	cell                           viperutil.Value[string]
-	serviceID                      viperutil.Value[string]
-	shardWatchTargets              viperutil.Value[[]string]
-	bookkeepingInterval            viperutil.Value[time.Duration]
-	clusterMetadataRefreshInterval viperutil.Value[time.Duration]
-	clusterMetadataRefreshTimeout  viperutil.Value[time.Duration]
-	poolerHealthCheckInterval      viperutil.Value[time.Duration]
-	healthCheckWorkers             viperutil.Value[int]
-	recoveryCycleInterval          viperutil.Value[time.Duration]
+	cell                                viperutil.Value[string]
+	serviceID                           viperutil.Value[string]
+	shardWatchTargets                   viperutil.Value[[]string]
+	bookkeepingInterval                 viperutil.Value[time.Duration]
+	clusterMetadataRefreshInterval      viperutil.Value[time.Duration]
+	clusterMetadataRefreshTimeout       viperutil.Value[time.Duration]
+	poolerHealthCheckInterval           viperutil.Value[time.Duration]
+	healthCheckWorkers                  viperutil.Value[int]
+	recoveryCycleInterval               viperutil.Value[time.Duration]
+	primaryFailoverGracePeriodBase      viperutil.Value[time.Duration]
+	primaryFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -220,6 +222,18 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_RECOVERY_CYCLE_INTERVAL"},
 		}),
+		primaryFailoverGracePeriodBase: viperutil.Configure(reg, "primary-failover-grace-period-base", viperutil.Options[time.Duration]{
+			Default:  4 * time.Second,
+			FlagName: "primary-failover-grace-period-base",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_BASE"},
+		}),
+		primaryFailoverGracePeriodMaxJitter: viperutil.Configure(reg, "primary-failover-grace-period-max-jitter", viperutil.Options[time.Duration]{
+			Default:  8 * time.Second,
+			FlagName: "primary-failover-grace-period-max-jitter",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_MAX_JITTER"},
+		}),
 	}
 }
 
@@ -261,6 +275,14 @@ func (c *Config) GetRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Get()
 }
 
+func (c *Config) GetPrimaryFailoverGracePeriodBase() time.Duration {
+	return c.primaryFailoverGracePeriodBase.Get()
+}
+
+func (c *Config) GetPrimaryFailoverGracePeriodMaxJitter() time.Duration {
+	return c.primaryFailoverGracePeriodMaxJitter.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -299,6 +321,14 @@ func (c *Config) DefaultRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Default()
 }
 
+func (c *Config) DefaultPrimaryFailoverGracePeriodBase() time.Duration {
+	return c.primaryFailoverGracePeriodBase.Default()
+}
+
+func (c *Config) DefaultPrimaryFailoverGracePeriodMaxJitter() time.Duration {
+	return c.primaryFailoverGracePeriodMaxJitter.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -310,6 +340,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
+	fs.Duration("primary-failover-grace-period-base", c.DefaultPrimaryFailoverGracePeriodBase(), "base grace period before executing primary failover")
+	fs.Duration("primary-failover-grace-period-max-jitter", c.DefaultPrimaryFailoverGracePeriodMaxJitter(), "max jitter added to primary failover grace period")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -319,15 +351,23 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.clusterMetadataRefreshTimeout,
 		c.poolerHealthCheckInterval,
 		c.healthCheckWorkers,
-		c.recoveryCycleInterval)
+		c.recoveryCycleInterval,
+		c.primaryFailoverGracePeriodBase,
+		c.primaryFailoverGracePeriodMaxJitter)
 }
 
 // Test helper functions
 
 // NewTestConfig creates a Config for testing with optional custom values.
+// Sets safe defaults for grace period (0 base, 0 jitter) so tests execute immediately.
 func NewTestConfig(opts ...func(*Config)) *Config {
 	reg := viperutil.NewRegistry()
 	cfg := NewConfig(reg)
+
+	// Set safe defaults for tests - no grace period by default
+	cfg.primaryFailoverGracePeriodBase.Set(0)
+	cfg.primaryFailoverGracePeriodMaxJitter.Set(0)
+
 	for _, opt := range opts {
 		opt(cfg)
 	}
@@ -380,5 +420,19 @@ func WithHealthCheckWorkers(n int) func(*Config) {
 func WithRecoveryCycleInterval(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
 		cfg.recoveryCycleInterval.Set(d)
+	}
+}
+
+// WithPrimaryFailoverGracePeriodBase sets the primary failover grace period base for testing.
+func WithPrimaryFailoverGracePeriodBase(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.primaryFailoverGracePeriodBase.Set(d)
+	}
+}
+
+// WithPrimaryFailoverGracePeriodMaxJitter sets the primary failover grace period max jitter for testing.
+func WithPrimaryFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.primaryFailoverGracePeriodMaxJitter.Set(d)
 	}
 }

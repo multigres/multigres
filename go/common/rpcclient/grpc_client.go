@@ -406,19 +406,6 @@ func (c *Client) ChangeType(ctx context.Context, pooler *clustermetadatapb.Multi
 	return conn.managerClient.ChangeType(ctx, request)
 }
 
-// SetTerm sets the consensus term information.
-func (c *Client) SetTerm(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetTermRequest) (*multipoolermanagerdatapb.SetTermResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.SetTerm(ctx, request)
-}
-
 //
 // Manager Service Methods - Durability Policy
 //

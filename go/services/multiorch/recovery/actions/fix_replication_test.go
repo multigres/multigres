@@ -36,7 +36,7 @@ import (
 )
 
 func TestFixReplicationAction_Metadata(t *testing.T) {
-	action := NewFixReplicationAction(nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
 
 	metadata := action.Metadata()
 
@@ -47,14 +47,14 @@ func TestFixReplicationAction_Metadata(t *testing.T) {
 }
 
 func TestFixReplicationAction_RequiresHealthyPrimary(t *testing.T) {
-	action := NewFixReplicationAction(nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
 
 	// FixReplication requires a healthy primary to configure replication
 	assert.True(t, action.RequiresHealthyPrimary())
 }
 
 func TestFixReplicationAction_Priority(t *testing.T) {
-	action := NewFixReplicationAction(nil, nil, nil, slog.Default())
+	action := NewFixReplicationAction(nil, nil, nil, nil, slog.Default())
 
 	assert.Equal(t, types.PriorityHigh, action.Priority())
 }
@@ -68,7 +68,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	fakeClient := &rpcclient.FakeClient{}
 	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
 
-	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -115,7 +115,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -191,7 +191,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaLagging, // Not yet supported
@@ -277,7 +277,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -363,7 +363,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		},
 	})
 
-	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -491,7 +491,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		MultiPooler: primary,
 	})
 
-	action := NewFixReplicationAction(fakeClient, poolerStore, ts, slog.Default())
+	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,

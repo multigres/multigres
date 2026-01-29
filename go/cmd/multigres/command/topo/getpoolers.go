@@ -15,11 +15,11 @@
 package topo
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -64,8 +64,13 @@ func runGetPoolers(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get poolers: %w", err)
 	}
 
-	// Convert to JSON and output
-	jsonData, err := json.MarshalIndent(response, "", "  ")
+	// Convert to JSON and output using protojson to properly render enums as strings
+	marshaler := protojson.MarshalOptions{
+		Indent:          "  ",
+		EmitUnpopulated: false,
+		UseProtoNames:   true, // Use snake_case field names from proto instead of camelCase
+	}
+	jsonData, err := marshaler.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response to JSON: %w", err)
 	}

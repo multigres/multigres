@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/coordinator"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -50,6 +51,7 @@ const DefaultStatusRPCTimeout = 5 * time.Second
 // 5. Create the durability policy in the database
 // 6. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
+	config           *config.Config
 	rpcClient        rpcclient.MultiPoolerClient
 	poolerStore      *store.PoolerHealthStore
 	topoStore        topoclient.Store
@@ -60,6 +62,7 @@ type BootstrapShardAction struct {
 
 // NewBootstrapShardAction creates a new bootstrap action with default settings.
 func NewBootstrapShardAction(
+	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
@@ -67,6 +70,7 @@ func NewBootstrapShardAction(
 	logger *slog.Logger,
 ) *BootstrapShardAction {
 	return &BootstrapShardAction{
+		config:           cfg,
 		rpcClient:        rpcClient,
 		poolerStore:      poolerStore,
 		topoStore:        topoStore,
@@ -413,4 +417,9 @@ func (a *BootstrapShardAction) Metadata() types.RecoveryMetadata {
 
 func (a *BootstrapShardAction) Priority() types.Priority {
 	return types.PriorityShardBootstrap
+}
+
+func (a *BootstrapShardAction) GracePeriod() *types.GracePeriodConfig {
+	// No grace period needed, execute immediately
+	return nil
 }

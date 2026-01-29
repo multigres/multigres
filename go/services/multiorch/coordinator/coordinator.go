@@ -48,11 +48,15 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 // AppointLeader orchestrates the full consensus protocol to appoint a new leader
 // for the given shard. It operates on a cohort of nodes (all nodes in the shard).
 //
-// The process follows these stages:
-// 0. Load durability policy (quorum rule)
-// 1-5. BeginTerm: Recruit nodes, establish consensus on term and candidate, validate quorum
-// 6. Propagate: Setup replication topology
-// 7. Establish: Start heartbeat writer, enable serving
+// The process achieves the following goals (from multigres-consensus-design-v2.md):
+//
+//  1. Obtaining a term number: Discover max term from cached health state and increment
+//  2. Revocation, Candidacy, Discovery: BeginTerm recruits nodes under the new term,
+//     achieving revocation (no old leader can complete requests), candidacy (recruited
+//     nodes contain a suitable candidate), and discovery (identify most progressed node)
+//  3. Propagation: Make the timeline durable under the new term by configuring replication
+//     and promoting the candidate. Timeline becomes durable when quorum rules are satisfied.
+//  4. Establishment: Finalize the leader by starting heartbeat and enabling serving
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
@@ -66,8 +70,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardID)
 	}
 
-	// Stage 0: Load durability policy from any available node
-	c.logger.InfoContext(ctx, "Loading durability policy", "shard", shardID)
 	quorumRule, err := c.LoadQuorumRule(ctx, cohort, database)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy")
@@ -79,21 +81,49 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"required_count", quorumRule.RequiredCount,
 		"description", quorumRule.Description)
 
-	// Stage 1-5: BeginTerm (recruit nodes, get consensus, validate quorum)
-	c.logger.InfoContext(ctx, "Stage 1-5: Beginning term", "shard", shardID)
-	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule)
+	// Goal 1: Obtaining a term number
+	// Discover max term from cached health state and increment to get proposed term
+	maxTerm, err := c.discoverMaxTerm(cohort)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to discover max term")
+	}
+	proposedTerm := maxTerm + 1
+
+	c.logger.InfoContext(ctx, "Obtained term number",
+		"shard", shardID,
+		"max_term", maxTerm,
+		"proposed_term", proposedTerm)
+
+	// PreVote - validate that leadership change is likely to succeed
+	c.logger.InfoContext(ctx, "Running pre-vote check", "shard", shardID)
+	canProceed, preVoteReason := c.preVote(ctx, cohort, quorumRule, proposedTerm)
+	if !canProceed {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"pre-vote failed for shard %s: %s", shardID, preVoteReason)
+	}
+
+	// Goal 2: Revocation, Candidacy, Discovery
+	// BeginTerm recruits nodes under the new term, which achieves:
+	// - Revocation: recruited nodes accept new term, preventing old leader from completing requests
+	// - Discovery: identify the most progressed node based on WAL position
+	// - Candidacy: validate recruited nodes satisfy quorum rules for the candidate
+	c.logger.InfoContext(ctx, "Recruiting nodes for new term", "shard", shardID)
+	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule, proposedTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")
 	}
 
-	c.logger.InfoContext(ctx, "BeginTerm succeeded",
+	c.logger.InfoContext(ctx, "Recruitment succeeded",
 		"shard", shardID,
 		"term", term,
 		"candidate", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
 
-	// Stage 6: Propagate (setup replication within shard)
-	c.logger.InfoContext(ctx, "Stage 6: Propagating replication", "shard", shardID)
+	// Goal 3: Propagation
+	// Make the timeline durable under the new term by configuring replication
+	// and promoting the candidate. The timeline becomes durable when quorum rules
+	// are satisfied (synchronous replication configured, promotion completes).
+	c.logger.InfoContext(ctx, "Propagating leadership change", "shard", shardID)
 
 	// Reconstruct the recruited list (nodes that accepted the term).
 	// This is candidate + standbys.
@@ -110,15 +140,17 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		return mterrors.Wrap(err, "Propagate failed")
 	}
 
-	c.logger.InfoContext(ctx, "Propagate succeeded", "shard", shardID)
+	c.logger.InfoContext(ctx, "Propagation succeeded", "shard", shardID)
 
-	// Stage 7: Establish (start heartbeat, enable serving)
-	c.logger.InfoContext(ctx, "Stage 7: Establishing leader", "shard", shardID)
+	// Goal 4: Establishment
+	// Finalize the leader by verifying heartbeat is running and serving is enabled.
+	// At this point, the candidate has become the new leader with the delegated term.
+	c.logger.InfoContext(ctx, "Establishing leader", "shard", shardID)
 	if err := c.EstablishLeader(ctx, candidate, term); err != nil {
 		return mterrors.Wrap(err, "EstablishLeader failed")
 	}
 
-	c.logger.InfoContext(ctx, "EstablishLeader succeeded", "shard", shardID)
+	c.logger.InfoContext(ctx, "Establishment succeeded", "shard", shardID)
 
 	// Update topology to reflect new primary
 	if err := c.updateTopology(ctx, candidate, standbys); err != nil {
@@ -128,9 +160,10 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 			"error", err)
 	}
 
-	c.logger.InfoContext(ctx, "Leader appointment complete",
+	c.logger.InfoContext(ctx, "Leadership change complete",
 		"shard", shardID,
-		"leader", candidate.MultiPooler.Id.Name)
+		"leader", candidate.MultiPooler.Id.Name,
+		"term", term)
 
 	// Async: Repair excluded nodes in this shard
 	// TODO: Implement RepairExcluded

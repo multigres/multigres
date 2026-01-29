@@ -34,7 +34,7 @@ export function MultiGatewaysTable() {
         setGateways(gateways || []);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to fetch multigateways"
+          err instanceof Error ? err.message : "Failed to fetch multigateways",
         );
       } finally {
         setLoading(false);

@@ -1877,6 +1877,10 @@
     "query": "ALTER POLICY IF EXISTS old_policy ON users RENAME TO new_policy"
   },
   {
+    "comment": "Create policy with a quoted name",
+    "query": "CREATE POLICY \"Allow authenticated read access\" ON public.block_data AS PERMISSIVE FOR select TO authenticated USING ( TRUE )"
+  },
+  {
     "comment": "ALTER RULE RENAME",
     "query": "ALTER RULE old_rule ON users RENAME TO new_rule"
   },
@@ -2164,6 +2168,10 @@
   {
     "comment": "CREATE EXTENSION with multiple options",
     "query": "CREATE EXTENSION postgis VERSION '3.0' SCHEMA public CASCADE"
+  },
+  {
+    "comment": "CREATE EXTENSION with a quoted name",
+    "query": "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" SCHEMA extensions"
   },
   {
     "comment": "CREATE CONVERSION basic",

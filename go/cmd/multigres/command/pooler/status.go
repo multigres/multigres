@@ -16,11 +16,11 @@ package pooler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -87,8 +87,13 @@ func runGetPoolerStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("GetPoolerStatus RPC failed: %w", err)
 	}
 
-	// Output the response in JSON format
-	jsonData, err := json.MarshalIndent(response, "", "  ")
+	// Output the response in JSON format using protojson to properly render enums as strings
+	marshaler := protojson.MarshalOptions{
+		Indent:          "  ",
+		EmitUnpopulated: false,
+		UseProtoNames:   true, // Use snake_case field names from proto instead of camelCase
+	}
+	jsonData, err := marshaler.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response to JSON: %w", err)
 	}

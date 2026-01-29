@@ -49,15 +49,15 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			OtherPrimaryTerm: 6, // Higher term = this node is stale
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 1)
-		assert.Equal(t, types.ProblemStalePrimary, problems[0].Code)
-		assert.Equal(t, types.ScopeShard, problems[0].Scope)
-		assert.Equal(t, types.PriorityEmergency, problems[0].Priority)
-		assert.Contains(t, problems[0].Description, "stale-primary")
-		assert.Contains(t, problems[0].Description, "term 5")
+		require.NotNil(t, problem)
+		assert.Equal(t, types.ProblemStalePrimary, problem.Code)
+		assert.Equal(t, types.ScopeShard, problem.Scope)
+		assert.Equal(t, types.PriorityEmergency, problem.Priority)
+		assert.Contains(t, problem.Description, "stale-primary")
+		assert.Contains(t, problem.Description, "term 5")
 	})
 
 	t.Run("detects other primary as stale when this node has higher term", func(t *testing.T) {
@@ -80,14 +80,14 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			OtherPrimaryTerm: 5,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 1, "should detect other primary as stale")
-		assert.Equal(t, types.ProblemStalePrimary, problems[0].Code)
-		assert.Equal(t, "stale-primary", problems[0].PoolerID.Name, "should report the stale primary")
-		assert.Contains(t, problems[0].Description, "stale-primary (term 5) is stale")
-		assert.Contains(t, problems[0].Description, "new-primary has term 6")
+		require.NotNil(t, problem, "should detect other primary as stale")
+		assert.Equal(t, types.ProblemStalePrimary, problem.Code)
+		assert.Equal(t, "stale-primary", problem.PoolerID.Name, "should report the stale primary")
+		assert.Contains(t, problem.Description, "stale-primary (term 5) is stale")
+		assert.Contains(t, problem.Description, "new-primary has term 6")
 	})
 
 	t.Run("does not demote when terms are equal (prevents double demotion)", func(t *testing.T) {
@@ -113,10 +113,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			OtherPrimaryTerm: 5, // Same term - neither should demote
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 0, "should NOT demote when terms are equal to prevent double demotion")
+		require.Nil(t, problem, "should NOT demote when terms are equal to prevent double demotion")
 	})
 
 	t.Run("ignores replicas", func(t *testing.T) {
@@ -132,10 +132,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			IsInitialized: true,
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("ignores when no other primary detected", func(t *testing.T) {
@@ -153,10 +153,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			OtherPrimaryInShard: nil, // No other primary
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("ignores uninitialized primary", func(t *testing.T) {
@@ -177,10 +177,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 		}
 
-		problems, err := analyzer.Analyze(analysis)
+		problem, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Len(t, problems, 0)
+		require.Nil(t, problem)
 	})
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {

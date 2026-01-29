@@ -29,7 +29,7 @@ function PoolerTypeBadge({ type }: { type?: string }) {
         "font-mono text-xs px-1.5 py-0.5 rounded",
         isPrimary
           ? "bg-blue-500/20 text-blue-400"
-          : "bg-purple-500/20 text-purple-400"
+          : "bg-purple-500/20 text-purple-400",
       )}
     >
       {type}
@@ -68,7 +68,7 @@ export function MultiPoolersTable() {
         setPoolers(poolers || []);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to fetch multipoolers"
+          err instanceof Error ? err.message : "Failed to fetch multipoolers",
         );
       } finally {
         setLoading(false);

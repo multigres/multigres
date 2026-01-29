@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 
@@ -54,6 +55,9 @@ type PoolerConnection struct {
 
 	// queryService handles query execution over gRPC
 	queryService queryservice.QueryService
+
+	// serviceClient is the gRPC client for admin operations (auth, health, etc.)
+	serviceClient multipoolerpb.MultiPoolerServiceClient
 
 	// logger for debugging
 	logger *slog.Logger
@@ -86,11 +90,15 @@ func NewPoolerConnection(
 	// Create QueryService wrapper
 	queryService := newGRPCQueryService(conn, poolerID, logger)
 
+	// Create service client for admin operations
+	serviceClient := multipoolerpb.NewMultiPoolerServiceClient(conn)
+
 	pc := &PoolerConnection{
-		poolerInfo:   poolerInfo,
-		conn:         conn,
-		queryService: queryService,
-		logger:       logger,
+		poolerInfo:    poolerInfo,
+		conn:          conn,
+		queryService:  queryService,
+		serviceClient: serviceClient,
+		logger:        logger,
 	}
 
 	return pc, nil
@@ -181,6 +189,12 @@ func (pc *PoolerConnection) Describe(
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	return pc.queryService.Describe(ctx, target, preparedStatement, portal, options)
+}
+
+// ServiceClient returns the MultiPoolerServiceClient for admin operations.
+// This can be used for authentication, health checks, and other system-level operations.
+func (pc *PoolerConnection) ServiceClient() multipoolerpb.MultiPoolerServiceClient {
+	return pc.serviceClient
 }
 
 // Close closes the gRPC connection to the pooler.

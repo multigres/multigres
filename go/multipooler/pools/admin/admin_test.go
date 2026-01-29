@@ -238,3 +238,116 @@ func TestConn_ResetSettings_Noop(t *testing.T) {
 	err = pooled.Conn.ResetSettings(ctx)
 	assert.NoError(t, err)
 }
+
+func TestConn_GetRolPassword(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Set up expected response with SCRAM password hash.
+	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'testuser' LIMIT 1`, fakepgserver.MakeResult(
+		[]string{"rolpassword"},
+		[][]any{{"SCRAM-SHA-256$4096:salt$hash"}},
+	))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	// Get role password.
+	hash, err := pooled.Conn.GetRolPassword(ctx, "testuser")
+	require.NoError(t, err)
+	assert.Equal(t, "SCRAM-SHA-256$4096:salt$hash", hash)
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
+}
+
+func TestConn_GetRolPassword_UserNotFound(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Set up expected response with no rows (user doesn't exist).
+	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'nonexistent' LIMIT 1`, fakepgserver.MakeResult(
+		[]string{"rolpassword"},
+		[][]any{}, // No rows
+	))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	// Get role password for non-existent user.
+	_, err = pooled.Conn.GetRolPassword(ctx, "nonexistent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUserNotFound)
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
+}
+
+func TestConn_GetRolPassword_NullPassword(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Set up expected response with NULL password (user has no password set).
+	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'nopasswd' LIMIT 1`, fakepgserver.MakeResult(
+		[]string{"rolpassword"},
+		[][]any{{nil}}, // NULL password
+	))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	// Get role password for user with NULL password.
+	hash, err := pooled.Conn.GetRolPassword(ctx, "nopasswd")
+	require.NoError(t, err)
+	assert.Equal(t, "", hash) // Empty string for NULL password
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
+}
+
+func TestConn_GetRolPassword_SQLInjection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Set up expected response for username with single quote.
+	// The single quote should be properly escaped.
+	server.AddQueryPattern(`SELECT rolpassword FROM pg_catalog\.pg_authid WHERE rolname = 'user''s' LIMIT 1`, fakepgserver.MakeResult(
+		[]string{"rolpassword"},
+		[][]any{{"SCRAM-SHA-256$4096:salt$hash"}},
+	))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	// Get role password for username with single quote (tests SQL escaping).
+	hash, err := pooled.Conn.GetRolPassword(ctx, "user's")
+	require.NoError(t, err)
+	assert.Equal(t, "SCRAM-SHA-256$4096:salt$hash", hash)
+
+	// Verify the query was actually executed.
+	server.VerifyAllPatternsUsedOrFail()
+}

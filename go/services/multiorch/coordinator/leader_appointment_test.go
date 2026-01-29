@@ -73,13 +73,23 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 
 	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
 
+	// Build ConsensusTerm if term > 0
+	var consensusTerm *multipoolermanagerdatapb.ConsensusTerm
+	if term > 0 {
+		consensusTerm = &multipoolermanagerdatapb.ConsensusTerm{
+			TermNumber: term,
+		}
+	}
+
 	return &multiorchdatapb.PoolerHealthState{
-		MultiPooler: pooler,
+		MultiPooler:      pooler,
+		IsLastCheckValid: healthy,
+		IsInitialized:    term > 0,
+		ConsensusTerm:    consensusTerm,
 	}
 }
 
 func TestDiscoverMaxTerm(t *testing.T) {
-	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	coordID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
@@ -100,12 +110,12 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 7, "0/1000000", true, "standby"),
 		}
 
-		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
+		maxTerm, err := c.discoverMaxTerm(cohort)
 		require.NoError(t, err)
 		require.Equal(t, int64(7), maxTerm)
 	})
 
-	t.Run("success - returns 0 when all nodes have term 0", func(t *testing.T) {
+	t.Run("error - returns error when all nodes have term 0", func(t *testing.T) {
 		fakeClient := rpcclient.NewFakeClient()
 		c := &Coordinator{
 			coordinatorID: coordID,
@@ -113,13 +123,13 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			rpcClient:     fakeClient,
 		}
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 0, "0/1000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 0, "0/1000000", true, "standby"),
+			createMockNode(fakeClient, "mp1", 0, "0/1000000", false /* unhealthy */, "standby"),
+			createMockNode(fakeClient, "mp2", 0, "0/1000000", false /* unhealthy */, "standby"),
 		}
 
-		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
-		require.NoError(t, err)
-		require.Equal(t, int64(0), maxTerm)
+		_, err := c.discoverMaxTerm(cohort)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no poolers in cohort have initialized consensus term")
 	})
 
 	t.Run("success - ignores failed nodes", func(t *testing.T) {
@@ -148,7 +158,7 @@ func TestDiscoverMaxTerm(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 3, "0/1000000", true, "standby"),
 		}
 
-		maxTerm, err := c.discoverMaxTerm(ctx, cohort)
+		maxTerm, err := c.discoverMaxTerm(cohort)
 		require.NoError(t, err)
 		require.Equal(t, int64(5), maxTerm)
 	})
@@ -335,7 +345,8 @@ func TestBeginTerm(t *testing.T) {
 			Description:   "Test majority quorum",
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
+		proposedTerm := int64(6) // maxTerm (5) + 1
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
 		require.NoError(t, err)
 		require.NotNil(t, candidate)
 		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name) // Most advanced WAL
@@ -383,7 +394,8 @@ func TestBeginTerm(t *testing.T) {
 			Description:   "Test quorum requiring 2 nodes",
 		}
 
-		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule)
+		proposedTerm := int64(6) // maxTerm (5) + 1
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
 		require.Error(t, err)
 		require.Nil(t, candidate)
 		require.Nil(t, standbys)

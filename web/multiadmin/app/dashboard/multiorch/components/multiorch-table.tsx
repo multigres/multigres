@@ -31,7 +31,9 @@ export function MultiOrchTable() {
         setOrchs(orchs || []);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to fetch multiorchestrators"
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch multiorchestrators",
         );
       } finally {
         setLoading(false);

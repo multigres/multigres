@@ -61,14 +61,17 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	ctx := context.Background()
 	topoStore := memorytopo.NewServer(ctx, "test-cell")
 
+	multiPooler := &clustermetadatapb.MultiPooler{
+		TableGroup: tableGroup,
+		Shard:      shard,
+	}
+
 	pm := &MultiPoolerManager{
-		logger:     logger,
-		qsc:        &mockPoolerController{queryService: mockQueryService},
-		topoClient: topoStore,
-		config: &Config{
-			TableGroup: tableGroup,
-			Shard:      shard,
-		},
+		logger:      logger,
+		qsc:         &mockPoolerController{queryService: mockQueryService},
+		topoClient:  topoStore,
+		config:      &Config{},
+		multipooler: multiPooler,
 	}
 
 	return pm, mockQueryService

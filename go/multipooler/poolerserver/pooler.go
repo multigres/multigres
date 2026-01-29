@@ -139,6 +139,15 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 	return s.executor, nil
 }
 
+// PoolManager returns the pool manager instance.
+// This is used by GetAuthCredentials to query pg_authid using an admin connection,
+// which works even before the executor is fully initialized during bootstrap.
+func (s *QueryPoolerServer) PoolManager() connpoolmanager.PoolManager {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.poolManager
+}
+
 // InternalQueryService returns the executor as an InternalQueryService for internal queries.
 // Implements PoolerController interface.
 func (s *QueryPoolerServer) InternalQueryService() executor.InternalQueryService {

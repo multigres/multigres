@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -286,7 +287,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 
 	// Get consensus term if available (use inconsistent read for monitoring)
 	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetInconsistentCurrentTermNumber()
+		term, err := pm.consensusState.GetInconsistentTerm()
 		if err == nil {
 			poolerStatus.ConsensusTerm = term
 		}
@@ -649,20 +650,17 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 
 	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
 
-	// Update the multipooler record in topology
-	updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
-		mp.Type = poolerType
-		return nil
-	})
-	if err != nil {
+	// Update local state first
+	pm.mu.Lock()
+	pm.multipooler.Type = poolerType
+	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
+	pm.mu.Unlock()
+
+	// Sync to topology
+	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
 		return mterrors.Wrap(err, "failed to update pooler type in topology")
 	}
-
-	pm.mu.Lock()
-	pm.multipooler.MultiPooler = updatedMultipooler
-	pm.updateCachedMultipooler()
-	pm.mu.Unlock()
 
 	// Update heartbeat tracker based on new type
 	if pm.replTracker != nil {
@@ -838,20 +836,6 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
-	}
-
-	// === Clear sync replication FIRST ===
-	// When a stale primary comes back online after failover:
-	// 1. It still has synchronous_standby_names configured
-	// 2. No standbys are connected (they're all connected to the new primary)
-	// 3. Any writes (like heartbeat) block indefinitely waiting for sync acknowledgment
-	// 4. This can cause the demote flow to timeout
-	//
-	// By clearing sync replication first, we unblock any pending writes and ensure
-	// subsequent operations in this demote flow won't block on sync acknowledgment.
-	if err := pm.clearSyncReplicationForDemotion(ctx); err != nil {
-		// Log but continue - the demote might still work if queries aren't blocked
-		pm.logger.WarnContext(ctx, "Failed to clear sync replication early in demote, continuing anyway", "error", err)
 	}
 
 	// === Validation & State Check ===
@@ -1046,20 +1030,8 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 
 	// Update topology to REPLICA
-	if pm.topoClient != nil {
-		updatedMultipooler, err := pm.topoClient.UpdateMultiPoolerFields(ctx, pm.serviceID, func(mp *clustermetadatapb.MultiPooler) error {
-			mp.Type = clustermetadatapb.PoolerType_REPLICA
-			return nil
-		})
-		if err != nil {
-			return nil, mterrors.Wrap(err, "failed to update topology")
-		}
-
-		// Update the cached multipooler so the manager knows its new type
-		pm.mu.Lock()
-		pm.multipooler.MultiPooler = updatedMultipooler
-		pm.updateCachedMultipooler()
-		pm.mu.Unlock()
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
 	// Get final LSN
@@ -1200,36 +1172,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		WasAlreadyPrimary: state.isPrimaryInPostgres && state.isPrimaryInTopology && state.syncReplicationMatches,
 		ConsensusTerm:     consensusTerm,
 	}, nil
-}
-
-// SetTerm sets the consensus term information to local disk
-func (pm *MultiPoolerManager) SetTerm(ctx context.Context, term *multipoolermanagerdatapb.ConsensusTerm) error {
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "SetTerm")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Initialize consensus state if needed
-	pm.mu.Lock()
-	if pm.consensusState == nil {
-		pm.consensusState = NewConsensusState(pm.config.PoolerDir, pm.serviceID)
-	}
-	cs := pm.consensusState
-	pm.mu.Unlock()
-
-	// Save to disk and update memory atomically
-	if err := cs.SetTermDirectly(ctx, term); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to save consensus term", "error", err)
-		return mterrors.Wrap(err, "failed to set consensus term")
-	}
-
-	return nil
 }
 
 // createDurabilityPolicyLocked creates a durability policy without acquiring the action lock.

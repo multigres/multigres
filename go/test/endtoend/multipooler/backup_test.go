@@ -287,7 +287,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			statusCtx := utils.WithShortDeadline(t)
 			statusResp, err := standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 			require.NoError(t, err, "Should be able to get status after term update")
-			assert.Equal(t, higherTerm, statusResp.Status.ConsensusTerm, "Term should be updated to higher value")
+			require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil")
+			assert.Equal(t, higherTerm, statusResp.Status.ConsensusTerm.TermNumber, "Term should be updated to higher value")
 			t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
 			// Connect to standby's pgctld to stop PostgreSQL
 			standbyPgctldConn, err := grpc.NewClient(
@@ -323,7 +324,9 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 				if err != nil {
 					return false
 				}
-				restoredTerm = statusResp.Status.ConsensusTerm
+				if statusResp.Status.ConsensusTerm != nil {
+					restoredTerm = statusResp.Status.ConsensusTerm.TermNumber
+				}
 				return statusResp.Status.PostgresRunning
 			}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
 			t.Logf("Term after restore: %d (expected: 1)", restoredTerm)

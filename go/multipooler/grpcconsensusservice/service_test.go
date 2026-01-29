@@ -82,17 +82,15 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
 		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -169,17 +167,15 @@ func TestConsensusService_Status(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
 		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -255,17 +251,15 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
 		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -336,17 +330,15 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
 		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -419,17 +411,15 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
 		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported

@@ -37,7 +37,15 @@ func (a *ReplicaNotInStandbyListAnalyzer) Name() types.CheckName {
 	return "ReplicaNotInStandbyList"
 }
 
-func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) ([]types.Problem, error) {
+func (a *ReplicaNotInStandbyListAnalyzer) ProblemCode() types.ProblemCode {
+	return types.ProblemReplicaNotInStandbyList
+}
+
+func (a *ReplicaNotInStandbyListAnalyzer) RecoveryAction() types.RecoveryAction {
+	return a.factory.NewFixReplicationAction()
+}
+
+func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
@@ -72,7 +80,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.Replicat
 		return nil, nil
 	}
 
-	return []types.Problem{{
+	return &types.Problem{
 		Code:           types.ProblemReplicaNotInStandbyList,
 		CheckName:      "ReplicaNotInStandbyList",
 		PoolerID:       poolerAnalysis.PoolerID,
@@ -82,5 +90,5 @@ func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.Replicat
 		Scope:          types.ScopePooler,
 		DetectedAt:     time.Now(),
 		RecoveryAction: a.factory.NewFixReplicationAction(),
-	}}, nil
+	}, nil
 }

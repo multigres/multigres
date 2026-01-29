@@ -1058,43 +1058,6 @@ func TestInitMultiPooler(t *testing.T) {
 				require.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}))
 			},
 		},
-		{
-			name: "Fail to update with different database/shard",
-			test: func(t *testing.T, ts topoclient.Store) {
-				original := &clustermetadatapb.MultiPooler{
-					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIPOOLER,
-						Cell:      cell,
-						Name:      "whiskey",
-					},
-					Database:      "testdb",
-					Shard:         "testshard",
-					Hostname:      "host1",
-					PortMap:       map[string]int32{"grpc": 8080},
-					Type:          clustermetadatapb.PoolerType_PRIMARY,
-					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				}
-				require.NoError(t, ts.CreateMultiPooler(ctx, original))
-
-				updated := &clustermetadatapb.MultiPooler{
-					Id: &clustermetadatapb.ID{
-						Component: clustermetadatapb.ID_MULTIPOOLER,
-						Cell:      cell,
-						Name:      "whiskey",
-					},
-					Database:      "differentdb",
-					Shard:         "testshard",
-					Hostname:      "host1",
-					PortMap:       map[string]int32{"grpc": 8080},
-					Type:          clustermetadatapb.PoolerType_PRIMARY,
-					ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				}
-
-				err := ts.RegisterMultiPooler(ctx, updated, true)
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "Cannot override with shard")
-			},
-		},
 	}
 
 	for _, tt := range tests {

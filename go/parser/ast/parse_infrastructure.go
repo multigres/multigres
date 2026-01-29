@@ -626,6 +626,48 @@ func (f *FuncCall) String() string {
 	return fmt.Sprintf("FuncCall@%d", f.Location())
 }
 
+// isInternalPgCatalogFunction checks if a function name is one where the parser
+// adds pg_catalog qualification during syntax transformation. Returns the
+// normalized function name and true if it's internal, or empty string and false otherwise.
+func isInternalPgCatalogFunction(name string) bool {
+	switch strings.ToUpper(name) {
+	case "TIMEZONE": // AT TIME ZONE
+		return true
+	case "LIKE_ESCAPE": // LIKE ... ESCAPE
+		return true
+	case "SIMILAR_TO_ESCAPE": // SIMILAR TO
+		return true
+	case "OVERLAPS": // OVERLAPS
+		return true
+	case "IS_NORMALIZED": // IS NORMALIZED
+		return true
+	case "PG_COLLATION_FOR": // COLLATION FOR
+		return true
+	case "SYSTEM_USER": // SYSTEM_USER
+		return true
+	case "EXTRACT": // EXTRACT
+		return true
+	case "NORMALIZE": // NORMALIZE
+		return true
+	case "OVERLAY": // OVERLAY
+		return true
+	case "POSITION": // POSITION
+		return true
+	case "SUBSTRING": // SUBSTRING
+		return true
+	case "BTRIM": // TRIM(BOTH ...)
+		return true
+	case "LTRIM": // TRIM(LEADING ...)
+		return true
+	case "RTRIM": // TRIM(TRAILING ...)
+		return true
+	case "XMLEXISTS": // XMLEXISTS
+		return true
+	default:
+		return false
+	}
+}
+
 // SqlString returns the SQL representation of the FuncCall
 func (f *FuncCall) SqlString() string {
 	// Build function name (could be qualified like schema.func)
@@ -635,9 +677,13 @@ func (f *FuncCall) SqlString() string {
 
 		for i, item := range f.Funcname.Items {
 			if part, ok := item.(*String); ok && part != nil {
-				// Skip pg_catalog schema for built-in functions
-				if i == 0 && strings.ToLower(part.SVal) == "pg_catalog" {
-					continue
+				// Check for pg_catalog.func where the parser added pg_catalog
+				if i == 0 && len(f.Funcname.Items) == 2 && strings.ToLower(part.SVal) == "pg_catalog" {
+					if funcPart, ok := f.Funcname.Items[1].(*String); ok {
+						if isInternalPgCatalogFunction(funcPart.SVal) {
+							continue // Skip pg_catalog for internal functions
+						}
+					}
 				}
 
 				// Normalize common function names to uppercase
