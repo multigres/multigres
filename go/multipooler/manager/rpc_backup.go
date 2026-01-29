@@ -413,6 +413,7 @@ func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, back
 	args := []string{
 		"--stanza=" + pm.stanzaName(),
 		"--config=" + configPath,
+		"--type=standby",
 	}
 
 	if backupID != "" {
