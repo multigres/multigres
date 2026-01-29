@@ -404,7 +404,7 @@
   {
     "comment": "window - Statement 83",
     "query": "CREATE TEMP VIEW v_window AS SELECT i, min(i) over (order by i range between '1 day' preceding and '10 days' following) as min_i FROM generate_series(now(), now()+'100 days'::interval, '1 hour') i",
-    "expected": "CREATE TEMPORARY VIEW v_window AS SELECT i, MIN(i) OVER (ORDER BY i RANGE BETWEEN '1 day' PRECEDING AND '10 days' FOLLOWING) AS min_i FROM generate_series(NOW(), CAST(NOW() + '100 days' AS INTERVAL), '1 hour') AS i"
+    "expected": "CREATE TEMPORARY VIEW v_window AS SELECT i, MIN(i) OVER (ORDER BY i RANGE BETWEEN '1 day' PRECEDING AND '10 days' FOLLOWING) AS min_i FROM generate_series(NOW(), NOW() + CAST('100 days' AS INTERVAL), '1 hour') AS i"
   },
   {
     "comment": "window - Statement 84",
@@ -549,12 +549,12 @@
   {
     "comment": "window - Statement 112",
     "query": "CREATE FUNCTION unbounded_syntax_test1a(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL BEGIN ATOMIC SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END",
-    "expected": "CREATE FUNCTION unbounded_syntax_test1a (x INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN x PRECEDING AND x FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END"
+    "expected": "CREATE FUNCTION unbounded_syntax_test1a (x INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN x PRECEDING AND x FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END"
   },
   {
     "comment": "window - Statement 114",
     "query": "CREATE FUNCTION unbounded_syntax_test1b(x int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$",
-    "expected": "CREATE FUNCTION unbounded_syntax_test1b (x INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$"
+    "expected": "CREATE FUNCTION unbounded_syntax_test1b (x INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between x preceding and x following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$"
   },
   {
     "comment": "window - Statement 115",
@@ -567,12 +567,12 @@
   {
     "comment": "window - Statement 117",
     "query": "CREATE FUNCTION unbounded_syntax_test2a(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL BEGIN ATOMIC SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END",
-    "expected": "CREATE FUNCTION unbounded_syntax_test2a (unbounded INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END"
+    "expected": "CREATE FUNCTION unbounded_syntax_test2a (unbounded INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql BEGIN ATOMIC SELECT SUM(unique1) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING), unique1, four FROM tenk1 WHERE unique1 \u003c 10; END"
   },
   {
     "comment": "window - Statement 118",
     "query": "CREATE FUNCTION unbounded_syntax_test2b(unbounded int) RETURNS TABLE (a int, b int, c int) LANGUAGE SQL AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$",
-    "expected": "CREATE FUNCTION unbounded_syntax_test2b (unbounded INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$"
+    "expected": "CREATE FUNCTION unbounded_syntax_test2b (unbounded INT) RETURNS TABLE (a INT, b INT, c INT) LANGUAGE sql AS $$ SELECT sum(unique1) over (rows between unbounded preceding and unbounded following), unique1, four FROM tenk1 WHERE unique1 \u003c 10; $$"
   },
   {
     "comment": "window - Statement 119",

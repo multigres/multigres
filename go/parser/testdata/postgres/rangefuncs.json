@@ -930,7 +930,7 @@
   {
     "comment": "rangefuncs - Statement 193",
     "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a int) AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc () AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc () RETURNS TABLE (a INT) AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 194",
@@ -943,7 +943,7 @@
   {
     "comment": "rangefuncs - Statement 196",
     "query": "CREATE OR REPLACE FUNCTION rngfunc(int) RETURNS TABLE(a int, b int) AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$ LANGUAGE sql",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc (INT) AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$ LANGUAGE sql"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc (INT) RETURNS TABLE (a INT, b INT) AS $$ SELECT a, b FROM generate_series(1,$1) a(a), generate_series(1,$1) b(b) $$ LANGUAGE sql"
   },
   {
     "comment": "rangefuncs - Statement 197",
@@ -952,7 +952,7 @@
   {
     "comment": "rangefuncs - Statement 198",
     "query": "CREATE OR REPLACE FUNCTION rngfunc() RETURNS TABLE(a varchar(5)) AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE",
-    "expected": "CREATE OR REPLACE FUNCTION rngfunc () AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE"
+    "expected": "CREATE OR REPLACE FUNCTION rngfunc () RETURNS TABLE (a VARCHAR(5)) AS $$ SELECT 'hello'::varchar(5) $$ LANGUAGE sql STABLE"
   },
   {
     "comment": "rangefuncs - Statement 199",
@@ -1376,7 +1376,7 @@
   {
     "comment": "rangefuncs - Statement 290",
     "query": "create function extractq2_2(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) offset 0 $$ language sql immutable",
-    "expected": "CREATE FUNCTION extractq2_2 (t int8_tbl) AS $$ select extractq2(t) offset 0 $$ LANGUAGE sql IMMUTABLE"
+    "expected": "CREATE FUNCTION extractq2_2 (t int8_tbl) RETURNS TABLE (ret1 BIGINT) AS $$ select extractq2(t) offset 0 $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 291",
@@ -1391,7 +1391,7 @@
   {
     "comment": "rangefuncs - Statement 293",
     "query": "create function extractq2_2_opt(t int8_tbl) returns table(ret1 int8) as $$ select extractq2(t) $$ language sql immutable",
-    "expected": "CREATE FUNCTION extractq2_2_opt (t int8_tbl) AS $$ select extractq2(t) $$ LANGUAGE sql IMMUTABLE"
+    "expected": "CREATE FUNCTION extractq2_2_opt (t int8_tbl) RETURNS TABLE (ret1 BIGINT) AS $$ select extractq2(t) $$ LANGUAGE sql IMMUTABLE"
   },
   {
     "comment": "rangefuncs - Statement 294",

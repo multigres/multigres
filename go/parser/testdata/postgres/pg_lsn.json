@@ -80,67 +80,67 @@
   {
     "comment": "pg_lsn - Statement 17",
     "query": "SELECT '0/16AE7F7'::pg_lsn - '0/16AE7F8'::pg_lsn",
-    "expected": "SELECT CAST(CAST('0/16AE7F7' AS pg_lsn) - '0/16AE7F8' AS pg_lsn)"
+    "expected": "SELECT CAST('0/16AE7F7' AS pg_lsn) - CAST('0/16AE7F8' AS pg_lsn)"
   },
   {
     "comment": "pg_lsn - Statement 18",
     "query": "SELECT '0/16AE7F8'::pg_lsn - '0/16AE7F7'::pg_lsn",
-    "expected": "SELECT CAST(CAST('0/16AE7F8' AS pg_lsn) - '0/16AE7F7' AS pg_lsn)"
+    "expected": "SELECT CAST('0/16AE7F8' AS pg_lsn) - CAST('0/16AE7F7' AS pg_lsn)"
   },
   {
     "comment": "pg_lsn - Statement 19",
     "query": "SELECT '0/16AE7F7'::pg_lsn + 16::numeric",
-    "expected": "SELECT CAST(CAST('0/16AE7F7' AS pg_lsn) + 16 AS NUMERIC)"
+    "expected": "SELECT CAST('0/16AE7F7' AS pg_lsn) + CAST(16 AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 20",
     "query": "SELECT 16::numeric + '0/16AE7F7'::pg_lsn",
-    "expected": "SELECT CAST(CAST(16 AS NUMERIC) + '0/16AE7F7' AS pg_lsn)"
+    "expected": "SELECT CAST(16 AS NUMERIC) + CAST('0/16AE7F7' AS pg_lsn)"
   },
   {
     "comment": "pg_lsn - Statement 21",
     "query": "SELECT '0/16AE7F7'::pg_lsn - 16::numeric",
-    "expected": "SELECT CAST(CAST('0/16AE7F7' AS pg_lsn) - 16 AS NUMERIC)"
+    "expected": "SELECT CAST('0/16AE7F7' AS pg_lsn) - CAST(16 AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 22",
     "query": "SELECT 'FFFFFFFF/FFFFFFFE'::pg_lsn + 1::numeric",
-    "expected": "SELECT CAST(CAST('FFFFFFFF/FFFFFFFE' AS pg_lsn) + 1 AS NUMERIC)"
+    "expected": "SELECT CAST('FFFFFFFF/FFFFFFFE' AS pg_lsn) + CAST(1 AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 23",
     "query": "SELECT 'FFFFFFFF/FFFFFFFE'::pg_lsn + 2::numeric",
-    "expected": "SELECT CAST(CAST('FFFFFFFF/FFFFFFFE' AS pg_lsn) + 2 AS NUMERIC)"
+    "expected": "SELECT CAST('FFFFFFFF/FFFFFFFE' AS pg_lsn) + CAST(2 AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 24",
     "query": "SELECT '0/1'::pg_lsn - 1::numeric",
-    "expected": "SELECT CAST(CAST('0/1' AS pg_lsn) - 1 AS NUMERIC)"
+    "expected": "SELECT CAST('0/1' AS pg_lsn) - CAST(1 AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 25",
     "query": "SELECT '0/1'::pg_lsn - 2::numeric",
-    "expected": "SELECT CAST(CAST('0/1' AS pg_lsn) - 2 AS NUMERIC)"
+    "expected": "SELECT CAST('0/1' AS pg_lsn) - CAST(2 AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 26",
     "query": "SELECT '0/0'::pg_lsn + ('FFFFFFFF/FFFFFFFF'::pg_lsn - '0/0'::pg_lsn)",
-    "expected": "SELECT CAST('0/0' AS pg_lsn) + (CAST(CAST('FFFFFFFF/FFFFFFFF' AS pg_lsn) - '0/0' AS pg_lsn))"
+    "expected": "SELECT CAST('0/0' AS pg_lsn) + (CAST('FFFFFFFF/FFFFFFFF' AS pg_lsn) - CAST('0/0' AS pg_lsn))"
   },
   {
     "comment": "pg_lsn - Statement 27",
     "query": "SELECT 'FFFFFFFF/FFFFFFFF'::pg_lsn - ('FFFFFFFF/FFFFFFFF'::pg_lsn - '0/0'::pg_lsn)",
-    "expected": "SELECT CAST('FFFFFFFF/FFFFFFFF' AS pg_lsn) - (CAST(CAST('FFFFFFFF/FFFFFFFF' AS pg_lsn) - '0/0' AS pg_lsn))"
+    "expected": "SELECT CAST('FFFFFFFF/FFFFFFFF' AS pg_lsn) - (CAST('FFFFFFFF/FFFFFFFF' AS pg_lsn) - CAST('0/0' AS pg_lsn))"
   },
   {
     "comment": "pg_lsn - Statement 28",
     "query": "SELECT '0/16AE7F7'::pg_lsn + 'NaN'::numeric",
-    "expected": "SELECT CAST(CAST('0/16AE7F7' AS pg_lsn) + 'NaN' AS NUMERIC)"
+    "expected": "SELECT CAST('0/16AE7F7' AS pg_lsn) + CAST('NaN' AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 29",
     "query": "SELECT '0/16AE7F7'::pg_lsn - 'NaN'::numeric",
-    "expected": "SELECT CAST(CAST('0/16AE7F7' AS pg_lsn) - 'NaN' AS NUMERIC)"
+    "expected": "SELECT CAST('0/16AE7F7' AS pg_lsn) - CAST('NaN' AS NUMERIC)"
   },
   {
     "comment": "pg_lsn - Statement 30",

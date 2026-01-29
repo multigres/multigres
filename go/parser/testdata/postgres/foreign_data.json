@@ -396,7 +396,7 @@
   {
     "comment": "foreign_data - Statement 95",
     "query": "CREATE USER MAPPING FOR user SERVER s8 OPTIONS (user 'test', password 'secret')",
-    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (user 'test', password 'secret')"
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (\"user\" 'test', password 'secret')"
   },
   {
     "comment": "foreign_data - Statement 96",
@@ -458,7 +458,7 @@
   {
     "comment": "foreign_data - Statement 108",
     "query": "ALTER USER MAPPING FOR current_user SERVER s8 OPTIONS (DROP user, SET password 'public')",
-    "expected": "ALTER USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (DROP user, SET password 'public')"
+    "expected": "ALTER USER MAPPING FOR CURRENT_USER SERVER s8 OPTIONS (DROP \"user\", SET password 'public')"
   },
   {
     "comment": "foreign_data - Statement 109",
@@ -1194,11 +1194,12 @@
   {
     "comment": "foreign_data - Statement 275",
     "query": "CREATE USER MAPPING FOR public SERVER s10 OPTIONS (user 'secret')",
-    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s10 OPTIONS (user 'secret')"
+    "expected": "CREATE USER MAPPING FOR PUBLIC SERVER s10 OPTIONS (\"user\" 'secret')"
   },
   {
     "comment": "foreign_data - Statement 276",
-    "query": "CREATE USER MAPPING FOR regress_unprivileged_role SERVER s10 OPTIONS (user 'secret')"
+    "query": "CREATE USER MAPPING FOR regress_unprivileged_role SERVER s10 OPTIONS (user 'secret')",
+    "expected": "CREATE USER MAPPING FOR regress_unprivileged_role SERVER s10 OPTIONS (\"user\" 'secret')"
   },
   {
     "comment": "foreign_data - Statement 277",

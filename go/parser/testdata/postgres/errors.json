@@ -317,7 +317,7 @@
   {
     "comment": "errors - Statement 64",
     "query": "select 1/0::int8",
-    "expected": "SELECT CAST(1 / 0 AS BIGINT)"
+    "expected": "SELECT 1 / CAST(0 AS BIGINT)"
   },
   {
     "comment": "errors - Statement 65",
@@ -327,7 +327,7 @@
   {
     "comment": "errors - Statement 66",
     "query": "select 1/0::int2",
-    "expected": "SELECT CAST(1 / 0 AS SMALLINT)"
+    "expected": "SELECT 1 / CAST(0 AS SMALLINT)"
   },
   {
     "comment": "errors - Statement 67",
@@ -337,7 +337,7 @@
   {
     "comment": "errors - Statement 68",
     "query": "select 1/0::numeric",
-    "expected": "SELECT CAST(1 / 0 AS NUMERIC)"
+    "expected": "SELECT 1 / CAST(0 AS NUMERIC)"
   },
   {
     "comment": "errors - Statement 69",
@@ -347,7 +347,7 @@
   {
     "comment": "errors - Statement 70",
     "query": "select 1/0::float8",
-    "expected": "SELECT CAST(1 / 0 AS FLOAT8)"
+    "expected": "SELECT 1 / CAST(0 AS FLOAT8)"
   },
   {
     "comment": "errors - Statement 71",
@@ -357,7 +357,7 @@
   {
     "comment": "errors - Statement 72",
     "query": "select 1/0::float4",
-    "expected": "SELECT CAST(1 / 0 AS REAL)"
+    "expected": "SELECT 1 / CAST(0 AS REAL)"
   },
   {
     "comment": "errors - Statement 73",

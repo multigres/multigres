@@ -1232,7 +1232,7 @@
   {
     "comment": "polymorphism - Statement 256",
     "query": "create function dfunc(a int, b int, c int = 0, d int = 0) returns table (a int, b int, c int, d int) as $$ select $1, $2, $3, $4; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a INT, b INT, c INT DEFAULT 0, d INT DEFAULT 0) AS $$ select $1, $2, $3, $4; $$ LANGUAGE sql IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a INT, b INT, c INT DEFAULT 0, d INT DEFAULT 0) RETURNS TABLE (a INT, b INT, c INT, d INT) AS $$ select $1, $2, $3, $4; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 257",
@@ -1302,7 +1302,7 @@
   {
     "comment": "polymorphism - Statement 270",
     "query": "create function dfunc(a varchar, b numeric, c date = current_date) returns table (a varchar, b numeric, c date) as $$ select $1, $2, $3; $$ language sql immutable strict;",
-    "expected": "CREATE FUNCTION dfunc (a VARCHAR, b NUMERIC, c DATE DEFAULT CURRENT_DATE) AS $$ select $1, $2, $3; $$ LANGUAGE sql IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION dfunc (a VARCHAR, b NUMERIC, c DATE DEFAULT CURRENT_DATE) RETURNS TABLE (a VARCHAR, b NUMERIC, c DATE) AS $$ select $1, $2, $3; $$ LANGUAGE sql IMMUTABLE STRICT"
   },
   {
     "comment": "polymorphism - Statement 271",
@@ -1437,7 +1437,7 @@
   {
     "comment": "polymorphism - Statement 297",
     "query": "create function testpolym(a int) returns table(a int) as $$ select $1;$$ language sql",
-    "expected": "CREATE FUNCTION testpolym (a INT) AS $$ select $1;$$ LANGUAGE sql"
+    "expected": "CREATE FUNCTION testpolym (a INT) RETURNS TABLE (a INT) AS $$ select $1;$$ LANGUAGE sql"
   },
   {
     "comment": "polymorphism - Statement 298",

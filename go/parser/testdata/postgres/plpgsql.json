@@ -2279,7 +2279,7 @@
   {
     "comment": "plpgsql - Statement 457",
     "query": "create or replace function shadowtest(in1 int) returns table (out1 int) as $$ declare in1 int; out1 int; begin end $$ language plpgsql",
-    "expected": "CREATE OR REPLACE FUNCTION shadowtest (in1 INT) AS $$ declare in1 int; out1 int; begin end $$ LANGUAGE plpgsql"
+    "expected": "CREATE OR REPLACE FUNCTION shadowtest (in1 INT) RETURNS TABLE (out1 INT) AS $$ declare in1 int; out1 int; begin end $$ LANGUAGE plpgsql"
   },
   {
     "comment": "plpgsql - Statement 458",
@@ -2934,7 +2934,7 @@
   {
     "comment": "plpgsql - Statement 588",
     "query": "create function tftest(int) returns table(a int, b int) as $$ begin return query select $1, $1+i from generate_series(1,5) g(i); end; $$ language plpgsql immutable strict",
-    "expected": "CREATE FUNCTION tftest (INT) AS $$ begin return query select $1, $1+i from generate_series(1,5) g(i); end; $$ LANGUAGE plpgsql IMMUTABLE STRICT"
+    "expected": "CREATE FUNCTION tftest (INT) RETURNS TABLE (a INT, b INT) AS $$ begin return query select $1, $1+i from generate_series(1,5) g(i); end; $$ LANGUAGE plpgsql IMMUTABLE STRICT"
   },
   {
     "comment": "plpgsql - Statement 589",
@@ -2944,7 +2944,7 @@
   {
     "comment": "plpgsql - Statement 590",
     "query": "create or replace function tftest(a1 int) returns table(a int, b int) as $$ begin a := a1; b := a1 + 1; return next; a := a1 * 10; b := a1 * 10 + 1; return next; end; $$ language plpgsql immutable strict",
-    "expected": "CREATE OR REPLACE FUNCTION tftest (a1 INT) AS $$ begin a := a1; b := a1 + 1; return next; a := a1 * 10; b := a1 * 10 + 1; return next; end; $$ LANGUAGE plpgsql IMMUTABLE STRICT"
+    "expected": "CREATE OR REPLACE FUNCTION tftest (a1 INT) RETURNS TABLE (a INT, b INT) AS $$ begin a := a1; b := a1 + 1; return next; a := a1 * 10; b := a1 * 10 + 1; return next; end; $$ LANGUAGE plpgsql IMMUTABLE STRICT"
   },
   {
     "comment": "plpgsql - Statement 591",

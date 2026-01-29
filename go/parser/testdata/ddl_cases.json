@@ -1414,7 +1414,7 @@
   },
   {
     "comment": "CREATE RULE with WHERE clause",
-    "query": "CREATE RULE conditional_rule AS ON UPDATE TO accounts WHERE (balance \u003e 0) DO NOTIFY account_updated"
+    "query": "CREATE RULE conditional_rule AS ON UPDATE TO accounts WHERE (balance > 0) DO NOTIFY account_updated"
   },
   {
     "comment": "CREATE RULE with ALSO",
@@ -2056,7 +2056,7 @@
   },
   {
     "comment": "CREATE TABLE with CHECK constraint",
-    "query": "CREATE TABLE users (id INT, age INT CHECK (age \u003e 0))"
+    "query": "CREATE TABLE users (id INT, age INT CHECK (age > 0))"
   },
   {
     "comment": "CREATE TABLE with table-level PRIMARY KEY",
@@ -2072,7 +2072,7 @@
   },
   {
     "comment": "CREATE TABLE with multiple constraints",
-    "query": "CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(100) UNIQUE NOT NULL, age INT CHECK (age \u003e 0))"
+    "query": "CREATE TABLE users (id INT PRIMARY KEY, email VARCHAR(100) UNIQUE NOT NULL, age INT CHECK (age > 0))"
   },
   {
     "comment": "CREATE TEMPORARY TABLE",
@@ -2263,11 +2263,13 @@
   },
   {
     "comment": "CREATE USER MAPPING with OPTIONS",
-    "query": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (user 'remote_user', password 'secret')"
+    "query": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (user 'remote_user', password 'secret')",
+    "expected": "CREATE USER MAPPING FOR CURRENT_USER SERVER myserver OPTIONS (\"user\" 'remote_user', password 'secret')"
   },
   {
     "comment": "CREATE USER MAPPING for specific user",
-    "query": "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (user 'alice_remote')"
+    "query": "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (user 'alice_remote')",
+    "expected": "CREATE USER MAPPING FOR alice SERVER myserver OPTIONS (\"user\" 'alice_remote')"
   },
   {
     "comment": "ALTER TABLE ADD COLUMN",
@@ -2470,7 +2472,7 @@
   },
   {
     "comment": "CREATE DOMAIN with NOT NULL",
-    "query": "CREATE DOMAIN positive_int AS INT NOT NULL CHECK (value \u003e 0)"
+    "query": "CREATE DOMAIN positive_int AS INT NOT NULL CHECK (value > 0)"
   },
   {
     "comment": "CREATE DOMAIN with named constraint",
@@ -2494,7 +2496,7 @@
   },
   {
     "comment": "ALTER DOMAIN ADD CONSTRAINT",
-    "query": "ALTER DOMAIN email ADD CHECK (length(value) \u003e 5)"
+    "query": "ALTER DOMAIN email ADD CHECK (length(value) > 5)"
   },
   {
     "comment": "ALTER DOMAIN DROP CONSTRAINT",
@@ -2726,18 +2728,18 @@
   },
   {
     "comment": "CREATE OPERATOR CLASS basic",
-    "query": "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree AS OPERATOR 1 \u003c",
-    "expected": "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree AS OPERATOR 1 \u003c"
+    "query": "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree AS OPERATOR 1 <",
+    "expected": "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree AS OPERATOR 1 <"
   },
   {
     "comment": "CREATE OPERATOR CLASS DEFAULT",
-    "query": "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE int4 USING btree AS OPERATOR 1 \u003c",
-    "expected": "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE INT USING btree AS OPERATOR 1 \u003c"
+    "query": "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE int4 USING btree AS OPERATOR 1 <",
+    "expected": "CREATE OPERATOR CLASS test_ops DEFAULT FOR TYPE INT USING btree AS OPERATOR 1 <"
   },
   {
     "comment": "CREATE OPERATOR CLASS with FAMILY",
-    "query": "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree FAMILY test_family AS OPERATOR 1 \u003c",
-    "expected": "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree FAMILY test_family AS OPERATOR 1 \u003c"
+    "query": "CREATE OPERATOR CLASS test_ops FOR TYPE int4 USING btree FAMILY test_family AS OPERATOR 1 <",
+    "expected": "CREATE OPERATOR CLASS test_ops FOR TYPE INT USING btree FAMILY test_family AS OPERATOR 1 <"
   },
   {
     "comment": "CREATE OPERATOR FAMILY basic",
@@ -2745,7 +2747,7 @@
   },
   {
     "comment": "ALTER OPERATOR FAMILY ADD",
-    "query": "ALTER OPERATOR FAMILY test_family USING btree ADD OPERATOR 1 \u003c"
+    "query": "ALTER OPERATOR FAMILY test_family USING btree ADD OPERATOR 1 <"
   },
   {
     "comment": "ALTER OPERATOR FAMILY DROP",
@@ -2946,5 +2948,14 @@
     "comment": "SET NULL with column list",
     "query": "CREATE TABLE test (id int REFERENCES parent(id) ON DELETE SET NULL (id));",
     "expected": "CREATE TABLE test (id INT REFERENCES parent(id) ON DELETE SET NULL (id))"
+  },
+  {
+    "comment": "CREATE TABLE with reserved keyword column name",
+    "query": "CREATE TABLE IF NOT EXISTS public.grant_on_token (id BIGINT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, token_id UUID NOT NULL, \"grant\" public.token_grants NOT NULL, user_id UUID NOT NULL)"
+  },
+  {
+    "comment": "CREATE FUNCTION with plpgsql body",
+    "query": "create function batch_processing.get_batch_process_details(batch_process text)\nreturns table (\n    process_id int\n    , api_url text\n    , user_email text\n    , user_password text\n    , anon_key text\n)\nas $$\ndeclare \n    query text;\n    api_url text;\n    user_password_vault_id uuid;\n    user_email text;\n    user_password text;\n    anon_key text;\n    process_id int;\n    process_run_id int;\n    next_run_data jsonb;\nbegin\n\n    -- get batch process\n    select\n      bp.id\n      , bp.url\n      , bp.supabase_user_password_vault_id\n      , bp.supabase_user_email\n    into\n      process_id\n      , api_url\n      , user_password_vault_id\n      , user_email\n    from\n      batch_processing.batch_processes bp\n    where\n      status_id = (\n        select id from batch_processing.batch_process_status\n          where batch_processing.batch_process_status.status='active'\n      )\n      and process = batch_process;\n\n    if process_id is null then\n      raise exception 'No active batch process found.';\n    end if;\n\n    if user_email is null then\n      raise exception 'No supabase user email found.';\n    end if;\n\n     -- get supabase user password from vault\n    select decrypted_secret\n    into user_password\n    from vault.decrypted_secrets\n    where id = user_password_vault_id;\n\n    if user_password is null then\n      raise exception 'No supabase user password found';\n    end if;\n\n    -- get anon key from vault\n    select decrypted_secret\n    into anon_key\n    from vault.decrypted_secrets\n    where \"name\" = 'anon_key';\n\n    return query select process_id, api_url, user_email, user_password, anon_key;\nend;\n$$ language plpgsql;",
+    "expected": "CREATE FUNCTION batch_processing.get_batch_process_details (batch_process TEXT) RETURNS TABLE (process_id INT, api_url TEXT, user_email TEXT, user_password TEXT, anon_key TEXT) AS $$\ndeclare \n    query text;\n    api_url text;\n    user_password_vault_id uuid;\n    user_email text;\n    user_password text;\n    anon_key text;\n    process_id int;\n    process_run_id int;\n    next_run_data jsonb;\nbegin\n\n    -- get batch process\n    select\n      bp.id\n      , bp.url\n      , bp.supabase_user_password_vault_id\n      , bp.supabase_user_email\n    into\n      process_id\n      , api_url\n      , user_password_vault_id\n      , user_email\n    from\n      batch_processing.batch_processes bp\n    where\n      status_id = (\n        select id from batch_processing.batch_process_status\n          where batch_processing.batch_process_status.status='active'\n      )\n      and process = batch_process;\n\n    if process_id is null then\n      raise exception 'No active batch process found.';\n    end if;\n\n    if user_email is null then\n      raise exception 'No supabase user email found.';\n    end if;\n\n     -- get supabase user password from vault\n    select decrypted_secret\n    into user_password\n    from vault.decrypted_secrets\n    where id = user_password_vault_id;\n\n    if user_password is null then\n      raise exception 'No supabase user password found';\n    end if;\n\n    -- get anon key from vault\n    select decrypted_secret\n    into anon_key\n    from vault.decrypted_secrets\n    where \"name\" = 'anon_key';\n\n    return query select process_id, api_url, user_email, user_password, anon_key;\nend;\n$$ LANGUAGE plpgsql"
   }
 ]

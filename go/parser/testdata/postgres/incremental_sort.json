@@ -27,7 +27,7 @@
   {
     "comment": "incremental_sort - Statement 6",
     "query": "create or replace function explain_analyze_without_memory(query text) returns table (out_line text) language plpgsql as $$ declare   line text; begin   for line in     execute 'explain (analyze, costs off, summary off, timing off) ' || query   loop     out_line := regexp_replace(line, '\\d+kB', 'NNkB', 'g');     return next;   end loop; end; $$;",
-    "expected": "CREATE OR REPLACE FUNCTION explain_analyze_without_memory (query TEXT) LANGUAGE plpgsql AS $$ declare   line text; begin   for line in     execute 'explain (analyze, costs off, summary off, timing off) ' || query   loop     out_line := regexp_replace(line, '\\d+kB', 'NNkB', 'g');     return next;   end loop; end; $$"
+    "expected": "CREATE OR REPLACE FUNCTION explain_analyze_without_memory (query TEXT) RETURNS TABLE (out_line TEXT) LANGUAGE plpgsql AS $$ declare   line text; begin   for line in     execute 'explain (analyze, costs off, summary off, timing off) ' || query   loop     out_line := regexp_replace(line, '\\d+kB', 'NNkB', 'g');     return next;   end loop; end; $$"
   },
   {
     "comment": "incremental_sort - Statement 12",

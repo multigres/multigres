@@ -18,17 +18,16 @@
   {
     "comment": "mvcc - Statement 5",
     "query": "CREATE TABLE clean_aborted_self(key int, data text)",
-    "expected": "CREATE TABLE clean_aborted_self (\"key\" INT, data TEXT)"
+    "expected": "CREATE TABLE clean_aborted_self (key INT, data TEXT)"
   },
   {
     "comment": "mvcc - Statement 6",
     "query": "CREATE INDEX clean_aborted_self_key ON clean_aborted_self(key)",
-    "expected": "CREATE INDEX clean_aborted_self_key ON clean_aborted_self USING btree ( \"key\" )"
+    "expected": "CREATE INDEX clean_aborted_self_key ON clean_aborted_self USING btree ( key )"
   },
   {
     "comment": "mvcc - Statement 7",
-    "query": "INSERT INTO clean_aborted_self (key, data) VALUES (-1, 'just to allocate metapage')",
-    "expected": "INSERT INTO clean_aborted_self (\"key\", data) VALUES (-1, 'just to allocate metapage')"
+    "query": "INSERT INTO clean_aborted_self (key, data) VALUES (-1, 'just to allocate metapage')"
   },
   {
     "comment": "mvcc - Statement 8",

@@ -1021,22 +1021,22 @@
   {
     "comment": "rowtypes - Statement 206",
     "query": "explain (verbose, costs off) select r, r is null as isnull, r is not null as isnotnull from (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) r(a,b)",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) AS r(a, b)"
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT r, r IS NULL AS \"isnull\", r IS NOT NULL AS isnotnull FROM (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) AS r(a, b)"
   },
   {
     "comment": "rowtypes - Statement 207",
     "query": "select r, r is null as isnull, r is not null as isnotnull from (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) r(a,b)",
-    "expected": "SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) AS r(a, b)"
+    "expected": "SELECT r, r IS NULL AS \"isnull\", r IS NOT NULL AS isnotnull FROM (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) AS r(a, b)"
   },
   {
     "comment": "rowtypes - Statement 208",
     "query": "explain (verbose, costs off) with r(a,b) as materialized (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) select r, r is null as isnull, r is not null as isnotnull from r",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH r(a, b) AS MATERIALIZED (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM r"
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) WITH r(a, b) AS MATERIALIZED (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) SELECT r, r IS NULL AS \"isnull\", r IS NOT NULL AS isnotnull FROM r"
   },
   {
     "comment": "rowtypes - Statement 209",
     "query": "with r(a,b) as materialized (values (1,row(1,2)), (1,row(null,null)), (1,null), (null,row(1,2)), (null,row(null,null)), (null,null) ) select r, r is null as isnull, r is not null as isnotnull from r",
-    "expected": "WITH r(a, b) AS MATERIALIZED (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) SELECT r, r IS NULL AS isnull, r IS NOT NULL AS isnotnull FROM r"
+    "expected": "WITH r(a, b) AS MATERIALIZED (VALUES (1, ROW(1, 2)), (1, ROW(NULL, NULL)), (1, NULL), (NULL, ROW(1, 2)), (NULL, ROW(NULL, NULL)), (NULL, NULL)) SELECT r, r IS NULL AS \"isnull\", r IS NOT NULL AS isnotnull FROM r"
   },
   {
     "comment": "rowtypes - Statement 210",

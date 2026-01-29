@@ -823,8 +823,27 @@ func (n *CommentStmt) SqlString() string {
 		}
 
 	case OBJECT_TRIGGER:
-		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
-			// For TRIGGER, NodeList has [table_name, trigger_name] but we want "TRIGGER trigger_name ON table_name"
+		if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 3 {
+			// For TRIGGER with schema, NodeList has [schema, table, trigger_name]
+			// We want "TRIGGER trigger_name ON schema.table"
+			triggerName := ""
+			schemaName := ""
+			tableName := ""
+
+			if str, ok := nodeList.Items[2].(*String); ok {
+				triggerName = QuoteIdentifier(str.SVal)
+			}
+			if str, ok := nodeList.Items[0].(*String); ok {
+				schemaName = QuoteIdentifier(str.SVal)
+			}
+			if str, ok := nodeList.Items[1].(*String); ok {
+				tableName = QuoteIdentifier(str.SVal)
+			}
+
+			parts = append(parts, "COMMENT ON TRIGGER", triggerName, "ON", schemaName+"."+tableName, "IS")
+		} else if nodeList, ok := n.Object.(*NodeList); ok && len(nodeList.Items) == 2 {
+			// For TRIGGER without schema, NodeList has [table_name, trigger_name]
+			// We want "TRIGGER trigger_name ON table_name"
 			triggerName := ""
 			tableName := ""
 

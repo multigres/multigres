@@ -351,7 +351,7 @@
   {
     "comment": "event_trigger - Statement 74",
     "query": "CREATE AGGREGATE schema_two.newton (BASETYPE = int, SFUNC = schema_two.add, STYPE = int)",
-    "expected": "CREATE AGGREGATE schema_two.newton (basetype = INT, sfunc = schema_two.\"add\", stype = INT)"
+    "expected": "CREATE AGGREGATE schema_two.newton (basetype = INT, sfunc = schema_two.add, stype = INT)"
   },
   {
     "comment": "event_trigger - Statement 75",

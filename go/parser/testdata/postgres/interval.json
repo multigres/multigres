@@ -267,7 +267,7 @@
   {
     "comment": "interval - Statement 55",
     "query": "select extract(epoch from '256 microseconds'::interval * (2^55)::float8)",
-    "expected": "SELECT extract(epoch FROM CAST(CAST('256 microseconds' AS INTERVAL) * (2 ^ 55) AS FLOAT8))"
+    "expected": "SELECT extract(epoch FROM CAST('256 microseconds' AS INTERVAL) * CAST((2 ^ 55) AS FLOAT8))"
   },
   {
     "comment": "interval - Statement 56",
@@ -1931,22 +1931,22 @@
   {
     "comment": "interval - Statement 392",
     "query": "SELECT interval '0 days' * 'infinity'::float",
-    "expected": "SELECT CAST(CAST('0 days' AS INTERVAL) * 'infinity' AS FLOAT8)"
+    "expected": "SELECT CAST('0 days' AS INTERVAL) * CAST('infinity' AS FLOAT8)"
   },
   {
     "comment": "interval - Statement 393",
     "query": "SELECT interval '0 days' * '-infinity'::float",
-    "expected": "SELECT CAST(CAST('0 days' AS INTERVAL) * '-infinity' AS FLOAT8)"
+    "expected": "SELECT CAST('0 days' AS INTERVAL) * CAST('-infinity' AS FLOAT8)"
   },
   {
     "comment": "interval - Statement 394",
     "query": "SELECT interval '5 days' * 'infinity'::float",
-    "expected": "SELECT CAST(CAST('5 days' AS INTERVAL) * 'infinity' AS FLOAT8)"
+    "expected": "SELECT CAST('5 days' AS INTERVAL) * CAST('infinity' AS FLOAT8)"
   },
   {
     "comment": "interval - Statement 395",
     "query": "SELECT interval '5 days' * '-infinity'::float",
-    "expected": "SELECT CAST(CAST('5 days' AS INTERVAL) * '-infinity' AS FLOAT8)"
+    "expected": "SELECT CAST('5 days' AS INTERVAL) * CAST('-infinity' AS FLOAT8)"
   },
   {
     "comment": "interval - Statement 396",

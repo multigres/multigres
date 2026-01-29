@@ -987,5 +987,10 @@
   {
     "comment": "CLOSE ALL cursors",
     "query": "CLOSE ALL"
+  },
+  {
+    "comment": "COMMENT ON TRIGGER with schema-qualified table",
+    "query": "COMMENT ON TRIGGER \"trigger_update_customers_hashed_in\" ON \"public\".\"customers\" IS 'Trigger to update hashed_id column before insert'",
+    "expected": "COMMENT ON TRIGGER trigger_update_customers_hashed_in ON public.customers IS 'Trigger to update hashed_id column before insert'"
   }
 ]

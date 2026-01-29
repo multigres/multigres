@@ -137,7 +137,7 @@
   {
     "comment": "brin - Statement 64",
     "query": "INSERT INTO brintest_2 VALUES (numrange(0, 2^1000::numeric))",
-    "expected": "INSERT INTO brintest_2 VALUES (numrange(0, CAST(2 ^ 1000 AS NUMERIC)))"
+    "expected": "INSERT INTO brintest_2 VALUES (numrange(0, 2 ^ CAST(1000 AS NUMERIC)))"
   },
   {
     "comment": "brin - Statement 65",
@@ -251,7 +251,7 @@
   {
     "comment": "brin - Statement 89",
     "query": "INSERT INTO brintest_unlogged VALUES (numrange(0, 2^1000::numeric))",
-    "expected": "INSERT INTO brintest_unlogged VALUES (numrange(0, CAST(2 ^ 1000 AS NUMERIC)))"
+    "expected": "INSERT INTO brintest_unlogged VALUES (numrange(0, 2 ^ CAST(1000 AS NUMERIC)))"
   },
   {
     "comment": "brin - Statement 90",

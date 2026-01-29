@@ -389,12 +389,12 @@
   {
     "comment": "inet - Statement 80",
     "query": "SELECT '126::1'::inet - '127::2'::inet",
-    "expected": "SELECT CAST(CAST('126::1' AS inet) - '127::2' AS inet)"
+    "expected": "SELECT CAST('126::1' AS inet) - CAST('127::2' AS inet)"
   },
   {
     "comment": "inet - Statement 81",
     "query": "SELECT '127::1'::inet - '126::2'::inet",
-    "expected": "SELECT CAST(CAST('127::1' AS inet) - '126::2' AS inet)"
+    "expected": "SELECT CAST('127::1' AS inet) - CAST('126::2' AS inet)"
   },
   {
     "comment": "inet - Statement 82",
@@ -404,7 +404,7 @@
   {
     "comment": "inet - Statement 83",
     "query": "SELECT '127::1'::inet - '127::2'::inet",
-    "expected": "SELECT CAST(CAST('127::1' AS inet) - '127::2' AS inet)"
+    "expected": "SELECT CAST('127::1' AS inet) - CAST('127::2' AS inet)"
   },
   {
     "comment": "inet - Statement 84",

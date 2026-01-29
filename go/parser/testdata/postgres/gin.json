@@ -132,7 +132,7 @@
   {
     "comment": "gin - Statement 27",
     "query": "create function explain_query_json(query_sql text) returns table (explain_line json) language plpgsql as $$ begin set enable_seqscan = off; SET enable_bitmapscan = on; return query execute 'EXPLAIN (ANALYZE, FORMAT json) ' || query_sql; end; $$",
-    "expected": "CREATE FUNCTION explain_query_json (query_sql TEXT) LANGUAGE plpgsql AS $$ begin set enable_seqscan = off; SET enable_bitmapscan = on; return query execute 'EXPLAIN (ANALYZE, FORMAT json) ' || query_sql; end; $$"
+    "expected": "CREATE FUNCTION explain_query_json (query_sql TEXT) RETURNS TABLE (explain_line JSON) LANGUAGE plpgsql AS $$ begin set enable_seqscan = off; SET enable_bitmapscan = on; return query execute 'EXPLAIN (ANALYZE, FORMAT json) ' || query_sql; end; $$"
   },
   {
     "comment": "gin - Statement 32",

@@ -1686,7 +1686,7 @@
   {
     "comment": "triggers - Statement 352",
     "query": "create table upsert (key int4 primary key, color text)",
-    "expected": "CREATE TABLE upsert (\"key\" INT PRIMARY KEY, color TEXT)"
+    "expected": "CREATE TABLE upsert (key INT PRIMARY KEY, color TEXT)"
   },
   {
     "comment": "triggers - Statement 353",
@@ -1711,42 +1711,42 @@
   {
     "comment": "triggers - Statement 357",
     "query": "insert into upsert values(1, 'black') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (1, 'black') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (1, 'black') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 358",
     "query": "insert into upsert values(2, 'red') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (2, 'red') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (2, 'red') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 359",
     "query": "insert into upsert values(3, 'orange') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (3, 'orange') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (3, 'orange') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 360",
     "query": "insert into upsert values(4, 'green') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (4, 'green') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (4, 'green') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 361",
     "query": "insert into upsert values(5, 'purple') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (5, 'purple') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (5, 'purple') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 362",
     "query": "insert into upsert values(6, 'white') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (6, 'white') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (6, 'white') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 363",
     "query": "insert into upsert values(7, 'pink') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (7, 'pink') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (7, 'pink') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 364",
     "query": "insert into upsert values(8, 'yellow') on conflict (key) do update set color = 'updated ' || upsert.color",
-    "expected": "INSERT INTO upsert VALUES (8, 'yellow') ON CONFLICT (\"key\") DO UPDATE SET color = 'updated ' || upsert.color"
+    "expected": "INSERT INTO upsert VALUES (8, 'yellow') ON CONFLICT (key) DO UPDATE SET color = 'updated ' || upsert.color"
   },
   {
     "comment": "triggers - Statement 365",

@@ -823,7 +823,7 @@
   {
     "comment": "stats - Statement 183",
     "query": "SELECT pg_relation_size('test_io_local') / current_setting('block_size')::int8 \u003e 100",
-    "expected": "SELECT CAST(pg_relation_size('test_io_local') / current_setting('block_size') AS BIGINT) \u003e 100"
+    "expected": "SELECT pg_relation_size('test_io_local') / CAST(current_setting('block_size') AS BIGINT) \u003e 100"
   },
   {
     "comment": "stats - Statement 184",

@@ -26,7 +26,7 @@
   {
     "comment": "money - Statement 7",
     "query": "SELECT m / '2'::money FROM money_data",
-    "expected": "SELECT CAST(m / '2' AS money) FROM money_data"
+    "expected": "SELECT m / CAST('2' AS money) FROM money_data"
   },
   {
     "comment": "money - Statement 8",
@@ -43,7 +43,7 @@
   {
     "comment": "money - Statement 11",
     "query": "SELECT m * 2::int2 FROM money_data",
-    "expected": "SELECT CAST(m * 2 AS SMALLINT) FROM money_data"
+    "expected": "SELECT m * CAST(2 AS SMALLINT) FROM money_data"
   },
   {
     "comment": "money - Statement 12",
@@ -53,12 +53,12 @@
   {
     "comment": "money - Statement 13",
     "query": "SELECT m / 2::int2 FROM money_data",
-    "expected": "SELECT CAST(m / 2 AS SMALLINT) FROM money_data"
+    "expected": "SELECT m / CAST(2 AS SMALLINT) FROM money_data"
   },
   {
     "comment": "money - Statement 14",
     "query": "SELECT m * 2::int8 FROM money_data",
-    "expected": "SELECT CAST(m * 2 AS BIGINT) FROM money_data"
+    "expected": "SELECT m * CAST(2 AS BIGINT) FROM money_data"
   },
   {
     "comment": "money - Statement 15",
@@ -68,12 +68,12 @@
   {
     "comment": "money - Statement 16",
     "query": "SELECT m / 2::int8 FROM money_data",
-    "expected": "SELECT CAST(m / 2 AS BIGINT) FROM money_data"
+    "expected": "SELECT m / CAST(2 AS BIGINT) FROM money_data"
   },
   {
     "comment": "money - Statement 17",
     "query": "SELECT m * 2::float8 FROM money_data",
-    "expected": "SELECT CAST(m * 2 AS FLOAT8) FROM money_data"
+    "expected": "SELECT m * CAST(2 AS FLOAT8) FROM money_data"
   },
   {
     "comment": "money - Statement 18",
@@ -83,12 +83,12 @@
   {
     "comment": "money - Statement 19",
     "query": "SELECT m / 2::float8 FROM money_data",
-    "expected": "SELECT CAST(m / 2 AS FLOAT8) FROM money_data"
+    "expected": "SELECT m / CAST(2 AS FLOAT8) FROM money_data"
   },
   {
     "comment": "money - Statement 20",
     "query": "SELECT m * 2::float4 FROM money_data",
-    "expected": "SELECT CAST(m * 2 AS REAL) FROM money_data"
+    "expected": "SELECT m * CAST(2 AS REAL) FROM money_data"
   },
   {
     "comment": "money - Statement 21",
@@ -98,7 +98,7 @@
   {
     "comment": "money - Statement 22",
     "query": "SELECT m / 2::float4 FROM money_data",
-    "expected": "SELECT CAST(m / 2 AS REAL) FROM money_data"
+    "expected": "SELECT m / CAST(2 AS REAL) FROM money_data"
   },
   {
     "comment": "money - Statement 23",
@@ -298,42 +298,42 @@
   {
     "comment": "money - Statement 67",
     "query": "SELECT '878.08'::money / 11::float8",
-    "expected": "SELECT CAST(CAST('878.08' AS money) / 11 AS FLOAT8)"
+    "expected": "SELECT CAST('878.08' AS money) / CAST(11 AS FLOAT8)"
   },
   {
     "comment": "money - Statement 68",
     "query": "SELECT '878.08'::money / 11::float4",
-    "expected": "SELECT CAST(CAST('878.08' AS money) / 11 AS REAL)"
+    "expected": "SELECT CAST('878.08' AS money) / CAST(11 AS REAL)"
   },
   {
     "comment": "money - Statement 69",
     "query": "SELECT '878.08'::money / 11::bigint",
-    "expected": "SELECT CAST(CAST('878.08' AS money) / 11 AS BIGINT)"
+    "expected": "SELECT CAST('878.08' AS money) / CAST(11 AS BIGINT)"
   },
   {
     "comment": "money - Statement 70",
     "query": "SELECT '878.08'::money / 11::int",
-    "expected": "SELECT CAST(CAST('878.08' AS money) / 11 AS INT)"
+    "expected": "SELECT CAST('878.08' AS money) / CAST(11 AS INT)"
   },
   {
     "comment": "money - Statement 71",
     "query": "SELECT '878.08'::money / 11::smallint",
-    "expected": "SELECT CAST(CAST('878.08' AS money) / 11 AS SMALLINT)"
+    "expected": "SELECT CAST('878.08' AS money) / CAST(11 AS SMALLINT)"
   },
   {
     "comment": "money - Statement 72",
     "query": "SELECT '90000000000000099.00'::money / 10::bigint",
-    "expected": "SELECT CAST(CAST('90000000000000099.00' AS money) / 10 AS BIGINT)"
+    "expected": "SELECT CAST('90000000000000099.00' AS money) / CAST(10 AS BIGINT)"
   },
   {
     "comment": "money - Statement 73",
     "query": "SELECT '90000000000000099.00'::money / 10::int",
-    "expected": "SELECT CAST(CAST('90000000000000099.00' AS money) / 10 AS INT)"
+    "expected": "SELECT CAST('90000000000000099.00' AS money) / CAST(10 AS INT)"
   },
   {
     "comment": "money - Statement 74",
     "query": "SELECT '90000000000000099.00'::money / 10::smallint",
-    "expected": "SELECT CAST(CAST('90000000000000099.00' AS money) / 10 AS SMALLINT)"
+    "expected": "SELECT CAST('90000000000000099.00' AS money) / CAST(10 AS SMALLINT)"
   },
   {
     "comment": "money - Statement 75",
@@ -413,46 +413,46 @@
   {
     "comment": "money - Statement 90",
     "query": "SELECT '92233720368547758.07'::money + '0.01'::money",
-    "expected": "SELECT CAST(CAST('92233720368547758.07' AS money) + '0.01' AS money)"
+    "expected": "SELECT CAST('92233720368547758.07' AS money) + CAST('0.01' AS money)"
   },
   {
     "comment": "money - Statement 91",
     "query": "SELECT '-92233720368547758.08'::money - '0.01'::money",
-    "expected": "SELECT CAST(CAST('-92233720368547758.08' AS money) - '0.01' AS money)"
+    "expected": "SELECT CAST('-92233720368547758.08' AS money) - CAST('0.01' AS money)"
   },
   {
     "comment": "money - Statement 92",
     "query": "SELECT '92233720368547758.07'::money * 2::float8",
-    "expected": "SELECT CAST(CAST('92233720368547758.07' AS money) * 2 AS FLOAT8)"
+    "expected": "SELECT CAST('92233720368547758.07' AS money) * CAST(2 AS FLOAT8)"
   },
   {
     "comment": "money - Statement 93",
     "query": "SELECT '-1'::money / 1.175494e-38::float4",
-    "expected": "SELECT CAST(CAST('-1' AS money) / 1.175494e-38 AS REAL)"
+    "expected": "SELECT CAST('-1' AS money) / CAST(1.175494e-38 AS REAL)"
   },
   {
     "comment": "money - Statement 94",
     "query": "SELECT '92233720368547758.07'::money * 2::int4",
-    "expected": "SELECT CAST(CAST('92233720368547758.07' AS money) * 2 AS INT)"
+    "expected": "SELECT CAST('92233720368547758.07' AS money) * CAST(2 AS INT)"
   },
   {
     "comment": "money - Statement 95",
     "query": "SELECT '1'::money / 0::int2",
-    "expected": "SELECT CAST(CAST('1' AS money) / 0 AS SMALLINT)"
+    "expected": "SELECT CAST('1' AS money) / CAST(0 AS SMALLINT)"
   },
   {
     "comment": "money - Statement 96",
     "query": "SELECT '42'::money * 'inf'::float8",
-    "expected": "SELECT CAST(CAST('42' AS money) * 'inf' AS FLOAT8)"
+    "expected": "SELECT CAST('42' AS money) * CAST('inf' AS FLOAT8)"
   },
   {
     "comment": "money - Statement 97",
     "query": "SELECT '42'::money * '-inf'::float8",
-    "expected": "SELECT CAST(CAST('42' AS money) * '-inf' AS FLOAT8)"
+    "expected": "SELECT CAST('42' AS money) * CAST('-inf' AS FLOAT8)"
   },
   {
     "comment": "money - Statement 98",
     "query": "SELECT '42'::money * 'nan'::float4",
-    "expected": "SELECT CAST(CAST('42' AS money) * 'nan' AS REAL)"
+    "expected": "SELECT CAST('42' AS money) * CAST('nan' AS REAL)"
   }
 ]

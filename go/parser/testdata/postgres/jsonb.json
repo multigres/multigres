@@ -990,11 +990,13 @@
   },
   {
     "comment": "jsonb - Statement 211",
-    "query": "SELECT jsonb_typeof('[]') AS array"
+    "query": "SELECT jsonb_typeof('[]') AS array",
+    "expected": "SELECT jsonb_typeof('[]') AS \"array\""
   },
   {
     "comment": "jsonb - Statement 212",
-    "query": "SELECT jsonb_typeof('[\"a\", 1]') AS array"
+    "query": "SELECT jsonb_typeof('[\"a\", 1]') AS array",
+    "expected": "SELECT jsonb_typeof('[\"a\", 1]') AS \"array\""
   },
   {
     "comment": "jsonb - Statement 213",
@@ -2688,7 +2690,7 @@
   {
     "comment": "jsonb - Statement 559",
     "query": "SELECT key, count(*) FROM (SELECT (jsonb_each(j)).key FROM testjsonb) AS wow GROUP BY key ORDER BY count DESC, key",
-    "expected": "SELECT \"key\", COUNT(*) FROM (SELECT (jsonb_each(j)).key FROM testjsonb) AS wow GROUP BY \"key\" ORDER BY count DESC, \"key\""
+    "expected": "SELECT key, COUNT(*) FROM (SELECT (jsonb_each(j)).key FROM testjsonb) AS wow GROUP BY key ORDER BY count DESC, key"
   },
   {
     "comment": "jsonb - Statement 560",
@@ -3425,17 +3427,17 @@
   {
     "comment": "jsonb - Statement 708",
     "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - '{b}'::text[]",
-    "expected": "SELECT CAST(CAST('{\"a\":1 , \"b\":2, \"c\":3}' AS JSONB) - '{b}' AS TEXT[])"
+    "expected": "SELECT CAST('{\"a\":1 , \"b\":2, \"c\":3}' AS JSONB) - CAST('{b}' AS TEXT[])"
   },
   {
     "comment": "jsonb - Statement 709",
     "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - '{c,b}'::text[]",
-    "expected": "SELECT CAST(CAST('{\"a\":1 , \"b\":2, \"c\":3}' AS JSONB) - '{c,b}' AS TEXT[])"
+    "expected": "SELECT CAST('{\"a\":1 , \"b\":2, \"c\":3}' AS JSONB) - CAST('{c,b}' AS TEXT[])"
   },
   {
     "comment": "jsonb - Statement 710",
     "query": "select '{\"a\":1 , \"b\":2, \"c\":3}'::jsonb - '{}'::text[]",
-    "expected": "SELECT CAST(CAST('{\"a\":1 , \"b\":2, \"c\":3}' AS JSONB) - '{}' AS TEXT[])"
+    "expected": "SELECT CAST('{\"a\":1 , \"b\":2, \"c\":3}' AS JSONB) - CAST('{}' AS TEXT[])"
   },
   {
     "comment": "jsonb - Statement 711",

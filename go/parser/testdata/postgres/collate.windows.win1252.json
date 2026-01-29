@@ -694,12 +694,12 @@
   {
     "comment": "collate.windows.win1252 - Statement 161",
     "query": "create type textrange_c as range(subtype=text, collation=\"C\")",
-    "expected": "CREATE TYPE textrange_c AS RANGE (subtype = TEXT, collation = \"C\")"
+    "expected": "CREATE TYPE textrange_c AS RANGE (subtype = TEXT, \"collation\" = \"C\")"
   },
   {
     "comment": "collate.windows.win1252 - Statement 162",
     "query": "create type textrange_en_us as range(subtype=text, collation=\"en_US\")",
-    "expected": "CREATE TYPE textrange_en_us AS RANGE (subtype = TEXT, collation = \"en_US\")"
+    "expected": "CREATE TYPE textrange_en_us AS RANGE (subtype = TEXT, \"collation\" = \"en_US\")"
   },
   {
     "comment": "collate.windows.win1252 - Statement 163",
