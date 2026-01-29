@@ -17,6 +17,8 @@ package multipooler
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -124,6 +126,12 @@ func TestDemoteAndPromote(t *testing.T) {
 		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
+		// Verify standby.signal exists after demotion and replication config
+		t.Log("Verifying standby.signal exists after demotion...")
+		primaryStandbySignalPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "standby.signal")
+		_, statErr := os.Stat(primaryStandbySignalPath)
+		assert.NoError(t, statErr, "standby.signal should exist after demotion")
+
 		// Verify primary operations no longer work
 		_, err = primaryManagerClient.PrimaryPosition(utils.WithShortDeadline(t), posReq)
 		require.Error(t, err, "PrimaryPosition should fail after demotion")
@@ -157,6 +165,17 @@ func TestDemoteAndPromote(t *testing.T) {
 		assert.NotEmpty(t, promoteResp.LsnPosition)
 		t.Logf("Promotion complete. LSN: %s", promoteResp.LsnPosition)
 
+		// Verify signal files are removed after promotion
+		t.Log("Verifying signal files removed from newly promoted primary...")
+		standbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
+		recoverySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "recovery.signal")
+
+		_, standbyStatErr := os.Stat(standbySignalPath)
+		assert.True(t, os.IsNotExist(standbyStatErr), "standby.signal should not exist after promotion")
+
+		_, recoveryStatErr := os.Stat(recoverySignalPath)
+		assert.True(t, os.IsNotExist(recoveryStatErr), "recovery.signal should not exist after promotion")
+
 		// Verify new primary works
 		posResp2, err := standbyManagerClient.PrimaryPosition(utils.WithShortDeadline(t), posReq)
 		require.NoError(t, err, "PrimaryPosition should work on new primary")
@@ -176,6 +195,12 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "Demote should succeed on new primary")
 		assert.False(t, demoteResp2.WasAlreadyDemoted)
 		t.Logf("New primary demoted. LSN: %s", demoteResp2.LsnPosition)
+
+		// Verify standby.signal exists after second demotion
+		t.Log("Verifying standby.signal exists after second demotion...")
+		standbyStandbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
+		_, statErr2 := os.Stat(standbyStandbySignalPath)
+		assert.NoError(t, statErr2, "standby.signal should exist after demotion")
 
 		// Stop replication on original primary
 		stopReq2 := &multipoolermanagerdatapb.StopReplicationRequest{}
@@ -199,6 +224,17 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err, "Promote should succeed")
 		assert.False(t, promoteResp2.WasAlreadyPrimary)
 		t.Logf("Original primary restored. LSN: %s", promoteResp2.LsnPosition)
+
+		// Verify signal files are removed after restoring original primary
+		t.Log("Verifying signal files removed from restored primary...")
+		primaryStandbySignalPath = filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "standby.signal")
+		primaryRecoverySignalPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "recovery.signal")
+
+		_, primaryStandbyStatErr := os.Stat(primaryStandbySignalPath)
+		assert.True(t, os.IsNotExist(primaryStandbyStatErr), "standby.signal should not exist after promotion")
+
+		_, primaryRecoveryStatErr := os.Stat(primaryRecoverySignalPath)
+		assert.True(t, os.IsNotExist(primaryRecoveryStatErr), "recovery.signal should not exist after promotion")
 
 		// Verify original primary works again
 		posResp3, err := primaryManagerClient.PrimaryPosition(utils.WithShortDeadline(t), posReq)
