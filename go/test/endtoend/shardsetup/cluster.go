@@ -347,20 +347,27 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 // WaitForMultigatewayQueryServing waits for multigateway to be able to execute queries.
 // This verifies that multigateway has discovered poolers from topology and can route queries.
 // Should be called AFTER bootstrap completes.
+//
+// The timeout is generous (30s) because after bootstrap, the multigateway needs time to:
+// 1. Receive the topology watch notification that pooler-1 was promoted to PRIMARY
+// 2. Update its LoadBalancer with the new PRIMARY pooler
+// This typically takes a few seconds but can be longer under load or slow CI environments.
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
 		s.MultigatewayPgPort, TestPostgresPassword)
 
-	ctx := utils.WithTimeout(t, 5*time.Second)
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	startTime := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
-			t.Fatal("timeout waiting for multigateway to execute queries (may not have discovered poolers)")
+			elapsed := time.Since(startTime)
+			t.Fatalf("timeout waiting for multigateway to execute queries after %v (multigateway may not have discovered poolers from topology yet)", elapsed)
 		case <-ticker.C:
 			db, err := sql.Open("postgres", connStr)
 			if err != nil {
@@ -368,11 +375,14 @@ func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 			}
 
 			var result int
-			err = db.QueryRowContext(ctx, "SELECT 1").Scan(&result)
+			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			err = db.QueryRowContext(queryCtx, "SELECT 1").Scan(&result)
+			cancel()
 			db.Close()
 
 			if err == nil && result == 1 {
-				t.Log("Multigateway can execute queries")
+				elapsed := time.Since(startTime)
+				t.Logf("Multigateway can execute queries (ready after %v)", elapsed)
 				return
 			}
 		}
