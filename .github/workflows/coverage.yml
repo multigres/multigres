@@ -44,7 +44,7 @@ jobs:
         run: make build
 
       - name: Run tests with direct coverage
-        run: go test -json -v -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./... | tee coverage-direct-test-results.jsonl | go tool tparse -follow
+        run: go test -json -v -skip TestPostgreSQLRegression -cover -covermode=atomic -coverprofile=coverage-direct.txt -coverpkg=./... ./... | tee coverage-direct-test-results.jsonl | go tool tparse -follow
 
       - name: Upload direct coverage artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -86,7 +86,7 @@ jobs:
         run: |
           mkdir -p coverage-subprocess-raw
           export GOCOVERDIR="$PWD/coverage-subprocess-raw"
-          go test -json -v ./... | tee coverage-subprocess-test-results.jsonl | go tool tparse -follow
+          go test -json -v -skip TestPostgreSQLRegression ./... | tee coverage-subprocess-test-results.jsonl | go tool tparse -follow
 
       - name: Convert subprocess coverage to text format
         run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt

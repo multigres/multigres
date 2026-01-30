@@ -26,30 +26,46 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// PoolerClient is the interface for calling multipooler's GetAuthCredentials.
-// This allows for easy mocking in tests.
-type PoolerClient interface {
+// PoolerSystemClient is the interface for system-level operations on multipooler.
+// This is used for authentication and other tasks that act as the system rather
+// than as a specific user, bypassing per-user connection pools.
+type PoolerSystemClient interface {
 	GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error)
+}
+
+// PoolerSystemDiscoverer provides system clients for multipooler operations.
+// At authentication time, the discoverer selects an appropriate pooler
+// from what discovery knows is currently available.
+type PoolerSystemDiscoverer interface {
+	// GetSystemClient returns a PoolerSystemClient for the given database.
+	// The implementation chooses which pooler to use based on availability.
+	GetSystemClient(ctx context.Context, database string) (PoolerSystemClient, error)
 }
 
 // PoolerHashProvider implements scram.PasswordHashProvider by fetching
 // credentials from multipooler via gRPC.
 type PoolerHashProvider struct {
-	client PoolerClient
+	discoverer PoolerSystemDiscoverer
 }
 
 // NewPoolerHashProvider creates a new PoolerHashProvider.
-// The client should be a connection to a multipooler instance.
-func NewPoolerHashProvider(client PoolerClient) *PoolerHashProvider {
+// The discoverer is used at authentication time to select an available
+// pooler for the target database.
+func NewPoolerHashProvider(discoverer PoolerSystemDiscoverer) *PoolerHashProvider {
 	return &PoolerHashProvider{
-		client: client,
+		discoverer: discoverer,
 	}
 }
 
 // GetPasswordHash retrieves the SCRAM-SHA-256 hash for a user from multipooler.
 // Returns scram.ErrUserNotFound if the user does not exist or has no password.
 func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, database string) (*scram.ScramHash, error) {
-	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
+	client, err := p.discoverer.GetSystemClient(ctx, database)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system client for database %q: %w", database, err)
+	}
+
+	resp, err := client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
 		Database: database,
 		Username: username,
 	})

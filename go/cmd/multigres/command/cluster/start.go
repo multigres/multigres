@@ -109,7 +109,16 @@ func (s *ServiceSummary) PrintSummary() {
 			fmt.Printf("- Open %s in your browser: %s\n", service.Name, url)
 		}
 	}
-	fmt.Println("- 🐘 Connect to PostgreSQL via Multigateway: TODO")
+	// Find the first multigateway service and show connection command
+	for _, service := range s.Services {
+		if strings.HasPrefix(service.Name, "multigateway") {
+			if pgPort, exists := service.Ports["pg_port"]; exists {
+				fmt.Printf("- 🐘 Connect to PostgreSQL: PGPASSWORD=postgres psql -h %s -p %d -U postgres\n",
+					service.FQDN, pgPort)
+				break // Show only the first gateway
+			}
+		}
+	}
 	fmt.Println("- 🟢 Cluster started successfully. Enjoy!")
 	fmt.Println("- To stop the cluster: \"multigres cluster stop\"")
 	fmt.Println(strings.Repeat("=", 65))

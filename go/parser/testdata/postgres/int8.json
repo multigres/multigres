@@ -268,7 +268,7 @@
   {
     "comment": "int8 - Statement 55",
     "query": "SELECT q1 + 42::int4 AS \"8plus4\", q1 - 42::int4 AS \"8minus4\", q1 * 42::int4 AS \"8mul4\", q1 / 42::int4 AS \"8div4\" FROM INT8_TBL",
-    "expected": "SELECT CAST(q1 + 42 AS INT) AS \"8plus4\", CAST(q1 - 42 AS INT) AS \"8minus4\", CAST(q1 * 42 AS INT) AS \"8mul4\", CAST(q1 / 42 AS INT) AS \"8div4\" FROM int8_tbl"
+    "expected": "SELECT q1 + CAST(42 AS INT) AS \"8plus4\", q1 - CAST(42 AS INT) AS \"8minus4\", q1 * CAST(42 AS INT) AS \"8mul4\", q1 / CAST(42 AS INT) AS \"8div4\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 56",
@@ -278,7 +278,7 @@
   {
     "comment": "int8 - Statement 57",
     "query": "SELECT q1 + 42::int2 AS \"8plus2\", q1 - 42::int2 AS \"8minus2\", q1 * 42::int2 AS \"8mul2\", q1 / 42::int2 AS \"8div2\" FROM INT8_TBL",
-    "expected": "SELECT CAST(q1 + 42 AS SMALLINT) AS \"8plus2\", CAST(q1 - 42 AS SMALLINT) AS \"8minus2\", CAST(q1 * 42 AS SMALLINT) AS \"8mul2\", CAST(q1 / 42 AS SMALLINT) AS \"8div2\" FROM int8_tbl"
+    "expected": "SELECT q1 + CAST(42 AS SMALLINT) AS \"8plus2\", q1 - CAST(42 AS SMALLINT) AS \"8minus2\", q1 * CAST(42 AS SMALLINT) AS \"8mul2\", q1 / CAST(42 AS SMALLINT) AS \"8div2\" FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 58",
@@ -418,42 +418,42 @@
   {
     "comment": "int8 - Statement 85",
     "query": "select 0::int8 - '-9223372036854775808'::int8",
-    "expected": "SELECT CAST(CAST(0 AS BIGINT) - '-9223372036854775808' AS BIGINT)"
+    "expected": "SELECT CAST(0 AS BIGINT) - CAST('-9223372036854775808' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 86",
     "query": "select '9223372036854775800'::int8 + '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) + '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) + CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 87",
     "query": "select '-9223372036854775800'::int8 + '-9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) + '-9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('-9223372036854775800' AS BIGINT) + CAST('-9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 88",
     "query": "select '9223372036854775800'::int8 - '-9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) - '-9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) - CAST('-9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 89",
     "query": "select '-9223372036854775800'::int8 - '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) - '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('-9223372036854775800' AS BIGINT) - CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 90",
     "query": "select '9223372036854775800'::int8 * '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) * '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) * CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 91",
     "query": "select '9223372036854775800'::int8 / '0'::int8",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) / '0' AS BIGINT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) / CAST('0' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 92",
     "query": "select '9223372036854775800'::int8 % '0'::int8",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) % '0' AS BIGINT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) % CAST('0' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 93",
@@ -463,72 +463,72 @@
   {
     "comment": "int8 - Statement 94",
     "query": "select '9223372036854775800'::int8 + '100'::int4",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) + '100' AS INT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) + CAST('100' AS INT)"
   },
   {
     "comment": "int8 - Statement 95",
     "query": "select '-9223372036854775800'::int8 - '100'::int4",
-    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) - '100' AS INT)"
+    "expected": "SELECT CAST('-9223372036854775800' AS BIGINT) - CAST('100' AS INT)"
   },
   {
     "comment": "int8 - Statement 96",
     "query": "select '9223372036854775800'::int8 * '100'::int4",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) * '100' AS INT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) * CAST('100' AS INT)"
   },
   {
     "comment": "int8 - Statement 97",
     "query": "select '100'::int4 + '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('100' AS INT) + '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('100' AS INT) + CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 98",
     "query": "select '-100'::int4 - '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('-100' AS INT) - '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('-100' AS INT) - CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 99",
     "query": "select '100'::int4 * '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('100' AS INT) * '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('100' AS INT) * CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 100",
     "query": "select '9223372036854775800'::int8 + '100'::int2",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) + '100' AS SMALLINT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) + CAST('100' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 101",
     "query": "select '-9223372036854775800'::int8 - '100'::int2",
-    "expected": "SELECT CAST(CAST('-9223372036854775800' AS BIGINT) - '100' AS SMALLINT)"
+    "expected": "SELECT CAST('-9223372036854775800' AS BIGINT) - CAST('100' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 102",
     "query": "select '9223372036854775800'::int8 * '100'::int2",
-    "expected": "SELECT CAST(CAST('9223372036854775800' AS BIGINT) * '100' AS SMALLINT)"
+    "expected": "SELECT CAST('9223372036854775800' AS BIGINT) * CAST('100' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 103",
     "query": "select '-9223372036854775808'::int8 / '0'::int2",
-    "expected": "SELECT CAST(CAST('-9223372036854775808' AS BIGINT) / '0' AS SMALLINT)"
+    "expected": "SELECT CAST('-9223372036854775808' AS BIGINT) / CAST('0' AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 104",
     "query": "select '100'::int2 + '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('100' AS SMALLINT) + '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('100' AS SMALLINT) + CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 105",
     "query": "select '-100'::int2 - '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('-100' AS SMALLINT) - '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('-100' AS SMALLINT) - CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 106",
     "query": "select '100'::int2 * '9223372036854775800'::int8",
-    "expected": "SELECT CAST(CAST('100' AS SMALLINT) * '9223372036854775800' AS BIGINT)"
+    "expected": "SELECT CAST('100' AS SMALLINT) * CAST('9223372036854775800' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 107",
     "query": "select '100'::int2 / '0'::int8",
-    "expected": "SELECT CAST(CAST('100' AS SMALLINT) / '0' AS BIGINT)"
+    "expected": "SELECT CAST('100' AS SMALLINT) / CAST('0' AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 108",
@@ -618,47 +618,47 @@
   {
     "comment": "int8 - Statement 125",
     "query": "SELECT (-9223372036854775808)::int8 * (-1)::int8",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) * (-1) AS BIGINT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) * CAST((-1) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 126",
     "query": "SELECT (-9223372036854775808)::int8 / (-1)::int8",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) / (-1) AS BIGINT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) / CAST((-1) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 127",
     "query": "SELECT (-9223372036854775808)::int8 % (-1)::int8",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) % (-1) AS BIGINT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) % CAST((-1) AS BIGINT)"
   },
   {
     "comment": "int8 - Statement 128",
     "query": "SELECT (-9223372036854775808)::int8 * (-1)::int4",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) * (-1) AS INT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) * CAST((-1) AS INT)"
   },
   {
     "comment": "int8 - Statement 129",
     "query": "SELECT (-9223372036854775808)::int8 / (-1)::int4",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) / (-1) AS INT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) / CAST((-1) AS INT)"
   },
   {
     "comment": "int8 - Statement 130",
     "query": "SELECT (-9223372036854775808)::int8 % (-1)::int4",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) % (-1) AS INT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) % CAST((-1) AS INT)"
   },
   {
     "comment": "int8 - Statement 131",
     "query": "SELECT (-9223372036854775808)::int8 * (-1)::int2",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) * (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) * CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 132",
     "query": "SELECT (-9223372036854775808)::int8 / (-1)::int2",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) / (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) / CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 133",
     "query": "SELECT (-9223372036854775808)::int8 % (-1)::int2",
-    "expected": "SELECT CAST(CAST((-9223372036854775808) AS BIGINT) % (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-9223372036854775808) AS BIGINT) % CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int8 - Statement 134",

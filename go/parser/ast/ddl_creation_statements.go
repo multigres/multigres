@@ -226,7 +226,7 @@ type CreateFunctionStmt struct {
 	IsProcedure bool      // true for CREATE PROCEDURE
 	Replace     bool      // true for CREATE OR REPLACE
 	FuncName    *NodeList // qualified name of function to create
-	Parameters  *NodeList // list of function parameters
+	Parameters  *NodeList // list of function parameters (includes RETURNS TABLE columns with FUNC_PARAM_TABLE mode)
 	ReturnType  *TypeName // the return type
 	Options     *NodeList // list of definition elements
 	SQLBody     Node      // SQL body for SQL functions
@@ -284,12 +284,18 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 		parts = append(parts, strings.Join(nameParts, "."))
 	}
 
-	// Parameters
+	// Parameters - separate regular params from RETURNS TABLE columns
 	var paramStrs []string
+	var tableColStrs []string
 	if cfs.Parameters != nil {
 		for _, item := range cfs.Parameters.Items {
 			if param, ok := item.(*FunctionParameter); ok {
-				paramStrs = append(paramStrs, param.SqlString())
+				if param.Mode == FUNC_PARAM_TABLE {
+					// This is a RETURNS TABLE column
+					tableColStrs = append(tableColStrs, param.SqlString())
+				} else {
+					paramStrs = append(paramStrs, param.SqlString())
+				}
 			}
 		}
 	}
@@ -297,8 +303,13 @@ func (cfs *CreateFunctionStmt) SqlString() string {
 	parts = append(parts, paramClause)
 
 	// RETURNS type (for functions, not procedures)
-	if !cfs.IsProcedure && cfs.ReturnType != nil {
-		parts = append(parts, "RETURNS", cfs.ReturnType.SqlString())
+	if !cfs.IsProcedure {
+		if len(tableColStrs) > 0 {
+			// RETURNS TABLE (col1 type1, col2 type2, ...)
+			parts = append(parts, "RETURNS TABLE ("+strings.Join(tableColStrs, ", ")+")")
+		} else if cfs.ReturnType != nil {
+			parts = append(parts, "RETURNS", cfs.ReturnType.SqlString())
+		}
 	}
 
 	// Function options - process in original order
@@ -435,6 +446,32 @@ func NewCreateFunctionStmt(isProcedure, replace bool, funcName *NodeList, parame
 		ReturnType:  returnType,
 		Options:     options,
 		SQLBody:     sqlBody,
+	}
+}
+
+// MergeTableFuncParameters merges regular function parameters with RETURNS TABLE columns.
+// The table columns are appended to the parameter list with FUNC_PARAM_TABLE mode.
+// This matches PostgreSQL's mergeTableFuncParameters function.
+func MergeTableFuncParameters(params *NodeList, tableCols *NodeList) *NodeList {
+	if params == nil {
+		params = NewNodeList()
+	}
+	if tableCols != nil {
+		for _, item := range tableCols.Items {
+			params.Append(item)
+		}
+	}
+	return params
+}
+
+// TableFuncTypeName creates a TypeName representing a RECORD type for RETURNS TABLE.
+// This matches PostgreSQL's TableFuncTypeName function.
+func TableFuncTypeName(tableCols *NodeList) *TypeName {
+	// Create a RECORD type - PostgreSQL uses this for table functions
+	return &TypeName{
+		BaseNode: BaseNode{Tag: T_TypeName},
+		Names:    NewNodeList(NewString("pg_catalog"), NewString("record")),
+		Setof:    true,
 	}
 }
 

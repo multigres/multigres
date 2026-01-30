@@ -65,10 +65,11 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 	}
 
 	return &multiorchdatapb.PoolerHealthState{
-		MultiPooler:      pooler,
-		IsLastCheckValid: isHealthy,
-		ConsensusTerm:    consensusTerm,
-		IsInitialized:    isInitialized,
+		MultiPooler:       pooler,
+		IsLastCheckValid:  isHealthy,
+		ConsensusTerm:     consensusTerm,
+		IsInitialized:     isInitialized,
+		IsPostgresRunning: isHealthy && isInitialized, // postgres is running if healthy and initialized
 	}
 }
 
@@ -265,5 +266,37 @@ func TestPreVote(t *testing.T) {
 
 		require.True(t, canProceed, "should proceed with valid quorum rule")
 		require.Empty(t, reason)
+	})
+
+	t.Run("fails when postgres is not running on poolers", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		coord := NewCoordinator(coordID, nil, fakeClient, logger)
+
+		// Create 3 poolers: 2 healthy but with postgres not running, 1 healthy with postgres running
+		pooler1 := createPoolerForPreVote("mp1", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
+		pooler1.IsPostgresRunning = false // postgres not running
+
+		pooler2 := createPoolerForPreVote("mp2", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
+		pooler2.IsPostgresRunning = false // postgres not running
+
+		pooler3 := createPoolerForPreVote("mp3", true /* isHealthy */, 5 /* termNumber */, nil /* lastAcceptanceTime */, nil /* acceptedFrom */)
+		// pooler3 has postgres running (default from helper)
+
+		cohort := []*multiorchdatapb.PoolerHealthState{pooler1, pooler2, pooler3}
+
+		// Setup durability policy requiring 2 poolers
+		poolerKey := topoclient.MultiPoolerIDString(cohort[0].MultiPooler.Id)
+		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
+
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+		}
+		proposedTerm := int64(6)
+
+		canProceed, reason := coord.preVote(ctx, cohort, quorumRule, proposedTerm)
+
+		require.False(t, canProceed, "should fail when insufficient poolers have postgres running")
+		require.Contains(t, reason, "insufficient healthy initialized poolers for quorum")
 	})
 }

@@ -937,12 +937,12 @@
   {
     "comment": "sqljson - Statement 193",
     "query": "EXPLAIN (VERBOSE, COSTS OFF) SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS \"scalar\", '[]' IS NOT JSON ARRAY AS \"array\", '{}' IS JSON OBJECT WITH UNIQUE AS \"object\" FROM generate_series(1, 3) i",
-    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS scalar, NOT '[]' IS JSON ARRAY AS array, '{}' IS JSON OBJECT WITH UNIQUE KEYS AS object FROM generate_series(1, 3) AS i"
+    "expected": "EXPLAIN (VERBOSE true, COSTS false) SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS scalar, NOT '[]' IS JSON ARRAY AS \"array\", '{}' IS JSON OBJECT WITH UNIQUE KEYS AS object FROM generate_series(1, 3) AS i"
   },
   {
     "comment": "sqljson - Statement 194",
     "query": "CREATE VIEW is_json_view AS SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS \"scalar\", '[]' IS NOT JSON ARRAY AS \"array\", '{}' IS JSON OBJECT WITH UNIQUE AS \"object\" FROM generate_series(1, 3) i",
-    "expected": "CREATE VIEW is_json_view AS SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS scalar, NOT '[]' IS JSON ARRAY AS array, '{}' IS JSON OBJECT WITH UNIQUE KEYS AS object FROM generate_series(1, 3) AS i"
+    "expected": "CREATE VIEW is_json_view AS SELECT '1' IS JSON AS \"any\", ('1' || i) IS JSON SCALAR AS scalar, NOT '[]' IS JSON ARRAY AS \"array\", '{}' IS JSON OBJECT WITH UNIQUE KEYS AS object FROM generate_series(1, 3) AS i"
   },
   {
     "comment": "sqljson - Statement 195",

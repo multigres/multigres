@@ -264,32 +264,32 @@
   {
     "comment": "int4 - Statement 55",
     "query": "SELECT (-2147483648)::int4 * (-1)::int4",
-    "expected": "SELECT CAST(CAST((-2147483648) AS INT) * (-1) AS INT)"
+    "expected": "SELECT CAST((-2147483648) AS INT) * CAST((-1) AS INT)"
   },
   {
     "comment": "int4 - Statement 56",
     "query": "SELECT (-2147483648)::int4 / (-1)::int4",
-    "expected": "SELECT CAST(CAST((-2147483648) AS INT) / (-1) AS INT)"
+    "expected": "SELECT CAST((-2147483648) AS INT) / CAST((-1) AS INT)"
   },
   {
     "comment": "int4 - Statement 57",
     "query": "SELECT (-2147483648)::int4 % (-1)::int4",
-    "expected": "SELECT CAST(CAST((-2147483648) AS INT) % (-1) AS INT)"
+    "expected": "SELECT CAST((-2147483648) AS INT) % CAST((-1) AS INT)"
   },
   {
     "comment": "int4 - Statement 58",
     "query": "SELECT (-2147483648)::int4 * (-1)::int2",
-    "expected": "SELECT CAST(CAST((-2147483648) AS INT) * (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-2147483648) AS INT) * CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 59",
     "query": "SELECT (-2147483648)::int4 / (-1)::int2",
-    "expected": "SELECT CAST(CAST((-2147483648) AS INT) / (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-2147483648) AS INT) / CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 60",
     "query": "SELECT (-2147483648)::int4 % (-1)::int2",
-    "expected": "SELECT CAST(CAST((-2147483648) AS INT) % (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-2147483648) AS INT) % CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int4 - Statement 61",
