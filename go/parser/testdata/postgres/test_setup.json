@@ -257,7 +257,7 @@
   {
     "comment": "test_setup - Statement 53",
     "query": "create type textrange as range (subtype = text, collation = \"C\")",
-    "expected": "CREATE TYPE textrange AS RANGE (subtype = TEXT, collation = \"C\")"
+    "expected": "CREATE TYPE textrange AS RANGE (subtype = TEXT, \"collation\" = \"C\")"
   },
   {
     "comment": "test_setup - Statement 54",

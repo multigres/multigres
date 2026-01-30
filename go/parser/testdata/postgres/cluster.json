@@ -340,7 +340,7 @@
   {
     "comment": "cluster - Statement 81",
     "query": "CREATE TABLE clustertest (key int PRIMARY KEY)",
-    "expected": "CREATE TABLE clustertest (\"key\" INT PRIMARY KEY)"
+    "expected": "CREATE TABLE clustertest (key INT PRIMARY KEY)"
   },
   {
     "comment": "cluster - Statement 82",
@@ -368,28 +368,23 @@
   },
   {
     "comment": "cluster - Statement 88",
-    "query": "UPDATE clustertest SET key = 100 WHERE key = 10",
-    "expected": "UPDATE clustertest SET \"key\" = 100 WHERE \"key\" = 10"
+    "query": "UPDATE clustertest SET key = 100 WHERE key = 10"
   },
   {
     "comment": "cluster - Statement 89",
-    "query": "UPDATE clustertest SET key = 35 WHERE key = 40",
-    "expected": "UPDATE clustertest SET \"key\" = 35 WHERE \"key\" = 40"
+    "query": "UPDATE clustertest SET key = 35 WHERE key = 40"
   },
   {
     "comment": "cluster - Statement 90",
-    "query": "UPDATE clustertest SET key = 60 WHERE key = 50",
-    "expected": "UPDATE clustertest SET \"key\" = 60 WHERE \"key\" = 50"
+    "query": "UPDATE clustertest SET key = 60 WHERE key = 50"
   },
   {
     "comment": "cluster - Statement 91",
-    "query": "UPDATE clustertest SET key = 70 WHERE key = 60",
-    "expected": "UPDATE clustertest SET \"key\" = 70 WHERE \"key\" = 60"
+    "query": "UPDATE clustertest SET key = 70 WHERE key = 60"
   },
   {
     "comment": "cluster - Statement 92",
-    "query": "UPDATE clustertest SET key = 80 WHERE key = 70",
-    "expected": "UPDATE clustertest SET \"key\" = 80 WHERE \"key\" = 70"
+    "query": "UPDATE clustertest SET key = 80 WHERE key = 70"
   },
   {
     "comment": "cluster - Statement 93",

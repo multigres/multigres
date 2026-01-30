@@ -608,17 +608,17 @@
   {
     "comment": "subselect - Statement 126",
     "query": "create temp table upsert(key int4 primary key, val text)",
-    "expected": "CREATE TEMPORARY TABLE upsert (\"key\" INT PRIMARY KEY, val TEXT)"
+    "expected": "CREATE TEMPORARY TABLE upsert (key INT PRIMARY KEY, val TEXT)"
   },
   {
     "comment": "subselect - Statement 127",
     "query": "insert into upsert values(1, 'val') on conflict (key) do update set val = 'not seen'",
-    "expected": "INSERT INTO upsert VALUES (1, 'val') ON CONFLICT (\"key\") DO UPDATE SET val = 'not seen'"
+    "expected": "INSERT INTO upsert VALUES (1, 'val') ON CONFLICT (key) DO UPDATE SET val = 'not seen'"
   },
   {
     "comment": "subselect - Statement 128",
     "query": "insert into upsert values(1, 'val') on conflict (key) do update set val = 'seen with subselect ' || (select f1 from int4_tbl where f1 != 0 limit 1)::text",
-    "expected": "INSERT INTO upsert VALUES (1, 'val') ON CONFLICT (\"key\") DO UPDATE SET val = 'seen with subselect ' || CAST((SELECT f1 FROM int4_tbl WHERE f1 \u003c\u003e 0 LIMIT 1) AS TEXT)"
+    "expected": "INSERT INTO upsert VALUES (1, 'val') ON CONFLICT (key) DO UPDATE SET val = 'seen with subselect ' || CAST((SELECT f1 FROM int4_tbl WHERE f1 \u003c\u003e 0 LIMIT 1) AS TEXT)"
   },
   {
     "comment": "subselect - Statement 129",
@@ -628,7 +628,7 @@
   {
     "comment": "subselect - Statement 130",
     "query": "with aa as (select 'int4_tbl' u from int4_tbl limit 1) insert into upsert values (1, 'x'), (999, 'y') on conflict (key) do update set val = (select u from aa) returning *",
-    "expected": "WITH aa AS (SELECT 'int4_tbl' AS u FROM int4_tbl LIMIT 1) INSERT INTO upsert VALUES (1, 'x'), (999, 'y') ON CONFLICT (\"key\") DO UPDATE SET val = (SELECT u FROM aa) RETURNING *"
+    "expected": "WITH aa AS (SELECT 'int4_tbl' AS u FROM int4_tbl LIMIT 1) INSERT INTO upsert VALUES (1, 'x'), (999, 'y') ON CONFLICT (key) DO UPDATE SET val = (SELECT u FROM aa) RETURNING *"
   },
   {
     "comment": "subselect - Statement 131",
