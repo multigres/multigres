@@ -976,6 +976,32 @@ func (pm *MultiPoolerManager) runCheckpointAsync(ctx context.Context) chan error
 	return checkpointDone
 }
 
+// stopPostgresForEmergencyDemote stops PostgreSQL during emergency demotion without restarting.
+// This is used when a primary needs to step down immediately during consensus term changes.
+// The node will be left in a stopped state and will require pg_rewind to rejoin the cluster.
+func (pm *MultiPoolerManager) stopPostgresForEmergencyDemote(ctx context.Context, state *demotionState) error {
+	if state.isReadOnly {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "unexpected state: PostgreSQL already in standby mode during emergency demotion")
+	}
+
+	if pm.pgctldClient == nil {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
+	}
+
+	stopReq := &pgctldpb.StopRequest{
+		Mode: "fast",
+	}
+	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
+		return mterrors.Wrap(err, "failed to stop PostgreSQL during emergency demotion")
+	}
+
+	pm.logger.InfoContext(ctx, "PostgreSQL stopped for emergency demotion")
+
+	pm.disableMonitorInternal()
+
+	return nil
+}
+
 // restartPostgresAsStandby restarts PostgreSQL as a standby server
 // This creates standby.signal and restarts PostgreSQL via pgctld
 func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
@@ -1028,31 +1054,6 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		"pid", resp.Pid,
 		"message", resp.Message)
 
-	return nil
-}
-
-// updateTopologyAfterDemotion updates the pooler type in topology from PRIMARY to REPLICA
-func (pm *MultiPoolerManager) updateTopologyAfterDemotion(ctx context.Context, state *demotionState) error {
-	if state.isReplicaInTopology {
-		pm.logger.InfoContext(ctx, "Topology already updated to REPLICA, skipping")
-		return nil
-	}
-
-	pm.logger.InfoContext(ctx, "Updating pooler type in topology to REPLICA")
-
-	// Update local state first
-	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
-	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
-	pm.mu.Unlock()
-
-	// Sync to topology
-	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
-		return mterrors.Wrap(err, "demotion succeeded but failed to update topology")
-	}
-
-	pm.logger.InfoContext(ctx, "Topology updated to REPLICA successfully")
 	return nil
 }
 

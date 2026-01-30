@@ -304,10 +304,10 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "Demote times out when lock is held",
+			name:       "EmergencyDemote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				_, err := manager.Demote(ctx, 1, 5*time.Second, false)
+				_, err := manager.EmergencyDemote(ctx, 1, 5*time.Second, false)
 				return err
 			},
 		},
@@ -1657,6 +1657,193 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, resp)
 		require.Contains(t, err.Error(), "manager is not open")
+	})
+}
+
+func TestStopPostgresForEmergencyDemote(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	t.Run("Success_StopsPostgres", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		createPgDataDir(t, tmpDir)
+		multipooler.PoolerDir = tmpDir
+
+		config := &Config{
+			TopoClient: ts,
+			PgctldAddr: pgctldAddr,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		defer pm.Close()
+
+		err = pm.setInitialized()
+		require.NoError(t, err)
+
+		mockQueryService := mock.NewQueryService()
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create demotion state indicating postgres is running as primary (not read-only)
+		state := &demotionState{
+			isReadOnly: false,
+		}
+
+		// Verify monitoring is initially running
+		require.True(t, pm.pgMonitor.Running(), "Monitor should be running initially")
+
+		// Call stopPostgresForEmergencyDemote - should succeed
+		err = pm.stopPostgresForEmergencyDemote(ctx, state)
+		require.NoError(t, err, "Should successfully stop postgres for emergency demotion")
+
+		// Verify monitoring is disabled after emergency demotion
+		require.False(t, pm.pgMonitor.Running(), "Monitor should be stopped after emergency demotion")
+	})
+
+	t.Run("Error_AlreadyInStandbyMode", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		createPgDataDir(t, tmpDir)
+		multipooler.PoolerDir = tmpDir
+
+		config := &Config{
+			TopoClient: ts,
+			PgctldAddr: pgctldAddr,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		defer pm.Close()
+
+		err = pm.setInitialized()
+		require.NoError(t, err)
+
+		mockQueryService := mock.NewQueryService()
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create demotion state indicating postgres is already in standby mode
+		state := &demotionState{
+			isReadOnly: true,
+		}
+
+		// Call stopPostgresForEmergencyDemote - should fail with unexpected state error
+		err = pm.stopPostgresForEmergencyDemote(ctx, state)
+		require.Error(t, err, "Should fail when postgres is already in standby mode")
+		assert.Contains(t, err.Error(), "unexpected state")
+		assert.Contains(t, err.Error(), "standby mode")
+
+		// Verify error code
+		code := mterrors.Code(err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
+	})
+
+	t.Run("Error_PgctldClientNotInitialized", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		createPgDataDir(t, tmpDir)
+		multipooler.PoolerDir = tmpDir
+
+		// No pgctld address - client will not be initialized
+		config := &Config{
+			TopoClient: ts,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		defer pm.Close()
+
+		// Create demotion state
+		state := &demotionState{
+			isReadOnly: false,
+		}
+
+		// Call stopPostgresForEmergencyDemote - should fail because pgctld client is nil
+		err = pm.stopPostgresForEmergencyDemote(ctx, state)
+		require.Error(t, err, "Should fail when pgctld client is not initialized")
+		assert.Contains(t, err.Error(), "pgctld client not initialized")
+
+		// Verify error code
+		code := mterrors.Code(err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
 	})
 }
 

@@ -112,7 +112,7 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 		// Use a reasonable drain timeout for demotion
 		drainTimeout := 5 * time.Second
-		demoteLSN, demoteErr := pm.demoteLocked(ctx, req.Term, drainTimeout)
+		demoteLSN, demoteErr := pm.emergencyDemoteLocked(ctx, req.Term, drainTimeout)
 		if demoteErr != nil {
 			// Demotion failed - do NOT accept the term
 			// Return accepted=false so coordinator knows this node couldn't safely step down
