@@ -997,8 +997,6 @@ func (pm *MultiPoolerManager) stopPostgresForEmergencyDemote(ctx context.Context
 
 	pm.logger.InfoContext(ctx, "PostgreSQL stopped for emergency demotion")
 
-	pm.disableMonitorInternal()
-
 	return nil
 }
 
