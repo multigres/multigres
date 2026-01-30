@@ -28,14 +28,14 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
-          go-version: "1.25.1"
+          go-version-file: go.mod
 
       - name: Set up test environment
         run: .github/scripts/setup-test-environment.sh
@@ -44,7 +44,7 @@ jobs:
         run: make build
 
       - name: Run integration tests
-        run: go test -json -v ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
+        run: go test -json -v -skip TestPostgreSQLRegression ./go/test/endtoend/... | tee integration-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report
         uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0

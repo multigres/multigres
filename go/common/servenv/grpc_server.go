@@ -18,6 +18,7 @@ package servenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -307,7 +308,7 @@ func (g *GrpcServer) Create() error {
 
 	var opts []grpc.ServerOption
 	if g.cert.Get() != "" && g.key.Get() != "" {
-		return fmt.Errorf("TLS is not implemented yet")
+		return errors.New("TLS is not implemented yet")
 	}
 	// Override the default max message size for both send and receive
 	// (which is 4 MiB in gRPC 1.0.0).

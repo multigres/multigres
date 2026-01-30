@@ -18,22 +18,174 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html/template"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/config"
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/tools/retry"
 )
 
+// PgBackRestConfigMode specifies how initPgBackRest should create the config file
+type PgBackRestConfigMode bool
+
+const (
+	// ForBackup creates a temporary config file in /tmp with pg2 configuration for standby poolers
+	ForBackup PgBackRestConfigMode = true
+	// NotForBackup creates a persistent config file in the pooler directory without pg2 configuration
+	NotForBackup PgBackRestConfigMode = false
+)
+
+// initPgBackRest creates the pgBackRest config file and sets up the necessary directories.
+// Returns the path to the backup config file.
+// If mode is NotForBackup and the config file already exists, it returns the path without recreating it.
+// If mode is ForBackup, it creates a temporary config file and returns that path.
+// The config file that is created NotForBackup will be used by postgres and other tooling. It should
+// therefore not be overwritten once created. Otherwise, it can cause problems if postgres tries to
+// archive a WAL just when we're overwriting it.
+func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRestConfigMode) (string, error) {
+	pgbackrestPath := pm.pgbackrestPath()
+	configPath := filepath.Join(pgbackrestPath, "pgbackrest.conf")
+
+	// Initialize path names used in the config file
+	logsPath := filepath.Join(pgbackrestPath, "logs")
+	spoolPath := filepath.Join(pgbackrestPath, "spool")
+	lockPath := filepath.Join(pgbackrestPath, "lock")
+
+	// If this is for backup, we'll create a backup config file instead
+	if mode == ForBackup {
+		// Don't use the main config file for backups.
+		// We need to regenerate this every time because the primary may change.
+		configPath = filepath.Join(pgbackrestPath, "pgbackrest-backup.conf")
+		// Create the pgbackrest directory to write the backup config file
+		if err := os.MkdirAll(pgbackrestPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create config directory %s: %w", pgbackrestPath, err)
+		}
+	} else {
+		// Do not regenerate the config file if it already exists.
+		// We don't want to overwrite the file once it's created because postgres
+		// will be using it to archive WALs.
+		if _, err := os.Stat(configPath); err == nil {
+			// Config file exists, nothing to do
+			return configPath, nil
+		}
+
+		// Create directories along with the persistent config.
+		if err := os.MkdirAll(pgbackrestPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create config directory %s: %w", pgbackrestPath, err)
+		}
+		if err := os.MkdirAll(logsPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create logs directory %s: %w", logsPath, err)
+		}
+		if err := os.MkdirAll(spoolPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create spool directory %s: %w", spoolPath, err)
+		}
+		if err := os.MkdirAll(lockPath, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create lock directory %s: %w", lockPath, err)
+		}
+	}
+
+	// Validate backup location is set (requires topology to be loaded)
+	if pm.backupLocation == "" {
+		return "", errors.New("backup location not set; topology may not be loaded yet")
+	}
+
+	// Generate pgbackrest config file from template
+	tmpl, err := template.New("pgbackrest").Parse(config.PgBackRestConfigTmpl)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse pgbackrest config template: %w", err)
+	}
+
+	templateData := struct {
+		LogPath   string
+		SpoolPath string
+		LockPath  string
+
+		Repo1Path string
+
+		Pg1SocketPath string
+		Pg1Port       int
+		Pg1Path       string
+
+		ServerCertFile string
+		ServerKeyFile  string
+		ServerCAFile   string
+		ServerPort     int
+		ServerAuths    []string
+
+		Pg2Host string
+		Pg2Port int
+		Pg2Path string
+
+		Pg2HostPort     int
+		Pg2HostCAFile   string
+		Pg2HostCertFile string
+		Pg2HostKeyFile  string
+	}{
+		LogPath:   logsPath,
+		SpoolPath: spoolPath,
+		LockPath:  lockPath,
+
+		Repo1Path: pm.backupLocation,
+
+		Pg1SocketPath: filepath.Join(pm.multipooler.PoolerDir, "pg_sockets"),
+		Pg1Port:       func() int { return int(pm.multipooler.PortMap["postgres"]) }(),
+		Pg1Path:       filepath.Join(pm.multipooler.PoolerDir, "pg_data"),
+
+		// Use configured certificate paths for server
+		ServerCertFile: pm.config.PgBackRestCertFile,
+		ServerKeyFile:  pm.config.PgBackRestKeyFile,
+		ServerCAFile:   pm.config.PgBackRestCAFile,
+		ServerPort:     pm.config.PgBackRestPort,
+		ServerAuths:    []string{"pgbackrest=*"},
+	}
+
+	// We need a pg2 section only for backups. Other operations only need pg1.
+	if mode == ForBackup {
+		// It's possible that there's no primary (during initialization). If so, we skip pg2.
+		if primaryPoolerID := pm.getPrimaryPoolerID(); primaryPoolerID != nil {
+			primarymp, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
+			if err != nil {
+				return "", fmt.Errorf("failed to get primary pooler info from topo: %w", err)
+			}
+			pm.mu.Lock()
+			templateData.Pg2Host = pm.primaryHost
+			templateData.Pg2Port = int(pm.primaryPort)
+			pm.mu.Unlock()
+			templateData.Pg2Path = filepath.Join(primarymp.PoolerDir, "pg_data")
+			templateData.Pg2HostPort = int(primarymp.GetPortMap()["pgbackrest"])
+			templateData.Pg2HostCAFile = pm.config.PgBackRestCAFile
+			templateData.Pg2HostCertFile = pm.config.PgBackRestCertFile
+			templateData.Pg2HostKeyFile = pm.config.PgBackRestKeyFile
+		}
+	}
+
+	var configContent strings.Builder
+	if err := tmpl.Execute(&configContent, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute pgbackrest config template: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, []byte(configContent.String()), 0o644); err != nil {
+		return "", fmt.Errorf("failed to write pgbackrest config file: %w", err)
+	}
+
+	return configPath, nil
+}
+
 // Backup performs a backup
-func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
+func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string, jobID string) (string, error) {
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
 		return "", err
@@ -47,32 +199,40 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	}
 	defer pm.actionLock.Release(ctx)
 
-	return pm.backupLocked(ctx, forcePrimary, backupType)
+	return pm.backupLocked(ctx, forcePrimary, backupType, jobID)
 }
 
 // backupLocked performs a backup. Caller must hold the action lock.
-func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string) (string, error) {
+func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string) (string, error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
+
+	pm.logger.InfoContext(ctx, "Starting backup operation", "backup_location", pm.backupLocation, "backup_type", backupType)
 
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
 		return "", err
 	}
 
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
-	tableGroup := pm.getTableGroup()
-	shard := pm.getShard()
-	multipoolerID, err := pm.getMultipoolerIDString()
+	configPath, err := pm.initPgBackRest(ctx, ForBackup)
 	if err != nil {
 		return "", err
 	}
-	backupTimestamp := time.Now().Format("20060102-150405.000000")
+
+	tableGroup := pm.multipooler.TableGroup
+	shard := pm.multipooler.Shard
+	multipoolerID := topoclient.MultiPoolerIDString(pm.multipooler.Id)
+	multipoolerName := pm.multipooler.Id.Name
+
+	// Use provided job_id or generate one (same format as multiadmin)
+	effectiveJobID := jobID
+	if effectiveJobID == "" {
+		effectiveJobID = backup.GenerateJobID(multipoolerID)
+	}
 
 	// Validate parameters and get pgbackrest type
-	pgBackRestType, err := pm.validateBackupParams(backupType, configPath, stanzaName)
+	pgBackRestType, err := pm.validateBackupParams(backupType, configPath)
 	if err != nil {
 		return "", err
 	}
@@ -82,11 +242,9 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	defer cancel()
 
 	args := []string{
-		"--stanza=" + stanzaName,
+		"--stanza=" + pm.stanzaName(),
 		"--config=" + configPath,
-		"--repo1-path=" + pm.backupLocation,
 		"--type=" + pgBackRestType,
-		"--log-level-console=info",
 	}
 
 	// Add annotations if table_group and shard are provided
@@ -97,23 +255,25 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		args = append(args, "--annotation=shard="+shard)
 	}
 
-	// Add multipooler_id and backup_timestamp annotations for unique identification
-	args = append(args, "--annotation=multipooler_id="+multipoolerID)
-	args = append(args, "--annotation=backup_timestamp="+backupTimestamp)
+	// Add multipooler_id, pooler_type, and job_id annotations for unique identification
+	args = append(args, "--annotation=multipooler_id="+multipoolerName)
+	poolerType := pm.getPoolerType()
+	args = append(args, "--annotation=pooler_type="+poolerType.String())
+	args = append(args, "--annotation=job_id="+effectiveJobID)
 
 	args = append(args, "backup")
 
 	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
 
-	// Capture output for logging
-	output, err := cmd.CombinedOutput()
+	// Execute backup with progress logging
+	output, err := pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest backup failed: %v\nOutput: %s", err, string(output)))
 	}
 
 	// Find the backup ID by querying pgbackrest info with our unique annotations
-	backupID, err := pm.findBackupByAnnotations(ctx, multipoolerID, backupTimestamp)
+	foundBackupID, err := pm.findBackupByJobID(ctx, effectiveJobID)
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to find backup by annotations: %v\nBackup output: %s", err, string(output)))
@@ -124,22 +284,21 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	defer verifyCancel()
 
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
-		"--stanza="+stanzaName,
+		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
-		"--repo1-path="+pm.backupLocation,
-		"--set="+backupID,
-		"--log-level-console=info",
+		"--set="+foundBackupID,
 		"verify")
 
-	verifyOutput, verifyErr := verifyCmd.CombinedOutput()
+	// Execute verify with progress logging
+	verifyOutput, verifyErr := pm.runLongCommand(verifyCtx, verifyCmd, "pgbackrest verify backup_id="+foundBackupID)
 	if verifyErr != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", backupID, verifyErr, string(verifyOutput)))
+			fmt.Sprintf("pgbackrest verify failed for backup %s: %v\nOutput: %s", foundBackupID, verifyErr, string(verifyOutput)))
 	}
 	// TODO: use `pgbackrest info` to verify that the database pages from the backed up
 	// Postgres cluster pass checksum validation.
 
-	return backupID, nil
+	return foundBackupID, nil
 }
 
 // RestoreFromBackup restores from a backup to a standby without a data directory.
@@ -168,14 +327,24 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Pause monitoring during restore to prevent interference
+	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
+	if err != nil {
+		return err
+	}
+	defer resumeMonitor(ctx)
+
 	return pm.restoreFromBackupLocked(ctx, backupID)
 }
 
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+// restoreFromBackupLocked performs the restore. Caller must hold the action lock
+// and monitoring must be disabled to avoid interference.
 func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+
+	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_location", pm.backupLocation, "backup_id", backupID)
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -194,9 +363,36 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	if err := pm.executePgBackrestRestore(ctx, backupID); err != nil {
 		return err
 	}
+
+	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
+	// After restore, postgresql.auto.conf contains archive_command pointing to the
+	// primary's pgbackrest.conf path. Each pooler needs its own config path.
+	pm.logger.InfoContext(ctx, "Reconfiguring archive_command for local pgbackrest.conf")
+	if err := pm.removeArchiveConfigFromAutoConf(); err != nil {
+		return mterrors.Wrap(err, "failed to remove old archive configuration")
+	}
+	if err := pm.configureArchiveMode(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to configure archive mode")
+	}
+
 	if err := pm.startPostgreSQLAfterRestore(ctx, backupID); err != nil {
 		return err
 	}
+
+	// Set consensus term after restore.
+	// If the cluster is at a higher term,
+	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
+	var term int64 = 0
+	if pm.consensusState != nil {
+		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
+		pm.loadConsensusTermFromDisk()
+		term = pm.consensusState.term.TermNumber
+	}
+
+	if term == 0 {
+		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
+	}
+
 	if err := pm.reopenPoolerManager(ctx); err != nil {
 		return err
 	}
@@ -206,24 +402,18 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 }
 
 func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, backupID string) error {
-	stanzaName := pm.getBackupStanza()
-	configPath := pm.getBackupConfigPath()
-
-	if configPath == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
+	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
 	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
 	args := []string{
-		"--stanza=" + stanzaName,
+		"--stanza=" + pm.stanzaName(),
 		"--config=" + configPath,
-		"--repo1-path=" + pm.backupLocation,
-		"--log-level-console=info",
+		"--type=standby",
 	}
 
 	if backupID != "" {
@@ -322,16 +512,11 @@ func (pm *MultiPoolerManager) getBackupsLocked(ctx context.Context, limit uint32
 // (which are immutable after construction) and backupLocation (which is
 // set once during startup and never modified).
 func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolermanagerdata.BackupMetadata, error) {
-	configPath := pm.getBackupConfigPath()
-	stanzaName := pm.getBackupStanza()
+	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest")
+	}
 
-	// Validate required configuration
-	if configPath == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
-	}
 	if pm.backupLocation == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup_location is required")
 	}
@@ -341,9 +526,8 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	defer cancel()
 
 	cmd := exec.CommandContext(queryCtx, "pgbackrest",
-		"--stanza="+stanzaName,
+		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
-		"--repo1-path="+pm.backupLocation,
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
@@ -370,7 +554,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	}
 
 	// Get current pooler's table_group and shard for filtering
-	currentTableGroup := pm.config.TableGroup
+	currentTableGroup := pm.multipooler.TableGroup
 	currentShard := pm.getShardID()
 
 	// Extract backups from the first stanza (should be the only one)
@@ -381,12 +565,20 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 			status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
 		}
 
-		// Extract table_group and shard from annotations
+		// Extract table_group, shard, job_id, multipooler_id, and pooler_type from annotations
 		tableGroup := ""
 		shard := ""
+		jobID := ""
+		multipoolerID := ""
+		poolerType := clustermetadatapb.PoolerType_UNKNOWN
 		if pgBackup.Annotation != nil {
 			tableGroup = pgBackup.Annotation["table_group"]
 			shard = pgBackup.Annotation["shard"]
+			jobID = pgBackup.Annotation["job_id"]
+			multipoolerID = pgBackup.Annotation["multipooler_id"]
+			if pt, ok := clustermetadatapb.PoolerType_value[pgBackup.Annotation["pooler_type"]]; ok {
+				poolerType = clustermetadatapb.PoolerType(pt)
+			}
 		}
 
 		// Defense-in-depth: skip backups that don't match this pooler's shard.
@@ -413,12 +605,23 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 			finalLSN = pgBackup.LSN.Stop
 		}
 
+		// Extract backup size if available
+		var backupSizeBytes uint64
+		if pgBackup.Info != nil {
+			backupSizeBytes = pgBackup.Info.Size
+		}
+
 		backups = append(backups, &multipoolermanagerdata.BackupMetadata{
-			BackupId:   pgBackup.Label,
-			Status:     status,
-			TableGroup: tableGroup,
-			Shard:      shard,
-			FinalLsn:   finalLSN,
+			BackupId:        pgBackup.Label,
+			Status:          status,
+			TableGroup:      tableGroup,
+			Shard:           shard,
+			FinalLsn:        finalLSN,
+			JobId:           jobID,
+			BackupSizeBytes: backupSizeBytes,
+			Type:            pgBackup.Type,
+			MultipoolerId:   multipoolerID,
+			PoolerType:      poolerType,
 		})
 	}
 
@@ -439,6 +642,18 @@ type pgBackRestBackup struct {
 	Timestamp  pgBackRestTimestamp `json:"timestamp"`
 	Annotation map[string]string   `json:"annotation,omitempty"`
 	LSN        *pgBackRestLSN      `json:"lsn,omitempty"` // LSN range for this backup
+	Info       *pgBackRestSizeInfo `json:"info,omitempty"`
+}
+
+// pgBackRestSizeInfo represents size information for a backup
+type pgBackRestSizeInfo struct {
+	Size       uint64                    `json:"size"`       // Original database size in bytes
+	Repository *pgBackRestRepositorySize `json:"repository"` // Compressed size in repository
+}
+
+// pgBackRestRepositorySize represents repository size info
+type pgBackRestRepositorySize struct {
+	Size uint64 `json:"size"` // Compressed size in repository in bytes
 }
 
 // pgBackRestTimestamp represents backup timestamps
@@ -467,7 +682,7 @@ func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePri
 }
 
 // validateBackupParams validates the backup type and returns the pgbackrest type mapping
-func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath, stanzaName string) (pgBackRestType string, err error) {
+func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath string) (pgBackRestType string, err error) {
 	// Validate backup type is provided
 	if backupType == "" {
 		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "type is required")
@@ -489,9 +704,6 @@ func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath, stanz
 	// Validate required backup configuration
 	if configPath == "" {
 		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "config_path is required")
-	}
-	if stanzaName == "" {
-		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "stanza_name is required")
 	}
 
 	return pgBackRestType, nil
@@ -549,23 +761,18 @@ func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
 	return combinedBuf.String(), cmd.Wait()
 }
 
-// findBackupByAnnotations finds a backup by matching multipooler_id and backup_timestamp annotations
+// findBackupByJobID finds a backup by matching the job_id annotation
 //
 // This function has to scan the entire backup history to find the backup, but the worst case
 // should be manageable, because production deployments should have retention policies that
 // trigger pgBackRest to delete older backups.
-func (pm *MultiPoolerManager) findBackupByAnnotations(
+func (pm *MultiPoolerManager) findBackupByJobID(
 	ctx context.Context,
-	multipoolerID string,
-	backupTimestamp string,
+	jobID string,
 ) (string, error) {
-	stanzaName := pm.getBackupStanza()
-	configPath := pm.getBackupConfigPath()
-
-	// Get backup location from topology
-	backupLocation, err := pm.getBackupLocation(ctx)
+	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
 	if err != nil {
-		return "", err
+		return "", mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
 	// Execute pgbackrest info command with JSON output
@@ -573,9 +780,8 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 	defer cancel()
 
 	cmd := exec.CommandContext(infoCtx, "pgbackrest",
-		"--stanza="+stanzaName,
+		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
-		"--repo1-path="+backupLocation,
 		"--output=json",
 		"--log-level-console=off",
 		"info")
@@ -602,8 +808,7 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 	var matchedBackups []string
 	for _, pgBackup := range infoData[0].Backup {
 		if pgBackup.Annotation != nil {
-			if pgBackup.Annotation["multipooler_id"] == multipoolerID &&
-				pgBackup.Annotation["backup_timestamp"] == backupTimestamp {
+			if pgBackup.Annotation["job_id"] == jobID {
 				matchedBackups = append(matchedBackups, pgBackup.Label)
 			}
 		}
@@ -611,148 +816,111 @@ func (pm *MultiPoolerManager) findBackupByAnnotations(
 
 	if len(matchedBackups) == 0 {
 		return "", mterrors.New(mtrpcpb.Code_NOT_FOUND,
-			fmt.Sprintf("no backup found with multipooler_id=%s and backup_timestamp=%s",
-				multipoolerID, backupTimestamp))
+			"no backup found with job_id="+jobID)
 	}
 
 	if len(matchedBackups) > 1 {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("found %d backups with multipooler_id=%s and backup_timestamp=%s, expected 1",
-				len(matchedBackups), multipoolerID, backupTimestamp))
+			fmt.Sprintf("found %d backups with job_id=%s, expected 1",
+				len(matchedBackups), jobID))
 	}
 
 	return matchedBackups[0], nil
 }
 
-// tryAutoRestoreFromBackup attempts to restore from backup if the pooler is uninitialized.
-// Returns true if restore was attempted and succeeded, false otherwise.
-// This is called during startup before the manager signals ready state.
-//
-// Auto-restore only applies to REPLICA poolers. PRIMARY poolers must be explicitly
-// initialized via InitializeEmptyPrimary RPC.
-//
-// If uninitialized and no backup is available, the pooler stays in uninitialized state
-// and waits for explicit initialization via RPC.
-// tryAutoRestoreFromBackup attempts to restore from backup if the pooler is uninitialized.
-// This runs as an independent goroutine started by Start().
-// It waits for topo to be loaded, then retries until:
-// - A backup is found and restore succeeds
-// - The pooler becomes initialized (by an RPC)
-// - The context is cancelled
-//
-// Auto-restore only applies to REPLICA poolers. PRIMARY poolers must be explicitly
-// initialized via InitializeEmptyPrimary RPC.
-func (pm *MultiPoolerManager) tryAutoRestoreFromBackup(ctx context.Context) {
-	// Wait for manager to be ready (topo loaded) before checking initialization state
-	pm.waitForReady(ctx)
-
-	// Check context after waiting
-	if ctx.Err() != nil {
-		pm.logger.InfoContext(ctx, "Auto-restore: context cancelled while waiting for topo")
-		return
+// GetBackupByJobId searches for a backup with the given job_id annotation.
+// Returns nil Backup if not found.
+func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string) (*multipoolermanagerdata.BackupMetadata, error) {
+	if jobID == "" {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "job_id is required")
 	}
 
-	// TODO: Handle partial initialization state (data dir exists but no marker).
-	// Currently we proceed as if uninitialized, which may cause issues if
-	// PostgreSQL is partially set up. Options for future:
-	// - Detect and cleanup automatically (with explicit flag)
-	// - Detect and block startup, require manual intervention
+	pm.logger.DebugContext(ctx, "Searching for backup by job_id", "job_id", jobID)
 
-	// Check if already initialized - skip if so (no retry needed)
-	if pm.isInitialized(ctx) {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler already initialized")
-		return
+	// We can't proceed without the topo, which is loaded asynchronously at startup
+	if err := pm.checkReady(); err != nil {
+		return nil, err
 	}
 
-	// Only auto-restore REPLICA poolers - PRIMARY must be explicitly initialized.
-	poolerType := pm.getPoolerType()
-	if poolerType != clustermetadatapb.PoolerType_REPLICA {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: only REPLICA poolers auto-restore", "pooler_type", poolerType.String())
-		return
+	// Acquire the action lock to ensure only one operation runs at a time
+	var err error
+	ctx, err = pm.actionLock.Acquire(ctx, "GetBackupByJobId")
+	if err != nil {
+		return nil, err
+	}
+	defer pm.actionLock.Release(ctx)
+
+	// Get all backups and search for matching job_id
+	backups, err := pm.getBackupsLocked(ctx, 0) // 0 = no limit
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to get backups")
 	}
 
-	pm.logger.InfoContext(ctx, "Auto-restore: pooler is uninitialized, checking for backups")
-
-	// Retry loop: keep trying until we succeed or context is cancelled
-	r := retry.New(pm.autoRestoreRetryInterval, pm.autoRestoreRetryInterval)
-	for attempt, err := range r.Attempts(ctx) {
-		if err != nil {
-			pm.logger.InfoContext(ctx, "Auto-restore: context cancelled", "attempts", attempt, "error", err)
-			return
+	for _, backup := range backups {
+		if backup.JobId == jobID {
+			pm.logger.DebugContext(ctx, "Found backup by job_id",
+				"job_id", jobID,
+				"backup_id", backup.BackupId,
+				"status", backup.Status)
+			return backup, nil
 		}
-
-		if attempt > 1 {
-			pm.logger.InfoContext(ctx, "Auto-restore: retrying", "attempt", attempt)
-		}
-
-		_, done := pm.tryAutoRestoreOnce(ctx)
-		if done {
-			// Either succeeded or determined should not retry
-			return
-		}
-		// continue to next iteration for retry
 	}
+
+	pm.logger.DebugContext(ctx, "Backup not found by job_id", "job_id", jobID)
+	return nil, nil
 }
 
-// tryAutoRestoreOnce attempts a single auto-restore from backup.
-// Returns (success, done) where:
-//   - success=true, done=true: restore completed successfully
-//   - success=false, done=true: should not retry (e.g., already initialized)
-//   - success=false, done=false: should retry
-func (pm *MultiPoolerManager) tryAutoRestoreOnce(ctx context.Context) (success bool, done bool) {
-	// Acquire action lock to prevent races with initialization RPCs.
-	// This ensures InitializeEmptyPrimary/InitializeAsStandby can't run concurrently.
-	lockCtx, err := pm.actionLock.Acquire(ctx, "tryAutoRestoreFromBackup")
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: failed to acquire action lock, will retry", "error", err)
-		return false, false
-	}
-	defer pm.actionLock.Release(lockCtx)
+// pgbackrestPath returns the path to the pgbackrest config and data directory
+func (pm *MultiPoolerManager) pgbackrestPath() string {
+	return filepath.Join(pm.multipooler.PoolerDir, "pgbackrest")
+}
 
-	// Check if we were initialized while waiting (by an RPC)
-	if pm.isInitialized(lockCtx) {
-		pm.logger.InfoContext(ctx, "Auto-restore skipped: pooler was initialized while waiting")
-		return false, true
-	}
+// runLongCommand executes a long-running command with periodic progress logging.
+// Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
+// to ensure proper cleanup on context cancellation.
+func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
+	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
 
-	// Check for available backups
-	backups, err := pm.listBackups(lockCtx)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: failed to check for backups, will retry", "error", err)
-		return false, false
-	}
+	startTime := time.Now()
 
-	// Filter to only complete backups for auto-restore
-	var completeBackups []*multipoolermanagerdata.BackupMetadata
-	for _, b := range backups {
-		if b.Status == multipoolermanagerdata.BackupMetadata_COMPLETE {
-			completeBackups = append(completeBackups, b)
+	// Create a context for the logging goroutine
+	logCtx, cancelLog := context.WithCancel(ctx)
+
+	// Log progress periodically in background
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-logCtx.Done():
+				return
+			case <-ticker.C:
+				elapsed := time.Since(startTime)
+				pm.logger.InfoContext(ctx, "Command still in progress",
+					"operation", operationName,
+					"elapsed_seconds", int(elapsed.Seconds()))
+			}
 		}
-	}
+	}()
 
-	if len(completeBackups) == 0 {
-		pm.logger.InfoContext(ctx, "Auto-restore: no complete backups available yet, will retry",
-			"total_backups", len(backups))
-		return false, false
-	}
+	// Run command in main goroutine
+	output, err := cmd.CombinedOutput()
 
-	// Use the latest complete backup (last in the list from pgbackrest, according to
-	// pgbackrest docs)
-	latestBackup := completeBackups[len(completeBackups)-1]
-	pm.logger.InfoContext(ctx, "Auto-restore: found backup, attempting restore",
-		"backup_id", latestBackup.BackupId,
-		"total_backups", len(backups))
+	cancelLog()
 
-	// Perform the restore using restoreFromBackupLocked
-	// This ensures consistent behavior between auto-restore and explicit RestoreFromBackup RPC
-	pm.logger.InfoContext(ctx, "Executing auto-restore from backup", "backup_id", latestBackup.BackupId)
-	if err := pm.restoreFromBackupLocked(lockCtx, latestBackup.BackupId); err != nil {
-		pm.logger.ErrorContext(ctx, "Auto-restore: restore failed, will retry",
-			"backup_id", latestBackup.BackupId,
+	// Log completion
+	elapsed := time.Since(startTime)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Command failed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()),
 			"error", err)
-		return false, false
+	} else {
+		pm.logger.InfoContext(ctx, "Command completed",
+			"operation", operationName,
+			"elapsed_seconds", int(elapsed.Seconds()))
 	}
 
-	pm.logger.InfoContext(ctx, "Auto-restore: completed successfully", "backup_id", latestBackup.BackupId)
-	return true, true
+	return output, err
 }

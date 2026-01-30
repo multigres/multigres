@@ -15,6 +15,7 @@
 package pgctld
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -29,7 +30,7 @@ import (
 // If the path is already absolute, it returns the path unchanged.
 func ExpandToAbsolutePath(dir string) (string, error) {
 	if dir == "" {
-		return "", fmt.Errorf("directory path cannot be empty")
+		return "", errors.New("directory path cannot be empty")
 	}
 
 	// If already absolute, return as-is
@@ -54,7 +55,7 @@ func ExpandToAbsolutePath(dir string) (string, error) {
 func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*PostgresServerConfig, error) {
 	// Create minimal config for template generation
 	if poolerDir == "" {
-		return nil, fmt.Errorf("--pooler-dir needs to be set to generate postgres server config")
+		return nil, errors.New("--pooler-dir needs to be set to generate postgres server config")
 	}
 
 	// Expand relative path to absolute path for consistent path handling
@@ -182,6 +183,11 @@ func PostgresSocketDir(poolerDir string) string {
 // PostgresConfigFile returns the default location of the postgresql.conf file.
 func PostgresConfigFile(poolerDir string) string {
 	return path.Join(PostgresDataDir(poolerDir), "postgresql.conf")
+}
+
+// PostgresPasswordFile returns the conventional location of the PostgreSQL password file.
+func PostgresPasswordFile(poolerDir string) string {
+	return path.Join(poolerDir, "pgpassword.txt")
 }
 
 // MakePostgresConf will substitute values in the template

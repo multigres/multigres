@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -130,11 +131,11 @@ func (al *ActionLock) Release(ctx context.Context) {
 func AssertActionLockHeld(ctx context.Context) error {
 	val, ok := ctx.Value(actionLockKey{}).(*actionLockValue)
 	if !ok {
-		return fmt.Errorf("context does not hold an action lock")
+		return errors.New("context does not hold an action lock")
 	}
 
 	if val.released.Load() {
-		return fmt.Errorf("context's action lock has been released")
+		return errors.New("context's action lock has been released")
 	}
 
 	return nil

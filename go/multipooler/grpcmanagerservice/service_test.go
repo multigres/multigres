@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -83,13 +84,11 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
-		PgctldAddr: pgctldAddr,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
+		TopoClient:     ts,
+		PgctldAddr:     pgctldAddr,
+		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer pm.Close()
 
@@ -154,13 +153,20 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		Name:      "test-service",
 	}
 
-	config := &manager.Config{
-		TopoClient: ts,
-		ServiceID:  serviceID,
+	multipooler := &clustermetadata.MultiPooler{
+		Id:         serviceID,
+		Database:   "testdb",
+		Hostname:   "localhost",
+		PortMap:    map[string]int32{"grpc": 8080},
 		TableGroup: constants.DefaultTableGroup,
 		Shard:      constants.DefaultShard,
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+
+	config := &manager.Config{
+		TopoClient:     ts,
+		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
+	}
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer pm.Close()
 
@@ -180,8 +186,17 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			name: "SetPrimaryConnInfo",
 			method: func() error {
 				req := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-					Host: "primary.example.com",
-					Port: 5432,
+					Primary: &clustermetadata.MultiPooler{
+						Id: &clustermetadata.ID{
+							Component: clustermetadata.ID_MULTIPOOLER,
+							Cell:      "zone1",
+							Name:      "test-primary-id",
+						},
+						Hostname: "primary.example.com",
+						PortMap: map[string]int32{
+							"postgres": 5432,
+						},
+					},
 				}
 				_, err := svc.SetPrimaryConnInfo(ctx, req)
 				return err

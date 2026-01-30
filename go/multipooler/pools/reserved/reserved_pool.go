@@ -16,6 +16,7 @@ package reserved
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -62,7 +63,8 @@ type Pool struct {
 	// active tracks reserved connections by their unique ID.
 	active map[int64]*Conn
 
-	// lastID generates unique connection IDs.
+	// lastID generates unique connection IDs. Initialized with current Unix nanoseconds
+	// to prevent ID collisions after multipooler restarts.
 	lastID atomic.Int64
 
 	// closed indicates whether the pool has been closed.
@@ -101,8 +103,8 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	poolCtx, cancel := context.WithCancel(ctx)
 
 	// Create the underlying regular pool.
-	regularPool := regular.NewPool(config.RegularPoolConfig)
-	regularPool.Open(ctx)
+	regularPool := regular.NewPool(ctx, config.RegularPoolConfig)
+	regularPool.Open()
 
 	p := &Pool{
 		config: config,
@@ -112,6 +114,11 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 		ctx:    poolCtx,
 		cancel: cancel,
 	}
+
+	// Initialize lastID with current Unix nanoseconds to prevent ID collisions
+	// after multipooler restarts. Sequential IDs from this starting point
+	// won't collide with IDs from previous pool instances.
+	p.lastID.Store(time.Now().UnixNano())
 
 	// Start background killer goroutine.
 	// Ticker interval is 1/10th the idle timeout (like Vitess).
@@ -143,7 +150,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
-		return nil, fmt.Errorf("reserved pool is closed")
+		return nil, errors.New("reserved pool is closed")
 	}
 	p.mu.Unlock()
 
@@ -153,7 +160,8 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
 
-	// Generate unique ID.
+	// Generate unique ID. Since lastID is initialized with Unix nanoseconds,
+	// IDs won't collide with previous pool instances after restarts.
 	connID := p.lastID.Add(1)
 
 	// Create reserved connection.

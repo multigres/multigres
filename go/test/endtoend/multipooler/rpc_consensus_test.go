@@ -25,7 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/multigres/multigres/go/test/endtoend"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -74,7 +74,7 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, "primary-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		// Verify cell
 		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
@@ -111,7 +111,7 @@ func TestConsensus_Status(t *testing.T) {
 		require.NotNil(t, resp, "Response should not be nil")
 
 		// Verify node ID
-		assert.Equal(t, "standby-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.StandbyMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		// Verify cell
 		assert.Equal(t, "test-cell", resp.Cell, "Cell should match")
@@ -181,7 +181,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		// Term should be rejected because it is too old
 		assert.False(t, resp.Accepted, "Old term should not be accepted")
 		assert.Equal(t, int64(1), resp.Term, "Response term should be current term (1)")
-		assert.Equal(t, "standby-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.StandbyMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		t.Log("BeginTerm correctly rejected old term")
 	})
@@ -209,7 +209,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		// 3. Haven't accepted any other leader yet in this term
 		assert.True(t, resp.Accepted, "New term should be accepted")
 		assert.Equal(t, int64(2), resp.Term, "Response term should be updated to new term")
-		assert.Equal(t, "primary-multipooler", resp.PoolerId, "PoolerId should match")
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
 
 		t.Log("BeginTerm correctly granted for new term")
 	})
@@ -282,9 +282,9 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 		require.NoError(t, err, "GetLeadershipView RPC should succeed")
 		require.NotNil(t, resp, "Response should not be nil")
 
-		// Verify leader_id is set (should be primary-multipooler)
+		// Verify leader_id is set (should be the primary multipooler)
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
-		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
+		assert.Equal(t, setup.PrimaryName, resp.LeaderId, "LeaderId should be primary")
 
 		// Verify last_heartbeat is set and recent
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
@@ -318,7 +318,7 @@ func TestConsensus_GetLeadershipView(t *testing.T) {
 
 		// Standby should also see the same leader information
 		assert.NotEmpty(t, resp.LeaderId, "LeaderId should not be empty")
-		assert.Equal(t, "primary-multipooler", resp.LeaderId, "LeaderId should be primary-multipooler")
+		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.LeaderId, "LeaderId should be primary-multipooler")
 		// LeaderTerm is deprecated and always 0 now (stored only in consensus state file)
 
 		require.NotNil(t, resp.LastHeartbeat, "LastHeartbeat should not be nil")
@@ -481,7 +481,7 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		t.Logf("Current term: %d, role: %s", currentTerm, statusResp.Role)
 
 		// Verify PostgreSQL is actually running as primary (not in recovery)
-		primaryPoolerClient, err := endtoend.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 		require.NoError(t, err)
 		defer primaryPoolerClient.Close()
 
@@ -538,9 +538,17 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		t.Log("Restoring original state...")
 
 		// Configure demoted primary to replicate from standby
+		primary := &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      setup.CellName,
+				Name:      setup.StandbyMultipooler.Name,
+			},
+			Hostname: "localhost",
+			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
+		}
 		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Host:                  "localhost",
-			Port:                  int32(setup.StandbyMultipooler.PgPort),
+			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           newTerm,
@@ -549,17 +557,7 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
-		// Set term on standby for promotion
-		promoteTerm := newTerm + 1
-		setTermReq := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: promoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq)
-		require.NoError(t, err, "SetTerm should succeed on standby")
-
-		// Stop replication on standby
+		// Stop replication on standby to prepare for promotion
 		_, err = standbyManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
 		require.NoError(t, err, "StopReplication should succeed")
 
@@ -570,43 +568,28 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		standbyLSN := standbyStatusResp.Status.LastReplayLsn
 
 		// Promote standby to primary
+		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: promoteTerm,
+			ConsensusTerm: 0, // Ignored when Force=true
 			ExpectedLsn:   standbyLSN,
-			Force:         false,
+			Force:         true,
 		}
 		_, err = standbyManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote should succeed on standby")
 		t.Log("Standby promoted to primary")
 
 		// Now demote the new primary (standby) and promote original primary back
-		demoteTerm := promoteTerm + 1
-		setTermReq2 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: demoteTerm,
-			},
-		}
-		_, err = standbyManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq2)
-		require.NoError(t, err)
-
+		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
-			ConsensusTerm: demoteTerm,
-			Force:         false,
+			ConsensusTerm: 0, // Ignored when Force=true
+			Force:         true,
 		}
 		_, err = standbyManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed on new primary")
 		t.Log("New primary (original standby) demoted")
 
 		// Promote original primary back
-		restoreTerm := demoteTerm + 1
-		setTermReq3 := &multipoolermanagerdatapb.SetTermRequest{
-			Term: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: restoreTerm,
-			},
-		}
-		_, err = primaryManagerClient.SetTerm(utils.WithShortDeadline(t), setTermReq3)
-		require.NoError(t, err)
-
+		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
 		_, err = primaryManagerClient.StopReplication(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StopReplicationRequest{})
 		require.NoError(t, err)
 
@@ -616,9 +599,9 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		primaryLSN := primaryStatusResp.Status.LastReplayLsn
 
 		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
-			ConsensusTerm: restoreTerm,
+			ConsensusTerm: 0, // Ignored when Force=true
 			ExpectedLsn:   primaryLSN,
-			Force:         false,
+			Force:         true,
 		}
 		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
 		require.NoError(t, err, "Promote should succeed on original primary")

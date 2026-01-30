@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -88,6 +89,23 @@ func (cs *ConsensusState) GetInconsistentCurrentTermNumber() (int64, error) {
 	return cs.term.GetTermNumber(), nil
 }
 
+// GetInconsistentTerm returns a copy of the current consensus term for monitoring.
+// It doesn't require the action lock to be held, so the value returned may
+// be outdated by the time it's used. Use GetTerm() as part of any action
+// workflow to protect against race conditions.
+// Returns nil if state has not been loaded.
+func (cs *ConsensusState) GetInconsistentTerm() (*multipoolermanagerdatapb.ConsensusTerm, error) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if cs.term == nil {
+		return nil, nil
+	}
+
+	// Return a copy to prevent external modifications
+	return cloneTerm(cs.term), nil
+}
+
 // GetAcceptedLeader returns the coordinator ID this pooler accepted the term from.
 // Returns empty string if no coordinator was accepted.
 func (cs *ConsensusState) GetAcceptedLeader(ctx context.Context) (string, error) {
@@ -132,11 +150,11 @@ func (cs *ConsensusState) AcceptCandidateAndSave(ctx context.Context, candidateI
 	defer cs.mu.Unlock()
 
 	if cs.term == nil {
-		return fmt.Errorf("consensus term not initialized")
+		return errors.New("consensus term not initialized")
 	}
 
 	if candidateID == nil {
-		return fmt.Errorf("candidate ID cannot be nil")
+		return errors.New("candidate ID cannot be nil")
 	}
 
 	// If already accepted from this coordinator, idempotent success
@@ -177,7 +195,7 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 	defer cs.mu.Unlock()
 
 	if candidateID == nil {
-		return fmt.Errorf("candidate ID cannot be nil")
+		return errors.New("candidate ID cannot be nil")
 	}
 
 	currentTerm := int64(0)
@@ -202,7 +220,7 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 	} else {
 		// Same term: just update acceptance (idempotent check first)
 		if cs.term == nil {
-			return fmt.Errorf("consensus term not initialized")
+			return errors.New("consensus term not initialized")
 		}
 
 		// If already accepted from this coordinator, idempotent success
@@ -260,19 +278,6 @@ func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) 
 	}
 
 	// Save and update under lock
-	return cs.saveAndUpdateLocked(term)
-}
-
-// SetTermDirectly directly sets the consensus term to the provided value.
-// This is used for initialization or explicit term setting (e.g., by coordinator after leader appointment).
-// Unlike UpdateTermAndSave, this does NOT validate or reset fields - it saves exactly what's provided.
-func (cs *ConsensusState) SetTermDirectly(ctx context.Context, term *multipoolermanagerdatapb.ConsensusTerm) error {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return err
-	}
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
 	return cs.saveAndUpdateLocked(term)
 }
 

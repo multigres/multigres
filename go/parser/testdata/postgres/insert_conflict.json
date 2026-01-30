@@ -2,7 +2,7 @@
   {
     "comment": "insert_conflict - Statement 1",
     "query": "create table insertconflicttest(key int4, fruit text)",
-    "expected": "CREATE TABLE insertconflicttest (\"key\" INT, fruit TEXT)"
+    "expected": "CREATE TABLE insertconflicttest (key INT, fruit TEXT)"
   },
   {
     "comment": "insert_conflict - Statement 2",
@@ -12,27 +12,27 @@
   {
     "comment": "insert_conflict - Statement 3",
     "query": "create unique index op_index_key on insertconflicttest(key, fruit text_pattern_ops)",
-    "expected": "CREATE UNIQUE INDEX op_index_key ON insertconflicttest USING btree ( \"key\", fruit text_pattern_ops )"
+    "expected": "CREATE UNIQUE INDEX op_index_key ON insertconflicttest USING btree ( key, fruit text_pattern_ops )"
   },
   {
     "comment": "insert_conflict - Statement 4",
     "query": "create unique index collation_index_key on insertconflicttest(key, fruit collate \"C\")",
-    "expected": "CREATE UNIQUE INDEX collation_index_key ON insertconflicttest USING btree ( \"key\", fruit COLLATE \"C\" )"
+    "expected": "CREATE UNIQUE INDEX collation_index_key ON insertconflicttest USING btree ( key, fruit COLLATE \"C\" )"
   },
   {
     "comment": "insert_conflict - Statement 5",
     "query": "create unique index both_index_key on insertconflicttest(key, fruit collate \"C\" text_pattern_ops)",
-    "expected": "CREATE UNIQUE INDEX both_index_key ON insertconflicttest USING btree ( \"key\", fruit COLLATE \"C\" text_pattern_ops )"
+    "expected": "CREATE UNIQUE INDEX both_index_key ON insertconflicttest USING btree ( key, fruit COLLATE \"C\" text_pattern_ops )"
   },
   {
     "comment": "insert_conflict - Statement 6",
     "query": "create unique index both_index_expr_key on insertconflicttest(key, lower(fruit) collate \"C\" text_pattern_ops)",
-    "expected": "CREATE UNIQUE INDEX both_index_expr_key ON insertconflicttest USING btree ( \"key\", (lower(fruit)) COLLATE \"C\" text_pattern_ops )"
+    "expected": "CREATE UNIQUE INDEX both_index_expr_key ON insertconflicttest USING btree ( key, (lower(fruit)) COLLATE \"C\" text_pattern_ops )"
   },
   {
     "comment": "insert_conflict - Statement 7",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (\"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 8",
@@ -42,57 +42,57 @@
   {
     "comment": "insert_conflict - Statement 9",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key, fruit) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (\"key\", fruit) DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (key, fruit) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 10",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (fruit, key, fruit, key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (fruit, \"key\", fruit, \"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (fruit, key, fruit, key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 11",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (lower(fruit), key, lower(fruit), key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)), \"key\", (lower(fruit)), \"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)), key, (lower(fruit)), key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 12",
     "query": "explain (costs off) insert into insertconflictview values(0, 'Crowberry') on conflict (lower(fruit), key, lower(fruit), key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflictview VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)), \"key\", (lower(fruit)), \"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflictview VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)), key, (lower(fruit)), key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 13",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key, fruit) do update set fruit = excluded.fruit where exists (select 1 from insertconflicttest ii where ii.key = excluded.key)",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (\"key\", fruit) DO UPDATE SET fruit = excluded.fruit WHERE EXISTS (SELECT 1 FROM insertconflicttest AS ii WHERE ii.\"key\" = excluded.\"key\")"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (key, fruit) DO UPDATE SET fruit = excluded.fruit WHERE EXISTS (SELECT 1 FROM insertconflicttest AS ii WHERE ii.key = excluded.key)"
   },
   {
     "comment": "insert_conflict - Statement 14",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key, fruit text_pattern_ops) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (\"key\", fruit text_pattern_ops) DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (key, fruit text_pattern_ops) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 15",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key, fruit collate \"C\") do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (\"key\", fruit COLLATE \"C\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (key, fruit COLLATE \"C\") DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 16",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (fruit collate \"C\" text_pattern_ops, key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (fruit COLLATE \"C\" text_pattern_ops, \"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (fruit COLLATE \"C\" text_pattern_ops, key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 17",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (lower(fruit) collate \"C\", key, key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)) COLLATE \"C\", \"key\", \"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)) COLLATE \"C\", key, key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 18",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (fruit, key, fruit text_pattern_ops, key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (fruit, \"key\", fruit text_pattern_ops, \"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (fruit, key, fruit text_pattern_ops, key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 19",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (lower(fruit) collate \"C\" text_pattern_ops, key, key) do nothing",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)) COLLATE \"C\" text_pattern_ops, \"key\", \"key\") DO NOTHING"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT ((lower(fruit)) COLLATE \"C\" text_pattern_ops, key, key) DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 20",
@@ -137,27 +137,27 @@
   {
     "comment": "insert_conflict - Statement 28",
     "query": "create unique index key_index on insertconflicttest(key)",
-    "expected": "CREATE UNIQUE INDEX key_index ON insertconflicttest USING btree ( \"key\" )"
+    "expected": "CREATE UNIQUE INDEX key_index ON insertconflicttest USING btree ( key )"
   },
   {
     "comment": "insert_conflict - Statement 29",
     "query": "explain (costs off) insert into insertconflicttest values (0, 'Bilberry') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Bilberry') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Bilberry') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 30",
     "query": "explain (costs off) insert into insertconflicttest values (0, 'Bilberry') on conflict (key) do update set fruit = excluded.fruit where insertconflicttest.fruit != 'Cawesh'",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Bilberry') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit WHERE insertconflicttest.fruit \u003c\u003e 'Cawesh'"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Bilberry') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit WHERE insertconflicttest.fruit \u003c\u003e 'Cawesh'"
   },
   {
     "comment": "insert_conflict - Statement 31",
     "query": "explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key) do update set fruit = excluded.fruit where excluded.fruit != 'Elderberry'",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit WHERE excluded.fruit \u003c\u003e 'Elderberry'"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (0, 'Crowberry') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit WHERE excluded.fruit \u003c\u003e 'Elderberry'"
   },
   {
     "comment": "insert_conflict - Statement 32",
     "query": "explain (costs off, format json) insert into insertconflicttest values (0, 'Bilberry') on conflict (key) do update set fruit = excluded.fruit where insertconflicttest.fruit != 'Lime' returning *",
-    "expected": "EXPLAIN (COSTS false, FORMAT JSON) INSERT INTO insertconflicttest VALUES (0, 'Bilberry') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit WHERE insertconflicttest.fruit \u003c\u003e 'Lime' RETURNING *"
+    "expected": "EXPLAIN (COSTS false, FORMAT JSON) INSERT INTO insertconflicttest VALUES (0, 'Bilberry') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit WHERE insertconflicttest.fruit \u003c\u003e 'Lime' RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 33",
@@ -167,22 +167,22 @@
   {
     "comment": "insert_conflict - Statement 34",
     "query": "insert into insertconflicttest values (1, 'Apple') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 35",
     "query": "insert into insertconflicttest values (2, 'Orange') on conflict (key, key, key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (2, 'Orange') ON CONFLICT (\"key\", \"key\", \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (2, 'Orange') ON CONFLICT (key, key, key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 36",
     "query": "insert into insertconflicttest values (1, 'Apple'), (2, 'Orange') on conflict (key) do update set (fruit, key) = (excluded.fruit, excluded.key)",
-    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple'), (2, 'Orange') ON CONFLICT (\"key\") DO UPDATE SET fruit = (excluded.fruit, excluded.\"key\"), \"key\" = (excluded.fruit, excluded.\"key\")"
+    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple'), (2, 'Orange') ON CONFLICT (key) DO UPDATE SET fruit = (excluded.fruit, excluded.key), key = (excluded.fruit, excluded.key)"
   },
   {
     "comment": "insert_conflict - Statement 37",
     "query": "insert into insertconflicttest values (1, 'Apple') on conflict (key) do update set fruit = excluded.fruit RETURNING excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit RETURNING excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit RETURNING excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 38",
@@ -192,17 +192,17 @@
   {
     "comment": "insert_conflict - Statement 39",
     "query": "insert into insertconflicttest values (1, 'Apple') on conflict (key) do update set fruit = excluded.fruitt",
-    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruitt"
+    "expected": "INSERT INTO insertconflicttest VALUES (1, 'Apple') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruitt"
   },
   {
     "comment": "insert_conflict - Statement 40",
     "query": "insert into insertconflicttest values (3, 'Kiwi') on conflict (key, fruit) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (3, 'Kiwi') ON CONFLICT (\"key\", fruit) DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (3, 'Kiwi') ON CONFLICT (key, fruit) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 41",
     "query": "insert into insertconflicttest values (4, 'Mango') on conflict (fruit, key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (4, 'Mango') ON CONFLICT (fruit, \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (4, 'Mango') ON CONFLICT (fruit, key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 42",
@@ -217,22 +217,22 @@
   {
     "comment": "insert_conflict - Statement 44",
     "query": "insert into insertconflicttest AS ict values (6, 'Passionfruit') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest AS ict VALUES (6, 'Passionfruit') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest AS ict VALUES (6, 'Passionfruit') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 45",
     "query": "insert into insertconflicttest AS ict values (6, 'Passionfruit') on conflict (key) do update set fruit = ict.fruit",
-    "expected": "INSERT INTO insertconflicttest AS ict VALUES (6, 'Passionfruit') ON CONFLICT (\"key\") DO UPDATE SET fruit = ict.fruit"
+    "expected": "INSERT INTO insertconflicttest AS ict VALUES (6, 'Passionfruit') ON CONFLICT (key) DO UPDATE SET fruit = ict.fruit"
   },
   {
     "comment": "insert_conflict - Statement 46",
     "query": "insert into insertconflicttest AS ict values (6, 'Passionfruit') on conflict (key) do update set fruit = insertconflicttest.fruit",
-    "expected": "INSERT INTO insertconflicttest AS ict VALUES (6, 'Passionfruit') ON CONFLICT (\"key\") DO UPDATE SET fruit = insertconflicttest.fruit"
+    "expected": "INSERT INTO insertconflicttest AS ict VALUES (6, 'Passionfruit') ON CONFLICT (key) DO UPDATE SET fruit = insertconflicttest.fruit"
   },
   {
     "comment": "insert_conflict - Statement 47",
     "query": "insert into insertconflicttest values (3, 'Kiwi') on conflict (key, fruit) do update set insertconflicttest.fruit = 'Mango'",
-    "expected": "INSERT INTO insertconflicttest VALUES (3, 'Kiwi') ON CONFLICT (\"key\", fruit) DO UPDATE SET insertconflicttest.fruit = 'Mango'"
+    "expected": "INSERT INTO insertconflicttest VALUES (3, 'Kiwi') ON CONFLICT (key, fruit) DO UPDATE SET insertconflicttest.fruit = 'Mango'"
   },
   {
     "comment": "insert_conflict - Statement 48",
@@ -242,37 +242,37 @@
   {
     "comment": "insert_conflict - Statement 49",
     "query": "create unique index comp_key_index on insertconflicttest(key, fruit)",
-    "expected": "CREATE UNIQUE INDEX comp_key_index ON insertconflicttest USING btree ( \"key\", fruit )"
+    "expected": "CREATE UNIQUE INDEX comp_key_index ON insertconflicttest USING btree ( key, fruit )"
   },
   {
     "comment": "insert_conflict - Statement 50",
     "query": "insert into insertconflicttest values (7, 'Raspberry') on conflict (key, fruit) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (7, 'Raspberry') ON CONFLICT (\"key\", fruit) DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (7, 'Raspberry') ON CONFLICT (key, fruit) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 51",
     "query": "insert into insertconflicttest values (8, 'Lime') on conflict (fruit, key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (8, 'Lime') ON CONFLICT (fruit, \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (8, 'Lime') ON CONFLICT (fruit, key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 52",
     "query": "insert into insertconflicttest values (9, 'Banana') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (9, 'Banana') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (9, 'Banana') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 53",
     "query": "insert into insertconflicttest values (10, 'Blueberry') on conflict (key, key, key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (10, 'Blueberry') ON CONFLICT (\"key\", \"key\", \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (10, 'Blueberry') ON CONFLICT (key, key, key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 54",
     "query": "insert into insertconflicttest values (11, 'Cherry') on conflict (key, lower(fruit)) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (11, 'Cherry') ON CONFLICT (\"key\", (lower(fruit))) DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (11, 'Cherry') ON CONFLICT (key, (lower(fruit))) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 55",
     "query": "insert into insertconflicttest values (12, 'Date') on conflict (lower(fruit), key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (12, 'Date') ON CONFLICT ((lower(fruit)), \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (12, 'Date') ON CONFLICT ((lower(fruit)), key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 56",
@@ -282,42 +282,42 @@
   {
     "comment": "insert_conflict - Statement 57",
     "query": "create unique index part_comp_key_index on insertconflicttest(key, fruit) where key \u003c 5",
-    "expected": "CREATE UNIQUE INDEX part_comp_key_index ON insertconflicttest USING btree ( \"key\", fruit ) WHERE \"key\" \u003c 5"
+    "expected": "CREATE UNIQUE INDEX part_comp_key_index ON insertconflicttest USING btree ( key, fruit ) WHERE key \u003c 5"
   },
   {
     "comment": "insert_conflict - Statement 58",
     "query": "create unique index expr_part_comp_key_index on insertconflicttest(key, lower(fruit)) where key \u003c 5",
-    "expected": "CREATE UNIQUE INDEX expr_part_comp_key_index ON insertconflicttest USING btree ( \"key\", (lower(fruit)) ) WHERE \"key\" \u003c 5"
+    "expected": "CREATE UNIQUE INDEX expr_part_comp_key_index ON insertconflicttest USING btree ( key, (lower(fruit)) ) WHERE key \u003c 5"
   },
   {
     "comment": "insert_conflict - Statement 59",
     "query": "insert into insertconflicttest values (13, 'Grape') on conflict (key, fruit) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (13, 'Grape') ON CONFLICT (\"key\", fruit) DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (13, 'Grape') ON CONFLICT (key, fruit) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 60",
     "query": "insert into insertconflicttest values (14, 'Raisin') on conflict (fruit, key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (14, 'Raisin') ON CONFLICT (fruit, \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (14, 'Raisin') ON CONFLICT (fruit, key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 61",
     "query": "insert into insertconflicttest values (15, 'Cranberry') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (15, 'Cranberry') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (15, 'Cranberry') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 62",
     "query": "insert into insertconflicttest values (16, 'Melon') on conflict (key, key, key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (16, 'Melon') ON CONFLICT (\"key\", \"key\", \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (16, 'Melon') ON CONFLICT (key, key, key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 63",
     "query": "insert into insertconflicttest values (17, 'Mulberry') on conflict (key, lower(fruit)) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (17, 'Mulberry') ON CONFLICT (\"key\", (lower(fruit))) DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (17, 'Mulberry') ON CONFLICT (key, (lower(fruit))) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 64",
     "query": "insert into insertconflicttest values (18, 'Pineapple') on conflict (lower(fruit), key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (18, 'Pineapple') ON CONFLICT ((lower(fruit)), \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (18, 'Pineapple') ON CONFLICT ((lower(fruit)), key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 65",
@@ -362,42 +362,42 @@
   {
     "comment": "insert_conflict - Statement 73",
     "query": "create unique index expr_comp_key_index on insertconflicttest(key, lower(fruit))",
-    "expected": "CREATE UNIQUE INDEX expr_comp_key_index ON insertconflicttest USING btree ( \"key\", (lower(fruit)) )"
+    "expected": "CREATE UNIQUE INDEX expr_comp_key_index ON insertconflicttest USING btree ( key, (lower(fruit)) )"
   },
   {
     "comment": "insert_conflict - Statement 74",
     "query": "create unique index tricky_expr_comp_key_index on insertconflicttest(key, lower(fruit), upper(fruit))",
-    "expected": "CREATE UNIQUE INDEX tricky_expr_comp_key_index ON insertconflicttest USING btree ( \"key\", (lower(fruit)), (upper(fruit)) )"
+    "expected": "CREATE UNIQUE INDEX tricky_expr_comp_key_index ON insertconflicttest USING btree ( key, (lower(fruit)), (upper(fruit)) )"
   },
   {
     "comment": "insert_conflict - Statement 75",
     "query": "insert into insertconflicttest values (24, 'Plum') on conflict (key, lower(fruit)) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (24, 'Plum') ON CONFLICT (\"key\", (lower(fruit))) DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (24, 'Plum') ON CONFLICT (key, (lower(fruit))) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 76",
     "query": "insert into insertconflicttest values (25, 'Peach') on conflict (lower(fruit), key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (25, 'Peach') ON CONFLICT ((lower(fruit)), \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (25, 'Peach') ON CONFLICT ((lower(fruit)), key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 77",
     "query": "explain (costs off) insert into insertconflicttest values (26, 'Fig') on conflict (lower(fruit), key, lower(fruit), key) do update set fruit = excluded.fruit",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (26, 'Fig') ON CONFLICT ((lower(fruit)), \"key\", (lower(fruit)), \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest VALUES (26, 'Fig') ON CONFLICT ((lower(fruit)), key, (lower(fruit)), key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 78",
     "query": "insert into insertconflicttest values (27, 'Prune') on conflict (key, upper(fruit)) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (27, 'Prune') ON CONFLICT (\"key\", (upper(fruit))) DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (27, 'Prune') ON CONFLICT (key, (upper(fruit))) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 79",
     "query": "insert into insertconflicttest values (28, 'Redcurrant') on conflict (fruit, key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (28, 'Redcurrant') ON CONFLICT (fruit, \"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (28, 'Redcurrant') ON CONFLICT (fruit, key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 80",
     "query": "insert into insertconflicttest values (29, 'Nectarine') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (29, 'Nectarine') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (29, 'Nectarine') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 81",
@@ -417,12 +417,12 @@
   {
     "comment": "insert_conflict - Statement 84",
     "query": "insert into insertconflicttest values (26, 'Fig') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (26, 'Fig') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (26, 'Fig') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 85",
     "query": "insert into insertconflicttest values (26, 'Peach') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (26, 'Peach') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (26, 'Peach') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 86",
@@ -437,32 +437,32 @@
   {
     "comment": "insert_conflict - Statement 88",
     "query": "create unique index partial_key_index on insertconflicttest(key) where fruit like '%berry'",
-    "expected": "CREATE UNIQUE INDEX partial_key_index ON insertconflicttest USING btree ( \"key\" ) WHERE fruit LIKE '%berry'"
+    "expected": "CREATE UNIQUE INDEX partial_key_index ON insertconflicttest USING btree ( key ) WHERE fruit LIKE '%berry'"
   },
   {
     "comment": "insert_conflict - Statement 89",
     "query": "insert into insertconflicttest values (23, 'Blackberry') on conflict (key) where fruit like '%berry' do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (23, 'Blackberry') ON CONFLICT (\"key\") WHERE fruit LIKE '%berry' DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (23, 'Blackberry') ON CONFLICT (key) WHERE fruit LIKE '%berry' DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 90",
     "query": "insert into insertconflicttest as t values (23, 'Blackberry') on conflict (key) where fruit like '%berry' and t.fruit = 'inconsequential' do nothing",
-    "expected": "INSERT INTO insertconflicttest AS t VALUES (23, 'Blackberry') ON CONFLICT (\"key\") WHERE fruit LIKE '%berry' AND t.fruit = 'inconsequential' DO NOTHING"
+    "expected": "INSERT INTO insertconflicttest AS t VALUES (23, 'Blackberry') ON CONFLICT (key) WHERE fruit LIKE '%berry' AND t.fruit = 'inconsequential' DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 91",
     "query": "insert into insertconflictview as t values (23, 'Blackberry') on conflict (key) where fruit like '%berry' and t.fruit = 'inconsequential' do nothing",
-    "expected": "INSERT INTO insertconflictview AS t VALUES (23, 'Blackberry') ON CONFLICT (\"key\") WHERE fruit LIKE '%berry' AND t.fruit = 'inconsequential' DO NOTHING"
+    "expected": "INSERT INTO insertconflictview AS t VALUES (23, 'Blackberry') ON CONFLICT (key) WHERE fruit LIKE '%berry' AND t.fruit = 'inconsequential' DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 92",
     "query": "insert into insertconflicttest values (23, 'Blackberry') on conflict (key) do update set fruit = excluded.fruit",
-    "expected": "INSERT INTO insertconflicttest VALUES (23, 'Blackberry') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit"
+    "expected": "INSERT INTO insertconflicttest VALUES (23, 'Blackberry') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit"
   },
   {
     "comment": "insert_conflict - Statement 93",
     "query": "insert into insertconflicttest values (23, 'Blackberry') on conflict (key) where fruit like '%berry' or fruit = 'consequential' do nothing",
-    "expected": "INSERT INTO insertconflicttest VALUES (23, 'Blackberry') ON CONFLICT (\"key\") WHERE fruit LIKE '%berry' OR fruit = 'consequential' DO NOTHING"
+    "expected": "INSERT INTO insertconflicttest VALUES (23, 'Blackberry') ON CONFLICT (key) WHERE fruit LIKE '%berry' OR fruit = 'consequential' DO NOTHING"
   },
   {
     "comment": "insert_conflict - Statement 94",
@@ -477,32 +477,32 @@
   {
     "comment": "insert_conflict - Statement 96",
     "query": "create unique index plain on insertconflicttest(key)",
-    "expected": "CREATE UNIQUE INDEX plain ON insertconflicttest USING btree ( \"key\" )"
+    "expected": "CREATE UNIQUE INDEX plain ON insertconflicttest USING btree ( key )"
   },
   {
     "comment": "insert_conflict - Statement 97",
     "query": "insert into insertconflicttest as i values (23, 'Jackfruit') on conflict (key) do update set fruit = excluded.fruit where i.* != excluded.* returning *",
-    "expected": "INSERT INTO insertconflicttest AS i VALUES (23, 'Jackfruit') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit WHERE i.* \u003c\u003e excluded.* RETURNING *"
+    "expected": "INSERT INTO insertconflicttest AS i VALUES (23, 'Jackfruit') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit WHERE i.* \u003c\u003e excluded.* RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 98",
     "query": "insert into insertconflicttest as i values (23, 'Jackfruit') on conflict (key) do update set fruit = excluded.fruit where i.* = excluded.* returning *",
-    "expected": "INSERT INTO insertconflicttest AS i VALUES (23, 'Jackfruit') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit WHERE i.* = excluded.* RETURNING *"
+    "expected": "INSERT INTO insertconflicttest AS i VALUES (23, 'Jackfruit') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit WHERE i.* = excluded.* RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 99",
     "query": "insert into insertconflicttest as i values (23, 'Avocado') on conflict (key) do update set fruit = excluded.*::text returning *",
-    "expected": "INSERT INTO insertconflicttest AS i VALUES (23, 'Avocado') ON CONFLICT (\"key\") DO UPDATE SET fruit = CAST(excluded.* AS TEXT) RETURNING *"
+    "expected": "INSERT INTO insertconflicttest AS i VALUES (23, 'Avocado') ON CONFLICT (key) DO UPDATE SET fruit = CAST(excluded.* AS TEXT) RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 100",
     "query": "explain (costs off) insert into insertconflicttest as i values (23, 'Avocado') on conflict (key) do update set fruit = excluded.fruit where excluded.* is null",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest AS i VALUES (23, 'Avocado') ON CONFLICT (\"key\") DO UPDATE SET fruit = excluded.fruit WHERE excluded.* IS NULL"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest AS i VALUES (23, 'Avocado') ON CONFLICT (key) DO UPDATE SET fruit = excluded.fruit WHERE excluded.* IS NULL"
   },
   {
     "comment": "insert_conflict - Statement 101",
     "query": "explain (costs off) insert into insertconflicttest as i values (23, 'Avocado') on conflict (key) do update set fruit = excluded.*::text",
-    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest AS i VALUES (23, 'Avocado') ON CONFLICT (\"key\") DO UPDATE SET fruit = CAST(excluded.* AS TEXT)"
+    "expected": "EXPLAIN (COSTS false) INSERT INTO insertconflicttest AS i VALUES (23, 'Avocado') ON CONFLICT (key) DO UPDATE SET fruit = CAST(excluded.* AS TEXT)"
   },
   {
     "comment": "insert_conflict - Statement 102",
@@ -522,7 +522,7 @@
   {
     "comment": "insert_conflict - Statement 105",
     "query": "create table syscolconflicttest(key int4, data text)",
-    "expected": "CREATE TABLE syscolconflicttest (\"key\" INT, data TEXT)"
+    "expected": "CREATE TABLE syscolconflicttest (key INT, data TEXT)"
   },
   {
     "comment": "insert_conflict - Statement 106",
@@ -532,7 +532,7 @@
   {
     "comment": "insert_conflict - Statement 107",
     "query": "insert into syscolconflicttest values (1) on conflict (key) do update set data = excluded.ctid::text",
-    "expected": "INSERT INTO syscolconflicttest VALUES (1) ON CONFLICT (\"key\") DO UPDATE SET data = CAST(excluded.ctid AS TEXT)"
+    "expected": "INSERT INTO syscolconflicttest VALUES (1) ON CONFLICT (key) DO UPDATE SET data = CAST(excluded.ctid AS TEXT)"
   },
   {
     "comment": "insert_conflict - Statement 108",
@@ -702,7 +702,7 @@
   {
     "comment": "insert_conflict - Statement 141",
     "query": "create table excluded(key int primary key, data text)",
-    "expected": "CREATE TABLE excluded (\"key\" INT PRIMARY KEY, data TEXT)"
+    "expected": "CREATE TABLE excluded (key INT PRIMARY KEY, data TEXT)"
   },
   {
     "comment": "insert_conflict - Statement 142",
@@ -712,22 +712,22 @@
   {
     "comment": "insert_conflict - Statement 143",
     "query": "insert into excluded values(1, '2') on conflict (key) do update set data = excluded.data RETURNING *",
-    "expected": "INSERT INTO excluded VALUES (1, '2') ON CONFLICT (\"key\") DO UPDATE SET data = excluded.data RETURNING *"
+    "expected": "INSERT INTO excluded VALUES (1, '2') ON CONFLICT (key) DO UPDATE SET data = excluded.data RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 144",
     "query": "insert into excluded AS target values(1, '2') on conflict (key) do update set data = excluded.data RETURNING *",
-    "expected": "INSERT INTO excluded AS target VALUES (1, '2') ON CONFLICT (\"key\") DO UPDATE SET data = excluded.data RETURNING *"
+    "expected": "INSERT INTO excluded AS target VALUES (1, '2') ON CONFLICT (key) DO UPDATE SET data = excluded.data RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 145",
     "query": "insert into excluded AS target values(1, '2') on conflict (key) do update set data = target.data RETURNING *",
-    "expected": "INSERT INTO excluded AS target VALUES (1, '2') ON CONFLICT (\"key\") DO UPDATE SET data = target.data RETURNING *"
+    "expected": "INSERT INTO excluded AS target VALUES (1, '2') ON CONFLICT (key) DO UPDATE SET data = target.data RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 146",
     "query": "insert into excluded values(1, '2') on conflict (key) do update set data = 3 RETURNING excluded.*",
-    "expected": "INSERT INTO excluded VALUES (1, '2') ON CONFLICT (\"key\") DO UPDATE SET data = 3 RETURNING excluded.*"
+    "expected": "INSERT INTO excluded VALUES (1, '2') ON CONFLICT (key) DO UPDATE SET data = 3 RETURNING excluded.*"
   },
   {
     "comment": "insert_conflict - Statement 147",
@@ -737,22 +737,22 @@
   {
     "comment": "insert_conflict - Statement 148",
     "query": "create table dropcol(key int primary key, drop1 int, keep1 text, drop2 numeric, keep2 float)",
-    "expected": "CREATE TABLE dropcol (\"key\" INT PRIMARY KEY, drop1 INT, keep1 TEXT, drop2 NUMERIC, keep2 FLOAT8)"
+    "expected": "CREATE TABLE dropcol (key INT PRIMARY KEY, drop1 INT, keep1 TEXT, drop2 NUMERIC, keep2 FLOAT8)"
   },
   {
     "comment": "insert_conflict - Statement 149",
     "query": "insert into dropcol(key, drop1, keep1, drop2, keep2) values(1, 1, '1', '1', 1)",
-    "expected": "INSERT INTO dropcol (\"key\", drop1, keep1, drop2, keep2) VALUES (1, 1, '1', '1', 1)"
+    "expected": "INSERT INTO dropcol (key, drop1, keep1, drop2, keep2) VALUES (1, 1, '1', '1', 1)"
   },
   {
     "comment": "insert_conflict - Statement 150",
     "query": "insert into dropcol(key, drop1, keep1, drop2, keep2) values(1, 2, '2', '2', 2) on conflict(key) do update set drop1 = excluded.drop1, keep1 = excluded.keep1, drop2 = excluded.drop2, keep2 = excluded.keep2 where excluded.drop1 is not null and excluded.keep1 is not null and excluded.drop2 is not null and excluded.keep2 is not null and dropcol.drop1 is not null and dropcol.keep1 is not null and dropcol.drop2 is not null and dropcol.keep2 is not null returning *",
-    "expected": "INSERT INTO dropcol (\"key\", drop1, keep1, drop2, keep2) VALUES (1, 2, '2', '2', 2) ON CONFLICT (\"key\") DO UPDATE SET drop1 = excluded.drop1, keep1 = excluded.keep1, drop2 = excluded.drop2, keep2 = excluded.keep2 WHERE excluded.drop1 IS NOT NULL AND excluded.keep1 IS NOT NULL AND excluded.drop2 IS NOT NULL AND excluded.keep2 IS NOT NULL AND dropcol.drop1 IS NOT NULL AND dropcol.keep1 IS NOT NULL AND dropcol.drop2 IS NOT NULL AND dropcol.keep2 IS NOT NULL RETURNING *"
+    "expected": "INSERT INTO dropcol (key, drop1, keep1, drop2, keep2) VALUES (1, 2, '2', '2', 2) ON CONFLICT (key) DO UPDATE SET drop1 = excluded.drop1, keep1 = excluded.keep1, drop2 = excluded.drop2, keep2 = excluded.keep2 WHERE excluded.drop1 IS NOT NULL AND excluded.keep1 IS NOT NULL AND excluded.drop2 IS NOT NULL AND excluded.keep2 IS NOT NULL AND dropcol.drop1 IS NOT NULL AND dropcol.keep1 IS NOT NULL AND dropcol.drop2 IS NOT NULL AND dropcol.keep2 IS NOT NULL RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 152",
     "query": "insert into dropcol(key, drop1, keep1, drop2, keep2) values(1, 3, '3', '3', 3) on conflict(key) do update set drop1 = dropcol.drop1, keep1 = dropcol.keep1, drop2 = dropcol.drop2, keep2 = dropcol.keep2 returning *",
-    "expected": "INSERT INTO dropcol (\"key\", drop1, keep1, drop2, keep2) VALUES (1, 3, '3', '3', 3) ON CONFLICT (\"key\") DO UPDATE SET drop1 = dropcol.drop1, keep1 = dropcol.keep1, drop2 = dropcol.drop2, keep2 = dropcol.keep2 RETURNING *"
+    "expected": "INSERT INTO dropcol (key, drop1, keep1, drop2, keep2) VALUES (1, 3, '3', '3', 3) ON CONFLICT (key) DO UPDATE SET drop1 = dropcol.drop1, keep1 = dropcol.keep1, drop2 = dropcol.drop2, keep2 = dropcol.keep2 RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 153",
@@ -762,12 +762,12 @@
   {
     "comment": "insert_conflict - Statement 154",
     "query": "insert into dropcol(key, keep1, keep2) values(1, '4', 4) on conflict(key) do update set keep1 = excluded.keep1, keep2 = excluded.keep2 where excluded.keep1 is not null and excluded.keep2 is not null and dropcol.keep1 is not null and dropcol.keep2 is not null returning *",
-    "expected": "INSERT INTO dropcol (\"key\", keep1, keep2) VALUES (1, '4', 4) ON CONFLICT (\"key\") DO UPDATE SET keep1 = excluded.keep1, keep2 = excluded.keep2 WHERE excluded.keep1 IS NOT NULL AND excluded.keep2 IS NOT NULL AND dropcol.keep1 IS NOT NULL AND dropcol.keep2 IS NOT NULL RETURNING *"
+    "expected": "INSERT INTO dropcol (key, keep1, keep2) VALUES (1, '4', 4) ON CONFLICT (key) DO UPDATE SET keep1 = excluded.keep1, keep2 = excluded.keep2 WHERE excluded.keep1 IS NOT NULL AND excluded.keep2 IS NOT NULL AND dropcol.keep1 IS NOT NULL AND dropcol.keep2 IS NOT NULL RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 155",
     "query": "insert into dropcol(key, keep1, keep2) values(1, '5', 5) on conflict(key) do update set keep1 = dropcol.keep1, keep2 = dropcol.keep2 returning *",
-    "expected": "INSERT INTO dropcol (\"key\", keep1, keep2) VALUES (1, '5', 5) ON CONFLICT (\"key\") DO UPDATE SET keep1 = dropcol.keep1, keep2 = dropcol.keep2 RETURNING *"
+    "expected": "INSERT INTO dropcol (key, keep1, keep2) VALUES (1, '5', 5) ON CONFLICT (key) DO UPDATE SET keep1 = dropcol.keep1, keep2 = dropcol.keep2 RETURNING *"
   },
   {
     "comment": "insert_conflict - Statement 156",

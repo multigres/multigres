@@ -14,31 +14,50 @@
 
 version: "2"
 run:
-  go: "1.25"
   build-tags:
     - ruleguard
 linters:
   default: none
   enable:
     - bodyclose
+    - copyloopvar # Go 1.22+ loop variable capture bug prevention
     - depguard
     - errcheck
     - errorlint
     - forbidigo
+    # TODO: Enable goconst - disabled because it reports different results in CI vs local.
+    # CI (Linux) detects issues that cannot be reproduced locally (macOS) or in Docker (Linux),
+    # even with the same golangci-lint version and config. Until this is resolved, developers
+    # can't validate goconst locally before pushing.
+    # - goconst
     - gocritic
     - gosec
     - govet
     - ineffassign
+    - mirror # Prevents incorrect array/slice copying patterns
     - misspell
     - modernize
     - nilerr
     # TODO: Enable noctx - requires fixing ~170 issues where context should be passed
     # - noctx
+    - nolintlint # Ensures //nolint directives are documented
+    - nosprintfhostport # Prevents fmt.Sprintf with host:port pattern bugs
+    - perfsprint # Avoids unnecessary sprintf calls for performance
     - sloglint
+    - sqlclosecheck # Prevents database connection leaks
     - staticcheck
     - unconvert
     - unused
+    - whitespace # Detects trailing whitespace and extra blank lines
   settings:
+    # goconst:
+    #   # Minimum length of string to trigger (shorter strings are often not worth extracting)
+    #   min-len: 5
+    #   # Minimum number of occurrences to trigger
+    #   min-occurrences: 3
+    #   # Don't suppress warnings just because a constant with the same value exists.
+    #   # Note: goconst doesn't catch struct literal values, only variable assignments.
+    #   match-constant: false
     forbidigo:
       # Forbid os.Exit to ensure cleanup hooks can fire before process termination.
       # Use //nolint:forbidigo in main() or TestMain() where it's allowed.
@@ -75,6 +94,7 @@ linters:
               desc: "provisioners should not depend on multigres logic aside from the topo"
           allow:
             - $gostd
+            - github.com/multigres/multigres/go/common/constants
             - github.com/multigres/multigres/go/common/topoclient
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
@@ -85,6 +105,7 @@ linters:
             - "!**/go/services/multiadmin/**/*.go"
             - "!**/go/cmd/multiadmin/*.go"
             - "!**/go/cmd/multiadmin/**/*.go"
+            - "!**/go/test/endtoend/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
@@ -113,17 +134,16 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/multigateway"
               desc: "multigateway can only be imported by its own package and cmd"
-        # TODO: Move go/multiorch to go/services/multiorch and update paths below
         multiorch-isolation:
           files:
-            - "!**/go/multiorch/*.go"
-            - "!**/go/multiorch/**/*.go"
+            - "!**/go/services/multiorch/*.go"
+            - "!**/go/services/multiorch/**/*.go"
             - "!**/go/cmd/multiorch/*.go"
             - "!**/go/cmd/multiorch/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multiorch"
+            - pkg: "github.com/multigres/multigres/go/services/multiorch"
               desc: "multiorch can only be imported by its own package and cmd"
         # TODO: Move go/multipooler to go/services/multipooler and update paths below
         multipooler-isolation:
@@ -270,7 +290,7 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/(parser|pgprotocol|tools/ruleguard)
+        path: ^go/(parser|common/pgprotocol|tools/ruleguard)
       # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec

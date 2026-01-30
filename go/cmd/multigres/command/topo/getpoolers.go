@@ -15,25 +15,18 @@
 package topo
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/multigres/multigres/go/cmd/multigres/command/admin"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
 // runGetPoolers handles the getpoolers command
 func runGetPoolers(cmd *cobra.Command, args []string) error {
-	// Get admin server address
-	adminServer, err := getAdminServerAddress(cmd)
-	if err != nil {
-		return err
-	}
-
 	// Get flag values
 	cellsFlag, err := cmd.Flags().GetString("cells")
 	if err != nil {
@@ -54,29 +47,30 @@ func runGetPoolers(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create gRPC connection
-	conn, err := grpc.NewClient(adminServer, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Create admin client
+	client, err := admin.NewClient(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to connect to admin server %s: %w", adminServer, err)
+		return err
 	}
-	defer conn.Close()
-
-	// Create client and make the request
-	client := multiadminpb.NewMultiAdminServiceClient(conn)
-	ctx := cmd.Context()
+	defer client.Close()
 
 	request := &multiadminpb.GetPoolersRequest{
 		Cells:    cells,
 		Database: database,
 	}
 
-	response, err := client.GetPoolers(ctx, request)
+	response, err := client.GetPoolers(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to get poolers: %w", err)
 	}
 
-	// Convert to JSON and output
-	jsonData, err := json.MarshalIndent(response, "", "  ")
+	// Convert to JSON and output using protojson to properly render enums as strings
+	marshaler := protojson.MarshalOptions{
+		Indent:          "  ",
+		EmitUnpopulated: false,
+		UseProtoNames:   true, // Use snake_case field names from proto instead of camelCase
+	}
+	jsonData, err := marshaler.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response to JSON: %w", err)
 	}

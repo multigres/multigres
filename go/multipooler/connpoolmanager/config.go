@@ -15,6 +15,7 @@
 package connpoolmanager
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -316,8 +317,17 @@ func (c *Config) SettingsCacheSize() int {
 
 // NewManager creates a new connection pool manager from this config.
 // Call this after flags have been parsed and when you're ready to create the manager.
-func (c *Config) NewManager() *Manager {
+// The manager starts in a closed state; call Open() before using it.
+func (c *Config) NewManager(logger *slog.Logger) *Manager {
+	metrics, err := NewMetrics()
+	if err != nil {
+		logger.Warn("failed to initialize some connection pool metrics (using noop fallbacks)", "error", err)
+	}
+
 	return &Manager{
-		config: c,
+		config:  c,
+		logger:  logger,
+		metrics: metrics,
+		closed:  true, // Manager is closed until Open() is called
 	}
 }

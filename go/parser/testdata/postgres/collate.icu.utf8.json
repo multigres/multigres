@@ -837,12 +837,12 @@
   {
     "comment": "collate.icu.utf8 - Statement 194",
     "query": "create type textrange_c as range(subtype=text, collation=C)",
-    "expected": "CREATE TYPE textrange_c AS RANGE (subtype = TEXT, collation = c)"
+    "expected": "CREATE TYPE textrange_c AS RANGE (subtype = TEXT, \"collation\" = c)"
   },
   {
     "comment": "collate.icu.utf8 - Statement 195",
     "query": "create type textrange_en_us as range(subtype=text, collation=\"en-x-icu\")",
-    "expected": "CREATE TYPE textrange_en_us AS RANGE (subtype = TEXT, collation = \"en-x-icu\")"
+    "expected": "CREATE TYPE textrange_en_us AS RANGE (subtype = TEXT, \"collation\" = \"en-x-icu\")"
   },
   {
     "comment": "collate.icu.utf8 - Statement 196",

@@ -16,12 +16,16 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/multigres/multigres/config"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -32,16 +36,18 @@ import (
 
 // PgCtlCommand holds the configuration for pgctld commands
 type PgCtlCommand struct {
-	reg               *viperutil.Registry
-	pgDatabase        viperutil.Value[string]
-	pgUser            viperutil.Value[string]
-	poolerDir         viperutil.Value[string]
-	timeout           viperutil.Value[int]
-	pgPort            viperutil.Value[int]
-	pgListenAddresses viperutil.Value[string]
-	vc                *viperutil.ViperConfig
-	lg                *servenv.Logger
-	telemetry         *telemetry.Telemetry
+	reg                *viperutil.Registry
+	pgDatabase         viperutil.Value[string]
+	pgUser             viperutil.Value[string]
+	poolerDir          viperutil.Value[string]
+	timeout            viperutil.Value[int]
+	pgPort             viperutil.Value[int]
+	pgListenAddresses  viperutil.Value[string]
+	pgHbaTemplate      viperutil.Value[string]
+	postgresConfigTmpl viperutil.Value[string]
+	vc                 *viperutil.ViperConfig
+	lg                 *servenv.Logger
+	telemetry          *telemetry.Telemetry
 }
 
 // GetRootCommand creates and returns the root command for pgctld with all subcommands
@@ -51,12 +57,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 	pc := &PgCtlCommand{
 		reg: reg,
 		pgDatabase: viperutil.Configure(reg, "pg-database", viperutil.Options[string]{
-			Default:  "postgres",
+			Default:  constants.DefaultPostgresDatabase,
 			FlagName: "pg-database",
 			Dynamic:  false,
 		}),
 		pgUser: viperutil.Configure(reg, "pg-user", viperutil.Options[string]{
-			Default:  "postgres",
+			Default:  constants.DefaultPostgresUser,
 			FlagName: "pg-user",
 			Dynamic:  false,
 		}),
@@ -76,8 +82,18 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			Dynamic:  false,
 		}),
 		pgListenAddresses: viperutil.Configure(reg, "pg-listen-addresses", viperutil.Options[string]{
-			Default:  "localhost",
+			Default:  "*",
 			FlagName: "pg-listen-addresses",
+			Dynamic:  false,
+		}),
+		pgHbaTemplate: viperutil.Configure(reg, "pg-hba-template", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-hba-template",
+			Dynamic:  false,
+		}),
+		postgresConfigTmpl: viperutil.Configure(reg, "postgres-config-template", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "postgres-config-template",
 			Dynamic:  false,
 		}),
 		vc:        viperutil.NewViperConfig(reg),
@@ -88,7 +104,7 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 	var span trace.Span
 
 	root := &cobra.Command{
-		Use:   "pgctld",
+		Use:   constants.ServicePgctld,
 		Short: "PostgreSQL control daemon for Multigres",
 		Long: `pgctld manages PostgreSQL server instances within the Multigres cluster.
 It provides lifecycle management including start, stop, restart, and configuration
@@ -98,7 +114,7 @@ management for PostgreSQL servers.`,
 			pc.lg.SetupLogging()
 			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
 			var err error
-			if span, err = pc.telemetry.InitForCommand(cmd, "pgctld", cmd.Use != "server" /* startSpan */); err != nil {
+			if span, err = pc.telemetry.InitForCommand(cmd, constants.ServicePgctld, cmd.Use != "server" /* startSpan */); err != nil {
 				return fmt.Errorf("failed to initialize OpenTelemetry: %w", err)
 			}
 
@@ -124,6 +140,8 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
 	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
+	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
+	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
 
@@ -134,6 +152,8 @@ management for PostgreSQL servers.`,
 		pc.poolerDir,
 		pc.pgPort,
 		pc.pgListenAddresses,
+		pc.pgHbaTemplate,
+		pc.postgresConfigTmpl,
 	)
 
 	// Add all subcommands
@@ -154,7 +174,29 @@ func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) e
 	// Validate pooler-dir is required and non-empty for all commands
 	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {
-		return fmt.Errorf("pooler-dir needs to be set")
+		return errors.New("pooler-dir needs to be set")
+	}
+
+	// If pg-hba-template is specified, read and replace the default template
+	pgHbaTemplatePath := pc.pgHbaTemplate.Get()
+	if pgHbaTemplatePath != "" {
+		contents, err := os.ReadFile(pgHbaTemplatePath)
+		if err != nil {
+			return fmt.Errorf("failed to read pg-hba-template file %s: %w", pgHbaTemplatePath, err)
+		}
+		config.PostgresHbaDefaultTmpl = string(contents)
+		pc.GetLogger().Info("replaced default pg_hba.conf template", "path", pgHbaTemplatePath)
+	}
+
+	// If postgres-config-template is specified, read and replace the default template
+	postgresConfigTemplatePath := pc.postgresConfigTmpl.Get()
+	if postgresConfigTemplatePath != "" {
+		contents, err := os.ReadFile(postgresConfigTemplatePath)
+		if err != nil {
+			return fmt.Errorf("failed to read postgres-config-template file %s: %w", postgresConfigTemplatePath, err)
+		}
+		config.PostgresConfigDefaultTmpl = string(contents)
+		pc.GetLogger().Info("replaced default postgresql.conf template", "path", postgresConfigTemplatePath)
 	}
 
 	return nil

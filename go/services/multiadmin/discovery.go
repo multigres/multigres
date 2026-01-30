@@ -17,8 +17,11 @@ package multiadmin
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
+	"strconv"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 )
 
@@ -52,10 +55,11 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 	multiadminProxyURL := fmt.Sprintf("/proxy/admin/%s/multiadmin", topoclient.GlobalCell)
 	multiadminDirectURL := ""
 	if httpPort := ma.senv.GetHTTPPort(); httpPort > 0 && ma.senv.GetHostname() != "" {
-		multiadminDirectURL = fmt.Sprintf("http://%s:%d/", ma.senv.GetHostname(), httpPort)
+		hostPort := net.JoinHostPort(ma.senv.GetHostname(), strconv.Itoa(httpPort))
+		multiadminDirectURL = fmt.Sprintf("http://%s/", hostPort)
 	}
 	result.GlobalServices = append(result.GlobalServices, ServiceInfo{
-		Name:       "multiadmin",
+		Name:       constants.ServiceMultiadmin,
 		Cell:       topoclient.GlobalCell,
 		ProxiedURL: multiadminProxyURL,
 		DirectURL:  multiadminDirectURL,
@@ -82,10 +86,11 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 			proxyURL := fmt.Sprintf("/proxy/gate/%s/%s", cell, gatewayName)
 			directURL := ""
 			if httpPort, ok := gw.PortMap["http"]; ok && httpPort > 0 {
-				directURL = fmt.Sprintf("http://%s:%d/", gw.Hostname, httpPort)
+				hostPort := net.JoinHostPort(gw.Hostname, strconv.Itoa(int(httpPort)))
+				directURL = fmt.Sprintf("http://%s/", hostPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:       "multigateway",
+				Name:       constants.ServiceMultigateway,
 				Cell:       cell,
 				ProxiedURL: proxyURL,
 				DirectURL:  directURL,
@@ -101,10 +106,11 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 			proxyURL := fmt.Sprintf("/proxy/pool/%s/%s", cell, poolerName)
 			directURL := ""
 			if httpPort, ok := mp.PortMap["http"]; ok && httpPort > 0 {
-				directURL = fmt.Sprintf("http://%s:%d/", mp.Hostname, httpPort)
+				hostPort := net.JoinHostPort(mp.Hostname, strconv.Itoa(int(httpPort)))
+				directURL = fmt.Sprintf("http://%s/", hostPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:       "multipooler",
+				Name:       constants.ServiceMultipooler,
 				Cell:       cell,
 				ProxiedURL: proxyURL,
 				DirectURL:  directURL,
@@ -120,10 +126,11 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 			proxyURL := fmt.Sprintf("/proxy/orch/%s/%s", cell, orchName)
 			directURL := ""
 			if httpPort, ok := mo.PortMap["http"]; ok && httpPort > 0 {
-				directURL = fmt.Sprintf("http://%s:%d/", mo.Hostname, httpPort)
+				hostPort := net.JoinHostPort(mo.Hostname, strconv.Itoa(int(httpPort)))
+				directURL = fmt.Sprintf("http://%s/", hostPort)
 			}
 			result.CellServices[cell] = append(result.CellServices[cell], ServiceInfo{
-				Name:       "multiorch",
+				Name:       constants.ServiceMultiorch,
 				Cell:       cell,
 				ProxiedURL: proxyURL,
 				DirectURL:  directURL,

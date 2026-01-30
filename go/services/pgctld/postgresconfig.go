@@ -16,6 +16,7 @@ package pgctld
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -215,17 +216,17 @@ func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Dura
 
 	// Memory settings - required in our controlled config
 	if val, err := pgConfig.lookupWithDefault("shared_buffers", ""); err != nil {
-		return nil, fmt.Errorf("shared_buffers not found in config file")
+		return nil, errors.New("shared_buffers not found in config file")
 	} else {
 		pgConfig.SharedBuffers = val
 	}
 	if val, err := pgConfig.lookupWithDefault("maintenance_work_mem", ""); err != nil {
-		return nil, fmt.Errorf("maintenance_work_mem not found in config file")
+		return nil, errors.New("maintenance_work_mem not found in config file")
 	} else {
 		pgConfig.MaintenanceWorkMem = val
 	}
 	if val, err := pgConfig.lookupWithDefault("work_mem", ""); err != nil {
-		return nil, fmt.Errorf("work_mem not found in config file")
+		return nil, errors.New("work_mem not found in config file")
 	} else {
 		pgConfig.WorkMem = val
 	}
@@ -249,17 +250,17 @@ func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Dura
 
 	// WAL settings - required in our controlled config
 	if val, err := pgConfig.lookupWithDefault("wal_buffers", ""); err != nil {
-		return nil, fmt.Errorf("wal_buffers not found in config file")
+		return nil, errors.New("wal_buffers not found in config file")
 	} else {
 		pgConfig.WalBuffers = val
 	}
 	if val, err := pgConfig.lookupWithDefault("min_wal_size", ""); err != nil {
-		return nil, fmt.Errorf("min_wal_size not found in config file")
+		return nil, errors.New("min_wal_size not found in config file")
 	} else {
 		pgConfig.MinWalSize = val
 	}
 	if val, err := pgConfig.lookupWithDefault("max_wal_size", ""); err != nil {
-		return nil, fmt.Errorf("max_wal_size not found in config file")
+		return nil, errors.New("max_wal_size not found in config file")
 	} else {
 		pgConfig.MaxWalSize = val
 	}
@@ -279,7 +280,7 @@ func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Dura
 
 	// Query planner settings - required in our controlled config
 	if val, err := pgConfig.lookupWithDefault("effective_cache_size", ""); err != nil {
-		return nil, fmt.Errorf("effective_cache_size not found in config file")
+		return nil, errors.New("effective_cache_size not found in config file")
 	} else {
 		pgConfig.EffectiveCacheSize = val
 	}

@@ -1,0 +1,7 @@
+---
+# Trivy configuration for super-linter
+# Skip demo and frontend directories
+scan:
+  skip-dirs:
+    - demo/k8s
+    - web/multiadmin

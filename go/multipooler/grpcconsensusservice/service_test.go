@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/manager"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -81,16 +82,15 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
+		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -167,16 +167,15 @@ func TestConsensusService_Status(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
+		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -252,16 +251,15 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
+		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -284,17 +282,17 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("GetLeadershipView without replication tracker should fail", func(t *testing.T) {
+	t.Run("GetLeadershipView without a valid database connection should fail", func(t *testing.T) {
 		req := &consensusdata.LeadershipViewRequest{
 			ShardId: "shard-1",
 		}
 
 		resp, err := svc.GetLeadershipView(ctx, req)
 
-		// Should fail because no replication tracker
+		// Should fail because no database to query
 		assert.Error(t, err)
 		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "replication tracker not initialized")
+		assert.Contains(t, err.Error(), "failed to connect to")
 	})
 }
 
@@ -332,16 +330,15 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
+		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported
@@ -414,16 +411,15 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	// Create temporary directory for pooler
 	tmpDir := t.TempDir()
 
+	multipooler.PoolerDir = tmpDir
+
 	config := &manager.Config{
 		TopoClient:       ts,
-		ServiceID:        serviceID,
 		PgctldAddr:       pgctldAddr,
-		PoolerDir:        tmpDir,
 		ConsensusEnabled: true,
-		TableGroup:       constants.DefaultTableGroup,
-		Shard:            constants.DefaultShard,
+		ConnPoolConfig:   connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, config)
+	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	// Create both PG_VERSION and the marker file since setInitialized() is not exported

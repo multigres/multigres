@@ -23,9 +23,11 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -41,13 +43,21 @@ type MultiAdminServer struct {
 
 	// logger for structured logging
 	logger *slog.Logger
+
+	// backupJobTracker manages async backup/restore jobs
+	backupJobTracker *BackupJobTracker
+
+	// rpcClient is the client for communicating with multipooler nodes
+	rpcClient rpcclient.MultiPoolerClient
 }
 
 // NewMultiAdminServer creates a new MultiAdminServer instance
 func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger) *MultiAdminServer {
 	return &MultiAdminServer{
-		ts:     ts,
-		logger: logger,
+		ts:               ts,
+		logger:           logger,
+		backupJobTracker: NewBackupJobTracker(),
+		rpcClient:        rpcclient.NewMultiPoolerClient(100),
 	}
 }
 
@@ -55,6 +65,17 @@ func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger) *MultiAdminSe
 func (s *MultiAdminServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	multiadminpb.RegisterMultiAdminServiceServer(grpcServer, s)
 	s.logger.Info("MultiAdmin service registered with gRPC server")
+}
+
+// Stop stops background goroutines and releases resources
+func (s *MultiAdminServer) Stop() {
+	s.backupJobTracker.Stop()
+}
+
+// SetRPCClient sets the RPC client for communicating with multipoolers.
+// This is primarily used for testing to inject a fake client.
+func (s *MultiAdminServer) SetRPCClient(client rpcclient.MultiPoolerClient) {
+	s.rpcClient = client
 }
 
 // GetCell retrieves information about a specific cell
@@ -310,4 +331,88 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 
 	s.logger.DebugContext(ctx, "GetOrchs request completed successfully", "count", len(allOrchs))
 	return response, nil
+}
+
+// GetPoolerStatus retrieves the unified status of a specific pooler by proxying
+// the request to the target pooler's MultiPoolerManager.Status RPC.
+func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminpb.GetPoolerStatusRequest) (*multiadminpb.GetPoolerStatusResponse, error) {
+	// Validate request
+	if req.PoolerId == nil {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
+	}
+	if req.PoolerId.Cell == "" || req.PoolerId.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id must have both cell and name")
+	}
+
+	// Create a fully-qualified pooler ID for topology lookup
+	poolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      req.PoolerId.Cell,
+		Name:      req.PoolerId.Name,
+	}
+
+	// Get pooler from topology
+	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)
+
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			return nil, status.Errorf(codes.NotFound, "pooler '%s/%s' not found", req.PoolerId.Cell, req.PoolerId.Name)
+		}
+
+		return nil, status.Errorf(codes.Internal, "failed to retrieve pooler: %v", err)
+	}
+
+	// Call Status RPC on the pooler
+	statusResp, err := s.rpcClient.Status(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get status from pooler", "pooler_id", req.PoolerId, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to get status from pooler: %v", err)
+	}
+
+	return &multiadminpb.GetPoolerStatusResponse{
+		Status: statusResp.Status,
+	}, nil
+}
+
+// SetPostgresMonitor enables or disables PostgreSQL monitoring on a specific pooler by proxying
+// the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
+func (s *MultiAdminServer) SetPostgresMonitor(ctx context.Context, req *multiadminpb.SetPostgresMonitorRequest) (*multiadminpb.SetPostgresMonitorResponse, error) {
+	// Validate request
+	if req.PoolerId == nil {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
+	}
+	if req.PoolerId.Cell == "" || req.PoolerId.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "pooler_id must have both cell and name")
+	}
+
+	// Create a fully-qualified pooler ID for topology lookup
+	poolerID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      req.PoolerId.Cell,
+		Name:      req.PoolerId.Name,
+	}
+
+	// Get pooler from topology
+	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)
+
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			return nil, status.Errorf(codes.NotFound, "pooler '%s/%s' not found", req.PoolerId.Cell, req.PoolerId.Name)
+		}
+
+		return nil, status.Errorf(codes.Internal, "failed to retrieve pooler: %v", err)
+	}
+
+	// Call SetMonitor RPC on the pooler
+	_, err = s.rpcClient.SetMonitor(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.SetMonitorRequest{
+		Enabled: req.Enabled,
+	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to update monitor on pooler", "pooler_id", req.PoolerId, "enabled", req.Enabled, "error", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to update PostgreSQL monitoring on pooler: %v", err)
+	}
+
+	return &multiadminpb.SetPostgresMonitorResponse{}, nil
 }

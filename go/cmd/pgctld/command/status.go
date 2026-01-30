@@ -15,21 +15,30 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/telemetry"
 
 	"github.com/spf13/cobra"
 )
 
+// PostgreSQL server status values
+const (
+	statusStopped = "STOPPED"
+	statusRunning = "RUNNING"
+)
+
 // StatusResult contains the result of checking PostgreSQL status
 type StatusResult struct {
-	Status        string // "NOT_INITIALIZED", "STOPPED", "RUNNING"
+	Status        string // statusStopped, statusRunning
 	PID           int
 	Version       string
 	UptimeSeconds int64
@@ -85,7 +94,7 @@ Examples:
 }
 
 // GetStatusWithResult gets PostgreSQL status with the given configuration and returns detailed result information
-func GetStatusWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StatusResult, error) {
+func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StatusResult, error) {
 	result := &StatusResult{
 		DataDir: config.PostgresDataDir,
 		Port:    config.Port,
@@ -93,27 +102,27 @@ func GetStatusWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) 
 
 	// Check if PostgreSQL is running
 	if !isPostgreSQLRunning(config.PostgresDataDir) {
-		result.Status = "STOPPED"
+		result.Status = statusStopped
 		result.Message = "PostgreSQL server is stopped"
 		return result, nil
 	}
 
 	// Server is running
-	result.Status = "RUNNING"
+	result.Status = statusRunning
 	result.Message = "PostgreSQL server is running"
 
 	// Get PID if running
 	if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
 		result.PID = pid
 	} else {
-		logger.Warn("Could not read postmaster PID", "error", err)
+		logger.WarnContext(ctx, "Could not read postmaster PID", "error", err)
 	}
 
 	// Check if server is accepting connections
-	result.Ready = isServerReadyWithConfig(config)
+	result.Ready = isServerReadyWithConfig(ctx, config)
 
 	// Get server version if possible
-	result.Version = getServerVersionWithConfig(config)
+	result.Version = getServerVersionWithConfig(ctx, config)
 
 	// Get uptime (approximate based on pidfile mtime)
 	pidFile := filepath.Join(config.PostgresDataDir, "postmaster.pid")
@@ -131,7 +140,7 @@ func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
 	}
 	// No local flag overrides needed - all flags are global now
 
-	result, err := GetStatusWithResult(s.pgCtlCmd.lg.GetLogger(), config)
+	result, err := GetStatusWithResult(cmd.Context(), s.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
 		return err
 	}
@@ -139,9 +148,9 @@ func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
 	// Display status for CLI users
 	var statusDisplay string
 	switch result.Status {
-	case "STOPPED":
+	case statusStopped:
 		statusDisplay = "Stopped"
-	case "RUNNING":
+	case statusRunning:
 		statusDisplay = "Running"
 	default:
 		statusDisplay = result.Status
@@ -151,9 +160,9 @@ func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Data directory: %s", result.DataDir)
 
 	switch result.Status {
-	case "STOPPED":
+	case statusStopped:
 		fmt.Printf("\n")
-	case "RUNNING":
+	case statusRunning:
 		fmt.Printf("\n")
 		if result.PID > 0 {
 			fmt.Printf("PID: %d\n", result.PID)
@@ -192,31 +201,31 @@ func formatUptime(seconds int64) string {
 	}
 }
 
-func isServerReadyWithConfig(config *pgctld.PostgresCtlConfig) bool {
+func isServerReadyWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) bool {
 	// Use Unix socket connection for pg_isready
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	cmd := exec.Command("pg_isready",
 		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 	)
 
-	return cmd.Run() == nil
+	return telemetry.RunCmd(ctx, cmd, true) == nil
 }
 
-func getServerVersionWithConfig(config *pgctld.PostgresCtlConfig) string {
+func getServerVersionWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) string {
 	// Use Unix socket connection for psql
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	cmd := exec.Command("psql",
 		"-h", socketDir,
-		"-p", fmt.Sprintf("%d", config.Port), // Need port even for socket connections
+		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-t", "-c", "SELECT version()",
 	)
 
-	output, err := cmd.Output()
+	output, err := telemetry.RunCmdOutput(ctx, cmd, true)
 	if err != nil {
 		return ""
 	}

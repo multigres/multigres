@@ -26,14 +26,15 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multigateway/engine"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/poolergateway"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // ScatterConn coordinates query execution across multiple multipooler instances.
@@ -66,7 +67,7 @@ func (sc *ScatterConn) StreamExecute(
 	shard string,
 	sql string,
 	state *handler.MultiGatewayConnectionState,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
 		"tablegroup", tableGroup,
@@ -85,7 +86,10 @@ func (sc *ScatterConn) StreamExecute(
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{}
+	eo := &query.ExecuteOptions{
+		User:            conn.User(),
+		SessionSettings: state.GetSessionSettings(),
+	}
 
 	var qs queryservice.QueryService = sc.gateway
 	var err error
@@ -131,7 +135,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	sc.logger.DebugContext(ctx, "scatter conn executing portal",
 		"tablegroup", tableGroup,
@@ -150,7 +154,9 @@ func (sc *ScatterConn) PortalStreamExecute(
 	}
 
 	eo := &query.ExecuteOptions{
-		MaxRows: uint64(maxRows),
+		User:            conn.User(),
+		MaxRows:         uint64(maxRows),
+		SessionSettings: state.GetSessionSettings(),
 	}
 
 	var qs queryservice.QueryService = sc.gateway
@@ -217,7 +223,10 @@ func (sc *ScatterConn) Describe(
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{}
+	eo := &query.ExecuteOptions{
+		User:            conn.User(),
+		SessionSettings: state.GetSessionSettings(),
+	}
 	var preparedStatement *query.PreparedStatement
 	var portal *query.Portal
 	if portalInfo != nil {

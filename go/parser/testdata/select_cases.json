@@ -25,11 +25,11 @@
   },
   {
     "comment": "WHERE with comparison",
-    "query": "SELECT * FROM users WHERE age \u003e 18"
+    "query": "SELECT * FROM users WHERE age > 18"
   },
   {
     "comment": "WHERE with AND",
-    "query": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)"
+    "query": "SELECT * FROM users WHERE (age > 18 AND active = TRUE)"
   },
   {
     "comment": "WHERE with OR",
@@ -127,8 +127,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with FILTER and OVER",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE val RETURNING TEXT) FILTER (WHERE val \u003e 0) OVER (ORDER BY id) FROM users",
-    "expected": "SELECT JSON_OBJECTAGG('key' : val RETURNING TEXT) FILTER (WHERE val \u003e 0) OVER (ORDER BY id) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE val RETURNING TEXT) FILTER (WHERE val > 0) OVER (ORDER BY id) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : val RETURNING TEXT) FILTER (WHERE val > 0) OVER (ORDER BY id) FROM users"
   },
   {
     "comment": "JSON_OBJECT legacy",
@@ -235,11 +235,11 @@
   },
   {
     "comment": "Complex query",
-    "query": "SELECT id, name FROM users WHERE age \u003e 21"
+    "query": "SELECT id, name FROM users WHERE age > 21"
   },
   {
     "comment": "Query with multiple conditions",
-    "query": "SELECT * FROM users WHERE (id \u003e 0 AND active = TRUE)"
+    "query": "SELECT * FROM users WHERE (id > 0 AND active = TRUE)"
   },
   {
     "comment": "SELECT INTO",
@@ -524,15 +524,15 @@
   },
   {
     "comment": "Basic HAVING",
-    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5"
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5"
   },
   {
     "comment": "HAVING with AND",
-    "query": "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5 AND AVG(salary) \u003e 50000"
+    "query": "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5 AND AVG(salary) > 50000"
   },
   {
     "comment": "HAVING with complex expression",
-    "query": "SELECT category, SUM(amount) FROM transactions GROUP BY category HAVING SUM(amount) \u003e 1000 AND COUNT(*) \u003e 10"
+    "query": "SELECT category, SUM(amount) FROM transactions GROUP BY category HAVING SUM(amount) > 1000 AND COUNT(*) > 10"
   },
   {
     "comment": "Basic ORDER BY",
@@ -560,7 +560,7 @@
   },
   {
     "comment": "GROUP BY + HAVING",
-    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5"
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5"
   },
   {
     "comment": "GROUP BY + ORDER BY",
@@ -568,11 +568,11 @@
   },
   {
     "comment": "HAVING + ORDER BY",
-    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5 ORDER BY COUNT(*) DESC"
+    "query": "SELECT dept_id, COUNT(*) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5 ORDER BY COUNT(*) DESC"
   },
   {
     "comment": "All three combined",
-    "query": "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING AVG(salary) \u003e 50000 ORDER BY AVG(salary) DESC"
+    "query": "SELECT dept_id, AVG(salary) FROM employees GROUP BY dept_id HAVING AVG(salary) > 50000 ORDER BY AVG(salary) DESC"
   },
   {
     "comment": "Advanced ROLLUP with ORDER BY",
@@ -580,7 +580,7 @@
   },
   {
     "comment": "Complex GROUPING SETS with HAVING and ORDER BY",
-    "query": "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) \u003e 1000 ORDER BY category NULLS FIRST, subcategory DESC"
+    "query": "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) > 1000 ORDER BY category NULLS FIRST, subcategory DESC"
   },
   {
     "comment": "Aggregate with FILTER",
@@ -596,7 +596,7 @@
   },
   {
     "comment": "Aggregate FILTER with GROUP BY",
-    "query": "SELECT dept, AVG(salary) FILTER (WHERE experience \u003e 5) FROM employees GROUP BY dept"
+    "query": "SELECT dept, AVG(salary) FILTER (WHERE experience > 5) FROM employees GROUP BY dept"
   },
   {
     "comment": "percentile_cont WITHIN GROUP",
@@ -705,15 +705,15 @@
   },
   {
     "comment": "Not equal",
-    "query": "SELECT * FROM users WHERE id \u003c\u003e 1"
+    "query": "SELECT * FROM users WHERE id <> 1"
   },
   {
     "comment": "Less than or equal",
-    "query": "SELECT * FROM users WHERE age \u003c= 65"
+    "query": "SELECT * FROM users WHERE age <= 65"
   },
   {
     "comment": "Greater than or equal",
-    "query": "SELECT * FROM users WHERE age \u003e= 18"
+    "query": "SELECT * FROM users WHERE age >= 18"
   },
   {
     "comment": "Complex AND/OR",
@@ -725,11 +725,11 @@
   },
   {
     "comment": "Arithmetic in WHERE",
-    "query": "SELECT * FROM users WHERE (age * 2) \u003e 50"
+    "query": "SELECT * FROM users WHERE (age * 2) > 50"
   },
   {
     "comment": "Function in expression",
-    "query": "SELECT * FROM users WHERE length(name) \u003e 5"
+    "query": "SELECT * FROM users WHERE length(name) > 5"
   },
   {
     "comment": "Column arithmetic",
@@ -745,7 +745,7 @@
   },
   {
     "comment": "Mixed operators",
-    "query": "SELECT * FROM users WHERE (age + 5) * 2 \u003e 30"
+    "query": "SELECT * FROM users WHERE (age + 5) * 2 > 30"
   },
   {
     "comment": "SELECT * FROM users",
@@ -773,8 +773,8 @@
     "query": "SELECT length(name) FROM users"
   },
   {
-    "comment": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)",
-    "query": "SELECT * FROM users WHERE (age \u003e 18 AND active = TRUE)"
+    "comment": "SELECT * FROM users WHERE (age > 18 AND active = TRUE)",
+    "query": "SELECT * FROM users WHERE (age > 18 AND active = TRUE)"
   },
   {
     "comment": "SELECT id AS user_id, name AS user_name FROM users AS u",
@@ -815,11 +815,11 @@
   },
   {
     "comment": "Basic XMLTABLE",
-    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS id INT, name TEXT)"
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS id INT, name TEXT)"
   },
   {
     "comment": "XMLTABLE with FOR ORDINALITY",
-    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS pos FOR ORDINALITY, id INT)"
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS pos FOR ORDINALITY, id INT)"
   },
   {
     "comment": "LATERAL XMLTABLE",
@@ -983,7 +983,7 @@
   },
   {
     "comment": "Subquery with LIMIT",
-    "query": "SELECT * FROM (SELECT * FROM users LIMIT 10) AS u WHERE u.age \u003e 25"
+    "query": "SELECT * FROM (SELECT * FROM users LIMIT 10) AS u WHERE u.age > 25"
   },
   {
     "comment": "Simple function table",
@@ -1007,11 +1007,11 @@
   },
   {
     "comment": "Basic XMLTABLE",
-    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS id INT, name TEXT)"
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS id INT, name TEXT)"
   },
   {
     "comment": "XMLTABLE with FOR ORDINALITY",
-    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003citem\u003e1\u003c/item\u003e\u003c/root\u003e' COLUMNS pos FOR ORDINALITY, id INT)"
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '<root><item>1</item></root>' COLUMNS pos FOR ORDINALITY, id INT)"
   },
   {
     "comment": "LATERAL XMLTABLE",
@@ -1043,7 +1043,7 @@
   },
   {
     "comment": "XMLTABLE with alias",
-    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '\u003croot\u003e\u003c/root\u003e' COLUMNS id INT) AS xt"
+    "query": "SELECT * FROM XMLTABLE('/root/item' PASSING '<root></root>' COLUMNS id INT) AS xt"
   },
   {
     "comment": "JSON_TABLE with alias",
@@ -1151,11 +1151,11 @@
   },
   {
     "comment": "Comparison and logical",
-    "query": "SELECT * FROM users WHERE age \u003e 18 AND active"
+    "query": "SELECT * FROM users WHERE age > 18 AND active"
   },
   {
     "comment": "Mixed precedence",
-    "query": "SELECT * FROM users WHERE age + 1 \u003e 18 AND NOT deleted"
+    "query": "SELECT * FROM users WHERE age + 1 > 18 AND NOT deleted"
   },
   {
     "comment": "OR has lower precedence than AND",
@@ -1171,7 +1171,7 @@
   },
   {
     "comment": "Mixed arithmetic and comparison",
-    "query": "SELECT * FROM users WHERE (age * 2) + 5 \u003e 30"
+    "query": "SELECT * FROM users WHERE (age * 2) + 5 > 30"
   },
   {
     "comment": "Function call precedence",
@@ -1274,27 +1274,27 @@
   },
   {
     "comment": "WHERE not equal",
-    "query": "SELECT * FROM users WHERE id \u003c\u003e 1"
+    "query": "SELECT * FROM users WHERE id <> 1"
   },
   {
     "comment": "WHERE less than",
-    "query": "SELECT * FROM users WHERE age \u003c 30"
+    "query": "SELECT * FROM users WHERE age < 30"
   },
   {
     "comment": "WHERE greater than",
-    "query": "SELECT * FROM users WHERE age \u003e 18"
+    "query": "SELECT * FROM users WHERE age > 18"
   },
   {
     "comment": "WHERE less or equal",
-    "query": "SELECT * FROM users WHERE age \u003c= 65"
+    "query": "SELECT * FROM users WHERE age <= 65"
   },
   {
     "comment": "WHERE greater or equal",
-    "query": "SELECT * FROM users WHERE age \u003e= 18"
+    "query": "SELECT * FROM users WHERE age >= 18"
   },
   {
     "comment": "WHERE complex AND",
-    "query": "SELECT * FROM users WHERE id \u003e 10 AND active = TRUE"
+    "query": "SELECT * FROM users WHERE id > 10 AND active = TRUE"
   },
   {
     "comment": "WHERE complex OR",
@@ -1411,7 +1411,7 @@
   },
   {
     "comment": "Function in WHERE",
-    "query": "SELECT * FROM users WHERE length(name) \u003e 5"
+    "query": "SELECT * FROM users WHERE length(name) > 5"
   },
   {
     "comment": "Integer constant",
@@ -1461,7 +1461,7 @@
   },
   {
     "comment": "Complex SELECT with all features",
-    "query": "SELECT u.id AS user_id, upper(u.name) AS user_name FROM users AS u WHERE u.active = TRUE AND u.age \u003e 18"
+    "query": "SELECT u.id AS user_id, upper(u.name) AS user_name FROM users AS u WHERE u.active = TRUE AND u.age > 18"
   },
   {
     "comment": "Multiple expressions with aliases",
@@ -1469,7 +1469,7 @@
   },
   {
     "comment": "Arithmetic in WHERE with functions",
-    "query": "SELECT * FROM users WHERE length(name) + age \u003e 25"
+    "query": "SELECT * FROM users WHERE length(name) + age > 25"
   },
   {
     "comment": "column list in function",
@@ -1623,15 +1623,15 @@
   },
   {
     "comment": "simple HAVING",
-    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) \u003e 1"
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) > 1"
   },
   {
     "comment": "HAVING with AND",
-    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) \u003e 1 AND col1 IS NOT NULL"
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) > 1 AND col1 IS NOT NULL"
   },
   {
     "comment": "HAVING with ORDER BY",
-    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) \u003e 1 ORDER BY col1"
+    "query": "SELECT col1, COUNT(*) FROM table1 GROUP BY col1 HAVING COUNT(*) > 1 ORDER BY col1"
   },
   {
     "comment": "simple ORDER BY",
@@ -1659,7 +1659,7 @@
   },
   {
     "comment": "GROUP BY + HAVING + ORDER BY",
-    "query": "SELECT dept_id, COUNT(*), AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) \u003e 5 ORDER BY dept_id ASC"
+    "query": "SELECT dept_id, COUNT(*), AVG(salary) FROM employees GROUP BY dept_id HAVING COUNT(*) > 5 ORDER BY dept_id ASC"
   },
   {
     "comment": "Complex GROUP BY with ROLLUP and ORDER BY",
@@ -1667,7 +1667,7 @@
   },
   {
     "comment": "All features combined",
-    "query": "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions WHERE amount \u003e 0 GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) \u003e 1000 ORDER BY category NULLS FIRST, subcategory DESC"
+    "query": "SELECT category, subcategory, COUNT(*), SUM(amount) FROM transactions WHERE amount > 0 GROUP BY GROUPING SETS ((category), (category, subcategory), ()) HAVING SUM(amount) > 1000 ORDER BY category NULLS FIRST, subcategory DESC"
   },
   {
     "comment": "JSON_OBJECTAGG simple",
@@ -1698,8 +1698,8 @@
   },
   {
     "comment": "JSON_OBJECTAGG with FILTER and OVER",
-    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FILTER (WHERE value \u003e 0) OVER (ORDER BY id) FROM users",
-    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FILTER (WHERE value \u003e 0) OVER (ORDER BY id) FROM users"
+    "query": "SELECT JSON_OBJECTAGG('key' VALUE value RETURNING TEXT) FILTER (WHERE value > 0) OVER (ORDER BY id) FROM users",
+    "expected": "SELECT JSON_OBJECTAGG('key' : value RETURNING TEXT) FILTER (WHERE value > 0) OVER (ORDER BY id) FROM users"
   },
   {
     "comment": "Simple INTO",
@@ -1867,8 +1867,8 @@
   },
   {
     "comment": "Window function in WHERE clause (subquery)",
-    "query": "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) as rn FROM users) t WHERE rn \u003c= 10",
-    "expected": "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM users) AS t WHERE rn \u003c= 10"
+    "query": "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) as rn FROM users) t WHERE rn <= 10",
+    "expected": "SELECT * FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn FROM users) AS t WHERE rn <= 10"
   },
   {
     "comment": "Multiple window functions",
@@ -1876,7 +1876,7 @@
   },
   {
     "comment": "Window function with CASE expression",
-    "query": "SELECT CASE WHEN ROW_NUMBER() OVER (ORDER BY score DESC) \u003c= 3 THEN 'Top 3' ELSE 'Other' END FROM students"
+    "query": "SELECT CASE WHEN ROW_NUMBER() OVER (ORDER BY score DESC) <= 3 THEN 'Top 3' ELSE 'Other' END FROM students"
   },
   {
     "comment": "Window function in ORDER BY",
@@ -1897,11 +1897,11 @@
   },
   {
     "comment": "SUM with FILTER",
-    "query": "SELECT SUM(amount) FILTER (WHERE date \u003e '2024-01-01') FROM transactions"
+    "query": "SELECT SUM(amount) FILTER (WHERE date > '2024-01-01') FROM transactions"
   },
   {
     "comment": "AVG with FILTER and GROUP BY",
-    "query": "SELECT department, AVG(salary) FILTER (WHERE experience \u003e 5) FROM employees GROUP BY department"
+    "query": "SELECT department, AVG(salary) FILTER (WHERE experience > 5) FROM employees GROUP BY department"
   },
   {
     "comment": "Multiple aggregates with FILTER",
@@ -1952,7 +1952,7 @@
   },
   {
     "comment": "FOR UPDATE NOWAIT",
-    "query": "SELECT * FROM accounts WHERE balance \u003e 1000 FOR UPDATE NOWAIT"
+    "query": "SELECT * FROM accounts WHERE balance > 1000 FOR UPDATE NOWAIT"
   },
   {
     "comment": "FOR UPDATE SKIP LOCKED",
@@ -2320,15 +2320,20 @@
   },
   {
     "comment": "Function with named arguments",
-    "query": "SELECT substring(string =\u003e 'hello world', start =\u003e 7, length =\u003e 5)"
+    "query": "SELECT substring(string => 'hello world', start => 7, length => 5)"
   },
   {
     "comment": "Function with mixed positional and named arguments",
-    "query": "SELECT substring('hello world', start =\u003e 7)"
+    "query": "SELECT substring('hello world', start => 7)"
   },
   {
     "comment": "Function with named argument only",
-    "query": "SELECT now(timezone =\u003e 'UTC')",
-    "expected": "SELECT NOW(timezone =\u003e 'UTC')"
+    "query": "SELECT now(timezone => 'UTC')",
+    "expected": "SELECT NOW(timezone => 'UTC')"
+  },
+  {
+    "comment": "CASE ELSE with interval typecast - verifies :: binds tighter than +",
+    "query": "SELECT CASE WHEN x = 1 THEN y ELSE (z + '01:00:00'::interval) END FROM t",
+    "expected": "SELECT CASE WHEN x = 1 THEN y ELSE (z + CAST('01:00:00' AS INTERVAL)) END FROM t"
   }
 ]

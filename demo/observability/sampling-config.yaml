@@ -1,0 +1,85 @@
+# OpenTelemetry Sampling Configuration for Multigres kind_demo
+#
+# This file configures operation-aware sampling to balance observability with resource efficiency.
+# Traces are sampled based on their operation type using consistent probability sampling.
+#
+# Key guarantee: ParentBased sampling ensures that when a root span is sampled, all child
+# spans in the distributed trace are also sampled, preventing fragmented traces.
+
+# Categories define sampling probabilities
+# Each category has a probability value between 0.0 (never sample) and 1.0 (always sample)
+categories:
+  # Operations: orchestration, failover, replication management
+  # Always sample these critical operations
+  operations:
+    probability: 1.0 # 100% sampling
+
+  # Queries: regular SQL query traffic (high volume)
+  # Sample sparingly to reduce overhead
+  queries:
+    probability: 0.0001 # 0.1% sampling (1 in 10000)
+
+  # Monitoring: health checks, readiness probes, metrics
+  # Sample occasionally for debugging connection issues
+  monitoring:
+    probability: 0.1 # 10% sampling
+
+  # Default: catch-all for unclassified spans
+  # Sample everything by default for safety
+  default:
+    probability: 1.0 # 100% sampling
+
+# gRPC span configuration
+# Services: set default sampling for entire gRPC service (e.g., "/package.Service")
+# Methods: override sampling for specific methods (e.g., "/package.Service/Method")
+grpc:
+  services:
+    # MultiPoolerManager: orchestration and replication management
+    "/multipoolermanager.MultiPoolerManager": operations
+
+    # MultiPoolerService: query execution (high volume)
+    "/multipoolerservice.MultiPoolerService": queries
+
+    # Consensus service: default to operations, override Status below
+    "/consensus.MultiPoolerConsensus": operations
+
+    # PgCtld service: default to operations, override Status below
+    "/pgctldservice.PgCtld": operations
+
+    # Health check service
+    "/grpc.health.v1.Health": monitoring
+
+  methods:
+    # Status polling methods should be sampled at lower rate
+    "/consensus.MultiPoolerConsensus/Status": monitoring
+    "/pgctldservice.PgCtld/Status": monitoring
+    "/multipoolermanager.MultiPoolerManager/Status": monitoring
+
+# HTTP span configuration
+# Exact: exact string matches for HTTP spans (format: "METHOD /path")
+# Patterns: glob patterns using filepath.Match syntax (*, ?, [...])
+http:
+  exact:
+    # Health and readiness checks
+    "GET /live": monitoring
+    "GET /ready": monitoring
+    "GET /health": monitoring
+
+  patterns:
+    # All other HTTP endpoints are operational (admin APIs, management endpoints)
+    "GET /*": operations
+    "POST /*": operations
+    "PUT /*": operations
+    "DELETE /*": operations
+    "PATCH /*": operations
+
+# Manual span configuration (for spans created with tracer.Start)
+# Exact: exact string matches
+# Patterns: glob patterns using filepath.Match syntax
+spans:
+  exact:
+    # Orchestration recovery cycles
+    "recovery/cycle": default
+
+  patterns:
+    # Catch-all for any unspecified spans uses "default" category (100%)

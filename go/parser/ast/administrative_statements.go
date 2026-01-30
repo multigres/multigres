@@ -117,7 +117,7 @@ func (tlc *TableLikeClause) SqlString() string {
 		return "LIKE"
 	}
 
-	result := fmt.Sprintf("LIKE %s", tlc.Relation.SqlString())
+	result := "LIKE " + tlc.Relation.SqlString()
 
 	// Handle INCLUDING options
 	if tlc.Options != 0 {
@@ -935,7 +935,7 @@ func (cts *CreateTriggerStmt) String() string {
 	if cts.IsConstraint {
 		result += " CONSTRAINT"
 		if cts.Constrrel != nil {
-			result += fmt.Sprintf(" FROM %s", cts.Constrrel.RelName)
+			result += " FROM " + cts.Constrrel.RelName
 		}
 		if cts.Deferrable {
 			result += " DEFERRABLE"
@@ -1015,7 +1015,7 @@ func (cts *CreateTriggerStmt) SqlString() string {
 				}
 			}
 			if len(colNames) > 0 {
-				updateEvent = fmt.Sprintf("UPDATE OF %s", strings.Join(colNames, ", "))
+				updateEvent = "UPDATE OF " + strings.Join(colNames, ", ")
 			}
 		}
 		events = append(events, updateEvent)
@@ -1168,7 +1168,7 @@ func (cps *CreatePolicyStmt) StatementType() string {
 // SqlString returns the SQL representation of CREATE POLICY statement
 func (cps *CreatePolicyStmt) SqlString() string {
 	var parts []string
-	parts = append(parts, "CREATE POLICY", cps.PolicyName, "ON")
+	parts = append(parts, "CREATE POLICY", QuoteIdentifier(cps.PolicyName), "ON")
 
 	if cps.Table != nil {
 		parts = append(parts, cps.Table.SqlString())

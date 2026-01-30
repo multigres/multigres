@@ -4185,7 +4185,7 @@
   {
     "comment": "numeric - Statement 859",
     "query": "select 'NaN'::numeric ^ 'NaN'::numeric",
-    "expected": "SELECT CAST(CAST('NaN' AS NUMERIC) ^ 'NaN' AS NUMERIC)"
+    "expected": "SELECT CAST('NaN' AS NUMERIC) ^ CAST('NaN' AS NUMERIC)"
   },
   {
     "comment": "numeric - Statement 860",
@@ -4200,12 +4200,12 @@
   {
     "comment": "numeric - Statement 862",
     "query": "select 0 ^ 'NaN'::numeric",
-    "expected": "SELECT CAST(0 ^ 'NaN' AS NUMERIC)"
+    "expected": "SELECT 0 ^ CAST('NaN' AS NUMERIC)"
   },
   {
     "comment": "numeric - Statement 863",
     "query": "select 1 ^ 'NaN'::numeric",
-    "expected": "SELECT CAST(1 ^ 'NaN' AS NUMERIC)"
+    "expected": "SELECT 1 ^ CAST('NaN' AS NUMERIC)"
   },
   {
     "comment": "numeric - Statement 864",

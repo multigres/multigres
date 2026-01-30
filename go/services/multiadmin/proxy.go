@@ -16,11 +16,14 @@ package multiadmin
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -46,7 +49,7 @@ func parseProxyPath(path string) (*proxyPathInfo, error) {
 	parts := strings.SplitN(trimmed, "/", 4)
 
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid proxy path: expected at least 3 parts")
+		return nil, errors.New("invalid proxy path: expected at least 3 parts")
 	}
 
 	return &proxyPathInfo{
@@ -99,10 +102,10 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 	}
 
 	if hostname == "" {
-		return "", 0, fmt.Errorf("service hostname not found")
+		return "", 0, errors.New("service hostname not found")
 	}
 	if httpPort == 0 {
-		return "", 0, fmt.Errorf("service port not found")
+		return "", 0, errors.New("service port not found")
 	}
 
 	return hostname, httpPort, nil
@@ -116,7 +119,7 @@ func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathIn
 		return &serviceTarget{
 			host:          ma.senv.GetHostname(),
 			port:          ma.senv.GetHTTPPort(),
-			proxyBasePath: fmt.Sprintf("/proxy/admin/%s", pathInfo.cellName),
+			proxyBasePath: "/proxy/admin/" + pathInfo.cellName,
 		}, nil
 
 	case "gate", "pool", "orch":
@@ -156,7 +159,8 @@ func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create reverse proxy to the target service
-	targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", target.host, target.port))
+	hostPort := net.JoinHostPort(target.host, strconv.Itoa(target.port))
+	targetURL, err := url.Parse("http://" + hostPort)
 	if err != nil {
 		http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
 		return
@@ -198,7 +202,7 @@ func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 			// Update response body
 			resp.Body = io.NopCloser(bytes.NewReader(rewrittenHTML))
-			resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewrittenHTML)))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(rewrittenHTML)))
 		}
 
 		return nil

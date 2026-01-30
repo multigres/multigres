@@ -21,7 +21,6 @@ import (
 	"path"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/tools/stringutil"
 
 	"google.golang.org/protobuf/proto"
 
@@ -29,11 +28,7 @@ import (
 )
 
 // NewMultiPooler creates a new MultiPooler record with the given name, cell, hostname, and tableGroup.
-// If name is empty, a random name will be generated.
 func NewMultiPooler(name string, cell, host, tableGroup string) *clustermetadatapb.MultiPooler {
-	if name == "" {
-		name = stringutil.RandomString(8)
-	}
 	return &clustermetadatapb.MultiPooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -309,12 +304,6 @@ func (ts *store) RegisterMultiPooler(ctx context.Context, mtpooler *clustermetad
 		oldMtPooler, err := ts.GetMultiPooler(ctx, mtpooler.Id)
 		if err != nil {
 			return fmt.Errorf("failed reading existing mtpooler %v: %w", MultiPoolerIDString(mtpooler.Id), err)
-		}
-
-		// Check we have the same database / shard, and if not,
-		// require the allowDifferentShard flag.
-		if oldMtPooler.Database != mtpooler.Database || oldMtPooler.Shard != mtpooler.Shard {
-			return fmt.Errorf("old mtpooler has shard %v/%v. Cannot override with shard %v/%v. Delete and re-add mtpooler if you want to change the mtpooler's database/shard", oldMtPooler.Database, oldMtPooler.Shard, mtpooler.Database, mtpooler.Shard)
 		}
 		oldMtPooler.MultiPooler = proto.Clone(mtpooler).(*clustermetadatapb.MultiPooler)
 		if err := ts.UpdateMultiPooler(ctx, oldMtPooler); err != nil {

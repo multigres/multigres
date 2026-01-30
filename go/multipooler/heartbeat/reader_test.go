@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/multipooler/executor/mock"
-	"github.com/multigres/multigres/go/tools/timer"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,18 +28,18 @@ import (
 // TestReaderReadHeartbeat tests that reading a heartbeat sets the appropriate
 // fields on the object.
 func TestReaderReadHeartbeat(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 	now := time.Now()
-	tr := newTestReader(t, querier, &now)
+	tr := newTestReader(t, queryService, &now)
 	defer tr.Close()
 
 	// Add query result for heartbeat read
-	querier.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+	queryService.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
 		[]string{"ts"},
 		[][]any{{now.Add(-10 * time.Second).UnixNano()}},
 	))
 
-	tr.readHeartbeat()
+	tr.readHeartbeat(t.Context())
 	lag, err := tr.Status()
 
 	require.NoError(t, err)
@@ -53,14 +52,14 @@ func TestReaderReadHeartbeat(t *testing.T) {
 // TestReaderReadHeartbeatError tests that we properly account for errors
 // encountered in the reading of heartbeat.
 func TestReaderReadHeartbeatError(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 	now := time.Now()
-	tr := newTestReader(t, querier, &now)
+	tr := newTestReader(t, queryService, &now)
 	defer tr.Close()
 
 	// Don't add any query - this will cause an error
 
-	tr.readHeartbeat()
+	tr.readHeartbeat(t.Context())
 	lag, err := tr.Status()
 
 	require.Error(t, err)
@@ -71,12 +70,12 @@ func TestReaderReadHeartbeatError(t *testing.T) {
 
 // TestReaderOpen tests that the reader starts reading heartbeats when opened.
 func TestReaderOpen(t *testing.T) {
-	querier := mock.NewQuerier()
-	tr := newTestReader(t, querier, nil)
+	queryService := mock.NewQueryService()
+	tr := newTestReader(t, queryService, nil)
 	defer tr.Close()
 
 	// Add query result for heartbeat reads
-	querier.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+	queryService.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
 		[]string{"ts"},
 		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
 	))
@@ -100,10 +99,10 @@ func TestReaderOpen(t *testing.T) {
 
 // TestReaderOpenClose tests the basic open/close lifecycle.
 func TestReaderOpenClose(t *testing.T) {
-	querier := mock.NewQuerier()
-	tr := newTestReader(t, querier, nil)
+	queryService := mock.NewQueryService()
+	tr := newTestReader(t, queryService, nil)
 
-	querier.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+	queryService.AddQueryPattern("SELECT ts FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
 		[]string{"ts"},
 		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
 	))
@@ -128,9 +127,9 @@ func TestReaderOpenClose(t *testing.T) {
 // TestReaderStatusNoHeartbeat tests that Status returns an error if no heartbeat
 // has been received in over 2x the interval.
 func TestReaderStatusNoHeartbeat(t *testing.T) {
-	querier := mock.NewQuerier()
+	queryService := mock.NewQueryService()
 	now := time.Now()
-	tr := newTestReader(t, querier, &now)
+	tr := newTestReader(t, queryService, &now)
 	defer tr.Close()
 
 	// Set lastKnownTime to more than 2x interval ago
@@ -149,14 +148,12 @@ func TestReaderStatusNoHeartbeat(t *testing.T) {
 }
 
 // newTestReader creates a new heartbeat reader for testing.
-func newTestReader(_ *testing.T, querier *mock.Querier, frozenTime *time.Time) *Reader {
+func newTestReader(_ *testing.T, queryService *mock.QueryService, frozenTime *time.Time) *Reader {
 	logger := slog.Default()
 	shardID := []byte("test-shard")
 
-	tr := NewReader(querier, logger, shardID)
 	// Use 250ms interval for tests to oversample
-	tr.interval = 250 * time.Millisecond
-	tr.ticks = timer.NewTimer(250 * time.Millisecond)
+	tr := newReader(queryService, logger, shardID, 250*time.Millisecond)
 
 	if frozenTime != nil {
 		tr.now = func() time.Time {

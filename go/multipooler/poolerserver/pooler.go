@@ -17,7 +17,7 @@ package poolerserver
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -98,11 +98,11 @@ func (s *QueryPoolerServer) IsHealthy() error {
 	defer s.mu.Unlock()
 
 	if s.executor == nil {
-		return fmt.Errorf("executor not initialized")
+		return errors.New("executor not initialized")
 	}
 
 	if s.poolManager == nil {
-		return fmt.Errorf("pool manager not initialized")
+		return errors.New("pool manager not initialized")
 	}
 
 	// The pool manager handles connection health internally.
@@ -133,14 +133,23 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 	defer s.mu.Unlock()
 
 	if s.executor == nil {
-		return nil, fmt.Errorf("executor not initialized - pool manager was nil")
+		return nil, errors.New("executor not initialized - pool manager was nil")
 	}
 
 	return s.executor, nil
 }
 
-// InternalQuerier returns the executor as an InternalQuerier for internal queries.
+// PoolManager returns the pool manager instance.
+// This is used by GetAuthCredentials to query pg_authid using an admin connection,
+// which works even before the executor is fully initialized during bootstrap.
+func (s *QueryPoolerServer) PoolManager() connpoolmanager.PoolManager {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.poolManager
+}
+
+// InternalQueryService returns the executor as an InternalQueryService for internal queries.
 // Implements PoolerController interface.
-func (s *QueryPoolerServer) InternalQuerier() executor.InternalQuerier {
+func (s *QueryPoolerServer) InternalQueryService() executor.InternalQueryService {
 	return s.executor
 }

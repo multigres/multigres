@@ -17,9 +17,11 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multiadmin"
 
 	"github.com/spf13/cobra"
@@ -30,7 +32,7 @@ func CreateMultiAdminCommand() (*cobra.Command, *multiadmin.MultiAdmin) {
 	ma := multiadmin.NewMultiAdmin()
 
 	cmd := &cobra.Command{
-		Use:   "multiadmin",
+		Use:   constants.ServiceMultiadmin,
 		Short: "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Long:  "Multiadmin provides administrative services for the multigres cluster, exposing both HTTP and gRPC endpoints for cluster management operations.",
 		Args:  cobra.NoArgs,
@@ -38,7 +40,7 @@ func CreateMultiAdminCommand() (*cobra.Command, *multiadmin.MultiAdmin) {
 			return ma.CobraPreRunE(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(ma)
+			return run(cmd.Context(), ma)
 		},
 	}
 
@@ -56,8 +58,8 @@ func main() {
 	}
 }
 
-func run(ma *multiadmin.MultiAdmin) error {
-	if err := ma.Init(); err != nil {
+func run(ctx context.Context, ma *multiadmin.MultiAdmin) error {
+	if err := ma.Init(ctx); err != nil {
 		return err
 	}
 	return ma.RunDefault()

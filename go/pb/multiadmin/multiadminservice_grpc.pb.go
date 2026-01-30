@@ -44,6 +44,8 @@ const (
 	MultiAdminService_RestoreFromBackup_FullMethodName  = "/multiadmin.MultiAdminService/RestoreFromBackup"
 	MultiAdminService_GetBackupJobStatus_FullMethodName = "/multiadmin.MultiAdminService/GetBackupJobStatus"
 	MultiAdminService_GetBackups_FullMethodName         = "/multiadmin.MultiAdminService/GetBackups"
+	MultiAdminService_GetPoolerStatus_FullMethodName    = "/multiadmin.MultiAdminService/GetPoolerStatus"
+	MultiAdminService_SetPostgresMonitor_FullMethodName = "/multiadmin.MultiAdminService/SetPostgresMonitor"
 )
 
 // MultiAdminServiceClient is the client API for MultiAdminService service.
@@ -74,6 +76,12 @@ type MultiAdminServiceClient interface {
 	GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts with optional filtering
 	GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error)
+	// GetPoolerStatus retrieves the unified status of a specific pooler.
+	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+	GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error)
+	// SetPostgresMonitor enables or disables PostgreSQL monitoring on a pooler.
+	// This proxies the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
+	SetPostgresMonitor(ctx context.Context, in *SetPostgresMonitorRequest, opts ...grpc.CallOption) (*SetPostgresMonitorResponse, error)
 }
 
 type multiAdminServiceClient struct {
@@ -194,6 +202,26 @@ func (c *multiAdminServiceClient) GetBackups(ctx context.Context, in *GetBackups
 	return out, nil
 }
 
+func (c *multiAdminServiceClient) GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPoolerStatusResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_GetPoolerStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiAdminServiceClient) SetPostgresMonitor(ctx context.Context, in *SetPostgresMonitorRequest, opts ...grpc.CallOption) (*SetPostgresMonitorResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetPostgresMonitorResponse)
+	err := c.cc.Invoke(ctx, MultiAdminService_SetPostgresMonitor_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiAdminServiceServer is the server API for MultiAdminService service.
 // All implementations must embed UnimplementedMultiAdminServiceServer
 // for forward compatibility.
@@ -222,6 +250,12 @@ type MultiAdminServiceServer interface {
 	GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts with optional filtering
 	GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error)
+	// GetPoolerStatus retrieves the unified status of a specific pooler.
+	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+	GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error)
+	// SetPostgresMonitor enables or disables PostgreSQL monitoring on a pooler.
+	// This proxies the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
+	SetPostgresMonitor(context.Context, *SetPostgresMonitorRequest) (*SetPostgresMonitorResponse, error)
 	mustEmbedUnimplementedMultiAdminServiceServer()
 }
 
@@ -264,6 +298,12 @@ func (UnimplementedMultiAdminServiceServer) GetBackupJobStatus(context.Context, 
 }
 func (UnimplementedMultiAdminServiceServer) GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPoolerStatus not implemented")
+}
+func (UnimplementedMultiAdminServiceServer) SetPostgresMonitor(context.Context, *SetPostgresMonitorRequest) (*SetPostgresMonitorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresMonitor not implemented")
 }
 func (UnimplementedMultiAdminServiceServer) mustEmbedUnimplementedMultiAdminServiceServer() {}
 func (UnimplementedMultiAdminServiceServer) testEmbeddedByValue()                           {}
@@ -484,6 +524,42 @@ func _MultiAdminService_GetBackups_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiAdminService_GetPoolerStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPoolerStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).GetPoolerStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_GetPoolerStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).GetPoolerStatus(ctx, req.(*GetPoolerStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiAdminService_SetPostgresMonitor_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPostgresMonitorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiAdminServiceServer).SetPostgresMonitor(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiAdminService_SetPostgresMonitor_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiAdminServiceServer).SetPostgresMonitor(ctx, req.(*SetPostgresMonitorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiAdminService_ServiceDesc is the grpc.ServiceDesc for MultiAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -534,6 +610,14 @@ var MultiAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBackups",
 			Handler:    _MultiAdminService_GetBackups_Handler,
+		},
+		{
+			MethodName: "GetPoolerStatus",
+			Handler:    _MultiAdminService_GetPoolerStatus_Handler,
+		},
+		{
+			MethodName: "SetPostgresMonitor",
+			Handler:    _MultiAdminService_SetPostgresMonitor_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -16,11 +16,16 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -54,7 +59,7 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 		grpcServer: servenv.NewGrpcServer(pc.reg),
 		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
 	}
-	serverCmd.senv.InitServiceMap("grpc", "pgctld")
+	serverCmd.senv.InitServiceMap("grpc", constants.ServicePgctld)
 	root.AddCommand(serverCmd.createCommand())
 }
 
@@ -89,12 +94,21 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 }
 
 func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
-	if err := s.senv.Init("pgctld"); err != nil {
+	// TODO(dweitzman): Add ServiceInstanceID and Cell that relate to the multipooler this pgctld serves
+	if err := s.senv.Init(servenv.ServiceIdentity{
+		ServiceName: constants.ServicePgctld,
+	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 
 	// Get the configured logger
 	logger := s.senv.GetLogger()
+
+	// Start reaping orphaned children to prevent zombie processes
+	// This is necessary because pg_ctl with -W flag can create orphaned child processes
+	// that get reparented to pgctld (PID 1 in container). Without this, these processes
+	// remain in defunct state after exit.
+	go reapOrphanedChildren(logger)
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
@@ -109,7 +123,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		)
 
 		// Register gRPC service with the global GRPCServer
-		if s.grpcServer.CheckServiceMap("pgctld", s.senv) {
+		if s.grpcServer.CheckServiceMap(constants.ServicePgctld, s.senv) {
 			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
 		// TODO(sougou): Add http server
@@ -121,6 +135,31 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	})
 
 	return s.senv.RunDefault(s.grpcServer)
+}
+
+// reapOrphanedChildren handles SIGCHLD signals to reap zombie processes.
+// This is necessary because pg_ctl with -W flag creates child processes that get
+// reparented to pgctld (when running as PID 1 in a container). Without this reaper,
+// these child processes remain in defunct (zombie) state after exit.
+//
+// The function runs in a goroutine and continuously waits for SIGCHLD signals,
+// then reaps all available zombie children using Wait4 with WNOHANG.
+func reapOrphanedChildren(logger *slog.Logger) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGCHLD)
+
+	for range sigCh {
+		// Reap all zombie children
+		for {
+			var status syscall.WaitStatus
+			pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
+			if err != nil || pid <= 0 {
+				// No more children to reap
+				break
+			}
+			logger.Debug("Reaped orphaned child process", "pid", pid, "status", status)
+		}
+	}
 }
 
 // PgCtldService implements the pgctld gRPC service
@@ -145,22 +184,22 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
 	if poolerDir == "" {
-		return nil, fmt.Errorf("pooler-dir needs to be set")
+		return nil, errors.New("pooler-dir needs to be set")
 	}
 	if pgPort == 0 {
-		return nil, fmt.Errorf("pg-port needs to be set")
+		return nil, errors.New("pg-port needs to be set")
 	}
 	if pgUser == "" {
-		return nil, fmt.Errorf("pg-user needs to be set")
+		return nil, errors.New("pg-user needs to be set")
 	}
 	if pgDatabase == "" {
-		return nil, fmt.Errorf("pg-database needs to be set")
+		return nil, errors.New("pg-database needs to be set")
 	}
 	if timeout == 0 {
-		return nil, fmt.Errorf("timeout needs to be set")
+		return nil, errors.New("timeout needs to be set")
 	}
 	if listenAddresses == "" {
-		return nil, fmt.Errorf("listen-addresses needs to be set")
+		return nil, errors.New("listen-addresses needs to be set")
 	}
 
 	// Create the PostgreSQL config once during service initialization
@@ -300,7 +339,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	// Use the pre-configured PostgreSQL config for status operation
-	result, err := GetStatusWithResult(s.logger, s.config)
+	result, err := GetStatusWithResult(ctx, s.logger, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
 	}
@@ -308,9 +347,9 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	// Convert status string to protobuf enum
 	var status pb.ServerStatus
 	switch result.Status {
-	case "STOPPED":
+	case statusStopped:
 		status = pb.ServerStatus_STOPPED
-	case "RUNNING":
+	case statusRunning:
 		status = pb.ServerStatus_RUNNING
 	default:
 		status = pb.ServerStatus_STOPPED
@@ -339,7 +378,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 
 func (s *PgCtldService) Version(ctx context.Context, req *pb.VersionRequest) (*pb.VersionResponse, error) {
 	s.logger.DebugContext(ctx, "gRPC Version request")
-	result, err := GetVersionWithResult(s.config)
+	result, err := GetVersionWithResult(ctx, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version: %w", err)
 	}
@@ -354,12 +393,41 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, req.PgPwfile)
+	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 
 	return &pb.InitDataDirResponse{
 		Message: result.Message,
+	}, nil
+}
+
+func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
+	s.logger.InfoContext(ctx, "gRPC PgRewind request",
+		"source_host", req.GetSourceHost(),
+		"source_port", req.GetSourcePort(),
+		"dry_run", req.GetDryRun())
+
+	// Resolve password using existing function
+	password, err := resolvePassword(s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve password: %w", err)
+	}
+
+	// Construct source server connection string (without password - will use PGPASSWORD env var)
+	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
+		req.GetSourceHost(), req.GetSourcePort())
+
+	// Use the shared rewind function with detailed result, passing password separately
+	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
+	if err != nil {
+		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
+		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)
+	}
+
+	return &pb.PgRewindResponse{
+		Message: result.Message,
+		Output:  result.Output,
 	}, nil
 }

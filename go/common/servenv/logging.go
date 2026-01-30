@@ -27,6 +27,12 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// Log output target constants
+const (
+	logOutputStdout = "stdout"
+	logOutputStderr = "stderr"
+)
+
 var (
 	// Logging configuration flags
 	logLevel  string
@@ -51,10 +57,11 @@ type Logger struct {
 	logOutput viperutil.Value[string]
 
 	// Internal state
-	loggerOnce sync.Once
-	logger     *slog.Logger
-	loggerMu   sync.Mutex
-	telemetry  *telemetry.Telemetry
+	loggerOnce  sync.Once
+	logger      *slog.Logger
+	loggerMu    sync.Mutex
+	telemetry   *telemetry.Telemetry
+	baseHandler slog.Handler // Handler before telemetry wrapping
 
 	// Hooks for customizing logging behavior
 	loggingSetupHooks  []func(*slog.Logger)
@@ -134,12 +141,12 @@ func SetupLogging() {
 		var output io.Writer
 		outputStr := logOutput
 		if outputStr == "" {
-			outputStr = "stdout" // Default fallback
+			outputStr = logOutputStdout // Default fallback
 		}
 		switch strings.ToLower(outputStr) {
-		case "stdout":
+		case logOutputStdout:
 			output = os.Stdout
-		case "stderr":
+		case logOutputStderr:
 			output = os.Stderr
 		default:
 			// Treat as file path
@@ -285,12 +292,12 @@ func (lg *Logger) SetupLogging() {
 		var output io.Writer
 		outputStr := lg.logOutput.Get()
 		if outputStr == "" {
-			outputStr = "stdout" // Default fallback
+			outputStr = logOutputStdout // Default fallback
 		}
 		switch strings.ToLower(outputStr) {
-		case "stdout":
+		case logOutputStdout:
 			output = os.Stdout
-		case "stderr":
+		case logOutputStderr:
 			output = os.Stderr
 		default:
 			// Treat as file path
@@ -332,6 +339,11 @@ func (lg *Logger) SetupLogging() {
 			})
 		}
 
+		// Store base handler before wrapping (for later re-wrapping after telemetry init)
+		lg.loggerMu.Lock()
+		lg.baseHandler = handler
+		lg.loggerMu.Unlock()
+
 		// Wrap handler with OpenTelemetry bridge to inject trace context
 		if lg.telemetry != nil {
 			handler = lg.telemetry.WrapSlogHandler(handler)
@@ -358,6 +370,21 @@ func (lg *Logger) SetupLogging() {
 			"output", outputStr,
 		)
 	})
+}
+
+// UpdateTelemetryWrapper re-wraps the logger with telemetry after telemetry initialization.
+// Call this after InitTelemetry() to enable OTLP logs export.
+func (lg *Logger) UpdateTelemetryWrapper() {
+	lg.loggerMu.Lock()
+	defer lg.loggerMu.Unlock()
+
+	if lg.baseHandler == nil || lg.telemetry == nil {
+		return
+	}
+
+	handler := lg.telemetry.WrapSlogHandler(lg.baseHandler)
+	lg.logger = slog.New(handler)
+	slog.SetDefault(lg.logger)
 }
 
 // GetLogger returns the configured logger instance.

@@ -13,8 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Directories to exclude from license checks
+EXCLUDED_DIRS="^(site|pb|dist|bin)/"
+
 # Get list of staged files that need license headers
-staged_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(go|sh|proto)$')
+staged_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(go|sh|proto)$' | grep -v -E "$EXCLUDED_DIRS")
 if [ -z "$staged_files" ]; then
   exit 0
 fi
@@ -26,10 +29,6 @@ files_with_multiline_license=()
 files_without_license=()
 
 for file in $staged_files; do
-  # Skip files in excluded directories
-  if [[ "$file" == site/* ]] || [[ "$file" == pb/* ]] || [[ "$file" == dist/* ]] || [[ "$file" == bin/* ]]; then
-    continue
-  fi
 
   # Check for multi-line license comments in Go files
   if [[ "$file" == *.go ]] && [[ -f "$file" ]] && head -1 "$file" | grep -q '^/\*'; then
@@ -80,4 +79,30 @@ if [ ${#files_without_license[@]} -ne 0 ]; then
   done
 
   echo "License headers added and staged successfully"
+fi
+
+# Update copyright year to current year for newly-added files
+CURRENT_YEAR=$(date +%Y)
+newly_added_files=$(git diff --cached --name-only --diff-filter=A | grep -E '\.(go|sh|proto)$' | grep -v -E "$EXCLUDED_DIRS")
+files_updated=()
+
+for file in $newly_added_files; do
+  # Skip if file doesn't exist
+  if [[ ! -f "$file" ]]; then
+    continue
+  fi
+
+  # Check if file has Supabase copyright but NOT with current year
+  if head -20 "$file" | grep -q "Copyright.*Supabase, Inc\." && ! head -20 "$file" | grep -q "Copyright $CURRENT_YEAR Supabase, Inc\."; then
+    # Replace only the year digits (preserves "Modifications" if present)
+    sed -i '' -E "s/((Modifications )?Copyright )[0-9]{4}( Supabase, Inc)/\1$CURRENT_YEAR\3/g" "$file"
+    # Re-stage the modified file
+    git add "$file"
+    files_updated+=("$file")
+  fi
+done
+
+if [ ${#files_updated[@]} -ne 0 ]; then
+  echo "Updated copyright year to $CURRENT_YEAR in newly-added files:"
+  printf '  %s\n' "${files_updated[@]}"
 fi

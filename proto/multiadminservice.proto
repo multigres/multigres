@@ -17,44 +17,97 @@ syntax = "proto3";
 package multiadmin;
 
 import "clustermetadata.proto";
+import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 
 // MultiAdminService provides administrative gRPC APIs for querying cluster metadata
 service MultiAdminService {
   // GetCell retrieves information about a specific cell
-  rpc GetCell(GetCellRequest) returns (GetCellResponse);
+  rpc GetCell(GetCellRequest) returns (GetCellResponse) {
+    option (google.api.http) = {get: "/api/v1/cells/{name}"};
+  }
 
   // GetDatabase retrieves information about a specific database
-  rpc GetDatabase(GetDatabaseRequest) returns (GetDatabaseResponse);
+  rpc GetDatabase(GetDatabaseRequest) returns (GetDatabaseResponse) {
+    option (google.api.http) = {get: "/api/v1/databases/{name}"};
+  }
 
   // GetCellNames retrieves all cell names in the cluster
-  rpc GetCellNames(GetCellNamesRequest) returns (GetCellNamesResponse);
+  rpc GetCellNames(GetCellNamesRequest) returns (GetCellNamesResponse) {
+    option (google.api.http) = {get: "/api/v1/cells"};
+  }
 
   // GetDatabaseNames retrieves all database names in the cluster
-  rpc GetDatabaseNames(GetDatabaseNamesRequest) returns (GetDatabaseNamesResponse);
+  rpc GetDatabaseNames(GetDatabaseNamesRequest) returns (GetDatabaseNamesResponse) {
+    option (google.api.http) = {get: "/api/v1/databases"};
+  }
 
   // GetGateways retrieves gateways filtered by cells
-  rpc GetGateways(GetGatewaysRequest) returns (GetGatewaysResponse);
+  rpc GetGateways(GetGatewaysRequest) returns (GetGatewaysResponse) {
+    option (google.api.http) = {get: "/api/v1/gateways"};
+  }
 
   // GetPoolers retrieves poolers filtered by cells and/or database
-  rpc GetPoolers(GetPoolersRequest) returns (GetPoolersResponse);
+  rpc GetPoolers(GetPoolersRequest) returns (GetPoolersResponse) {
+    option (google.api.http) = {get: "/api/v1/poolers"};
+  }
 
   // GetOrchs retrieves orchestrators filtered by cells
-  rpc GetOrchs(GetOrchsRequest) returns (GetOrchsResponse);
+  rpc GetOrchs(GetOrchsRequest) returns (GetOrchsResponse) {
+    option (google.api.http) = {get: "/api/v1/orchs"};
+  }
 
   // Backup starts an async backup of a specific shard
-  rpc Backup(BackupRequest) returns (BackupResponse);
+  rpc Backup(BackupRequest) returns (BackupResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/backups"
+      body: "*"
+    };
+  }
 
   // RestoreFromBackup starts an async restore of a specific shard from a backup
-  rpc RestoreFromBackup(RestoreFromBackupRequest) returns (RestoreFromBackupResponse);
+  rpc RestoreFromBackup(RestoreFromBackupRequest) returns (RestoreFromBackupResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/restores"
+      body: "*"
+    };
+  }
 
   // GetBackupJobStatus checks the status of a backup or restore job
-  rpc GetBackupJobStatus(GetBackupJobStatusRequest) returns (GetBackupJobStatusResponse);
+  rpc GetBackupJobStatus(GetBackupJobStatusRequest) returns (GetBackupJobStatusResponse) {
+    option (google.api.http) = {get: "/api/v1/jobs/{job_id}"};
+  }
 
   // GetBackups lists backup artifacts with optional filtering
-  rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse);
+  rpc GetBackups(GetBackupsRequest) returns (GetBackupsResponse) {
+    option (google.api.http) = {get: "/api/v1/backups"};
+  }
+
+  //
+  // Pooler Status (proxy methods)
+  //
+
+  // GetPoolerStatus retrieves the unified status of a specific pooler.
+  // This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+  rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse) {
+    option (google.api.http) = {get: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"};
+  }
+
+  //
+  // PostgreSQL Monitoring Control (proxy methods)
+  //
+
+  // SetPostgresMonitor enables or disables PostgreSQL monitoring on a pooler.
+  // This proxies the request to the target pooler's MultiPoolerManager.SetMonitor RPC.
+  rpc SetPostgresMonitor(SetPostgresMonitorRequest) returns (SetPostgresMonitorResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-monitor"
+      body: "*"
+    };
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -149,7 +202,8 @@ message BackupRequest {
   string shard = 3;
   // type of backup: "full", "differential", or "incremental" (required)
   string type = 4;
-  // force_primary indicates whether to backup from primary (optional, default false)
+  // force_primary forces the backup to run on the primary instead of a replica.
+  // This should typically be false because backups on replicas reduce load on the primary.
   bool force_primary = 5;
 }
 
@@ -171,6 +225,10 @@ message RestoreFromBackupRequest {
   string shard = 3;
   // backup_id to restore from (optional, empty means "latest backup")
   string backup_id = 4;
+  // pooler_id identifies which multipooler to restore to (required).
+  // This is needed because a cell can have multiple poolers for the same
+  // database/table_group/shard combination. Restores are only allowed to standbys.
+  clustermetadata.ID pooler_id = 5;
 }
 
 // RestoreFromBackupResponse contains the job ID for tracking the async restore
@@ -185,6 +243,12 @@ message RestoreFromBackupResponse {
 message GetBackupJobStatusRequest {
   // job_id to query (required)
   string job_id = 1;
+
+  // Shard context for fallback lookup via MultiPooler when job is not in memory.
+  // Required when job may have been lost due to process restart.
+  string database = 2;
+  string table_group = 3;
+  string shard = 4;
 }
 
 // GetBackupJobStatusResponse contains the current status of a backup or restore job
@@ -204,8 +268,7 @@ message GetBackupJobStatusResponse {
   string shard = 7;
 
   // For backup jobs
-  string backup_type = 8;         // "full", "differential", "incremental"
-  bool force_primary = 9;
+  string backup_type = 8; // "full", "differential", "incremental"
 
   // For restore jobs
   string requested_backup_id = 10; // What was requested (may be empty for "latest")
@@ -270,6 +333,10 @@ message BackupInfo {
   google.protobuf.Timestamp backup_time = 7;
   // backup_size_bytes is the size of the backup in bytes
   uint64 backup_size_bytes = 8;
+  // multipooler_service_id is the ID of the multipooler that reported the backup
+  string multipooler_service_id = 9;
+  // pooler_type is the type of the multipooler (PRIMARY or REPLICA)
+  clustermetadata.PoolerType pooler_type = 10;
 }
 
 // BackupStatus indicates the state of a backup artifact
@@ -278,4 +345,35 @@ enum BackupStatus {
   BACKUP_STATUS_INCOMPLETE = 1;
   BACKUP_STATUS_COMPLETE = 2;
   BACKUP_STATUS_FAILED = 3;
+}
+
+// GetPoolerStatus operation messages
+
+// GetPoolerStatusRequest requests the status of a specific pooler
+message GetPoolerStatusRequest {
+  // pooler_id identifies which pooler to query (required)
+  clustermetadata.ID pooler_id = 1;
+}
+
+// GetPoolerStatusResponse contains the pooler's unified status
+message GetPoolerStatusResponse {
+  // status contains the pooler's unified status from MultiPoolerManager.Status
+  multipoolermanagerdata.Status status = 1;
+}
+
+// PostgreSQL Monitoring Control operation messages
+
+// SetPostgresMonitorRequest requests to enable or disable PostgreSQL monitoring on a pooler
+message SetPostgresMonitorRequest {
+  // pooler_id identifies which pooler to update monitoring on (required)
+  clustermetadata.ID pooler_id = 1;
+
+  // enabled controls whether monitoring is enabled (true) or disabled (false)
+  bool enabled = 2;
+}
+
+// SetPostgresMonitorResponse confirms that monitoring was updated
+// Errors are returned via gRPC status codes, not in the response body
+message SetPostgresMonitorResponse {
+  // Empty - success indicated by no error
 }

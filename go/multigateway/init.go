@@ -25,14 +25,17 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/multigateway/auth"
 	"github.com/multigres/multigres/go/multigateway/executor"
 	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/multigateway/scatterconn"
-	"github.com/multigres/multigres/go/pgprotocol/server"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -42,14 +45,18 @@ type MultiGateway struct {
 	serviceID viperutil.Value[string]
 	// pgPort is the PostgreSQL protocol listen port
 	pgPort viperutil.Value[int]
-	// poolerDiscovery handles discovery of multipoolers
-	poolerDiscovery *PoolerDiscovery
+	// pgBindAddress is the address to bind the PostgreSQL listener to
+	pgBindAddress viperutil.Value[string]
+	// poolerDiscovery handles discovery of multipoolers across all cells
+	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// pgListener is the PostgreSQL protocol listener
 	pgListener *server.Listener
+	// pgHandler is the PostgreSQL protocol handler
+	pgHandler *handler.MultiGatewayHandler
 	// scatterConn coordinates query execution across poolers
 	scatterConn *scatterconn.ScatterConn
 	// executor handles query execution and routing
@@ -84,6 +91,12 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_PORT"},
 		}),
+		pgBindAddress: viperutil.Configure(reg, "pg-bind-address", viperutil.Options[string]{
+			Default:  "0.0.0.0",
+			FlagName: "pg-bind-address",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_BIND_ADDRESS"},
+		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
@@ -93,6 +106,7 @@ func NewMultiGateway() *MultiGateway {
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
 				{"Ready", "URL for readiness check", "/ready"},
+				{"Consolidator", "Prepared statement consolidator stats", "/debug/consolidator"},
 			},
 		},
 	}
@@ -114,10 +128,12 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
+	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
+		mg.pgBindAddress,
 	)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
@@ -128,7 +144,18 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (mg *MultiGateway) Init() error {
-	if err := mg.senv.Init("multigateway"); err != nil {
+	// Resolve service ID early for telemetry resource attributes
+	serviceID := mg.serviceID.Get()
+	if serviceID == "" {
+		serviceID = servenv.GenerateRandomServiceID()
+	}
+	cell := mg.cell.Get()
+
+	if err := mg.senv.Init(servenv.ServiceIdentity{
+		ServiceName:       constants.ServiceMultigateway,
+		ServiceInstanceID: serviceID,
+		Cell:              cell,
+	}); err != nil {
 		return fmt.Errorf("servenv init: %w", err)
 	}
 	logger := mg.senv.GetLogger()
@@ -140,13 +167,13 @@ func (mg *MultiGateway) Init() error {
 	}
 
 	// This doesn't change
-	mg.serverStatus.Cell = mg.cell.Get()
+	mg.serverStatus.LocalCell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 
-	// Start pooler discovery first
-	mg.poolerDiscovery = NewPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
+	// Start pooler discovery (watches all cells)
+	mg.poolerDiscovery = NewGlobalPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
 	mg.poolerDiscovery.Start()
-	logger.Info("Pooler discovery started with topology watch", "cell", mg.cell.Get())
+	logger.Info("Global pooler discovery started", "local_cell", mg.cell.Get())
 
 	// Initialize PoolerGateway for managing pooler connections
 	mg.poolerGateway = poolergateway.NewPoolerGateway(mg.poolerDiscovery, logger)
@@ -158,13 +185,17 @@ func (mg *MultiGateway) Init() error {
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
 
+	// Create hash provider for SCRAM authentication using the pooler gateway
+	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
+
 	// Create and start PostgreSQL protocol listener
-	pgHandler := handler.NewMultiGatewayHandler(mg.executor, logger)
-	pgAddr := fmt.Sprintf("localhost:%d", mg.pgPort.Get())
+	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger)
+	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
-		Address: pgAddr,
-		Handler: pgHandler,
-		Logger:  logger,
+		Address:      pgAddr,
+		Handler:      mg.pgHandler,
+		HashProvider: hashProvider,
+		Logger:       logger,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
@@ -186,8 +217,8 @@ func (mg *MultiGateway) Init() error {
 		"pg_port", mg.pgPort.Get(),
 	)
 
-	// Create MultiGateway instance for topo registration
-	multigateway := topoclient.NewMultiGateway(mg.serviceID.Get(), mg.cell.Get(), mg.senv.GetHostname())
+	// Create multigateway record with all fields now that servenv.Init() has set them up
+	multigateway := topoclient.NewMultiGateway(serviceID, cell, mg.senv.GetHostname())
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
@@ -204,6 +235,7 @@ func (mg *MultiGateway) Init() error {
 
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
 	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
+	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
 
 	mg.senv.OnClose(func() {
 		mg.Shutdown()
@@ -248,4 +280,27 @@ func (mg *MultiGateway) Shutdown() {
 
 	mg.tr.Unregister()
 	mg.ts.Close()
+}
+
+// poolerSystemDiscovererAdapter adapts PoolerGateway to implement auth.PoolerSystemDiscoverer.
+type poolerSystemDiscovererAdapter struct {
+	pg *poolergateway.PoolerGateway
+}
+
+func (a *poolerSystemDiscovererAdapter) GetSystemClient(ctx context.Context, database string) (auth.PoolerSystemClient, error) {
+	client, err := a.pg.SystemClientFunc()(ctx, database)
+	if err != nil {
+		return nil, err
+	}
+	return &poolerSystemClientWrapper{client: client}, nil
+}
+
+// poolerSystemClientWrapper wraps the generated gRPC client to match auth.PoolerSystemClient interface.
+// The gRPC client has ...grpc.CallOption, but auth.PoolerSystemClient doesn't.
+type poolerSystemClientWrapper struct {
+	client multipoolerpb.MultiPoolerServiceClient
+}
+
+func (w *poolerSystemClientWrapper) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
+	return w.client.GetAuthCredentials(ctx, req)
 }

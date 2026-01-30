@@ -764,7 +764,7 @@
   {
     "comment": "merge - Statement 180",
     "query": "CREATE FUNCTION merge_sq_source_into_sq_target() RETURNS TABLE (action text, tid int, balance int) LANGUAGE sql AS $$ MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.*;$$;",
-    "expected": "CREATE FUNCTION merge_sq_source_into_sq_target () LANGUAGE sql AS $$ MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.*;$$"
+    "expected": "CREATE FUNCTION merge_sq_source_into_sq_target () RETURNS TABLE (action TEXT, tid INT, balance INT) LANGUAGE sql AS $$ MERGE INTO sq_target t USING sq_source s ON tid = sid WHEN MATCHED AND tid \u003e= 2 THEN UPDATE SET balance = t.balance + delta WHEN NOT MATCHED THEN INSERT (balance, tid) VALUES (balance + delta, sid) WHEN MATCHED AND tid \u003c 2 THEN DELETE RETURNING merge_action(), t.*;$$"
   },
   {
     "comment": "merge - Statement 181",

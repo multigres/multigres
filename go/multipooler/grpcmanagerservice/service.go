@@ -56,8 +56,7 @@ func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanager
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
 	err := s.manager.SetPrimaryConnInfo(ctx,
-		req.Host,
-		req.Port,
+		req.Primary,
 		req.StopReplicationBefore,
 		req.StartReplicationAfter,
 		req.CurrentTerm,
@@ -223,13 +222,26 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 	return &multipoolermanagerdatapb.UndoDemoteResponse{}, nil
 }
 
+// DemoteStalePrimary demotes a stale primary that came back after failover
+func (s *managerService) DemoteStalePrimary(ctx context.Context, req *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
+	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.ConsensusTerm, req.Force)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // Promote promotes a replica to leader (Multigres-level operation)
 func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	resp, err := s.manager.Promote(ctx,
 		req.ConsensusTerm,
 		req.ExpectedLsn,
 		req.SyncReplicationConfig,
-		req.Force)
+		req.Force,
+		req.Reason,
+		req.CoordinatorId,
+		req.CohortMembers,
+		req.AcceptedMembers)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -241,17 +253,9 @@ func (s *managerService) State(ctx context.Context, req *multipoolermanagerdatap
 	return s.manager.State(ctx)
 }
 
-// SetTerm sets the consensus term information
-func (s *managerService) SetTerm(ctx context.Context, req *multipoolermanagerdatapb.SetTermRequest) (*multipoolermanagerdatapb.SetTermResponse, error) {
-	if err := s.manager.SetTerm(ctx, req.Term); err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return &multipoolermanagerdatapb.SetTermResponse{}, nil
-}
-
 // Backup performs a backup
 func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
-	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type)
+	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.JobId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -283,18 +287,21 @@ func (s *managerService) GetBackups(ctx context.Context, req *multipoolermanager
 	}, nil
 }
 
-// InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
-func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
-	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
+// GetBackupByJobId retrieves a backup by its job_id annotation
+func (s *managerService) GetBackupByJobId(ctx context.Context, req *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error) {
+	backup, err := s.manager.GetBackupByJobId(ctx, req.JobId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-	return resp, nil
+
+	return &multipoolermanagerdatapb.GetBackupByJobIdResponse{
+		Backup: backup,
+	}, nil
 }
 
-// InitializeAsStandby initializes an empty PostgreSQL instance as a standby
-func (s *managerService) InitializeAsStandby(ctx context.Context, req *multipoolermanagerdatapb.InitializeAsStandbyRequest) (*multipoolermanagerdatapb.InitializeAsStandbyResponse, error) {
-	resp, err := s.manager.InitializeAsStandby(ctx, req)
+// InitializeEmptyPrimary initializes an empty PostgreSQL instance as a primary
+func (s *managerService) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+	resp, err := s.manager.InitializeEmptyPrimary(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -308,4 +315,14 @@ func (s *managerService) CreateDurabilityPolicy(ctx context.Context, req *multip
 		return nil, mterrors.ToGRPC(err)
 	}
 	return resp, nil
+}
+
+// RewindToSource performs pg_rewind to synchronize this server with a source
+func (s *managerService) RewindToSource(ctx context.Context, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+	return s.manager.RewindToSource(ctx, req.Source)
+}
+
+// SetMonitor enables or disables the PostgreSQL monitoring goroutine
+func (s *managerService) SetMonitor(ctx context.Context, req *multipoolermanagerdatapb.SetMonitorRequest) (*multipoolermanagerdatapb.SetMonitorResponse, error) {
+	return s.manager.SetMonitor(ctx, req)
 }

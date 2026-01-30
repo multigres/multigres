@@ -49,7 +49,7 @@ func convertError(err error, nodePath string) error {
 		case codes.NotFound:
 			return topoclient.NewError(topoclient.NoNode, nodePath)
 		case codes.Unavailable, codes.DeadlineExceeded:
-			// The etcd2 client library may return this error:
+			// The etcd client library may return this error:
 			// grpc.Errorf(codes.Unavailable,
 			// "etcdserver: request timed out") which seems to be
 			// misclassified, it should be using

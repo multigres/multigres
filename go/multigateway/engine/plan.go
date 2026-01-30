@@ -18,9 +18,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multigateway/handler"
-	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/pgprotocol/server"
 )
 
 // Plan represents a query execution plan.
@@ -48,7 +48,7 @@ func (p *Plan) StreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
-	callback func(context.Context, *query.QueryResult) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return p.Primitive.StreamExecute(ctx, exec, conn, state, callback)
 }

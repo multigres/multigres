@@ -17,6 +17,7 @@ package command
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -110,9 +111,15 @@ Configuration:
 		flag.DefValue = "multigres"
 	}
 
+	// Configure output streams explicitly
+	// Otherwise cobra will output commands to StdErr
+	root.SetOut(os.Stdout)
+	root.SetErr(os.Stderr)
+
 	// Add all subcommands
 	AddClusterCommand(root, mc)
 	AddTopoCommands(root, mc)
+	AddPoolerCommands(root, mc)
 
 	return root
 }

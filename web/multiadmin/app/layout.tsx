@@ -1,0 +1,53 @@
+import type { Metadata } from "next";
+import {
+  Instrument_Sans,
+  Inter,
+  Geist_Mono,
+  Instrument_Serif,
+} from "next/font/google";
+import localFont from "next/font/local";
+import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
+
+const departureFont = localFont({
+  src: "../public/fonts/DepartureMono-Regular.woff2",
+  variable: "--font-departure-mono",
+});
+
+const instrumentSans = Instrument_Sans({
+  variable: "--font-instrument-sans",
+  subsets: ["latin"],
+});
+
+const instrumentSerif = Instrument_Serif({
+  weight: "400",
+  variable: "--font-instrument-serif",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Multigres - Admin UI",
+  description:
+    "Administrative interface for Multigres PostgreSQL cluster management",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${departureFont.variable} ${instrumentSans.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased`}
+      >
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
+    </html>
+  );
+}

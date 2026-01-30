@@ -15,6 +15,7 @@
 package cluster
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,7 +33,7 @@ func getConfigPaths(cmd *cobra.Command) ([]string, error) {
 		return nil, fmt.Errorf("failed to get config-path flag: %w", err)
 	}
 	if len(configPaths) == 0 {
-		return nil, fmt.Errorf("no config paths specified")
+		return nil, errors.New("no config paths specified")
 	}
 
 	return configPaths, nil
@@ -46,7 +47,7 @@ func buildConfigFromFlags(cmd *cobra.Command) (*MultigresConfig, error) {
 		return nil, fmt.Errorf("failed to get config-path flag: %w", err)
 	}
 	if len(configPaths) == 0 {
-		return nil, fmt.Errorf("no config paths specified")
+		return nil, errors.New("no config paths specified")
 	}
 
 	// Get provisioner name from flags or use default

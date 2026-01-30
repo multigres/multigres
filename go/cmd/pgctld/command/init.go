@@ -19,10 +19,9 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
+	"path/filepath"
 
 	"github.com/multigres/multigres/go/services/pgctld"
-	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
 )
@@ -36,18 +35,12 @@ type InitResult struct {
 // PgCtldInitCmd holds the init command configuration
 type PgCtldInitCmd struct {
 	pgCtlCmd *PgCtlCommand
-	pgPwfile viperutil.Value[string]
 }
 
 // AddInitCommand adds the init subcommand to the root command
 func AddInitCommand(root *cobra.Command, pc *PgCtlCommand) {
 	initCmd := &PgCtldInitCmd{
 		pgCtlCmd: pc,
-		pgPwfile: viperutil.Configure(pc.reg, "pg-pwfile", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "pg-pwfile",
-			Dynamic:  false,
-		}),
 	}
 
 	root.AddCommand(initCmd.createCommand())
@@ -65,6 +58,9 @@ start the PostgreSQL server. Configuration can be provided via config file,
 environment variables, or CLI flags. CLI flags take precedence over config
 file and environment variable settings.
 
+Password can be set via PGPASSWORD environment variable or by placing a
+password file at <pooler-dir>/pgpassword.txt.
+
 Examples:
   # Initialize data directory
   pgctld init --pooler-dir /var/lib/pooler-dir
@@ -80,14 +76,11 @@ Examples:
 		RunE: i.runInit,
 	}
 
-	cmd.Flags().String("pg-pwfile", i.pgPwfile.Default(), "PostgreSQL password file path")
-	viperutil.BindFlags(cmd.Flags(), i.pgPwfile)
-
 	return cmd
 }
 
 // InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information
-func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPwfile string) (*InitResult, error) {
+func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string) (*InitResult, error) {
 	result := &InitResult{}
 	dataDir := pgctld.PostgresDataDir(poolerDir)
 
@@ -100,7 +93,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 	}
 
 	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
-	if err := initializeDataDir(logger, dataDir, pgUser, pgPwfile); err != nil {
+	if err := initializeDataDir(logger, poolerDir, pgUser); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
@@ -117,7 +110,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
-	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgPwfile.Get())
+	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get())
 	if err != nil {
 		return err
 	}
@@ -132,73 +125,72 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func initializeDataDir(logger *slog.Logger, dataDir string, pgUser string, pgPwfile string) error {
+func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) error {
+	// Derive dataDir from poolerDir using the standard convention
+	dataDir := pgctld.PostgresDataDir(poolerDir)
+
 	// Note: initdb will create the data directory itself if it doesn't exist.
 	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
 
-	// Run initdb
-	//
+	// Get the effective password and validate it
+	effectivePassword, err := resolvePassword(poolerDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve password: %w", err)
+	}
+
+	// Determine password source for logging
+	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
+	passwordSource := "default"
+	if _, err := os.Stat(pwfile); err == nil {
+		passwordSource = "password file"
+	} else if os.Getenv("PGPASSWORD") != "" {
+		passwordSource = "PGPASSWORD environment variable"
+	}
+
+	// Build initdb command
 	// It's generally a good idea to enable page data checksums. Furthermore,
 	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
-	cmd := exec.Command("initdb", "-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=md5", "-U", pgUser)
+	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", pgUser}
+
+	// If password is provided, create a temporary password file for initdb
+	var tempPwFile string
+	if effectivePassword != "" {
+		// Create temporary password file
+		tmpFile, err := os.CreateTemp("", "pgpassword-*.txt")
+		if err != nil {
+			return fmt.Errorf("failed to create temporary password file: %w", err)
+		}
+		tempPwFile = tmpFile.Name()
+		defer os.Remove(tempPwFile)
+
+		if _, err := tmpFile.WriteString(effectivePassword); err != nil {
+			tmpFile.Close()
+			return fmt.Errorf("failed to write password to temporary file: %w", err)
+		}
+		if err := tmpFile.Close(); err != nil {
+			return fmt.Errorf("failed to close temporary password file: %w", err)
+		}
+
+		// Add pwfile argument to initdb
+		args = append(args, "--pwfile="+tempPwFile)
+		logger.Info("Setting password during initdb", "user", pgUser, "password_source", passwordSource)
+	} else {
+		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
+	}
+
+	cmd := exec.Command("initdb", args...)
 
 	// Capture both stdout and stderr to include in error messages
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
-	logger.Info("initdb completed", "output", string(output))
+	logger.Info("initdb completed successfully", "output", string(output))
 
-	// Get the effective password and validate it
-	effectivePassword, err := resolvePassword(pgPwfile)
-	if err != nil {
-		return fmt.Errorf("failed to resolve password: %w", err)
-	}
-
-	// Skip password setup if password is empty and warn user
-	if effectivePassword == "" {
-		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
-		logger.Info("PostgreSQL data directory initialized successfully")
-		return nil
-	}
-
-	// Set up user password for authentication
-	if err := setPostgresPassword(dataDir, pgUser, pgPwfile); err != nil {
-		return fmt.Errorf("failed to set user password: %w", err)
-	}
-
-	// Determine password source for logging
-	passwordSource := "default"
-	if pgPwfile != "" {
-		passwordSource = "password file"
-	} else if os.Getenv("PGPASSWORD") != "" {
-		passwordSource = "PGPASSWORD environment variable"
-	}
-
-	logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
-
-	return nil
-}
-
-func setPostgresPassword(dataDir string, pgUser string, pgPwfile string) error {
-	// Get the effective password
-	effectivePassword, err := resolvePassword(pgPwfile)
-	if err != nil {
-		return fmt.Errorf("failed to resolve password: %w", err)
-	}
-	// Start PostgreSQL temporarily in single-user mode to set password
-	// Use the configured user in single-user mode with trust auth to set the password
-	// Set password_encryption to scram-sha-256 to ensure SCRAM encoding
-	cmd := exec.Command("postgres", "--single", "-D", dataDir, pgUser)
-	sqlCommands := fmt.Sprintf("SET password_encryption = 'scram-sha-256';\nALTER USER %s WITH PASSWORD '%s';\n", pgUser, effectivePassword)
-	cmd.Stdin = strings.NewReader(sqlCommands)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to set %s password: %w", pgUser, err)
+	if effectivePassword != "" {
+		logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
 	}
 
 	return nil

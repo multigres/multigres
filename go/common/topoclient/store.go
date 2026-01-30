@@ -60,6 +60,7 @@ package topoclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -83,6 +84,9 @@ const (
 	// to connect to a multigres cluster: database information
 	// and cell locations.
 	GlobalCell = "global"
+
+	// DefaultTopoImplementation is the default topology implementation.
+	DefaultTopoImplementation = "etcd"
 )
 
 // Filenames for all object types.
@@ -207,6 +211,10 @@ type Store interface {
 	// See shard_lock.go for full documentation.
 	TryLockShard(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
 
+	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
+	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+	GetRemoteOperationTimeout() time.Duration
+
 	// Resource cleanup
 	io.Closer
 }
@@ -261,8 +269,9 @@ func (ts *store) getLockTimeout() time.Duration {
 	return ts.config.GetLockTimeout()
 }
 
-// getRemoteOperationTimeout returns the configured remote operation timeout.
-func (ts *store) getRemoteOperationTimeout() time.Duration {
+// GetRemoteOperationTimeout returns the configured remote operation timeout.
+// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
+func (ts *store) GetRemoteOperationTimeout() time.Duration {
 	return ts.config.GetRemoteOperationTimeout()
 }
 
@@ -275,7 +284,6 @@ type cellConn struct {
 
 // TopoConfig holds topology configuration using viperutil values
 type TopoConfig struct {
-	implementation         viperutil.Value[string]
 	globalServerAddresses  viperutil.Value[[]string]
 	globalRoot             viperutil.Value[string]
 	readConcurrency        viperutil.Value[int64]
@@ -286,11 +294,6 @@ type TopoConfig struct {
 // NewTopoConfig creates a new TopoConfig with default values
 func NewTopoConfig(reg *viperutil.Registry) *TopoConfig {
 	return &TopoConfig{
-		implementation: viperutil.Configure(reg, "topo-implementation", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "topo-implementation",
-			Dynamic:  false,
-		}),
 		globalServerAddresses: viperutil.Configure(reg, "topo-global-server-addresses", viperutil.Options[[]string]{
 			Default:  []string{},
 			FlagName: "topo-global-server-addresses",
@@ -323,7 +326,6 @@ func NewTopoConfig(reg *viperutil.Registry) *TopoConfig {
 
 // RegisterFlags registers all topo flags with the given FlagSet
 func (tc *TopoConfig) RegisterFlags(fs *pflag.FlagSet) {
-	fs.String("topo-implementation", tc.implementation.Default(), "the topology implementation to use")
 	fs.StringSlice("topo-global-server-addresses", tc.globalServerAddresses.Default(), "the address of the global topology server")
 	fs.String("topo-global-root", tc.globalRoot.Default(), "the path of the global topology data in the global topology server")
 	fs.Int64("topo-read-concurrency", tc.readConcurrency.Default(), "Maximum concurrency of topo reads per global or local cell.")
@@ -331,7 +333,6 @@ func (tc *TopoConfig) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("remote-operation-timeout", tc.remoteOperationTimeout.Default(), "time to wait for a remote operation")
 
 	viperutil.BindFlags(fs,
-		tc.implementation,
 		tc.globalServerAddresses,
 		tc.globalRoot,
 		tc.readConcurrency,
@@ -418,7 +419,7 @@ func NewWithFactory(factory Factory, root string, serverAddrs []string, config *
 // root path, and server addresses for the global topology server.
 func OpenServer(implementation, root string, serverAddrs []string, config *TopoConfig) (Store, error) {
 	if config == nil {
-		return nil, fmt.Errorf("TopoConfig is required")
+		return nil, errors.New("TopoConfig is required")
 	}
 
 	factory, ok := factories[implementation]
@@ -430,7 +431,7 @@ func OpenServer(implementation, root string, serverAddrs []string, config *TopoC
 		}
 
 		if len(available) == 0 {
-			return nil, fmt.Errorf("no topology implementations registered. This may indicate a build or import issue")
+			return nil, errors.New("no topology implementations registered. This may indicate a build or import issue")
 		}
 
 		return nil, fmt.Errorf("topology implementation '%s' not found. Available implementations: %s", implementation, strings.Join(available, ", "))
@@ -439,36 +440,22 @@ func OpenServer(implementation, root string, serverAddrs []string, config *TopoC
 }
 
 // Open returns a topology store using the command-line parameter flags
-// for implementation, address, and root. It returns an error if
-// required configuration is missing or if an error occurs.
+// for address and root. It returns an error if required configuration
+// is missing or if an error occurs.
 func (config *TopoConfig) Open() (Store, error) {
 	addresses := config.globalServerAddresses.Get()
 	root := config.globalRoot.Get()
-	implementation := config.implementation.Get()
 
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("topo-global-server-addresses must be configured")
+		return nil, errors.New("topo-global-server-addresses must be configured")
 	}
 	if root == "" {
-		return nil, fmt.Errorf("topo-global-root must be non-empty")
+		return nil, errors.New("topo-global-root must be non-empty")
 	}
 
-	if implementation == "" {
-		// Build a helpful message showing available implementations
-		var available []string
-		for name := range factories {
-			available = append(available, name)
-		}
-
-		if len(available) == 0 {
-			return nil, fmt.Errorf("topo-implementation must be configured. Available: none (no implementations registered)")
-		}
-		return nil, fmt.Errorf("topo-implementation must be configured. Available: %s", strings.Join(available, ", "))
-	}
-
-	ts, err := OpenServer(implementation, root, addresses, config)
+	ts, err := OpenServer(DefaultTopoImplementation, root, addresses, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open topo server (implementation=%s, addresses=%v, root=%s): %w", implementation, addresses, root, err)
+		return nil, fmt.Errorf("failed to open topo server (implementation=%s, addresses=%v, root=%s): %w", DefaultTopoImplementation, addresses, root, err)
 	}
 	return ts, nil
 }

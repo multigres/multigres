@@ -20,12 +20,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
-	"github.com/multigres/multigres/go/pgprotocol/client"
 )
 
 // UserPool manages connection pools for a specific user.
@@ -76,12 +76,12 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
 	logger = logger.With("user", config.ClientConfig.User)
 
 	// Create regular pool for this user
-	regularPool := regular.NewPool(&regular.PoolConfig{
+	regularPool := regular.NewPool(ctx, &regular.PoolConfig{
 		ClientConfig:   config.ClientConfig,
 		ConnPoolConfig: config.RegularPoolConfig,
 		AdminPool:      config.AdminPool,
 	})
-	regularPool.Open(ctx)
+	regularPool.Open()
 
 	// Create reserved pool for this user (it manages its own internal regular pool)
 	// InactivityTimeout kills reserved connections if the client that reserved them

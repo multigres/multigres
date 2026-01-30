@@ -17,16 +17,16 @@ package grpcpoolerservice
 
 import (
 	"context"
-	"fmt"
-	"strings"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
 // poolerService is the gRPC wrapper for MultiPooler
@@ -57,10 +57,10 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 	}
 
 	// Execute the query and stream results
-	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, nil, func(ctx context.Context, result *querypb.QueryResult) error {
+	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, func(ctx context.Context, result *sqltypes.Result) error {
 		// Send the result back to the client
 		response := &multipoolerpb.StreamExecuteResponse{
-			Result: result,
+			Result: result.ToProto(),
 		}
 		return stream.Send(response)
 	})
@@ -75,22 +75,25 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, fmt.Errorf("executor not initialized")
+		return nil, errors.New("executor not initialized")
 	}
 
-	// Execute the query and stream results
-	options := &querypb.ExecuteOptions{MaxRows: req.MaxRows}
-	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, options)
+	// Execute the query
+	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.Options)
 	if err != nil {
 		return nil, err
 	}
 	return &multipoolerpb.ExecuteQueryResponse{
-		Result: res,
+		Result: res.ToProto(),
 	}, nil
 }
 
 // GetAuthCredentials retrieves authentication credentials (SCRAM hash) for a PostgreSQL user.
 // This is used by multigateway to authenticate clients using SCRAM-SHA-256.
+//
+// This method uses an admin connection directly since normally a non-superuser wouldn't
+// have access to password hashes and at the time of this request we wouldn't have authenticated
+// that we have permission to run queries under any other user's role.
 func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	// Validate request.
 	if req.Username == "" {
@@ -105,43 +108,34 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 		return nil, status.Error(codes.Unavailable, "pooler not initialized")
 	}
 
-	// Get the executor from the pooler.
-	executor, err := s.pooler.Executor()
+	// Get the pool manager from the pooler.
+	poolManager := s.pooler.PoolManager()
+	if poolManager == nil {
+		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
+	}
+
+	// Get an admin connection. This works even before the executor is initialized,
+	// which is critical for authentication during bootstrap.
+	conn, err := poolManager.GetAdminConn(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "executor not initialized: %v", err)
+		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
 	}
+	defer conn.Recycle()
 
-	// Query pg_authid for the user's password hash.
-	// Note: This requires superuser access to read pg_authid.
-	query := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = '%s' LIMIT 1",
-		escapeString(req.Username))
-
-	options := &querypb.ExecuteOptions{MaxRows: 1}
-	result, err := executor.ExecuteQuery(ctx, nil, query, options)
+	// Get the role password hash using the admin connection.
+	// This queries pg_authid, which requires superuser access.
+	scramHash, err := conn.Conn.GetRolPassword(ctx, req.Username)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to query credentials: %v", err)
-	}
-
-	// Check if user exists.
-	if len(result.Rows) == 0 {
-		return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
-	}
-
-	// Extract the password hash.
-	var scramHash string
-	if len(result.Rows[0].Values) > 0 {
-		scramHash = string(result.Rows[0].Values[0])
+		// Check if it's a "user not found" error
+		if errors.Is(err, admin.ErrUserNotFound) {
+			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
 	}
 
 	return &multipoolerpb.GetAuthCredentialsResponse{
 		ScramHash: scramHash,
 	}, nil
-}
-
-// escapeString escapes a string for safe use in SQL queries.
-// This doubles single quotes for PostgreSQL.
-func escapeString(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 // Describe returns metadata about a prepared statement or portal.
@@ -150,7 +144,7 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, fmt.Errorf("executor not initialized")
+		return nil, errors.New("executor not initialized")
 	}
 
 	// Call the executor's Describe method
@@ -180,10 +174,10 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.PreparedStatement,
 		req.Portal,
 		req.Options,
-		func(ctx context.Context, result *querypb.QueryResult) error {
+		func(ctx context.Context, result *sqltypes.Result) error {
 			// Send the result back to the client
 			response := &multipoolerpb.PortalStreamExecuteResponse{
-				Result: result,
+				Result: result.ToProto(),
 			}
 			return stream.Send(response)
 		},

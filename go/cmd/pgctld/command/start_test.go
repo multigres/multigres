@@ -195,7 +195,8 @@ func TestInitializeDataDir(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_test")
 		defer cleanup()
 
-		dataDir := filepath.Join(baseDir, "data")
+		// baseDir serves as poolerDir; dataDir will be poolerDir/pg_data
+		poolerDir := baseDir
 
 		// Setup mock initdb binary
 		binDir := filepath.Join(baseDir, "bin")
@@ -208,10 +209,11 @@ func TestInitializeDataDir(t *testing.T) {
 		defer os.Setenv("PATH", originalPath)
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, dataDir, "postgres", "")
+		err := initializeDataDir(logger, poolerDir, "postgres")
 		require.NoError(t, err)
 
-		// Verify directory was created
+		// Verify directory was created (dataDir is poolerDir/pg_data)
+		dataDir := filepath.Join(poolerDir, "pg_data")
 		assert.DirExists(t, dataDir)
 
 		// Verify PG_VERSION file exists (created by mock)
@@ -220,12 +222,72 @@ func TestInitializeDataDir(t *testing.T) {
 
 	t.Run("fails with invalid directory permissions", func(t *testing.T) {
 		// Try to create data dir in a read-only location
-		dataDir := "/root/impossible_dir"
+		poolerDir := "/root/impossible_dir"
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, dataDir, "postgres", "")
+		err := initializeDataDir(logger, poolerDir, "postgres")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "initdb failed")
+	})
+}
+
+func TestReadLogTail(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		lines    int
+		expected string
+	}{
+		{
+			name:     "normal case with trailing newline",
+			content:  "line1\nline2\nline3\nline4\nline5\n",
+			lines:    3,
+			expected: "line3\nline4\nline5",
+		},
+		{
+			name:     "fewer lines than requested",
+			content:  "line1\nline2\n",
+			lines:    5,
+			expected: "line1\nline2",
+		},
+		{
+			name:     "empty file",
+			content:  "",
+			lines:    5,
+			expected: "(empty log file)",
+		},
+		{
+			name:     "whitespace only",
+			content:  "  \n\n  \n",
+			lines:    5,
+			expected: "(empty log file)",
+		},
+		{
+			name:     "exact number of lines",
+			content:  "line1\nline2\nline3",
+			lines:    3,
+			expected: "line1\nline2\nline3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temp file with content
+			tmpDir, cleanup := testutil.TempDir(t, "log_tail_test")
+			defer cleanup()
+
+			logPath := filepath.Join(tmpDir, "test.log")
+			err := os.WriteFile(logPath, []byte(tt.content), 0o644)
+			require.NoError(t, err)
+
+			result := readLogTail(logPath, tt.lines)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+
+	t.Run("file not found", func(t *testing.T) {
+		result := readLogTail("/nonexistent/path/log.txt", 10)
+		assert.Contains(t, result, "failed to read log")
 	})
 }
 
@@ -260,7 +322,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		err = waitForPostgreSQLWithConfig(config)
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		err = waitForPostgreSQLWithConfig(logger, config)
 		assert.NoError(t, err)
 	})
 
@@ -294,8 +357,49 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		err = waitForPostgreSQLWithConfig(config)
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		err = waitForPostgreSQLWithConfig(logger, config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "did not become ready")
+	})
+}
+
+func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
+	t.Run("detects crashed process", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_crash_test")
+		defer cleanup()
+
+		// Create initialized data directory
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+
+		// Create PID file with non-existent PID (simulates crashed process)
+		testutil.CreateDeadPIDFile(t, dataDir, 999999)
+
+		// Create mock pg_isready that always fails
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "pg_isready", "exit 1")
+
+		originalPath := os.Getenv("PATH")
+		os.Setenv("PATH", binDir+":"+originalPath)
+		defer os.Setenv("PATH", originalPath)
+
+		config, err := pgctld.NewPostgresCtlConfig(
+			5432,
+			"postgres",
+			"postgres",
+			5, // 5 second timeout
+			pgctld.PostgresDataDir(baseDir),
+			pgctld.PostgresConfigFile(baseDir),
+			baseDir,
+			"localhost",
+			pgctld.PostgresSocketDir(baseDir),
+		)
+		require.NoError(t, err)
+
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		err = waitForPostgreSQLWithConfig(logger, config)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "crashed")
 	})
 }

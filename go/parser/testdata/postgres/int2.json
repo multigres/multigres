@@ -215,22 +215,22 @@
   {
     "comment": "int2 - Statement 45",
     "query": "SELECT ((-1::int2\u003c\u003c15)+1::int2)::text",
-    "expected": "SELECT CAST((CAST((-CAST(1 AS SMALLINT) \u003c\u003c 15) + 1 AS SMALLINT)) AS TEXT)"
+    "expected": "SELECT CAST(((-CAST(1 AS SMALLINT) \u003c\u003c 15) + CAST(1 AS SMALLINT)) AS TEXT)"
   },
   {
     "comment": "int2 - Statement 46",
     "query": "SELECT (-32768)::int2 * (-1)::int2",
-    "expected": "SELECT CAST(CAST((-32768) AS SMALLINT) * (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-32768) AS SMALLINT) * CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int2 - Statement 47",
     "query": "SELECT (-32768)::int2 / (-1)::int2",
-    "expected": "SELECT CAST(CAST((-32768) AS SMALLINT) / (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-32768) AS SMALLINT) / CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int2 - Statement 48",
     "query": "SELECT (-32768)::int2 % (-1)::int2",
-    "expected": "SELECT CAST(CAST((-32768) AS SMALLINT) % (-1) AS SMALLINT)"
+    "expected": "SELECT CAST((-32768) AS SMALLINT) % CAST((-1) AS SMALLINT)"
   },
   {
     "comment": "int2 - Statement 49",

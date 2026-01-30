@@ -16,13 +16,12 @@ package manager
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -42,13 +42,17 @@ import (
 // The manager is created as a PRIMARY, so it checks pg_is_in_recovery() which returns false.
 // Note: Schema creation is now handled by multiorch during bootstrap initialization,
 // so we no longer expect CREATE SCHEMA or CREATE TABLE queries here.
-func expectPrimaryStartupQueries(mock sqlmock.Sqlmock) {
-	// Heartbeat startup: checks if DB is primary
-	mock.ExpectQuery("SELECT pg_is_in_recovery").
-		WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+func expectPrimaryStartupQueries(m *mock.QueryService) {
+	// Heartbeat startup: checks if DB is primary (consumed once so test-specific patterns take precedence)
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 }
 
-func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, string) {
+func expectStandbyStartupQueries(m *mock.QueryService) {
+	// Heartbeat startup: checks if DB is standby (consumed once so test-specific patterns take precedence)
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+}
+
+func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -79,20 +83,17 @@ func setupManagerWithMockDB(t *testing.T, mockDB *sql.DB) (*MultiPoolerManager, 
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 
 	tmpDir := t.TempDir()
+	multipooler.PoolerDir = tmpDir
 	config := &Config{
 		TopoClient: ts,
-		ServiceID:  serviceID,
 		PgctldAddr: pgctldAddr,
-		PoolerDir:  tmpDir,
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
 	}
-	pm, err := NewMultiPoolerManager(logger, config)
+	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.Close() })
 
-	// Assign mock DB BEFORE starting the manager to avoid race conditions
-	pm.db = mockDB
+	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -127,7 +128,7 @@ func TestBeginTerm(t *testing.T) {
 		initialTerm                         *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm                         int64
 		requestCandidate                    *clustermetadatapb.ID
-		setupMocks                          func(mock sqlmock.Sqlmock)
+		setupMocks                          func(*mock.QueryService)
 		expectedAccepted                    bool
 		expectedTerm                        int64
 		expectedAcceptedTermFromCoordinator string
@@ -149,11 +150,10 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "candidate-B",
 			},
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
-				recentTime := time.Now().Add(-5 * time.Second)
-				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -176,8 +176,8 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "candidate-B",
 			},
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    false,
 			expectedTerm:                        5,
@@ -200,11 +200,10 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "candidate-A",
 			},
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
-				recentTime := time.Now().Add(-5 * time.Second)
-				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        5,
@@ -222,14 +221,10 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "new-candidate",
 			},
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
-				// isPrimary check - returns true (not in recovery = primary)
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-				// checkPrimaryGuardrails - verifies still primary
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// isInRecovery check - returns false (not in recovery = primary)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 				// demoteLocked fails at checkDemotionState or another early step
 				// Simulate failure by not setting up expected queries for demotion steps
 			},
@@ -249,18 +244,13 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "new-candidate",
 			},
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
-				// isPrimary check (line 59) - returns false (already in recovery/demoted)
-				// This tests the case where the primary was successfully demoted before BeginTerm
-				// In practice, this could happen if BeginTerm is called again after a previous
-				// successful demotion (idempotent retry).
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-				// Since not primary, check if caught up with replication
-				recentTime := time.Now().Add(-5 * time.Second)
-				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// isInRecovery check - returns true (in recovery = standby/demoted)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// Since in recovery, check if caught up with replication
+				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -278,21 +268,16 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "new-candidate",
 			},
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
-				// isPrimary check - returns true (in recovery = standby)
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
-				// WAL receiver query returns no rows (disconnected standby)
-				// This is EXPECTED during failover when the primary just died
-				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
-					WillReturnError(sql.ErrNoRows)
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// isInRecovery check - returns true (in recovery = standby)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// WAL receiver query returns error (disconnected standby)
+				m.AddQueryPatternOnceWithError("SELECT last_msg_receipt_time", errors.New("no rows"))
 				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
-				mock.ExpectExec("ALTER SYSTEM RESET primary_conninfo").
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// pauseReplication - pg_reload_conf
-				mock.ExpectExec("SELECT pg_reload_conf\\(\\)").
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -310,20 +295,17 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "new-candidate",
 			},
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
-				// isPrimary check - standby
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// isInRecovery check - returns true (standby)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				// WAL receiver check - connected and caught up
-				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(time.Now().Add(-5 * time.Second)))
+				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
-				mock.ExpectExec("ALTER SYSTEM RESET primary_conninfo").
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// pauseReplication - pg_reload_conf
-				mock.ExpectExec("SELECT pg_reload_conf\\(\\)").
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -338,7 +320,7 @@ func TestBeginTerm(t *testing.T) {
 		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm            int64
 		requestCandidate       *clustermetadatapb.ID
-		setupMocks             func(mock sqlmock.Sqlmock)
+		setupMocks             func(*mock.QueryService)
 		makeFilesystemReadOnly bool
 		expectedError          bool
 		expectedMemoryTerm     int64
@@ -358,11 +340,10 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-B",
 			},
 			makeFilesystemReadOnly: true,
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectPing()
-				recentTime := time.Now().Add(-5 * time.Second)
-				mock.ExpectQuery("SELECT last_msg_receipt_time FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"last_msg_receipt_time"}).AddRow(recentTime))
+			setupMocks: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
+				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
 			expectedError:        true,
 			expectedMemoryTerm:   5,
@@ -376,11 +357,11 @@ func TestBeginTerm(t *testing.T) {
 			ctx := context.Background()
 
 			// Create mock and set ALL expectations BEFORE starting the manager
-			mockDB, mock := newMockDB(t)
-			expectPrimaryStartupQueries(mock)
-			tt.setupMocks(mock)
+			mockQueryService := mock.NewQueryService()
+			expectPrimaryStartupQueries(mockQueryService)
+			tt.setupMocks(mockQueryService)
 
-			pm, tmpDir := setupManagerWithMockDB(t, mockDB)
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
 
 			// Initialize term on disk
 			err := setConsensusTerm(tmpDir, tt.initialTerm)
@@ -411,8 +392,7 @@ func TestBeginTerm(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
 			assert.Equal(t, tt.expectedAcceptedTermFromCoordinator, persistedTerm.AcceptedTermFromCoordinatorId.GetName())
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 
@@ -421,11 +401,12 @@ func TestBeginTerm(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			// Create mock and set startup expectations BEFORE starting the manager
-			mockDB, mock := newMockDB(t)
-			expectPrimaryStartupQueries(mock)
+			// Create mock and set ALL expectations BEFORE starting the manager
+			mockQueryService := mock.NewQueryService()
+			expectPrimaryStartupQueries(mockQueryService)
+			tt.setupMocks(mockQueryService)
 
-			pm, tmpDir := setupManagerWithMockDB(t, mockDB)
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
 
 			// Initialize term on disk
 			err := setConsensusTerm(tmpDir, tt.initialTerm)
@@ -447,9 +428,6 @@ func TestBeginTerm(t *testing.T) {
 					_ = os.Chmod(consensusDir, 0o755)
 				})
 			}
-
-			// Setup mocks
-			tt.setupMocks(mock)
 
 			// Make request
 			req := &consensusdatapb.BeginTermRequest{
@@ -486,8 +464,7 @@ func TestBeginTerm(t *testing.T) {
 					assert.Equal(t, tt.expectedMemoryLeader, loadedTerm.AcceptedTermFromCoordinatorId.GetName(), "Disk leader should match initial state after save failure")
 				}
 			}
-
-			assert.NoError(t, mock.ExpectationsWereMet())
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -658,8 +635,8 @@ func TestCanReachPrimary(t *testing.T) {
 		name                  string
 		requestHost           string
 		requestPort           int32
-		setupMocks            func(mock sqlmock.Sqlmock)
-		nilDB                 bool
+		setupMock             func(*mock.QueryService)
+		nilQsc                bool
 		expectedReachable     bool
 		expectedErrorContains string
 		description           string
@@ -668,11 +645,10 @@ func TestCanReachPrimary(t *testing.T) {
 			name:        "Success_MatchingHostPort",
 			requestHost: "localhost",
 			requestPort: 5432,
-			setupMocks: func(mock sqlmock.Sqlmock) {
+			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=localhost port=5432 user=replicator application_name=test-cell_standby-1"
-				mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
-						AddRow("streaming", conninfo))
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
+					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable: true,
 			description:       "Should be reachable when WAL receiver is active and connected to correct host/port",
@@ -681,9 +657,9 @@ func TestCanReachPrimary(t *testing.T) {
 			name:        "NoWALReceiver",
 			requestHost: "localhost",
 			requestPort: 5432,
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
-					WillReturnError(sql.ErrNoRows)
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
+					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{}))
 			},
 			expectedReachable:     false,
 			expectedErrorContains: "no active WAL receiver",
@@ -693,11 +669,10 @@ func TestCanReachPrimary(t *testing.T) {
 			name:        "WALReceiverStopping",
 			requestHost: "localhost",
 			requestPort: 5432,
-			setupMocks: func(mock sqlmock.Sqlmock) {
+			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=localhost port=5432 user=replicator"
-				mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
-						AddRow("stopping", conninfo))
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
+					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"stopping", conninfo}}))
 			},
 			expectedReachable:     false,
 			expectedErrorContains: "WAL receiver is stopping",
@@ -707,11 +682,10 @@ func TestCanReachPrimary(t *testing.T) {
 			name:        "HostMismatch",
 			requestHost: "localhost",
 			requestPort: 5432,
-			setupMocks: func(mock sqlmock.Sqlmock) {
+			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=other-host port=5432 user=replicator"
-				mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
-						AddRow("streaming", conninfo))
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
+					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable:     false,
 			expectedErrorContains: "expected localhost, got other-host",
@@ -721,11 +695,10 @@ func TestCanReachPrimary(t *testing.T) {
 			name:        "PortMismatch",
 			requestHost: "localhost",
 			requestPort: 5432,
-			setupMocks: func(mock sqlmock.Sqlmock) {
+			setupMock: func(m *mock.QueryService) {
 				conninfo := "host=localhost port=5433 user=replicator"
-				mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
-						AddRow("streaming", conninfo))
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
+					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable:     false,
 			expectedErrorContains: "expected 5432, got 5433",
@@ -735,7 +708,8 @@ func TestCanReachPrimary(t *testing.T) {
 			name:                  "NoDatabaseConnection",
 			requestHost:           "localhost",
 			requestPort:           5432,
-			nilDB:                 true,
+			nilQsc:                true,
+			setupMock:             func(m *mock.QueryService) {},
 			expectedReachable:     false,
 			expectedErrorContains: "database connection not available",
 			description:           "Should not be reachable when database connection is not available",
@@ -744,11 +718,10 @@ func TestCanReachPrimary(t *testing.T) {
 			name:        "InvalidConnInfo",
 			requestHost: "localhost",
 			requestPort: 5432,
-			setupMocks: func(mock sqlmock.Sqlmock) {
+			setupMock: func(m *mock.QueryService) {
 				conninfo := "invalid format without equals"
-				mock.ExpectQuery("SELECT status, conninfo FROM pg_stat_wal_receiver").
-					WillReturnRows(sqlmock.NewRows([]string{"status", "conninfo"}).
-						AddRow("streaming", conninfo))
+				m.AddQueryPatternOnce("SELECT status, conninfo FROM pg_stat_wal_receiver",
+					mock.MakeQueryResult([]string{"status", "conninfo"}, [][]any{{"streaming", conninfo}}))
 			},
 			expectedReachable:     false,
 			expectedErrorContains: "failed to parse conninfo",
@@ -760,19 +733,17 @@ func TestCanReachPrimary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			var mockDB *sql.DB
-			var mock sqlmock.Sqlmock
+			// Create mock and set ALL expectations BEFORE starting the manager
+			mockQueryService := mock.NewQueryService()
+			expectPrimaryStartupQueries(mockQueryService)
+			tt.setupMock(mockQueryService)
 
-			// Only create mock and set expectations when we have a DB
-			if !tt.nilDB {
-				mockDB, mock = newMockDB(t)
-				expectPrimaryStartupQueries(mock)
-				if tt.setupMocks != nil {
-					tt.setupMocks(mock)
-				}
+			pm, _ := setupManagerWithMockDB(t, mockQueryService)
+
+			// Handle nil qsc case
+			if tt.nilQsc {
+				pm.qsc = nil
 			}
-
-			pm, _ := setupManagerWithMockDB(t, mockDB)
 
 			req := &consensusdatapb.CanReachPrimaryRequest{
 				PrimaryHost: tt.requestHost,
@@ -790,10 +761,7 @@ func TestCanReachPrimary(t *testing.T) {
 			} else {
 				assert.Empty(t, resp.ErrorMessage)
 			}
-
-			if !tt.nilDB {
-				assert.NoError(t, mock.ExpectationsWereMet())
-			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -807,8 +775,8 @@ func TestConsensusStatus(t *testing.T) {
 		name                string
 		initialTerm         *multipoolermanagerdatapb.ConsensusTerm
 		termInMemory        bool
-		nilDB               bool
-		setupMocks          func(mock sqlmock.Sqlmock)
+		nilQsc              bool
+		setupMock           func(*mock.QueryService)
 		expectedCurrentTerm int64
 		expectedIsHealthy   bool
 		expectedRole        string
@@ -825,12 +793,12 @@ func TestConsensusStatus(t *testing.T) {
 				},
 			},
 			termInMemory: true,
-			setupMocks: func(mock sqlmock.Sqlmock) {
+			setupMock: func(m *mock.QueryService) {
+				// Health check SELECT 1
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(false))
-				mock.ExpectQuery("SELECT pg_current_wal_lsn\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_current_wal_lsn"}).AddRow("0/4000000"))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+				m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/4000000"}}))
 			},
 			expectedCurrentTerm: 5,
 			expectedIsHealthy:   true,
@@ -845,20 +813,23 @@ func TestConsensusStatus(t *testing.T) {
 				AcceptedTermFromCoordinatorId: nil,
 			},
 			termInMemory: true,
-			setupMocks: func(mock sqlmock.Sqlmock) {
+			setupMock: func(m *mock.QueryService) {
+				// Health check SELECT 1
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// Single pg_is_in_recovery check determines both role and which WAL position to query
-				mock.ExpectQuery("SELECT pg_is_in_recovery\\(\\)").
-					WillReturnRows(sqlmock.NewRows([]string{"pg_is_in_recovery"}).AddRow(true))
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				// queryReplicationStatus() expects full replication status query
-				mock.ExpectQuery("SELECT").
-					WillReturnRows(sqlmock.NewRows([]string{
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{
 						"pg_last_wal_replay_lsn",
 						"pg_last_wal_receive_lsn",
 						"pg_is_wal_replay_paused",
 						"pg_get_wal_replay_pause_state",
 						"pg_last_xact_replay_timestamp",
 						"current_setting",
-					}).AddRow("0/4FFFFFF", "0/5000000", false, "not paused", nil, ""))
+						"wal_receiver_status",
+					},
+					[][]any{{"0/4FFFFFF", "0/5000000", "f", "not paused", nil, "", "streaming"}}))
 			},
 			expectedCurrentTerm: 3,
 			expectedIsHealthy:   true,
@@ -873,7 +844,8 @@ func TestConsensusStatus(t *testing.T) {
 				AcceptedTermFromCoordinatorId: nil,
 			},
 			termInMemory:        true,
-			nilDB:               true,
+			nilQsc:              true,
+			setupMock:           func(m *mock.QueryService) {},
 			expectedCurrentTerm: 7,
 			expectedIsHealthy:   false,
 			expectedRole:        "replica",
@@ -886,11 +858,12 @@ func TestConsensusStatus(t *testing.T) {
 				AcceptedTermFromCoordinatorId: nil,
 			},
 			termInMemory: true,
-			setupMocks: func(mock sqlmock.Sqlmock) {
-				// No database queries expected - database connection exists but no queries made
+			setupMock: func(m *mock.QueryService) {
+				// Health check fails
+				m.AddQueryPatternOnceWithError("^SELECT 1$", errors.New("connection refused"))
 			},
 			expectedCurrentTerm: 4,
-			expectedIsHealthy:   true,
+			expectedIsHealthy:   false,
 			expectedRole:        "replica",
 			description:         "Should handle database query failure gracefully",
 		},
@@ -901,13 +874,16 @@ func TestConsensusStatus(t *testing.T) {
 			ctx := context.Background()
 
 			// Create mock and set ALL expectations BEFORE starting the manager
-			mockDB, mock := newMockDB(t)
-			expectPrimaryStartupQueries(mock)
-			if tt.setupMocks != nil {
-				tt.setupMocks(mock)
+			mockQueryService := mock.NewQueryService()
+			// Use appropriate startup queries based on expected role
+			if tt.expectedRole == "replica" {
+				expectStandbyStartupQueries(mockQueryService)
+			} else {
+				expectPrimaryStartupQueries(mockQueryService)
 			}
+			tt.setupMock(mockQueryService)
 
-			pm, tmpDir := setupManagerWithMockDB(t, mockDB)
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
 
 			// Initialize term on disk
 			err := setConsensusTerm(tmpDir, tt.initialTerm)
@@ -920,9 +896,9 @@ func TestConsensusStatus(t *testing.T) {
 				assert.Equal(t, tt.expectedCurrentTerm, loadedTerm, "Loaded term should match expected current term")
 			}
 
-			// Handle nil DB case
-			if tt.nilDB {
-				pm.db = nil
+			// Handle nil qsc case
+			if tt.nilQsc {
+				pm.qsc = nil
 			}
 
 			req := &consensusdatapb.StatusRequest{
@@ -952,7 +928,7 @@ func TestConsensusStatus(t *testing.T) {
 			}
 
 			// Verify term was loaded if applicable
-			if !tt.termInMemory && !tt.nilDB {
+			if !tt.termInMemory && !tt.nilQsc {
 				// Acquire action lock to inspect consensus state
 				inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
 				require.NoError(t, err)
@@ -961,10 +937,7 @@ func TestConsensusStatus(t *testing.T) {
 				assert.Equal(t, tt.expectedCurrentTerm, currentTerm, "Term should be loaded into memory")
 				pm.actionLock.Release(inspectCtx)
 			}
-
-			if !tt.nilDB {
-				assert.NoError(t, mock.ExpectationsWereMet())
-			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }

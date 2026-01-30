@@ -203,12 +203,9 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 // unlock unlocks a previously locked key.
 func (l *Lock) unlock(ctx context.Context, ts *store, lt iTopoLock, lockDescriptor LockDescriptor, actionError error) error {
 	// Detach from the parent timeout, but preserve the trace span.
-	// We need to still release the lock even if the parent
-	// context timed out.
-	span := trace.SpanFromContext(ctx)
-	//nolint:gocritic // Intentionally detaching from parent context - unlock must complete even if parent was cancelled
-	ctx = trace.ContextWithSpan(context.Background(), span)
-	ctx, cancel := context.WithTimeout(ctx, ts.getRemoteOperationTimeout())
+	// We need to still release the lock even if the parent context timed out.
+	ctx = context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, ts.GetRemoteOperationTimeout())
 	defer cancel()
 
 	ctx, unlockSpan := telemetry.Tracer().Start(ctx, "TopoServer.Unlock",

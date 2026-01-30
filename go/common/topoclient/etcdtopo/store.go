@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /*
-Package etcd2topo implements topoclient.Conn with etcd as the backend.
+Package etcdtopo implements topoclient.Conn with etcd as the backend.
 
 We expect the following behavior from the etcd client library:
 
@@ -83,11 +83,11 @@ type etcdtopo struct {
 }
 
 func init() {
-	servenv.OnParse(registerEtcd2TopoFlags)
-	topoclient.RegisterFactory("etcd2", Factory{})
+	servenv.OnParse(registerEtcdTopoFlags)
+	topoclient.RegisterFactory(topoclient.DefaultTopoImplementation, Factory{})
 }
 
-func registerEtcd2TopoFlags(fs *pflag.FlagSet) {
+func registerEtcdTopoFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&clientCertPath, "topo-etcd-tls-cert", clientCertPath, "path to the client cert to use to connect to the etcd topo server, requires topo-etcd-tls-key, enables TLS")
 	fs.StringVar(&clientKeyPath, "topo-etcd-tls-key", clientKeyPath, "path to the client key to use to connect to the etcd topo server, enables TLS")
 	fs.StringVar(&serverCaPath, "topo-etcd-tls-ca", serverCaPath, "path to the ca to use to validate the server cert when connecting to the etcd topo server")
@@ -145,7 +145,7 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 	config := clientv3.Config{
 		Endpoints:   serverAddrs,
 		DialTimeout: time.Second,
-		DialOptions: []grpc.DialOption{grpc.WithBlock()}, // nolint:staticcheck
+		DialOptions: []grpc.DialOption{grpc.WithBlock()}, //nolint:staticcheck
 	}
 
 	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)

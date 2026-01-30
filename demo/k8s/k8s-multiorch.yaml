@@ -1,0 +1,66 @@
+# For a single-cell cluster, we need only one multiorch.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multiorch
+  labels:
+    app: multiorch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: multiorch
+  template:
+    metadata:
+      labels:
+        app: multiorch
+    spec:
+      containers:
+        - name: multiorch
+          image: docker.io/multigres/multigres:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/multigres/bin/multiorch"]
+          args:
+            - --http-port=17000
+            - --grpc-port=17100
+            # Use POD_IP as hostname since pod hostnames are not DNS-resolvable
+            # in Deployments (unlike StatefulSets). This allows the admin proxy
+            # to connect to individual orch instances.
+            - --hostname=$(POD_IP)
+            - --topo-global-server-addresses=etcd:2379
+            - --topo-global-root=/multigres/test/global
+            - --cell=zone1
+            - --watch-targets=postgres
+            - --cluster-metadata-refresh-interval=500ms
+            - --pooler-health-check-interval=500ms
+            - --recovery-cycle-interval=500ms
+            - --pprof-http=true
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: OTEL_SERVICE_NAME
+              value: "multiorch"
+          envFrom:
+            - configMapRef:
+                name: otel-config
+          ports:
+            - containerPort: 17000
+              name: http
+            - containerPort: 17100
+              name: grpc
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 17000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: sampling-config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: sampling-config
+          configMap:
+            name: sampling-config

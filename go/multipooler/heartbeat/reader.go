@@ -18,7 +18,7 @@ package heartbeat
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -41,15 +41,13 @@ const (
 // Lag is calculated by comparing the most recent timestamp in the heartbeat
 // table against the current time at read time.
 type Reader struct {
-	querier  executor.InternalQuerier
-	logger   *slog.Logger
-	shardID  []byte
-	interval time.Duration
-	now      func() time.Time
+	queryService executor.InternalQueryService
+	logger       *slog.Logger
+	shardID      []byte
+	interval     time.Duration
+	now          func() time.Time
 
-	runMu  sync.Mutex
-	isOpen bool
-	ticks  *timer.Timer
+	runner *timer.PeriodicRunner
 
 	lagMu          sync.Mutex
 	lastKnownLag   time.Duration
@@ -60,51 +58,45 @@ type Reader struct {
 	readErrors atomic.Int64
 }
 
-// NewReader returns a new heartbeat reader.
-func NewReader(querier executor.InternalQuerier, logger *slog.Logger, shardID []byte) *Reader {
+// NewReader returns a new heartbeat reader with the default interval.
+func NewReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte) *Reader {
+	return newReader(queryService, logger, shardID, defaultHeartbeatReadInterval)
+}
+
+// newReader creates a heartbeat reader with a configurable interval.
+func newReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, interval time.Duration) *Reader {
+	runner := timer.NewPeriodicRunner(context.TODO(), interval)
 	return &Reader{
-		querier:  querier,
-		logger:   logger,
-		shardID:  shardID,
-		now:      time.Now,
-		interval: defaultHeartbeatReadInterval,
-		ticks:    timer.NewTimer(defaultHeartbeatReadInterval),
+		queryService: queryService,
+		logger:       logger,
+		shardID:      shardID,
+		now:          time.Now,
+		interval:     interval,
+		runner:       runner,
 	}
 }
 
 // Open starts the heartbeat ticker.
 func (r *Reader) Open() {
-	r.runMu.Lock()
-	defer r.runMu.Unlock()
-	if r.isOpen {
-		return
-	}
-
 	r.logger.Info("Heartbeat Reader: opening")
 
-	r.lastKnownTime = r.now()
-	r.ticks.Start(func() { r.readHeartbeat() })
-	r.isOpen = true
+	r.runner.Start(r.readHeartbeat, func() {
+		r.lagMu.Lock()
+		r.lastKnownTime = r.now()
+		r.lagMu.Unlock()
+	})
 }
 
-// Close cancels the readHeartbeat periodic ticker.
+// Close cancels the readHeartbeat periodic ticker. After Close returns,
+// no more heartbeat reads will be made and any in-flight read has completed.
 func (r *Reader) Close() {
-	r.runMu.Lock()
-	defer r.runMu.Unlock()
-	if !r.isOpen {
-		return
-	}
-
-	r.ticks.Stop()
-	r.isOpen = false
+	r.runner.Stop()
 	r.logger.Info("Heartbeat Reader: closed")
 }
 
 // IsOpen returns true if the reader is open.
 func (r *Reader) IsOpen() bool {
-	r.runMu.Lock()
-	defer r.runMu.Unlock()
-	return r.isOpen
+	return r.runner.Running()
 }
 
 // Status returns the most recently recorded lag measurement or error encountered.
@@ -126,43 +118,40 @@ func (r *Reader) Status() (time.Duration, error) {
 
 // readHeartbeat reads from the heartbeat table exactly once, updating
 // the last known lag and/or error, and incrementing counters.
-func (r *Reader) readHeartbeat() {
-	ctx, cancel := context.WithDeadline(context.TODO(), r.now().Add(r.interval))
+func (r *Reader) readHeartbeat(ctx context.Context) {
+	readCtx, cancel := context.WithTimeout(ctx, r.interval)
 	defer cancel()
 
-	ts, err := r.fetchMostRecentHeartbeat(ctx)
+	ts, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
 		r.recordError(mterrors.Wrap(err, "failed to read most recent heartbeat"))
-		return
+	} else {
+		lag := r.now().Sub(time.Unix(0, ts))
+		r.reads.Add(1)
+
+		r.lagMu.Lock()
+		r.lastKnownTime = r.now()
+		r.lastKnownLag = lag
+		r.lastKnownError = nil
+		r.lagMu.Unlock()
+
+		r.logger.DebugContext(ctx, "Heartbeat read",
+			"shard_id", r.shardID,
+			"lag", lag)
 	}
-
-	lag := r.now().Sub(time.Unix(0, ts))
-	r.reads.Add(1)
-	// TODO: update global heartbeat read stats
-
-	r.lagMu.Lock()
-	r.lastKnownTime = r.now()
-	r.lastKnownLag = lag
-	r.lastKnownError = nil
-	r.lagMu.Unlock()
-
-	r.logger.Debug("Heartbeat read",
-		"shard_id", r.shardID,
-		"lag", lag)
 }
 
 // fetchMostRecentHeartbeat fetches the most recently recorded heartbeat from the heartbeat table,
 // returning the timestamp of the heartbeat in nanoseconds.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
-	query := fmt.Sprintf("SELECT ts FROM multigres.heartbeat WHERE shard_id = '%s'",
-		escapeBytes(r.shardID))
-
-	result, err := r.querier.Query(ctx, query)
+	result, err := r.queryService.QueryArgs(ctx,
+		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
+		r.shardID)
 	if err != nil {
 		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
 	}
 	if result == nil || len(result.Rows) == 0 {
-		return 0, mterrors.Wrap(fmt.Errorf("no heartbeat found"), "failed to fetch heartbeat")
+		return 0, mterrors.Wrap(errors.New("no heartbeat found"), "failed to fetch heartbeat")
 	}
 
 	tsNano, err := strconv.ParseInt(string(result.Rows[0].Values[0]), 10, 64)
@@ -203,15 +192,14 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), r.interval)
 	defer cancel()
 
-	query := fmt.Sprintf(`SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = '%s'`,
-		escapeBytes(r.shardID))
-
-	result, err := r.querier.Query(ctx, query)
+	result, err := r.queryService.QueryArgs(ctx,
+		"SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = $1",
+		r.shardID)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read leadership view")
 	}
 	if result == nil || len(result.Rows) == 0 {
-		return nil, mterrors.Wrap(fmt.Errorf("no heartbeat found"), "failed to read leadership view")
+		return nil, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read leadership view")
 	}
 
 	row := result.Rows[0]
@@ -229,10 +217,4 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	view.ReplicationLag = r.now().Sub(view.LastHeartbeat)
 
 	return view, nil
-}
-
-// escapeBytes converts bytes to a hex string for use in SQL queries.
-// The format is suitable for PostgreSQL bytea literals.
-func escapeBytes(b []byte) string {
-	return fmt.Sprintf("\\x%x", b)
 }

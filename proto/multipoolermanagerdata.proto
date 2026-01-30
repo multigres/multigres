@@ -64,6 +64,11 @@ message StandbyReplicationStatus {
 
   // Primary connection info parsed from primary_conninfo setting
   PrimaryConnInfo primary_conn_info = 7;
+
+  // WAL receiver status from pg_stat_wal_receiver.status
+  // Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
+  // Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
+  string wal_receiver_status = 8;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -85,26 +90,23 @@ message StartReplicationRequest {
 message StartReplicationResponse {
 }
 
-
 // SetPrimaryConnInfo sets the primary connection info for a standby server
 message SetPrimaryConnInfoRequest {
-  // Primary server hostname
-  string host = 1;
-
-  // Primary server port
-  int32 port = 2;
+  // Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
+  // The postgres port is extracted from port_map["postgres"].
+  clustermetadata.MultiPooler primary = 1;
 
   // Whether to stop replication before making changes
-  bool stop_replication_before = 3;
+  bool stop_replication_before = 2;
 
   // Whether to start replication after making changes
-  bool start_replication_after = 4;
+  bool start_replication_after = 3;
 
   // Current term for consensus (used by MultiOrch during initialization)
-  int64 current_term = 5;
+  int64 current_term = 4;
 
   // Force the operation even if the term doesn't match
-  bool force = 6;
+  bool force = 5;
 }
 
 message SetPrimaryConnInfoResponse {
@@ -216,8 +218,8 @@ message Status {
   // Current WAL position (empty if db not connected)
   string wal_position = 8;
 
-  // Current consensus term
-  int64 consensus_term = 9;
+  // Current consensus term information
+  ConsensusTerm consensus_term = 9;
 
   // Shard ID that this pooler belongs to
   string shard_id = 10;
@@ -302,6 +304,7 @@ message GetFollowersResponse {
 // transition a primary to read-only mode and prevent it from making further progress.
 message DemoteRequest {
   // Consensus term for this demotion operation
+  // When force=true, this field is ignored and should be passed as 0
   int64 consensus_term = 1;
 
   // Drain timeout - how long to wait for in-flight queries (default: 5s)
@@ -323,6 +326,35 @@ message DemoteResponse {
 
   // Number of connections that were terminated
   int32 connections_terminated = 4;
+}
+
+// DemoteStalePrimary demotes a stale primary that came back online after failover.
+// This is a complete operation that:
+// 1. Stops postgres if running
+// 2. Runs pg_rewind to sync with the correct primary
+// 3. Clears sync replication config
+// 4. Restarts as standby
+// 5. Updates topology to REPLICA
+message DemoteStalePrimaryRequest {
+  // Source multipooler (the correct primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+
+  // Consensus term from the correct primary
+  int64 consensus_term = 2;
+
+  // Force the operation even if term validation fails
+  bool force = 3;
+}
+
+message DemoteStalePrimaryResponse {
+  // True if the operation completed successfully
+  bool success = 1;
+
+  // Whether pg_rewind was performed (servers were diverged)
+  bool rewind_performed = 2;
+
+  // LSN position after becoming standby
+  string lsn_position = 3;
 }
 
 // UndoDemote undoes a demotion
@@ -364,6 +396,7 @@ message ChangeTypeResponse {
 message PromoteRequest {
   // Consensus term for this promotion operation
   // Used to ensure this promotion corresponds to the correct term
+  // When force=true, this field is ignored and should be passed as 0
   int64 consensus_term = 1;
 
   // Expected LSN position before promotion (optional, for validation)
@@ -380,6 +413,18 @@ message PromoteRequest {
   // Force the operation even if term validation fails
   // Should only be used in recovery scenarios
   bool force = 4;
+
+  // Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
+  string reason = 5;
+
+  // Coordinator ID that ran this election
+  string coordinator_id = 6;
+
+  // List of pooler names that were in the cohort
+  repeated string cohort_members = 7;
+
+  // List of pooler names that accepted the term during BeginTerm
+  repeated string accepted_members = 8;
 }
 
 message PromoteResponse {
@@ -489,15 +534,6 @@ message StateResponse {
   string error_message = 2;
 }
 
-// SetTerm sets the consensus term information
-message SetTermRequest {
-  // Consensus term information to set
-  ConsensusTerm term = 1;
-}
-
-message SetTermResponse {
-}
-
 // UpdateSynchronousStandbyList updates the synchronous standby list
 message UpdateSynchronousStandbyListRequest {
   // Operation to perform (add, remove, or replace)
@@ -545,6 +581,9 @@ message InitializeEmptyPrimaryRequest {
   // Optional: Create durability policy after initialization
   string durability_policy_name = 2;
   clustermetadata.QuorumRule durability_quorum_rule = 3;
+
+  // ID of the multiorch coordinator performing the bootstrap
+  string coordinator_id = 4;
 }
 
 message InitializeEmptyPrimaryResponse {
@@ -557,37 +596,6 @@ message InitializeEmptyPrimaryResponse {
   // Backup ID of the initial backup created during initialization
   // This can be used by standbys to restore from the same backup
   string backup_id = 3;
-}
-
-// InitializeAsStandby initializes this pooler as a standby from a primary backup
-// Used during bootstrap initialization of a new shard or when adding a new standby
-message InitializeAsStandbyRequest {
-  // Primary server hostname to backup from
-  string primary_host = 1;
-
-  // Primary server port
-  int32 primary_port = 2;
-
-  // Consensus term to set for this standby
-  int64 consensus_term = 3;
-
-  // Whether to force reinitialization (removes existing data directory)
-  bool force = 4;
-
-  // Optional: Specific backup ID to restore from
-  // If empty, restore from the latest backup
-  string backup_id = 5;
-}
-
-message InitializeAsStandbyResponse {
-  // Whether the initialization succeeded
-  bool success = 1;
-
-  // Error message if initialization failed
-  string error_message = 2;
-
-  // Final LSN position after backup completed
-  string final_lsn = 3;
 }
 
 // Backup operations
@@ -603,6 +611,12 @@ message BackupRequest {
   // type indicates the type of backup that should be done. "full", "differential",
   // and "incremental" are examples that are appropriate for pgBackRest.
   string type = 2;
+
+  // job_id is an optional tracking ID from MultiAdmin for backup identification.
+  // If provided, stored as annotation on the backup for status queries.
+  // If empty, multipooler generates one using the same format.
+  // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
+  string job_id = 3;
 }
 
 // BackupResponse contains the result of a backup operation
@@ -617,10 +631,6 @@ message RestoreFromBackupRequest {
   // Backup to restore from. If this is empty, we restore from the latest
   // backup.
   string backup_id = 1;
-
-  // Whether to restore as standby. When false, auto-detect from current state.
-  // Set to true when initializing a new standby from scratch.
-  bool as_standby = 2;
 }
 
 // RestoreFromBackupResponse contains the result of a restore operation
@@ -637,13 +647,41 @@ message GetBackupsResponse {
   repeated BackupMetadata backups = 1;
 }
 
+// GetBackupByJobIdRequest queries a backup by the job_id annotation.
+message GetBackupByJobIdRequest {
+  // The job_id to search for in backup annotations.
+  string job_id = 1;
+}
+
+// GetBackupByJobIdResponse returns the backup matching the job_id.
+// If no backup is found, backup will be nil.
+message GetBackupByJobIdResponse {
+  // The backup metadata if found, nil if not found.
+  BackupMetadata backup = 1;
+}
+
 // BackupMetadata contains metadata about a backup
 message BackupMetadata {
   string table_group = 1;
   string shard = 2;
   Status status = 3;
   string backup_id = 4;
-  string final_lsn = 5;  // Final checkpoint LSN (stop LSN) for this backup
+  string final_lsn = 5; // Final checkpoint LSN (stop LSN) for this backup
+
+  // Job ID annotation if present (for cross-process tracking)
+  string job_id = 6;
+
+  // Size of the backup in bytes (original database size before compression)
+  uint64 backup_size_bytes = 7;
+
+  // Type of backup: "full", "diff", or "incr" (as reported by pgbackrest)
+  string type = 8;
+
+  // Multipooler ID that created this backup (from pgbackrest annotation)
+  string multipooler_id = 9;
+
+  // Pooler type that created this backup (from pgbackrest annotation)
+  clustermetadata.PoolerType pooler_type = 10;
 
   // Status represents the state of a backup
   enum Status {
@@ -681,4 +719,47 @@ message CreateDurabilityPolicyRequest {
 // CreateDurabilityPolicyResponse confirms policy creation
 // Errors are returned via gRPC status codes, not in the response body
 message CreateDurabilityPolicyResponse {
+}
+
+// =============================================================================
+// PgRewind APIs
+// =============================================================================
+
+// RewindToSourceRequest requests pg_rewind to synchronize with a source server.
+// This operation:
+// 1. Stops PostgreSQL
+// 2. Runs pg_rewind --dry-run to check if rewind is needed
+// 3. If needed, runs actual pg_rewind
+// 4. Starts PostgreSQL
+message RewindToSourceRequest {
+  // Source multipooler (the primary) to rewind to
+  clustermetadata.MultiPooler source = 1;
+}
+
+message RewindToSourceResponse {
+  // True if the operation completed successfully
+  bool success = 1;
+
+  // Error message if operation failed
+  string error_message = 2;
+
+  // True if servers had diverged and pg_rewind was performed
+  // False if timelines were compatible and no rewind was needed
+  bool rewind_performed = 3;
+}
+
+// =============================================================================
+// PostgreSQL Monitoring Control APIs
+// =============================================================================
+
+// SetMonitorRequest enables or disables the PostgreSQL monitoring goroutine
+message SetMonitorRequest {
+  // Whether to enable monitoring (true) or disable it (false)
+  bool enabled = 1;
+}
+
+// SetMonitorResponse confirms monitoring was updated
+// Errors are returned via gRPC status codes, not in the response body
+message SetMonitorResponse {
+  // Empty - success indicated by no error
 }
