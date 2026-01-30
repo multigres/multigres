@@ -1731,8 +1731,8 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		err = pm.stopPostgresForEmergencyDemote(ctx, state)
 		require.NoError(t, err, "Should successfully stop postgres for emergency demotion")
 
-		// Verify monitoring is disabled after emergency demotion
-		require.False(t, pm.pgMonitor.Running(), "Monitor should be stopped after emergency demotion")
+		// Verify monitoring remains enabled after emergency demotion to allow node to detect changes and rejoin
+		require.True(t, pm.pgMonitor.Running(), "Monitor should remain running after emergency demotion to allow node to rejoin")
 	})
 
 	t.Run("Error_AlreadyInStandbyMode", func(t *testing.T) {
