@@ -315,7 +315,11 @@ type RestartRequest struct {
 	Port      int32    `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
 	ExtraArgs []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
 	// If true, creates standby.signal before restart (for demotion to standby)
-	AsStandby     bool `protobuf:"varint,5,opt,name=as_standby,json=asStandby,proto3" json:"as_standby,omitempty"`
+	AsStandby bool `protobuf:"varint,5,opt,name=as_standby,json=asStandby,proto3" json:"as_standby,omitempty"`
+	// If true, skips waiting for postgres to be ready after restart
+	// Used when restarting as standby after crash recovery - postgres needs
+	// primary_conninfo configured before it can accept connections
+	SkipWait      bool `protobuf:"varint,6,opt,name=skip_wait,json=skipWait,proto3" json:"skip_wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -381,6 +385,13 @@ func (x *RestartRequest) GetExtraArgs() []string {
 func (x *RestartRequest) GetAsStandby() bool {
 	if x != nil {
 		return x.AsStandby
+	}
+	return false
+}
+
+func (x *RestartRequest) GetSkipWait() bool {
+	if x != nil {
+		return x.SkipWait
 	}
 	return false
 }
@@ -1159,7 +1170,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"(\n" +
 	"\fStopResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xab\x01\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xc8\x01\n" +
 	"\x0eRestartRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12\x12\n" +
@@ -1167,7 +1178,8 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
 	"extra_args\x18\x04 \x03(\tR\textraArgs\x12\x1d\n" +
 	"\n" +
-	"as_standby\x18\x05 \x01(\bR\tasStandby\"=\n" +
+	"as_standby\x18\x05 \x01(\bR\tasStandby\x12\x1b\n" +
+	"\tskip_wait\x18\x06 \x01(\bR\bskipWait\"=\n" +
 	"\x0fRestartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x15\n" +

@@ -1023,10 +1023,47 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	pm.primaryPort = port
 	pm.mu.Unlock()
 
-	// Call the locked version directly since we already hold the action lock
-	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
-	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
-		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
+	// Configure primary_conninfo by calling lower-level functions directly
+	// We bypass setPrimaryConnInfoLocked because it checks isPrimary first, which requires
+	// a database connection. But postgres (restarted in standby mode) won't accept connections
+	// until it has primary_conninfo configured to stream WAL and reach consistent recovery state.
+	//
+	// Retry the configuration because postgres may not be accepting connections yet.
+	pm.mu.Lock()
+	database := pm.multipooler.Database
+	pm.mu.Unlock()
+
+	appName := generateApplicationName(pm.serviceID)
+	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
+		source.Hostname, port, database, appName)
+
+	maxRetries := 30
+	var lastErr error
+	for i := range maxRetries {
+		// Try to set primary_conninfo
+		err := pm.setPrimaryConnInfo(ctx, connInfo)
+		if err == nil {
+			// Try to reload config
+			if err = pm.reloadPostgresConfig(ctx); err == nil {
+				lastErr = nil
+				pm.logger.InfoContext(ctx, "Successfully configured primary_conninfo")
+				break
+			}
+			lastErr = err
+		} else {
+			lastErr = err
+		}
+
+		if i < maxRetries-1 {
+			pm.logger.InfoContext(ctx, "Waiting for postgres to accept connections",
+				"attempt", i+1,
+				"max_retries", maxRetries,
+				"error", lastErr)
+			time.Sleep(1 * time.Second)
+		}
+	}
+	if lastErr != nil {
+		return nil, mterrors.Wrap(lastErr, "failed to configure replication to source primary")
 	}
 
 	// Update topology to REPLICA

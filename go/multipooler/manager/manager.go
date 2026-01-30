@@ -989,14 +989,13 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	}
 
 	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby")
-	// Call pgctld to restart as standby
-	// This will create standby.signal and restart the server
 	req := &pgctldpb.RestartRequest{
 		Mode:      "fast",
 		Timeout:   nil, // Use default timeout
 		Port:      0,   // Use default port
 		ExtraArgs: nil,
 		AsStandby: true, // Create standby.signal before restart
+		SkipWait:  true, // Don't wait for ready - postgres needs primary_conninfo configured
 	}
 
 	resp, err := pm.pgctldClient.Restart(ctx, req)
@@ -1004,25 +1003,20 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.Wrap(err, "failed to restart as standby")
 	}
 
-	// Reopen connections after postgres restart without changing isOpen state or restarting monitor
+	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections after standby restart")
+
+	// Reopen connections after restart
+	// Note: reopenConnections() just configures the connection pool manager - it doesn't
+	// validate that postgres is accepting connections. That's intentional here because
+	// postgres (in standby mode after pg_rewind) won't accept connections until we
+	// configure primary_conninfo, which happens in the next step (setPrimaryConnInfo).
 	if err := pm.reopenConnections(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to reopen connections")
+		return mterrors.Wrap(err, "failed to reopen connection pool manager after restart")
 	}
 
-	// Wait for database connection to be ready after restart
-	if err := pm.waitForDatabaseConnection(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to connect to database after restart")
-	}
-
-	// Verify server is in recovery mode (standby)
-	inRecovery, err := pm.isInRecovery(ctx)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to verify standby status")
-	}
-
-	if !inRecovery {
-		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
-	}
+	// At this point, postgres is running in standby mode but NOT accepting connections yet.
+	// It needs primary_conninfo configured to stream WAL and reach consistent recovery state.
+	// The setPrimaryConnInfo call (next step) will handle retrying if postgres isn't ready yet.
 
 	pm.logger.InfoContext(ctx, "PostgreSQL is now running as a standby",
 		"pid", resp.Pid,
