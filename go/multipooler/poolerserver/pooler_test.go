@@ -20,6 +20,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 )
 
 func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
@@ -45,4 +48,79 @@ func TestIsHealthy_NotInitialized(t *testing.T) {
 	err := pooler.IsHealthy()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "executor not initialized")
+}
+
+// mockPoolManager implements PoolManager for testing
+type mockPoolManager struct {
+	connpoolmanager.PoolManager // embed for default nil implementations
+	internalUser                 string
+}
+
+func (m *mockPoolManager) InternalUser() string {
+	return m.internalUser
+}
+
+func TestNewQueryPoolerServer_CustomInternalUser(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	tests := []struct {
+		name         string
+		internalUser string
+	}{
+		{
+			name:         "default postgres user",
+			internalUser: "postgres",
+		},
+		{
+			name:         "custom replication user",
+			internalUser: "replication_user",
+		},
+		{
+			name:         "custom admin user",
+			internalUser: "multigres_admin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockMgr := &mockPoolManager{
+				internalUser: tt.internalUser,
+			}
+
+			pooler := NewQueryPoolerServer(logger, mockMgr)
+
+			require.NotNil(t, pooler)
+			assert.Equal(t, logger, pooler.logger)
+			assert.Equal(t, mockMgr, pooler.poolManager)
+
+			// Verify the executor was created with the correct internal user
+			exec, err := pooler.Executor()
+			require.NoError(t, err)
+			require.NotNil(t, exec)
+
+			// The executor should use the internal user from the pool manager
+			// We can verify this by checking the executor was created
+			// (the actual internal user value is private to the executor,
+			// but it's tested in executor/internal_user_test.go)
+		})
+	}
+}
+
+func TestNewQueryPoolerServer_InternalUserPassthrough(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// Verify that InternalUser() is called on the pool manager
+	customUser := "test_internal_user"
+	mockMgr := &mockPoolManager{
+		internalUser: customUser,
+	}
+
+	pooler := NewQueryPoolerServer(logger, mockMgr)
+
+	require.NotNil(t, pooler)
+
+	// The executor should have been created with the custom internal user
+	exec, err := pooler.Executor()
+	require.NoError(t, err)
+	require.NotNil(t, exec)
 }

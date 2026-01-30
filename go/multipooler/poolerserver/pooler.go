@@ -53,8 +53,7 @@ type QueryPoolerServer struct {
 func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
-		// Empty string defaults to DefaultInternalUser
-		exec = executor.NewExecutor(logger, poolManager, "")
+		exec = executor.NewExecutor(logger, poolManager, poolManager.InternalUser())
 	}
 
 	return &QueryPoolerServer{
