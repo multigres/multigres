@@ -350,8 +350,8 @@ func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPoo
 	return conn.managerClient.Promote(ctx, request)
 }
 
-// Demote demotes the multipooler from primary.
-func (c *Client) Demote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteRequest) (*multipoolermanagerdatapb.DemoteResponse, error) {
+// EmergencyDemote demotes the multipooler from primary.
+func (c *Client) EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -360,7 +360,7 @@ func (c *Client) Demote(ctx context.Context, pooler *clustermetadatapb.MultiPool
 		_ = closer()
 	}()
 
-	return conn.managerClient.Demote(ctx, request)
+	return conn.managerClient.EmergencyDemote(ctx, request)
 }
 
 // UndoDemote undoes a demotion.

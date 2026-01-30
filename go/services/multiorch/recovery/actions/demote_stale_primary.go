@@ -42,7 +42,7 @@ var _ types.RecoveryAction = (*DemoteStalePrimaryAction)(nil)
 const StalePrimaryDrainTimeout = 5 * time.Second
 
 // DemoteStalePrimaryAction demotes a stale primary that was detected after failover.
-// It uses the Demote RPC with the correct primary's term to force the stale primary
+// It uses the DemoteStalePrimary RPC with the correct primary's term to force the stale primary
 // to accept the term and demote, preventing further writes.
 type DemoteStalePrimaryAction struct {
 	config      *config.Config
@@ -95,7 +95,7 @@ func (a *DemoteStalePrimaryAction) GracePeriod() *types.GracePeriodConfig {
 	}
 }
 
-// Execute demotes the stale primary using the Demote RPC with the correct primary's term.
+// Execute demotes the stale primary using the DemoteStalePrimary RPC with the correct primary's term.
 // This is safer than BeginTerm because:
 // 1. We use the correct primary's term (not a new term), avoiding term inconsistency
 // 2. The stale primary accepts term >= its current term and demotes

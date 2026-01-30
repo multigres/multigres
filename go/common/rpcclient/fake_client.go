@@ -76,7 +76,7 @@ type FakeClient struct {
 	PrimaryPositionResponses                 map[string]*multipoolermanagerdatapb.PrimaryPositionResponse
 	GetFollowersResponses                    map[string]*multipoolermanagerdatapb.GetFollowersResponse
 	PromoteResponses                         map[string]*multipoolermanagerdatapb.PromoteResponse
-	DemoteResponses                          map[string]*multipoolermanagerdatapb.DemoteResponse
+	EmergencyDemoteResponses                 map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse
 	UndoDemoteResponses                      map[string]*multipoolermanagerdatapb.UndoDemoteResponse
 	ChangeTypeResponses                      map[string]*multipoolermanagerdatapb.ChangeTypeResponse
 	GetDurabilityPolicyResponses             map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse
@@ -121,7 +121,7 @@ func NewFakeClient() *FakeClient {
 		PrimaryPositionResponses:                 make(map[string]*multipoolermanagerdatapb.PrimaryPositionResponse),
 		GetFollowersResponses:                    make(map[string]*multipoolermanagerdatapb.GetFollowersResponse),
 		PromoteResponses:                         make(map[string]*multipoolermanagerdatapb.PromoteResponse),
-		DemoteResponses:                          make(map[string]*multipoolermanagerdatapb.DemoteResponse),
+		EmergencyDemoteResponses:                 make(map[string]*multipoolermanagerdatapb.EmergencyDemoteResponse),
 		UndoDemoteResponses:                      make(map[string]*multipoolermanagerdatapb.UndoDemoteResponse),
 		ChangeTypeResponses:                      make(map[string]*multipoolermanagerdatapb.ChangeTypeResponse),
 		GetDurabilityPolicyResponses:             make(map[string]*multipoolermanagerdatapb.GetDurabilityPolicyResponse),
@@ -568,9 +568,9 @@ func (f *FakeClient) Promote(ctx context.Context, pooler *clustermetadatapb.Mult
 	return &multipoolermanagerdatapb.PromoteResponse{}, nil
 }
 
-func (f *FakeClient) Demote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.DemoteRequest) (*multipoolermanagerdatapb.DemoteResponse, error) {
+func (f *FakeClient) EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
 	poolerID := f.getPoolerID(pooler)
-	f.logCall("Demote", poolerID)
+	f.logCall("EmergencyDemote", poolerID)
 
 	if err := f.checkError(poolerID); err != nil {
 		return nil, err
@@ -578,10 +578,10 @@ func (f *FakeClient) Demote(ctx context.Context, pooler *clustermetadatapb.Multi
 
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	if resp, ok := f.DemoteResponses[poolerID]; ok {
+	if resp, ok := f.EmergencyDemoteResponses[poolerID]; ok {
 		return resp, nil
 	}
-	return &multipoolermanagerdatapb.DemoteResponse{}, nil
+	return &multipoolermanagerdatapb.EmergencyDemoteResponse{}, nil
 }
 
 func (f *FakeClient) UndoDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UndoDemoteRequest) (*multipoolermanagerdatapb.UndoDemoteResponse, error) {
