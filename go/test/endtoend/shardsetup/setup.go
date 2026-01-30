@@ -1087,40 +1087,6 @@ func (s *ShardSetup) pauseReplicationOnStandbys(t *testing.T, ctx context.Contex
 	}
 }
 
-// DemotePrimary demotes the primary by putting it into standby mode.
-// This is used to test failover scenarios and then reset the cluster.
-func (s *ShardSetup) DemotePrimary(t *testing.T) {
-	t.Helper()
-
-	primary := s.GetMultipoolerInstance(s.PrimaryName)
-	if primary == nil {
-		t.Fatal("primary not found")
-		return // unreachable, but needed for linter
-	}
-
-	client, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
-	require.NoError(t, err, "failed to connect to primary")
-	defer client.Close()
-
-	ctx := utils.WithTimeout(t, 20*time.Second)
-
-	// Demote using the Demote RPC with term 1 (clean state starts at term 1)
-	_, err = client.Manager.Demote(ctx, &multipoolermanagerdatapb.DemoteRequest{
-		ConsensusTerm: 1,
-	})
-	require.NoError(t, err, "failed to demote primary")
-
-	// Wait for primary to be in recovery mode
-	require.Eventually(t, func() bool {
-		queryCtx, queryCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer queryCancel()
-		inRecovery, err := QueryStringValue(queryCtx, client.Pooler, "SELECT pg_is_in_recovery()")
-		return err == nil && inRecovery == "t"
-	}, 10*time.Second, 100*time.Millisecond, "primary should be in recovery mode after demotion")
-
-	t.Log("Primary demoted successfully")
-}
-
 // NewClient returns a new MultipoolerClient for the specified multipooler instance.
 // The caller is responsible for closing the client.
 func (s *ShardSetup) NewClient(t *testing.T, name string) *MultipoolerClient {

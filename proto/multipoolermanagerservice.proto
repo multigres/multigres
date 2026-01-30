@@ -103,9 +103,9 @@ service MultiPoolerManager {
   rpc GetFollowers(multipoolermanagerdata.GetFollowersRequest)
     returns (multipoolermanagerdata.GetFollowersResponse);
 
-  // Demote demotes the current leader server
-  rpc Demote(multipoolermanagerdata.DemoteRequest)
-    returns (multipoolermanagerdata.DemoteResponse);
+  // EmergencyDemote demotes the current leader server
+  rpc EmergencyDemote(multipoolermanagerdata.EmergencyDemoteRequest)
+    returns (multipoolermanagerdata.EmergencyDemoteResponse);
 
   // UndoDemote undoes a demotion
   rpc UndoDemote(multipoolermanagerdata.UndoDemoteRequest)

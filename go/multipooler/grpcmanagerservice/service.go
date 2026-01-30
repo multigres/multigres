@@ -195,15 +195,15 @@ func (s *managerService) GetFollowers(ctx context.Context, req *multipoolermanag
 	return response, nil
 }
 
-// Demote demotes the current leader server
-func (s *managerService) Demote(ctx context.Context, req *multipoolermanagerdatapb.DemoteRequest) (*multipoolermanagerdatapb.DemoteResponse, error) {
+// EmergencyDemote demotes the current leader server
+func (s *managerService) EmergencyDemote(ctx context.Context, req *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
 	// Default drain timeout if not specified
 	drainTimeout := 5 * time.Second
 	if req.DrainTimeout != nil {
 		drainTimeout = req.DrainTimeout.AsDuration()
 	}
 
-	resp, err := s.manager.Demote(ctx,
+	resp, err := s.manager.EmergencyDemote(ctx,
 		req.ConsensusTerm,
 		drainTimeout,
 		req.Force)
