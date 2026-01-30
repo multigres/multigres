@@ -165,9 +165,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	}
 	consensusTerm := consensusResp.CurrentTerm
 
-	// Check if timelines have diverged BEFORE starting PostgreSQL.
-	// This is critical: if we start PostgreSQL first, it will connect to the
-	// new primary and update its pg_control to match, making divergence undetectable.
+	// Check if timelines have diverged, if so, rewind first
 	timelinesDiverged, err := a.checkTimelineDivergence(ctx, primary, replica)
 	if err != nil {
 		a.logger.WarnContext(ctx, "failed to check timeline divergence, will try normal replication first",
