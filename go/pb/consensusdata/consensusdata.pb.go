@@ -37,6 +37,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Action type for BeginTerm operations
+// Indicates what action to execute in addition to term acceptance
+type BeginTermAction int32
+
+const (
+	// Default/unknown action
+	BeginTermAction_BEGIN_TERM_ACTION_UNSPECIFIED BeginTermAction = 0
+	// No additional action - only accept the term
+	BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION BeginTermAction = 1
+	// Revoke the current term by demoting primary or pausing standby replication
+	// This is used during failover to ensure the old primary stops accepting writes
+	BeginTermAction_BEGIN_TERM_ACTION_REVOKE BeginTermAction = 2
+)
+
+// Enum value maps for BeginTermAction.
+var (
+	BeginTermAction_name = map[int32]string{
+		0: "BEGIN_TERM_ACTION_UNSPECIFIED",
+		1: "BEGIN_TERM_ACTION_NO_ACTION",
+		2: "BEGIN_TERM_ACTION_REVOKE",
+	}
+	BeginTermAction_value = map[string]int32{
+		"BEGIN_TERM_ACTION_UNSPECIFIED": 0,
+		"BEGIN_TERM_ACTION_NO_ACTION":   1,
+		"BEGIN_TERM_ACTION_REVOKE":      2,
+	}
+)
+
+func (x BeginTermAction) Enum() *BeginTermAction {
+	p := new(BeginTermAction)
+	*p = x
+	return p
+}
+
+func (x BeginTermAction) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BeginTermAction) Descriptor() protoreflect.EnumDescriptor {
+	return file_consensusdata_proto_enumTypes[0].Descriptor()
+}
+
+func (BeginTermAction) Type() protoreflect.EnumType {
+	return &file_consensusdata_proto_enumTypes[0]
+}
+
+func (x BeginTermAction) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BeginTermAction.Descriptor instead.
+func (BeginTermAction) EnumDescriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{0}
+}
+
 // WAL position for tracking replication state
 type WALPosition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -124,6 +179,9 @@ type BeginTermRequest struct {
 	ShardId string `protobuf:"bytes,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
 	// Version of the durability policy
 	PolicyVersion int64 `protobuf:"varint,4,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
+	// Action type for this BeginTerm operation
+	// Indicates what scenario triggered this term change
+	Action        BeginTermAction `protobuf:"varint,5,opt,name=action,proto3,enum=consensusdata.BeginTermAction" json:"action,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -184,6 +242,13 @@ func (x *BeginTermRequest) GetPolicyVersion() int64 {
 		return x.PolicyVersion
 	}
 	return 0
+}
+
+func (x *BeginTermRequest) GetAction() BeginTermAction {
+	if x != nil {
+		return x.Action
+	}
+	return BeginTermAction_BEGIN_TERM_ACTION_UNSPECIFIED
 }
 
 type BeginTermResponse struct {
@@ -697,12 +762,13 @@ const file_consensusdata_proto_rawDesc = "" +
 	"currentLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12&\n" +
 	"\x0flast_replay_lsn\x18\x03 \x01(\tR\rlastReplayLsn\x128\n" +
-	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\xa0\x01\n" +
+	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\xd8\x01\n" +
 	"\x10BeginTermRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x126\n" +
 	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +
 	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
-	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\"\x7f\n" +
+	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\x126\n" +
+	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\"\x7f\n" +
 	"\x11BeginTermResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x1b\n" +
@@ -738,7 +804,11 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"/\n" +
 	"\fTimelineInfo\x12\x1f\n" +
 	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
-	"timelineIdB4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
+	"timelineId*s\n" +
+	"\x0fBeginTermAction\x12!\n" +
+	"\x1dBEGIN_TERM_ACTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bBEGIN_TERM_ACTION_NO_ACTION\x10\x01\x12\x1c\n" +
+	"\x18BEGIN_TERM_ACTION_REVOKE\x10\x02B4Z2github.com/multigres/multigres/go/pb/consensusdatab\x06proto3"
 
 var (
 	file_consensusdata_proto_rawDescOnce sync.Once
@@ -752,32 +822,35 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 	return file_consensusdata_proto_rawDescData
 }
 
+var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_consensusdata_proto_goTypes = []any{
-	(*WALPosition)(nil),             // 0: consensusdata.WALPosition
-	(*BeginTermRequest)(nil),        // 1: consensusdata.BeginTermRequest
-	(*BeginTermResponse)(nil),       // 2: consensusdata.BeginTermResponse
-	(*StatusRequest)(nil),           // 3: consensusdata.StatusRequest
-	(*StatusResponse)(nil),          // 4: consensusdata.StatusResponse
-	(*LeadershipViewRequest)(nil),   // 5: consensusdata.LeadershipViewRequest
-	(*LeadershipViewResponse)(nil),  // 6: consensusdata.LeadershipViewResponse
-	(*CanReachPrimaryRequest)(nil),  // 7: consensusdata.CanReachPrimaryRequest
-	(*CanReachPrimaryResponse)(nil), // 8: consensusdata.CanReachPrimaryResponse
-	(*TimelineInfo)(nil),            // 9: consensusdata.TimelineInfo
-	(*timestamppb.Timestamp)(nil),   // 10: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),      // 11: clustermetadata.ID
+	(BeginTermAction)(0),            // 0: consensusdata.BeginTermAction
+	(*WALPosition)(nil),             // 1: consensusdata.WALPosition
+	(*BeginTermRequest)(nil),        // 2: consensusdata.BeginTermRequest
+	(*BeginTermResponse)(nil),       // 3: consensusdata.BeginTermResponse
+	(*StatusRequest)(nil),           // 4: consensusdata.StatusRequest
+	(*StatusResponse)(nil),          // 5: consensusdata.StatusResponse
+	(*LeadershipViewRequest)(nil),   // 6: consensusdata.LeadershipViewRequest
+	(*LeadershipViewResponse)(nil),  // 7: consensusdata.LeadershipViewResponse
+	(*CanReachPrimaryRequest)(nil),  // 8: consensusdata.CanReachPrimaryRequest
+	(*CanReachPrimaryResponse)(nil), // 9: consensusdata.CanReachPrimaryResponse
+	(*TimelineInfo)(nil),            // 10: consensusdata.TimelineInfo
+	(*timestamppb.Timestamp)(nil),   // 11: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),      // 12: clustermetadata.ID
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	10, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	11, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
-	0,  // 2: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	9,  // 3: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	10, // 4: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	5,  // [5:5] is the sub-list for method output_type
-	5,  // [5:5] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	12, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
+	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
+	1,  // 3: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
+	10, // 4: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
+	11, // 5: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	6,  // [6:6] is the sub-list for method output_type
+	6,  // [6:6] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
@@ -790,13 +863,14 @@ func file_consensusdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_consensusdata_proto_rawDesc), len(file_consensusdata_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_consensusdata_proto_goTypes,
 		DependencyIndexes: file_consensusdata_proto_depIdxs,
+		EnumInfos:         file_consensusdata_proto_enumTypes,
 		MessageInfos:      file_consensusdata_proto_msgTypes,
 	}.Build()
 	File_consensusdata_proto = out.File

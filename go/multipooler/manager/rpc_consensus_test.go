@@ -129,6 +129,7 @@ func TestBeginTerm(t *testing.T) {
 		requestTerm                         int64
 		requestCandidate                    *clustermetadatapb.ID
 		setupMocks                          func(*mock.QueryService)
+		expectedError                       bool
 		expectedAccepted                    bool
 		expectedTerm                        int64
 		expectedAcceptedTermFromCoordinator string
@@ -151,7 +152,14 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-B",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Phase 2 executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// Phase 2 executeRevoke: determine role (standby)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// Phase 2 executeRevoke: pauseReplication
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// Phase 2 executeRevoke: check caught up
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
 				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
@@ -177,7 +185,7 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-B",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// Term not accepted - Phase 2 never runs, no queries expected
 			},
 			expectedAccepted:                    false,
 			expectedTerm:                        5,
@@ -201,7 +209,14 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-A",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: health check
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: determine role (standby)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// executeRevoke: pauseReplication
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: check caught up
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
 				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
@@ -228,10 +243,11 @@ func TestBeginTerm(t *testing.T) {
 				// demoteLocked fails at checkDemotionState or another early step
 				// Simulate failure by not setting up expected queries for demotion steps
 			},
-			expectedAccepted:                    false,
-			expectedTerm:                        5, // Term should NOT be updated
-			expectedAcceptedTermFromCoordinator: "",
-			description:                         "Primary should reject term when demotion fails",
+			expectedError:                       true,
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Primary should accept term even when demotion fails",
 		},
 		{
 			name: "PrimaryAcceptsTermAfterSuccessfulDemotion",
@@ -248,6 +264,10 @@ func TestBeginTerm(t *testing.T) {
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// isInRecovery check - returns true (in recovery = standby/demoted)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				// pauseReplication - pg_reload_conf
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 				// Since in recovery, check if caught up with replication
 				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
 				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
@@ -279,6 +299,7 @@ func TestBeginTerm(t *testing.T) {
 				// pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
+			expectedError:                       true,
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
@@ -323,6 +344,9 @@ func TestBeginTerm(t *testing.T) {
 		setupMocks             func(*mock.QueryService)
 		makeFilesystemReadOnly bool
 		expectedError          bool
+		expectedAccepted       bool
+		expectedRespTerm       int64
+		checkMemoryUnchanged   bool
 		expectedMemoryTerm     int64
 		expectedMemoryLeader   string
 		description            string
@@ -341,11 +365,11 @@ func TestBeginTerm(t *testing.T) {
 			},
 			makeFilesystemReadOnly: true,
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
-			expectedError:        true,
+			expectedError:        false,
+			expectedAccepted:     false,
+			expectedRespTerm:     5,
+			checkMemoryUnchanged: true,
 			expectedMemoryTerm:   5,
 			expectedMemoryLeader: "", // Should remain empty after save failure
 			description:          "Save failure should leave memory unchanged with original term and leader",
@@ -377,17 +401,23 @@ func TestBeginTerm(t *testing.T) {
 				Term:        tt.requestTerm,
 				CandidateId: tt.requestCandidate,
 				ShardId:     "shard-1",
+				Action:      consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			}
 
 			resp, err := pm.BeginTerm(ctx, req)
 
 			// Verify response
-			require.NoError(t, err)
-			require.NotNil(t, resp)
-			assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
-			assert.Equal(t, tt.expectedTerm, resp.Term)
+			if tt.expectedError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if resp != nil {
+				assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
+				assert.Equal(t, tt.expectedTerm, resp.Term)
+			}
 
-			// Verify persisted state
+			// Verify persisted state (acceptance should be persisted even if revoke fails)
 			persistedTerm, err := getConsensusTerm(tmpDir)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
@@ -434,6 +464,7 @@ func TestBeginTerm(t *testing.T) {
 				Term:        tt.requestTerm,
 				CandidateId: tt.requestCandidate,
 				ShardId:     "shard-1",
+				Action:      consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			}
 
 			resp, err := pm.BeginTerm(ctx, req)
@@ -442,7 +473,14 @@ func TestBeginTerm(t *testing.T) {
 			if tt.expectedError {
 				assert.Error(t, err, tt.description)
 				assert.Nil(t, resp)
+			} else {
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, resp)
+				assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
+				assert.Equal(t, tt.expectedRespTerm, resp.Term)
+			}
 
+			if tt.checkMemoryUnchanged {
 				// Acquire action lock to inspect consensus state
 				inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
 				require.NoError(t, err)
