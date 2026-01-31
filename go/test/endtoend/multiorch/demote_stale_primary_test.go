@@ -65,7 +65,7 @@ func TestDemoteStalePrimary(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t)
+	setup.StartMultiOrchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)

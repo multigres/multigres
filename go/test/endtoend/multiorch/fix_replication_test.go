@@ -117,7 +117,7 @@ func TestFixReplication(t *testing.T) {
 
 	// NOW start multiorch - it should detect and fix the broken replication
 	t.Log("Starting multiorch to detect and fix replication...")
-	setup.StartMultiOrchs(t)
+	setup.StartMultiOrchs(t.Context(), t)
 
 	// Wait for multiorch to detect and fix the replication
 	t.Log("Waiting for multiorch to detect and fix replication...")
@@ -170,7 +170,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Start multiorch again - it should detect and fix the broken replication
 	t.Log("Starting multiorch to detect and fix replication (second time)...")
-	err = multiorch.Start(t)
+	err = multiorch.Start(t.Context(), t)
 	require.NoError(t, err, "should be able to restart multiorch")
 
 	// Wait for multiorch to detect and fix the replication again
@@ -218,7 +218,7 @@ func TestFixReplication(t *testing.T) {
 	verifyReplicationStreaming(t, replicaClient)
 
 	t.Log("Starting multiorch to detect and fix replication (second time)...")
-	err = multiorch.Start(t)
+	err = multiorch.Start(t.Context(), t)
 	require.NoError(t, err, "should be able to restart multiorch")
 
 	// Multiorch should detect the missing standby and add it back

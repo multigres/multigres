@@ -35,6 +35,7 @@ import (
 
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // ProcessInstance represents a process instance for testing (pgctld, multipooler, or multiorch).
@@ -68,25 +69,25 @@ type ProcessInstance struct {
 
 // Start starts the process instance (pgctld, multipooler, multiorch, or multigateway).
 // Follows the proven pattern from multipooler/setup_test.go.
-func (p *ProcessInstance) Start(t *testing.T) error {
+func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	switch p.Binary {
 	case "pgctld":
-		return p.startPgctld(t)
+		return p.startPgctld(ctx, t)
 	case "multipooler":
-		return p.startMultipooler(t)
+		return p.startMultipooler(ctx, t)
 	case "multiorch":
-		return p.startMultiOrch(t)
+		return p.startMultiOrch(ctx, t)
 	case "multigateway":
-		return p.startMultigateway(t)
+		return p.startMultigateway(ctx, t)
 	}
 	return fmt.Errorf("unknown binary type: %s", p.Binary)
 }
 
 // startPgctld starts a pgctld instance (server only, PostgreSQL init/start done separately).
 // Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) startPgctld(t *testing.T) error {
+func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s with binary '%s'", p.Name, p.Binary)
@@ -106,7 +107,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 	)
 
 	t.Logf("Running server command: %v", p.Process.Args)
-	if err := p.waitForStartup(t, 20*time.Second, 50); err != nil {
+	if err := p.waitForStartup(ctx, t, 20*time.Second, 50); err != nil {
 		return err
 	}
 
@@ -115,7 +116,7 @@ func (p *ProcessInstance) startPgctld(t *testing.T) error {
 
 // startMultipooler starts a multipooler instance.
 // Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) startMultipooler(t *testing.T) error {
+func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, cell %s", p.Name, p.Binary, p.GrpcPort, p.Cell)
@@ -163,12 +164,12 @@ func (p *ProcessInstance) startMultipooler(t *testing.T) error {
 	)
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
-	return p.waitForStartup(t, 15*time.Second, 30)
+	return p.waitForStartup(ctx, t, 15*time.Second, 30)
 }
 
 // startMultiOrch starts a multiorch instance.
 // Follows the pattern from multiorch/multiorch_helpers.go:startMultiOrch.
-func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
+func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, HTTP port %d, service-id %s", p.Name, p.Binary, p.GrpcPort, p.HttpPort, p.ServiceID)
@@ -212,8 +213,8 @@ func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 		p.Process.Stderr = logF
 	}
 
-	// Start the process
-	if err := p.Process.Start(); err != nil {
+	// Start the process with trace context propagation
+	if err := telemetry.StartCmd(ctx, p.Process); err != nil {
 		return fmt.Errorf("failed to start multiorch: %w", err)
 	}
 	t.Logf("Started multiorch (pid: %d, grpc: %d, http: %d, log: %s)",
@@ -227,7 +228,7 @@ func (p *ProcessInstance) startMultiOrch(t *testing.T) error {
 }
 
 // startMultigateway starts a multigateway instance.
-func (p *ProcessInstance) startMultigateway(t *testing.T) error {
+func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s: binary '%s', PG port %d, gRPC port %d, HTTP port %d", p.Name, p.Binary, p.PgPort, p.GrpcPort, p.HttpPort)
@@ -262,8 +263,8 @@ func (p *ProcessInstance) startMultigateway(t *testing.T) error {
 		p.Process.Stderr = logF
 	}
 
-	// Start the process
-	if err := p.Process.Start(); err != nil {
+	// Start the process with trace context propagation
+	if err := telemetry.StartCmd(ctx, p.Process); err != nil {
 		return fmt.Errorf("failed to start multigateway: %w", err)
 	}
 	t.Logf("Started multigateway (pid: %d, pg: %d, grpc: %d, http: %d, log: %s)",
@@ -280,11 +281,11 @@ func (p *ProcessInstance) startMultigateway(t *testing.T) error {
 
 // waitForStartup handles the common startup and waiting logic.
 // Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) waitForStartup(t *testing.T, timeout time.Duration, logInterval int) error {
+func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, timeout time.Duration, logInterval int) error {
 	t.Helper()
 
-	// Start the process in background (like cluster_test.go does)
-	err := p.Process.Start()
+	// Start the process in background with trace context propagation
+	err := telemetry.StartCmd(ctx, p.Process)
 	if err != nil {
 		return fmt.Errorf("failed to start %s: %w", p.Name, err)
 	}
