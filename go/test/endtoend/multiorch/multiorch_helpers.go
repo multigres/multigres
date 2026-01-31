@@ -23,9 +23,8 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
 // connectToPostgres establishes a connection to PostgreSQL using Unix socket

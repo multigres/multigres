@@ -21,9 +21,34 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiorch";
 
+// MultiOrchService provides APIs for controlling multiorch behavior.
+// This includes recovery control for testing and future operational features
+// like forced failovers and chaos testing.
 service MultiOrchService {
   // GetShardStatus returns diagnostic information for a specific shard
   rpc GetShardStatus(ShardStatusRequest) returns (ShardStatusResponse) {}
+
+  // DisableRecovery stops the recovery engine from automatically repairing issues.
+  // This is intended for testing scenarios where manual control over recovery is needed.
+  // When this returns, no recovery actions are in-flight (strong synchronization guarantee).
+  rpc DisableRecovery(DisableRecoveryRequest) returns (DisableRecoveryResponse) {}
+
+  // EnableRecovery resumes the recovery engine's automatic repair operations.
+  rpc EnableRecovery(EnableRecoveryRequest) returns (EnableRecoveryResponse) {}
+
+  // GetRecoveryStatus returns whether recovery is currently enabled or disabled.
+  rpc GetRecoveryStatus(GetRecoveryStatusRequest) returns (GetRecoveryStatusResponse) {}
+
+  // TriggerRecoveryNow immediately executes recovery operations and blocks until
+  // either no problems remain or the request context times out.
+  // This is intended for testing scenarios requiring deterministic recovery execution.
+  //
+  // Behavior:
+  // - Re-polls all poolers to get fresh health state
+  // - Runs recovery cycles repeatedly until no problems are detected
+  // - Returns when either: (1) no problems remain, or (2) context times out
+  // - If recovery is disabled, this temporarily enables it during this operation
+  rpc TriggerRecoveryNow(TriggerRecoveryNowRequest) returns (TriggerRecoveryNowResponse) {}
 }
 
 message ShardStatusRequest {
@@ -60,4 +85,44 @@ message PoolerHealth {
   bool postgres_running = 3;
   string pooler_type = 4;                    // PRIMARY, REPLICA, UNKNOWN
   google.protobuf.Timestamp last_check = 5;
+}
+
+message DisableRecoveryRequest {
+  // Empty - no parameters needed
+}
+
+message DisableRecoveryResponse {
+  // success indicates whether recovery was disabled
+  bool success = 1;
+  // message provides additional context
+  string message = 2;
+}
+
+message EnableRecoveryRequest {
+  // Empty - no parameters needed
+}
+
+message EnableRecoveryResponse {
+  // success indicates whether recovery was enabled
+  bool success = 1;
+  // message provides additional context
+  string message = 2;
+}
+
+message GetRecoveryStatusRequest {
+  // Empty - no parameters needed
+}
+
+message GetRecoveryStatusResponse {
+  // enabled indicates whether recovery is currently active
+  bool enabled = 1;
+}
+
+message TriggerRecoveryNowRequest {
+  // Empty - timeout controlled by gRPC request deadline
+}
+
+message TriggerRecoveryNowResponse {
+  // remaining_problem_codes lists problem codes still detected (e.g., "REPLICA_NOT_REPLICATING")
+  repeated string remaining_problem_codes = 4;
 }
