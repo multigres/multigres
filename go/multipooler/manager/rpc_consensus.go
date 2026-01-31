@@ -71,8 +71,46 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			"unknown BeginTerm action type: %v", req.Action)
 	}
 
+	// TEMPORARY: Check postgres health before accepting term with REVOKE action.
+	//
+	// This is a temporary measure while we fully unwind the coupling between term acceptance
+	// and revoke execution. The current code conflates "voting term" (the term a node has
+	// agreed to participate in) with "primary term" (the term the node is actually primary for).
+	//
+	// Without this check, an unhealthy node would accept a new term but fail to revoke its
+	// old primary status. This breaks operations like DemoteStalePrimary: if two multipoolers
+	// both report themselves as primary (one stale at term N, one fresh at term N+1), we
+	// currently lack a reliable way to determine which is the true primary.
+	//
+	// Proper fix: Track two distinct term numbers:
+	// - Voting term: highest term accepted for consensus participation
+	// - Primary term: specific term for which this node is executing as primary
+	//
+	// With separate terms, a node accepting term 6 while still primary for term 5 would
+	// correctly report primary_term=5, making it unambiguous which node holds current authority.
+	if req.Action == consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE {
+		if _, err := pm.query(ctx, "SELECT 1"); err != nil {
+			pm.logger.WarnContext(ctx, "Postgres unhealthy, rejecting term with REVOKE action",
+				"term", req.Term,
+				"error", err)
+			// Return current term with accepted=false
+			pm.mu.Lock()
+			cs := pm.consensusState
+			pm.mu.Unlock()
+			currentTerm, termErr := cs.GetCurrentTermNumber(ctx)
+			if termErr != nil {
+				currentTerm = 0
+			}
+			return &consensusdatapb.BeginTermResponse{
+				Term:     currentTerm,
+				Accepted: false,
+				PoolerId: pm.serviceID.GetName(),
+			}, nil
+		}
+	}
+
 	// ========================================================================
-	// Phase 1: Term Acceptance (Consensus Rules)
+	// Term Acceptance (Consensus Rules)
 	// ========================================================================
 
 	pm.mu.Lock()
@@ -116,12 +154,11 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	// ========================================================================
-	// Phase 2: Action Execution
+	// Action Execution
 	// ========================================================================
 
 	switch req.Action {
 	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION:
-		pm.logger.DebugContext(ctx, "NO_ACTION: term accepted, no revocation", "term", req.Term)
 		return response, nil
 
 	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE:
@@ -172,25 +209,6 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 			return mterrors.Wrap(err, "failed to pause replication during revoke")
 		}
 		pm.logger.InfoContext(ctx, "Standby replication paused", "term", term)
-
-		// Then check if we're caught up with replication (within 30 seconds)
-		var lastMsgReceiptTime *time.Time
-		result, queryErr := pm.query(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver")
-		if queryErr != nil {
-			return mterrors.Wrap(queryErr, "no WAL receiver, cannot determine if caught up")
-		}
-		queryErr = executor.ScanSingleRow(result, &lastMsgReceiptTime)
-		if queryErr != nil {
-			return mterrors.Wrap(queryErr, "no WAL receiver, cannot determine if caught up")
-		}
-
-		if lastMsgReceiptTime != nil {
-			timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
-			if timeSinceLastMessage > 30*time.Second {
-				return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-					"standby too far behind: last message %v ago (max 30s)", timeSinceLastMessage)
-			}
-		}
 	}
 
 	return nil

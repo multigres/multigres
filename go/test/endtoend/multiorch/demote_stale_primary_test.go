@@ -111,7 +111,7 @@ func TestDemoteStalePrimary(t *testing.T) {
 	// 4. Configure replication to the new primary
 	// 5. Start WAL receiver
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 120*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 20*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")

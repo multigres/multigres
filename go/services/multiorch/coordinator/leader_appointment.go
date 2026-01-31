@@ -58,7 +58,8 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 	c.logger.InfoContext(ctx, "Selected candidate", "shard", shardID, "candidate", candidate.MultiPooler.Id.Name)
 
 	// Stage 2: Recruit Nodes - Send BeginTerm RPC to all nodes in parallel
-	recruited, err := c.recruitNodes(ctx, cohort, proposedTerm, candidate)
+	// Use REVOKE action to ensure old primary is demoted and standbys stop replicating
+	recruited, err := c.recruitNodes(ctx, cohort, proposedTerm, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 	if err != nil {
 		return nil, nil, 0, mterrors.Wrap(err, "failed to recruit nodes")
 	}
@@ -181,7 +182,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		lsn, err := pglogrepl.ParseLSN(status.walPosition)
 		if err != nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-				"invalid LSN format for node %s: %s (error: %v)",
+				"invalid LSN format for pooler %s: %s (error: %v)",
 				status.node.MultiPooler.Id.Name, status.walPosition, err)
 		}
 
@@ -195,8 +196,8 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 			// Prefer initialized over uninitialized
 			shouldSelect = true
 			c.logger.InfoContext(ctx, "Preferring initialized node over uninitialized",
-				"initialized_node", status.node.MultiPooler.Id.Name,
-				"uninitialized_node", bestCandidate.MultiPooler.Id.Name)
+				"initialized_pooler", status.node.MultiPooler.Id.Name,
+				"uninitialized_pooler", bestCandidate.MultiPooler.Id.Name)
 		} else if status.initialized == bestIsInitialized && lsn > bestLSN {
 			// Same initialization status, prefer higher LSN
 			shouldSelect = true
@@ -213,11 +214,11 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 		// Fall back to first available node if no healthy nodes
 		bestCandidate = statuses[0].node
 		c.logger.WarnContext(ctx, "No healthy nodes, using first available",
-			"node", bestCandidate.MultiPooler.Id.Name)
+			"pooler", bestCandidate.MultiPooler.Id.Name)
 	}
 
 	c.logger.InfoContext(ctx, "Selected candidate",
-		"node", bestCandidate.MultiPooler.Id.Name,
+		"pooler", bestCandidate.MultiPooler.Id.Name,
 		"initialized", bestIsInitialized,
 		"lsn", bestLSN)
 
@@ -225,7 +226,7 @@ func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchda
 }
 
 // recruitNodes sends BeginTerm RPC to all nodes in parallel and returns those that accepted.
-func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, term int64, candidate *multiorchdatapb.PoolerHealthState) ([]*multiorchdatapb.PoolerHealthState, error) {
+func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, term int64, candidate *multiorchdatapb.PoolerHealthState, action consensusdatapb.BeginTermAction) ([]*multiorchdatapb.PoolerHealthState, error) {
 	type result struct {
 		node     *multiorchdatapb.PoolerHealthState
 		accepted bool
@@ -242,6 +243,8 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 			req := &consensusdatapb.BeginTermRequest{
 				Term:        term,
 				CandidateId: c.coordinatorID,
+				ShardId:     n.MultiPooler.Shard,
+				Action:      action,
 			}
 			resp, err := c.rpcClient.BeginTerm(ctx, n.MultiPooler, req)
 			if err != nil {
@@ -262,18 +265,18 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 	var recruited []*multiorchdatapb.PoolerHealthState
 	for r := range results {
 		if r.err != nil {
-			c.logger.WarnContext(ctx, "BeginTerm failed for node",
+			c.logger.WarnContext(ctx, "BeginTerm failed for pooler",
 				"node", r.node.MultiPooler.Id.Name,
 				"error", r.err)
 			continue
 		}
 		if r.accepted {
 			recruited = append(recruited, r.node)
-			c.logger.InfoContext(ctx, "Node accepted term",
+			c.logger.InfoContext(ctx, "Pooler accepted term",
 				"node", r.node.MultiPooler.Id.Name,
 				"term", term)
 		} else {
-			c.logger.WarnContext(ctx, "Node rejected term",
+			c.logger.WarnContext(ctx, "Pooler rejected term",
 				"node", r.node.MultiPooler.Id.Name,
 				"term", term)
 		}

@@ -122,6 +122,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 				Name:      "candidate-1",
 			},
 			ShardId: "shard-1",
+			Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 		}
 
 		resp, err := svc.BeginTerm(ctx, req)
@@ -458,6 +459,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 						Name:      "candidate-1",
 					},
 					ShardId: "shard-1",
+					Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 				}
 				_, err := svc.BeginTerm(ctx, req)
 				return err
