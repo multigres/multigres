@@ -61,15 +61,14 @@ type Config struct {
 	adminCapacity viperutil.Value[int64]
 
 	// Per-user regular pool configuration (for simple queries without transactions)
-	userRegularCapacity    viperutil.Value[int64]
-	userRegularMaxIdle     viperutil.Value[int64]
+	// Note: Capacity is managed by the rebalancer, not configured here.
+	// New pools start with initialUserCapacity (10) and the rebalancer adjusts them.
 	userRegularIdleTimeout viperutil.Value[time.Duration]
 	userRegularMaxLifetime viperutil.Value[time.Duration]
 
 	// Per-user reserved pool configuration (for transactions)
 	// Each user's reserved pool has its own underlying connection pool.
-	userReservedCapacity          viperutil.Value[int64]
-	userReservedMaxIdle           viperutil.Value[int64]
+	// Note: Capacity is managed by the rebalancer, not configured here.
 	userReservedInactivityTimeout viperutil.Value[time.Duration] // For reserved connections (client inactivity)
 	userReservedIdleTimeout       viperutil.Value[time.Duration] // For underlying pool connections
 	userReservedMaxLifetime       viperutil.Value[time.Duration]
@@ -79,6 +78,30 @@ type Config struct {
 
 	// Settings cache size (0 = use default)
 	settingsCacheSize viperutil.Value[int64]
+
+	// --- Fair share allocation configuration ---
+
+	// Global capacity is the total number of PostgreSQL connections to manage.
+	// This is divided between regular and reserved pools based on reservedRatio.
+	globalCapacity viperutil.Value[int64]
+
+	// Reserved ratio is the fraction of global capacity allocated to reserved pools (0.0-1.0).
+	// Regular pools get (1 - reservedRatio) of the global capacity.
+	reservedRatio viperutil.Value[float64]
+
+	// --- Rebalancer configuration ---
+
+	// Rebalance interval is how often the rebalancer runs to adjust pool capacities.
+	rebalanceInterval viperutil.Value[time.Duration]
+
+	// Demand window is the sliding window duration for tracking peak demand.
+	demandWindow viperutil.Value[time.Duration]
+
+	// Demand sample interval is how often to sample pool demand within the window.
+	demandSampleInterval viperutil.Value[time.Duration]
+
+	// Inactive timeout is how long a user pool can be inactive before being garbage collected.
+	inactiveTimeout viperutil.Value[time.Duration]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -89,23 +112,29 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		adminCapacity int64 = 5
 
 		// Per-user regular pool defaults (for simple queries without transactions)
-		userRegularCapacity    int64 = 10
-		userRegularMaxIdle     int64 = 5
-		userRegularIdleTimeout       = 5 * time.Minute
-		userRegularMaxLifetime       = 1 * time.Hour
+		userRegularIdleTimeout = 5 * time.Minute
+		userRegularMaxLifetime = 1 * time.Hour
 
 		// Per-user reserved pool defaults (for transactions)
-		userReservedCapacity          int64 = 5
-		userReservedMaxIdle           int64 = 2
-		userReservedInactivityTimeout       = 30 * time.Second // Aggressive - kills reserved connections if client inactive
-		userReservedIdleTimeout             = 5 * time.Minute  // Less aggressive - for pool size reduction
-		userReservedMaxLifetime             = 1 * time.Hour
+		userReservedInactivityTimeout = 30 * time.Second // Aggressive - kills reserved connections if client inactive
+		userReservedIdleTimeout       = 5 * time.Minute  // Less aggressive - for pool size reduction
+		userReservedMaxLifetime       = 1 * time.Hour
 
 		// Maximum number of user pools (0 = unlimited)
 		maxUsers int64 = 0
 
 		// Settings cache size
 		settingsCacheSize int64 = 1024
+
+		// Fair share allocation defaults
+		globalCapacity int64 = 100
+		reservedRatio        = 0.2
+
+		// Rebalancer defaults
+		rebalanceInterval    = 10 * time.Second
+		demandWindow         = 30 * time.Second
+		demandSampleInterval = 100 * time.Millisecond
+		inactiveTimeout      = 5 * time.Minute
 	)
 
 	return &Config{
@@ -128,14 +157,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		}),
 
 		// Per-user regular pool (for simple queries)
-		userRegularCapacity: viperutil.Configure(reg, "connpool.user.regular.capacity", viperutil.Options[int64]{
-			Default:  userRegularCapacity,
-			FlagName: "connpool-user-regular-capacity",
-		}),
-		userRegularMaxIdle: viperutil.Configure(reg, "connpool.user.regular.max-idle", viperutil.Options[int64]{
-			Default:  userRegularMaxIdle,
-			FlagName: "connpool-user-regular-max-idle",
-		}),
 		userRegularIdleTimeout: viperutil.Configure(reg, "connpool.user.regular.idle-timeout", viperutil.Options[time.Duration]{
 			Default:  userRegularIdleTimeout,
 			FlagName: "connpool-user-regular-idle-timeout",
@@ -146,14 +167,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		}),
 
 		// Per-user reserved pool (for transactions)
-		userReservedCapacity: viperutil.Configure(reg, "connpool.user.reserved.capacity", viperutil.Options[int64]{
-			Default:  userReservedCapacity,
-			FlagName: "connpool-user-reserved-capacity",
-		}),
-		userReservedMaxIdle: viperutil.Configure(reg, "connpool.user.reserved.max-idle", viperutil.Options[int64]{
-			Default:  userReservedMaxIdle,
-			FlagName: "connpool-user-reserved-max-idle",
-		}),
 		userReservedInactivityTimeout: viperutil.Configure(reg, "connpool.user.reserved.inactivity-timeout", viperutil.Options[time.Duration]{
 			Default:  userReservedInactivityTimeout,
 			FlagName: "connpool-user-reserved-inactivity-timeout",
@@ -178,6 +191,34 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  settingsCacheSize,
 			FlagName: "connpool-settings-cache-size",
 		}),
+
+		// Fair share allocation
+		globalCapacity: viperutil.Configure(reg, "connpool.global-capacity", viperutil.Options[int64]{
+			Default:  globalCapacity,
+			FlagName: "connpool-global-capacity",
+		}),
+		reservedRatio: viperutil.Configure(reg, "connpool.reserved-ratio", viperutil.Options[float64]{
+			Default:  reservedRatio,
+			FlagName: "connpool-reserved-ratio",
+		}),
+
+		// Rebalancer
+		rebalanceInterval: viperutil.Configure(reg, "connpool.rebalance-interval", viperutil.Options[time.Duration]{
+			Default:  rebalanceInterval,
+			FlagName: "connpool-rebalance-interval",
+		}),
+		demandWindow: viperutil.Configure(reg, "connpool.demand-window", viperutil.Options[time.Duration]{
+			Default:  demandWindow,
+			FlagName: "connpool-demand-window",
+		}),
+		demandSampleInterval: viperutil.Configure(reg, "connpool.demand-sample-interval", viperutil.Options[time.Duration]{
+			Default:  demandSampleInterval,
+			FlagName: "connpool-demand-sample-interval",
+		}),
+		inactiveTimeout: viperutil.Configure(reg, "connpool.inactive-timeout", viperutil.Options[time.Duration]{
+			Default:  inactiveTimeout,
+			FlagName: "connpool-inactive-timeout",
+		}),
 	}
 }
 
@@ -191,14 +232,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
 
 	// Per-user regular pool flags (for simple queries)
-	fs.Int64("connpool-user-regular-capacity", c.userRegularCapacity.Default(), "Maximum regular connections per user")
-	fs.Int64("connpool-user-regular-max-idle", c.userRegularMaxIdle.Default(), "Maximum idle regular connections per user")
 	fs.Duration("connpool-user-regular-idle-timeout", c.userRegularIdleTimeout.Default(), "How long a user's regular connection can remain idle before being closed")
 	fs.Duration("connpool-user-regular-max-lifetime", c.userRegularMaxLifetime.Default(), "Maximum lifetime of a user's regular connection before recycling")
 
 	// Per-user reserved pool flags (for transactions)
-	fs.Int64("connpool-user-reserved-capacity", c.userReservedCapacity.Default(), "Maximum reserved connections per user")
-	fs.Int64("connpool-user-reserved-max-idle", c.userReservedMaxIdle.Default(), "Maximum idle reserved connections per user")
 	fs.Duration("connpool-user-reserved-inactivity-timeout", c.userReservedInactivityTimeout.Default(), "How long a reserved connection can be inactive (no client activity) before being killed")
 	fs.Duration("connpool-user-reserved-idle-timeout", c.userReservedIdleTimeout.Default(), "How long a connection in the reserved pool can remain idle before being closed")
 	fs.Duration("connpool-user-reserved-max-lifetime", c.userReservedMaxLifetime.Default(), "Maximum lifetime of a user's reserved connection before recycling")
@@ -209,21 +246,33 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Settings cache size flag
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
 
+	// Fair share allocation flags
+	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools)")
+	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
+
+	// Rebalancer flags
+	fs.Duration("connpool-rebalance-interval", c.rebalanceInterval.Default(), "How often to rebalance pool capacities")
+	fs.Duration("connpool-demand-window", c.demandWindow.Default(), "Sliding window duration for peak demand tracking")
+	fs.Duration("connpool-demand-sample-interval", c.demandSampleInterval.Default(), "How often to sample pool demand within the window")
+	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
+
 	viperutil.BindFlags(fs,
 		c.adminUser,
 		c.adminPassword,
 		c.adminCapacity,
-		c.userRegularCapacity,
-		c.userRegularMaxIdle,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
-		c.userReservedCapacity,
-		c.userReservedMaxIdle,
 		c.userReservedInactivityTimeout,
 		c.userReservedIdleTimeout,
 		c.userReservedMaxLifetime,
 		c.maxUsers,
 		c.settingsCacheSize,
+		c.globalCapacity,
+		c.reservedRatio,
+		c.rebalanceInterval,
+		c.demandWindow,
+		c.demandSampleInterval,
+		c.inactiveTimeout,
 	)
 }
 
@@ -244,16 +293,6 @@ func (c *Config) AdminCapacity() int64 {
 	return c.adminCapacity.Get()
 }
 
-// UserRegularCapacity returns the per-user regular pool capacity.
-func (c *Config) UserRegularCapacity() int64 {
-	return c.userRegularCapacity.Get()
-}
-
-// UserRegularMaxIdle returns the per-user regular pool max idle count.
-func (c *Config) UserRegularMaxIdle() int64 {
-	return c.userRegularMaxIdle.Get()
-}
-
 // UserRegularIdleTimeout returns the per-user regular pool idle timeout.
 func (c *Config) UserRegularIdleTimeout() time.Duration {
 	return c.userRegularIdleTimeout.Get()
@@ -262,16 +301,6 @@ func (c *Config) UserRegularIdleTimeout() time.Duration {
 // UserRegularMaxLifetime returns the per-user regular pool max lifetime.
 func (c *Config) UserRegularMaxLifetime() time.Duration {
 	return c.userRegularMaxLifetime.Get()
-}
-
-// UserReservedCapacity returns the per-user reserved pool capacity.
-func (c *Config) UserReservedCapacity() int64 {
-	return c.userReservedCapacity.Get()
-}
-
-// UserReservedMaxIdle returns the per-user reserved pool max idle count.
-func (c *Config) UserReservedMaxIdle() int64 {
-	return c.userReservedMaxIdle.Get()
 }
 
 // UserReservedInactivityTimeout returns the reserved connection inactivity timeout.
@@ -300,6 +329,38 @@ func (c *Config) SettingsCacheSize() int {
 	return int(c.settingsCacheSize.Get())
 }
 
+// GlobalCapacity returns the total PostgreSQL connections to manage.
+// This is divided between regular and reserved pools based on ReservedRatio.
+func (c *Config) GlobalCapacity() int64 {
+	return c.globalCapacity.Get()
+}
+
+// ReservedRatio returns the fraction of global capacity allocated to reserved pools (0.0-1.0).
+// Regular pools get (1 - reservedRatio) of the global capacity.
+func (c *Config) ReservedRatio() float64 {
+	return c.reservedRatio.Get()
+}
+
+// RebalanceInterval returns how often the rebalancer runs to adjust pool capacities.
+func (c *Config) RebalanceInterval() time.Duration {
+	return c.rebalanceInterval.Get()
+}
+
+// DemandWindow returns the sliding window duration for peak demand tracking.
+func (c *Config) DemandWindow() time.Duration {
+	return c.demandWindow.Get()
+}
+
+// DemandSampleInterval returns how often to sample pool demand within the window.
+func (c *Config) DemandSampleInterval() time.Duration {
+	return c.demandSampleInterval.Get()
+}
+
+// InactiveTimeout returns how long a user pool can be inactive before garbage collection.
+func (c *Config) InactiveTimeout() time.Duration {
+	return c.inactiveTimeout.Get()
+}
+
 // NewManager creates a new connection pool manager from this config.
 // Call this after flags have been parsed and when you're ready to create the manager.
 // The manager starts in a closed state; call Open() before using it.
@@ -309,10 +370,11 @@ func (c *Config) NewManager(logger *slog.Logger) *Manager {
 		logger.Warn("failed to initialize some connection pool metrics (using noop fallbacks)", "error", err)
 	}
 
-	return &Manager{
+	mgr := &Manager{
 		config:  c,
 		logger:  logger,
 		metrics: metrics,
-		closed:  true, // Manager is closed until Open() is called
 	}
+	mgr.closed.Store(true) // Manager is closed until Open() is called
+	return mgr
 }

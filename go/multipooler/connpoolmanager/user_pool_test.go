@@ -357,3 +357,87 @@ func TestUserPool_MultipleReservedConnections(t *testing.T) {
 	stats = pool.Stats()
 	assert.Equal(t, 0, stats.Reserved.Active)
 }
+
+func TestUserPool_SetCapacity(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestUserPool(t, server)
+	defer pool.Close()
+
+	ctx := t.Context()
+
+	// Initial capacity is 4 for both pools (from newTestUserPool).
+	stats := pool.Stats()
+	assert.Equal(t, int64(4), stats.Regular.Capacity)
+	assert.Equal(t, int64(4), stats.Reserved.RegularPool.Capacity)
+
+	// Resize up.
+	err := pool.SetCapacity(ctx, 8, 6)
+	require.NoError(t, err)
+
+	stats = pool.Stats()
+	assert.Equal(t, int64(8), stats.Regular.Capacity)
+	assert.Equal(t, int64(6), stats.Reserved.RegularPool.Capacity)
+
+	// Resize down.
+	err = pool.SetCapacity(ctx, 2, 2)
+	require.NoError(t, err)
+
+	stats = pool.Stats()
+	assert.Equal(t, int64(2), stats.Regular.Capacity)
+	assert.Equal(t, int64(2), stats.Reserved.RegularPool.Capacity)
+}
+
+func TestUserPool_SetCapacity_WithIdleConnections(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestUserPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Create some connections and return them to the pool.
+	conn1, err := pool.GetRegularConn(ctx)
+	require.NoError(t, err)
+	conn2, err := pool.GetRegularConn(ctx)
+	require.NoError(t, err)
+	conn3, err := pool.GetRegularConn(ctx)
+	require.NoError(t, err)
+
+	conn1.Recycle()
+	conn2.Recycle()
+	conn3.Recycle()
+
+	// Should have 3 idle connections.
+	stats := pool.Stats()
+	assert.Equal(t, int64(3), stats.Regular.Idle)
+
+	// Resize down to 2 - should close 1 idle connection.
+	err = pool.SetCapacity(ctx, 2, 4)
+	require.NoError(t, err)
+
+	stats = pool.Stats()
+	assert.Equal(t, int64(2), stats.Regular.Capacity)
+	// Idle count should be capped at new capacity.
+	assert.LessOrEqual(t, stats.Regular.Idle, int64(2))
+}
+
+func TestUserPool_SetCapacity_ClosedPool(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestUserPool(t, server)
+	pool.Close()
+
+	ctx := context.Background()
+
+	// Should return error for closed pool.
+	err := pool.SetCapacity(ctx, 10, 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "closed")
+}
