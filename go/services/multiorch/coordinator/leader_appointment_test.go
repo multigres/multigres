@@ -255,7 +255,7 @@ func TestSelectCandidate(t *testing.T) {
 		candidate, err := c.selectCandidate(ctx, cohort)
 		require.Error(t, err)
 		require.Nil(t, candidate)
-		require.Contains(t, err.Error(), "no healthy nodes available")
+		require.Contains(t, err.Error(), "no healthy poolers available")
 	})
 }
 

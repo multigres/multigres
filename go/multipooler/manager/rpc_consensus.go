@@ -163,7 +163,14 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 
 	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE:
 		if err := pm.executeRevoke(ctx, req.Term, response); err != nil {
-			return nil, err
+			// Term was already accepted and persisted above, so we must return
+			// the response with accepted=true AND the error. This tells the coordinator:
+			// 1. The term was accepted (response.Accepted = true)
+			// 2. The revoke action failed (error != nil)
+			pm.logger.ErrorContext(ctx, "Term accepted but revoke action failed",
+				"term", req.Term,
+				"error", err)
+			return response, mterrors.Wrap(err, "term accepted but revoke action failed")
 		}
 		return response, nil
 
