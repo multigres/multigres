@@ -55,7 +55,7 @@ jobs:
           retention-days: 7
 
       - name: Test Report
-        uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
+        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
         if: ${{ !cancelled() }}
         with:
           name: Direct Coverage Tests
@@ -100,7 +100,7 @@ jobs:
           retention-days: 7
 
       - name: Test Report
-        uses: dorny/test-reporter@fe45e9537387dac839af0d33ba56eed8e24189e8 # v2.3.0
+        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
         if: ${{ !cancelled() }}
         with:
           name: Subprocess Coverage Tests
