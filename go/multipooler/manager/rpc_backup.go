@@ -390,7 +390,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 		// Clear primary_term from backup since this is a standby restore
 		// The backup may contain a non-zero primary_term if it was taken from a primary
-		if err := pm.consensusState.SetPrimaryTerm(ctx, 0); err != nil {
+		if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
 			return mterrors.Wrap(err, "failed to clear primary_term after restore")
 		}
 	}

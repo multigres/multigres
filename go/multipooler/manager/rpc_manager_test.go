@@ -1093,7 +1093,7 @@ func TestSetPrimaryTerm_InvariantValidation(t *testing.T) {
 	defer actionLock.Release(lockCtx)
 
 	// Setting primary_term to match current term should succeed
-	err = consensusState.SetPrimaryTerm(lockCtx, 5)
+	err = consensusState.SetPrimaryTerm(lockCtx, 5, false /* force */)
 	require.NoError(t, err, "Should be able to set primary_term to current term value")
 
 	term, err := consensusState.GetInconsistentTerm()
@@ -1101,7 +1101,7 @@ func TestSetPrimaryTerm_InvariantValidation(t *testing.T) {
 	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should be set to 5")
 
 	// Setting primary_term to a different value should fail (invariant violation)
-	err = consensusState.SetPrimaryTerm(lockCtx, 7)
+	err = consensusState.SetPrimaryTerm(lockCtx, 7, false /* force */)
 	require.Error(t, err, "Should fail when primary_term doesn't match current term")
 
 	// Verify primary_term was not changed
@@ -1109,17 +1109,29 @@ func TestSetPrimaryTerm_InvariantValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should still be 5")
 
+	// But with force=true, setting a mismatched term should succeed
+	err = consensusState.SetPrimaryTerm(lockCtx, 7, true /* force */)
+	require.NoError(t, err, "Should succeed with force=true even when terms don't match")
+
+	term, err = consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), term.GetPrimaryTerm(), "primary_term should be updated to 7 with force")
+
 	// Clearing primary_term to 0 should always succeed (exception to invariant)
-	err = consensusState.SetPrimaryTerm(lockCtx, 0)
+	err = consensusState.SetPrimaryTerm(lockCtx, 0, false /* force */)
 	require.NoError(t, err, "Should be able to clear primary_term to 0 regardless of current term")
 
 	term, err = consensusState.GetInconsistentTerm()
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be cleared to 0")
 
-	// Negative primary_term should fail
-	err = consensusState.SetPrimaryTerm(lockCtx, -1)
+	// Negative primary_term should fail even with force
+	err = consensusState.SetPrimaryTerm(lockCtx, -1, false /* force */)
 	require.Error(t, err, "Should fail with negative primary_term")
+	assert.Contains(t, err.Error(), "primary_term cannot be negative")
+
+	err = consensusState.SetPrimaryTerm(lockCtx, -1, true /* force */)
+	require.Error(t, err, "Should fail with negative primary_term even with force=true")
 	assert.Contains(t, err.Error(), "primary_term cannot be negative")
 }
 

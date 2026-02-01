@@ -1044,7 +1044,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 
 	// Clear primary_term since this node is no longer primary for any term
 	if pm.consensusState != nil {
-		if err := pm.consensusState.SetPrimaryTerm(ctx, 0); err != nil {
+		if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
 			return nil, mterrors.Wrap(err, "failed to clear primary term")
 		}
 	}
@@ -1169,7 +1169,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	//   but the node doesn't know it's primary for this term. This creates inconsistent state with
 	//   a committed transaction that can't be easily rolled back.
 	// Therefore, we persist primary_term first, then commit the transaction.
-	if err := pm.consensusState.SetPrimaryTerm(ctx, consensusTerm); err != nil {
+	if err := pm.consensusState.SetPrimaryTerm(ctx, consensusTerm, force); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
 
