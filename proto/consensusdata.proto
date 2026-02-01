@@ -103,6 +103,13 @@ message StatusResponse {
 
   // Timeline information for divergence detection
   TimelineInfo timeline_info = 10;
+
+  // The term for which this multipooler was promoted to primary.
+  // Set during promotion (InitializeEmptyPrimary or Promote).
+  // Preserved when consensus term increases (new elections).
+  // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
+  // 0 if never primary. For current primaries, must be non-zero.
+  int64 primary_term = 11;
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table

@@ -24,7 +24,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -199,8 +201,10 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 	}
 
 	currentTerm := int64(0)
+	currentPrimaryTerm := int64(0)
 	if cs.term != nil {
 		currentTerm = cs.term.GetTermNumber()
+		currentPrimaryTerm = cs.term.GetPrimaryTerm()
 	}
 
 	if newTerm < currentTerm {
@@ -216,6 +220,7 @@ func (cs *ConsensusState) UpdateTermAndAcceptCandidate(ctx context.Context, newT
 			AcceptedTermFromCoordinatorId: proto.Clone(candidateID).(*clustermetadatapb.ID),
 			LastAcceptanceTime:            timestamppb.New(time.Now()),
 			LeaderId:                      nil,
+			PrimaryTerm:                   currentPrimaryTerm,
 		}
 	} else {
 		// Same term: just update acceptance (idempotent check first)
@@ -256,8 +261,10 @@ func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) 
 	defer cs.mu.Unlock()
 
 	currentTerm := int64(0)
+	currentPrimaryTerm := int64(0)
 	if cs.term != nil {
 		currentTerm = cs.term.GetTermNumber()
+		currentPrimaryTerm = cs.term.GetPrimaryTerm()
 	}
 
 	if newTerm < currentTerm {
@@ -275,10 +282,45 @@ func (cs *ConsensusState) UpdateTermAndSave(ctx context.Context, newTerm int64) 
 		AcceptedTermFromCoordinatorId: nil,
 		LastAcceptanceTime:            nil,
 		LeaderId:                      nil,
+		PrimaryTerm:                   currentPrimaryTerm,
 	}
 
 	// Save and update under lock
 	return cs.saveAndUpdateLocked(term)
+}
+
+// SetPrimaryTerm updates the primary term in the consensus record.
+// This is called during propagation when a multipooler is promoted to primary.
+func (cs *ConsensusState) SetPrimaryTerm(ctx context.Context, primaryTerm int64) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	if primaryTerm < 0 {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("primary_term cannot be negative: %d", primaryTerm))
+	}
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if cs.term == nil {
+		return errors.New("consensus term not initialized")
+	}
+
+	// INVARIANT: When setting primary_term to a non-zero value, it must match the current consensus term.
+	// This ensures we record the exact term in which this pooler was promoted to primary.
+	// After promotion, term_number may increase (due to new elections) but primary_term remains fixed.
+	// The only exception is clearing primary_term to 0 (during demotion or restore).
+	currentTermNumber := cs.term.GetTermNumber()
+	if primaryTerm != 0 && primaryTerm != currentTermNumber {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("primary_term must match current term when setting: primary_term=%d, current_term=%d",
+				primaryTerm, currentTermNumber))
+	}
+
+	newTerm := cloneTerm(cs.term)
+	newTerm.PrimaryTerm = primaryTerm
+
+	return cs.saveAndUpdateLocked(newTerm)
 }
 
 // saveAndUpdateLocked saves the term to disk and updates memory.

@@ -332,6 +332,14 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			t.Logf("Term after restore: %d (expected: 1)", restoredTerm)
 			assert.Equal(t, int64(1), restoredTerm, "Term should be restored to backup's original value (1)")
 
+			// Verify primary_term was cleared after restore
+			statusCtx = utils.WithShortDeadline(t)
+			statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
+			require.NoError(t, err, "Should be able to get status after restore")
+			require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil after restore")
+			assert.Equal(t, int64(0), statusResp.Status.ConsensusTerm.PrimaryTerm,
+				"primary_term should be cleared to 0 after restore (standby restore)")
+
 			// Configure replication after restore
 			setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 				Primary:               primary,

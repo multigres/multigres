@@ -1059,8 +1059,11 @@ type PrimaryStatus struct {
 	ConnectedFollowers []*clustermetadata.ID `protobuf:"bytes,3,rep,name=connected_followers,json=connectedFollowers,proto3" json:"connected_followers,omitempty"`
 	// Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
 	SyncReplicationConfig *SynchronousReplicationConfiguration `protobuf:"bytes,4,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// The term for which this pooler was promoted to primary.
+	// Non-zero for current primaries. See ConsensusTerm.primary_term for full lifecycle details.
+	PrimaryTerm   int64 `protobuf:"varint,5,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PrimaryStatus) Reset() {
@@ -1119,6 +1122,13 @@ func (x *PrimaryStatus) GetSyncReplicationConfig() *SynchronousReplicationConfig
 		return x.SyncReplicationConfig
 	}
 	return nil
+}
+
+func (x *PrimaryStatus) GetPrimaryTerm() int64 {
+	if x != nil {
+		return x.PrimaryTerm
+	}
+	return 0
 }
 
 // PrimaryStatus gets the status of the primary server
@@ -2933,7 +2943,13 @@ type ConsensusTerm struct {
 	// Timestamp of the last acceptance
 	LastAcceptanceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_acceptance_time,json=lastAcceptanceTime,proto3" json:"last_acceptance_time,omitempty"`
 	// ID of the leader of the current term
-	LeaderId      *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	LeaderId *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	// The term for which this pooler was promoted to primary.
+	// Set during promotion (InitializeEmptyPrimary or Promote).
+	// Preserved when consensus term increases (new elections).
+	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
+	// 0 if never primary.
+	PrimaryTerm   int64 `protobuf:"varint,5,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2994,6 +3010,13 @@ func (x *ConsensusTerm) GetLeaderId() *clustermetadata.ID {
 		return x.LeaderId
 	}
 	return nil
+}
+
+func (x *ConsensusTerm) GetPrimaryTerm() int64 {
+	if x != nil {
+		return x.PrimaryTerm
+	}
+	return 0
 }
 
 // InitializeEmptyPrimary initializes this pooler as an empty primary
@@ -4060,12 +4083,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
 	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
 	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
-	"standbyIds\"\xf2\x01\n" +
+	"standbyIds\"\x95\x02\n" +
 	"\rPrimaryStatus\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x14\n" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready\x12D\n" +
 	"\x13connected_followers\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x12connectedFollowers\x12s\n" +
-	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\"\x16\n" +
+	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\x12!\n" +
+	"\fprimary_term\x18\x05 \x01(\x03R\vprimaryTerm\"\x16\n" +
 	"\x14PrimaryStatusRequest\"V\n" +
 	"\x15PrimaryStatusResponse\x12=\n" +
 	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
@@ -4179,13 +4203,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
 	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
 	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
-	"$UpdateSynchronousStandbyListResponse\"\x8f\x02\n" +
+	"$UpdateSynchronousStandbyListResponse\"\xb2\x02\n" +
 	"\rConsensusTerm\x12\x1f\n" +
 	"\vterm_number\x18\x01 \x01(\x03R\n" +
 	"termNumber\x12]\n" +
 	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
-	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\xf6\x01\n" +
+	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\x12!\n" +
+	"\fprimary_term\x18\x05 \x01(\x03R\vprimaryTerm\"\xf6\x01\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x124\n" +
 	"\x16durability_policy_name\x18\x02 \x01(\tR\x14durabilityPolicyName\x12Q\n" +

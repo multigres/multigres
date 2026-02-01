@@ -219,10 +219,18 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 		return nil, errors.New("consensus state not initialized")
 	}
 
-	// Get local term from consensus state
-	localTerm, err := cs.GetInconsistentCurrentTermNumber()
+	term, err := cs.GetInconsistentTerm()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current term: %w", err)
+		return nil, fmt.Errorf("failed to get consensus term: %w", err)
+	}
+
+	localCurrentTerm := int64(0)
+	if term != nil {
+		localCurrentTerm = term.GetTermNumber()
+	}
+	localPrimaryTerm := int64(0)
+	if term != nil {
+		localPrimaryTerm = term.GetPrimaryTerm()
 	}
 
 	// Check if database is healthy by attempting a simple query
@@ -233,7 +241,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 	walPosition := &consensusdatapb.WALPosition{
 		Timestamp: timestamppb.New(time.Now()),
 	}
-	role := "replica"
+	role := "unknown"
 
 	if isHealthy {
 		// Check role and get appropriate WAL position
@@ -247,6 +255,7 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 					walPosition.CurrentLsn = currentLsn
 				}
 			} else {
+				role = "replica"
 				// On standby: get receive and replay positions
 				status, err := pm.queryReplicationStatus(ctx)
 				if err == nil {
@@ -271,13 +280,14 @@ func (pm *MultiPoolerManager) ConsensusStatus(ctx context.Context, req *consensu
 
 	return &consensusdatapb.StatusResponse{
 		PoolerId:     pm.serviceID.GetName(),
-		CurrentTerm:  localTerm,
+		CurrentTerm:  localCurrentTerm,
 		WalPosition:  walPosition,
 		IsHealthy:    isHealthy,
 		IsEligible:   true, // TODO: implement eligibility logic based on policy
 		Cell:         pm.serviceID.GetCell(),
 		Role:         role,
 		TimelineInfo: timelineInfo,
+		PrimaryTerm:  localPrimaryTerm,
 	}, nil
 }
 

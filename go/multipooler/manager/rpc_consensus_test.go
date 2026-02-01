@@ -848,7 +848,7 @@ func TestConsensusStatus(t *testing.T) {
 			setupMock:           func(m *mock.QueryService) {},
 			expectedCurrentTerm: 7,
 			expectedIsHealthy:   false,
-			expectedRole:        "replica",
+			expectedRole:        "unknown", // no database, we can't check the postgres role
 			description:         "Should handle missing database connection gracefully",
 		},
 		{
@@ -864,7 +864,7 @@ func TestConsensusStatus(t *testing.T) {
 			},
 			expectedCurrentTerm: 4,
 			expectedIsHealthy:   false,
-			expectedRole:        "replica",
+			expectedRole:        "unknown",
 			description:         "Should handle database query failure gracefully",
 		},
 	}

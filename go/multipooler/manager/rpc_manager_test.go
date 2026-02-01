@@ -1034,6 +1034,11 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 	pm.mu.Unlock()
 
+	// Verify primary_term is 0 before promotion
+	term, err := pm.consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be 0 before promotion")
+
 	// Call Promote - should FAIL because leadership history insertion fails
 	resp, err := pm.Promote(ctx, 10, "0/9876543", nil, false /* force */, "test_reason", "test_coordinator", nil, nil)
 	require.Error(t, err, "Promote should fail when leadership history insertion fails")
@@ -1042,10 +1047,80 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	// Error message should indicate the leadership history failure
 	assert.Contains(t, err.Error(), "leadership history")
 
+	// CRITICAL: Verify that primary_term WAS set even though promotion failed.
+	// This is intentional - we set primary_term (local state) before writing to history table
+	// (committed transaction). If the order were reversed and history write succeeded but
+	// primary_term write failed, we'd have a committed transaction without local state.
+	// With this ordering, on retry the primary_term set is idempotent and history write will succeed.
+	term, err = pm.consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), term.GetPrimaryTerm(),
+		"primary_term should be set to 10 even though promotion failed (set before history write)")
+
 	// Note: PostgreSQL was promoted but we return error to indicate the promotion is incomplete.
 	// The coordinator should handle this partial promotion state (e.g., retry or repair).
 	// The mock expectations should still be met (all queries were executed).
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+func TestSetPrimaryTerm_InvariantValidation(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create pg_data directory structure
+	createPgDataDir(t, tmpDir)
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+
+	// Create consensus state and set initial term to 5
+	consensusState := NewConsensusState(tmpDir, serviceID)
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
+		TermNumber:  5,
+		PrimaryTerm: 0,
+	}
+	setTermForTest(t, tmpDir, initialTerm)
+	_, err := consensusState.Load()
+	require.NoError(t, err)
+
+	// Create action lock and acquire it
+	actionLock := NewActionLock()
+	lockCtx, err := actionLock.Acquire(ctx, "test-primary-term")
+	require.NoError(t, err)
+	defer actionLock.Release(lockCtx)
+
+	// Setting primary_term to match current term should succeed
+	err = consensusState.SetPrimaryTerm(lockCtx, 5)
+	require.NoError(t, err, "Should be able to set primary_term to current term value")
+
+	term, err := consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should be set to 5")
+
+	// Setting primary_term to a different value should fail (invariant violation)
+	err = consensusState.SetPrimaryTerm(lockCtx, 7)
+	require.Error(t, err, "Should fail when primary_term doesn't match current term")
+
+	// Verify primary_term was not changed
+	term, err = consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should still be 5")
+
+	// Clearing primary_term to 0 should always succeed (exception to invariant)
+	err = consensusState.SetPrimaryTerm(lockCtx, 0)
+	require.NoError(t, err, "Should be able to clear primary_term to 0 regardless of current term")
+
+	term, err = consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be cleared to 0")
+
+	// Negative primary_term should fail
+	err = consensusState.SetPrimaryTerm(lockCtx, -1)
+	require.Error(t, err, "Should fail with negative primary_term")
+	assert.Contains(t, err.Error(), "primary_term cannot be negative")
 }
 
 func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
