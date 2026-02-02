@@ -63,6 +63,7 @@ Returns JSON with all multipoolers, their cells, service IDs, ports, and pooler 
 ```
 
 Returns detailed status including:
+
 - `pooler_type`: 1 = PRIMARY, 2 = REPLICA
 - `postgres_role`: "primary" or "standby"
 - `postgres_running`: Whether PostgreSQL is running
