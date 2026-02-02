@@ -245,13 +245,13 @@ type Engine struct {
 	// Config reloader for dynamic updates (only shardWatchTargets is dynamic)
 	reloadConfig func() []string
 
-	// Periodic runner for bookkeeping tasks
+	// Periodic runners for background tasks
 	bookkeepingRunner *timer.PeriodicRunner
+	recoveryRunner    *timer.PeriodicRunner
 
 	// Goroutine management - prevent pile-up of concurrent operations
 	metadataRefreshInProgress atomic.Bool
 	healthCheckInProgress     atomic.Bool
-	recoveryLoopInProgress    atomic.Bool
 
 	// Cache for deduplication (prevents redundant health checks)
 	recentPollCache   map[string]time.Time
@@ -304,6 +304,7 @@ func NewEngine(
 		shutdownCtx:       ctx,
 		cancel:            cancel,
 		bookkeepingRunner: timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
+		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
 	// Initialize metrics
@@ -373,6 +374,16 @@ func (re *Engine) Start() error {
 		re.runBookkeeping()
 	}, nil)
 
+	// Start recovery runner with dynamic interval support
+	re.recoveryRunner.Start(func(ctx context.Context) {
+		// Check if interval changed (dynamic config)
+		newInterval := re.config.GetRecoveryCycleInterval()
+		if re.recoveryRunner.UpdateInterval(newInterval) {
+			re.logger.InfoContext(re.shutdownCtx, "recovery cycle interval changed", "interval", newInterval)
+		}
+		re.performRecoveryCycle()
+	}, nil)
+
 	// Start maintenance loop (cluster metadata refresh only)
 	re.wg.Go(func() {
 		re.runMaintenanceLoop()
@@ -381,11 +392,6 @@ func (re *Engine) Start() error {
 	// Start health check ticker loop (queues poolers for health checking)
 	re.wg.Go(func() {
 		re.runHealthCheckTickerLoop()
-	})
-
-	// Start recovery loop (problem detection and recovery)
-	re.wg.Go(func() {
-		re.runRecoveryLoop()
 	})
 
 	re.logger.Info("recovery engine started successfully")
@@ -398,6 +404,7 @@ func (re *Engine) Stop() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
 	re.bookkeepingRunner.Stop()
+	re.recoveryRunner.Stop()
 	re.wg.Wait()
 	re.logger.Info("recovery engine stopped")
 }
