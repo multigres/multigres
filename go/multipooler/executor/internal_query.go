@@ -52,7 +52,7 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.internalUser)
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sql
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.internalUser)
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
 	if err != nil {
 		return nil, err
 	}

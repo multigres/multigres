@@ -39,20 +39,14 @@ type Executor struct {
 	logger       *slog.Logger
 	poolManager  connpoolmanager.PoolManager
 	consolidator *preparedstatement.Consolidator
-	internalUser string // PostgreSQL user for internal queries
 }
 
 // NewExecutor creates a new Executor instance.
-// If internalUser is empty, it defaults to DefaultInternalUser.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, internalUser string) *Executor {
-	if internalUser == "" {
-		internalUser = DefaultInternalUser
-	}
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager) *Executor {
 	return &Executor{
 		logger:       logger,
 		poolManager:  poolManager,
 		consolidator: preparedstatement.NewConsolidator(),
-		internalUser: internalUser,
 	}
 }
 

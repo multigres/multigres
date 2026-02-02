@@ -22,38 +22,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewExecutor_ConfigurableInternalUser(t *testing.T) {
+func TestNewExecutor(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
-	tests := []struct {
-		name         string
-		internalUser string
-		expected     string
-	}{
-		{
-			name:         "custom user specified",
-			internalUser: "custom_user",
-			expected:     "custom_user",
-		},
-		{
-			name:         "empty string defaults to default user",
-			internalUser: "",
-			expected:     DefaultInternalUser,
-		},
-		{
-			name:         "another custom user",
-			internalUser: "admin",
-			expected:     "admin",
-		},
-	}
+	// Test that NewExecutor creates an executor without caching internal user
+	executor := NewExecutor(logger, nil)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			executor := NewExecutor(logger, nil, tt.internalUser)
-			assert.Equal(t, tt.expected, executor.internalUser, 
-				"Expected internal user to be %s, got %s", tt.expected, executor.internalUser)
-		})
-	}
+	assert.NotNil(t, executor)
+	assert.NotNil(t, executor.logger)
+	assert.NotNil(t, executor.consolidator)
 }
 
 func TestDefaultInternalUser(t *testing.T) {
