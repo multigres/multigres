@@ -53,7 +53,7 @@ func TestIsHealthy_NotInitialized(t *testing.T) {
 // mockPoolManager implements PoolManager for testing
 type mockPoolManager struct {
 	connpoolmanager.PoolManager // embed for default nil implementations
-	internalUser                 string
+	internalUser                string
 }
 
 func (m *mockPoolManager) InternalUser() string {
