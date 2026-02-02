@@ -18,6 +18,7 @@ package connpoolmanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"sync"
@@ -223,7 +224,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
 	// Create new user pool with initial capacity. The rebalancer will adjust
 	// the capacity based on demand within a few seconds.
-	pool := NewUserPool(ctx, &UserPoolConfig{
+	pool, err := NewUserPool(ctx, &UserPoolConfig{
 		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
@@ -247,6 +248,9 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		RebalanceInterval:         m.config.RebalanceInterval(),
 		Logger:                    m.logger,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("create user pool for %q: %w", user, err)
+	}
 
 	// Copy-on-write: create new map with the new pool
 	newPools := make(map[string]*UserPool, len(currentPools)+1)

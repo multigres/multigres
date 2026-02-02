@@ -20,18 +20,19 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDemandTracker_BasicSampling(t *testing.T) {
 	var peak atomic.Int64
 	peak.Store(5)
 
-	tracker := NewDemandTracker(&DemandTrackerConfig{
+	tracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           peak.Load,
 	})
-	defer tracker.Close()
+	require.NoError(t, err)
 
 	// GetPeakAndRotate calls the sampler
 	result := tracker.GetPeakAndRotate()
@@ -46,12 +47,12 @@ func TestDemandTracker_BasicSampling(t *testing.T) {
 func TestDemandTracker_PeakTracking(t *testing.T) {
 	var peak atomic.Int64
 
-	tracker := NewDemandTracker(&DemandTrackerConfig{
+	tracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           peak.Load,
 	})
-	defer tracker.Close()
+	require.NoError(t, err)
 
 	// Spike demand to 100
 	peak.Store(100)
@@ -69,12 +70,12 @@ func TestDemandTracker_GetPeakAndRotate(t *testing.T) {
 	var peak atomic.Int64
 
 	// 3 buckets: 30s / 10s = 3
-	tracker := NewDemandTracker(&DemandTrackerConfig{
+	tracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           peak.Load,
 	})
-	defer tracker.Close()
+	require.NoError(t, err)
 
 	// Set initial demand
 	peak.Store(50)
@@ -92,12 +93,12 @@ func TestDemandTracker_SlidingWindowExpiry(t *testing.T) {
 	var peak atomic.Int64
 
 	// 3 buckets: 30s / 10s = 3
-	tracker := NewDemandTracker(&DemandTrackerConfig{
+	tracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           peak.Load,
 	})
-	defer tracker.Close()
+	require.NoError(t, err)
 
 	// Set high demand
 	peak.Store(100)
@@ -135,16 +136,15 @@ func TestDemandTracker_NumBuckets(t *testing.T) {
 	sampler := demand.Load
 
 	for _, tc := range testCases {
-		tracker := NewDemandTracker(&DemandTrackerConfig{
+		tracker, err := NewDemandTracker(&DemandTrackerConfig{
 			DemandWindow:      tc.window,
 			RebalanceInterval: tc.interval,
 			Sampler:           sampler,
 		})
+		require.NoError(t, err)
 
 		assert.Equal(t, tc.wantBuckets, tracker.NumBuckets(),
 			"window=%v interval=%v", tc.window, tc.interval)
-
-		tracker.Close()
 	}
 }
 
@@ -152,12 +152,12 @@ func TestDemandTracker_ConcurrentAccess(t *testing.T) {
 	var peak atomic.Int64
 	peak.Store(1)
 
-	tracker := NewDemandTracker(&DemandTrackerConfig{
+	tracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           peak.Load,
 	})
-	defer tracker.Close()
+	require.NoError(t, err)
 
 	// Concurrent reads and demand changes
 	done := make(chan struct{})
@@ -180,41 +180,24 @@ func TestDemandTracker_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-func TestDemandTracker_Close(t *testing.T) {
-	var peak atomic.Int64
-	peak.Store(5)
-
-	tracker := NewDemandTracker(&DemandTrackerConfig{
-		DemandWindow:      30 * time.Second,
-		RebalanceInterval: 10 * time.Second,
-		Sampler:           peak.Load,
-	})
-
-	// Close should not block
-	tracker.Close()
-
-	// Methods should still work after close (no panic)
-	_ = tracker.Peak()
-}
-
 func TestDemandTracker_TwoTrackers(t *testing.T) {
 	// Simulate regular and reserved pools
 	var regularPeak atomic.Int64
 	var reservedPeak atomic.Int64
 
-	regularTracker := NewDemandTracker(&DemandTrackerConfig{
+	regularTracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           regularPeak.Load,
 	})
-	defer regularTracker.Close()
+	require.NoError(t, err)
 
-	reservedTracker := NewDemandTracker(&DemandTrackerConfig{
+	reservedTracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           reservedPeak.Load,
 	})
-	defer reservedTracker.Close()
+	require.NoError(t, err)
 
 	// Set different demands
 	regularPeak.Store(100)
@@ -237,12 +220,12 @@ func TestDemandTracker_PeakCapturedOnRotate(t *testing.T) {
 	// This test verifies that peaks are captured when GetPeakAndRotate is called
 	var peak atomic.Int64
 
-	tracker := NewDemandTracker(&DemandTrackerConfig{
+	tracker, err := NewDemandTracker(&DemandTrackerConfig{
 		DemandWindow:      30 * time.Second,
 		RebalanceInterval: 10 * time.Second,
 		Sampler:           peak.Load,
 	})
-	defer tracker.Close()
+	require.NoError(t, err)
 
 	// Set a spike
 	peak.Store(1000)
@@ -255,34 +238,34 @@ func TestDemandTracker_PeakCapturedOnRotate(t *testing.T) {
 	assert.Equal(t, int64(1000), tracker.Peak())
 }
 
-func TestDemandTracker_InvalidConfigPanics(t *testing.T) {
+func TestDemandTracker_InvalidConfigReturnsError(t *testing.T) {
 	var peak atomic.Int64
 	sampler := peak.Load
 
-	// DemandWindow <= 0 should panic
-	assert.Panics(t, func() {
-		NewDemandTracker(&DemandTrackerConfig{
-			DemandWindow:      0,
-			RebalanceInterval: 10 * time.Second,
-			Sampler:           sampler,
-		})
+	// DemandWindow <= 0 should return error
+	_, err := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      0,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           sampler,
 	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "DemandWindow")
 
-	// RebalanceInterval <= 0 should panic
-	assert.Panics(t, func() {
-		NewDemandTracker(&DemandTrackerConfig{
-			DemandWindow:      30 * time.Second,
-			RebalanceInterval: 0,
-			Sampler:           sampler,
-		})
+	// RebalanceInterval <= 0 should return error
+	_, err = NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 0,
+		Sampler:           sampler,
 	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "RebalanceInterval")
 
-	// Nil sampler should panic
-	assert.Panics(t, func() {
-		NewDemandTracker(&DemandTrackerConfig{
-			DemandWindow:      30 * time.Second,
-			RebalanceInterval: 10 * time.Second,
-			Sampler:           nil,
-		})
+	// Nil sampler should return error
+	_, err = NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           nil,
 	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Sampler")
 }

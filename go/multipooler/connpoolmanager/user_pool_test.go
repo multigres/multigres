@@ -48,7 +48,9 @@ func newTestUserPool(t *testing.T, server *fakepgserver.Server) *UserPool {
 		ReservedInactivityTimeout: 5 * time.Second,
 	}
 
-	return NewUserPool(ctx, config)
+	pool, err := NewUserPool(ctx, config)
+	require.NoError(t, err)
+	return pool
 }
 
 func TestUserPool_Username(t *testing.T) {

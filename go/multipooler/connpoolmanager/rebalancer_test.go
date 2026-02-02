@@ -306,7 +306,8 @@ func TestUserPool_StatsIncludesDemand(t *testing.T) {
 		RebalanceInterval:         50 * time.Millisecond,
 	}
 
-	pool := NewUserPool(ctx, config)
+	pool, err := NewUserPool(ctx, config)
+	require.NoError(t, err)
 	defer pool.Close()
 
 	// Get stats - should include demand fields

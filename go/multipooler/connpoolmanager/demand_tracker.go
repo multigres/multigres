@@ -15,6 +15,7 @@
 package connpoolmanager
 
 import (
+	"errors"
 	"sync/atomic"
 	"time"
 )
@@ -106,20 +107,19 @@ type DemandTracker struct {
 //
 // Number of buckets = DemandWindow / RebalanceInterval (minimum 1).
 //
-// Panics if:
+// Returns an error if:
 //   - DemandWindow <= 0
 //   - RebalanceInterval <= 0
 //   - Sampler is nil
-func NewDemandTracker(config *DemandTrackerConfig) *DemandTracker {
-	// Validate configuration - panic on invalid config as this is a programming error
+func NewDemandTracker(config *DemandTrackerConfig) (*DemandTracker, error) {
 	if config.DemandWindow <= 0 {
-		panic("DemandTrackerConfig.DemandWindow must be positive")
+		return nil, errors.New("DemandTrackerConfig.DemandWindow must be positive")
 	}
 	if config.RebalanceInterval <= 0 {
-		panic("DemandTrackerConfig.RebalanceInterval must be positive")
+		return nil, errors.New("DemandTrackerConfig.RebalanceInterval must be positive")
 	}
 	if config.Sampler == nil {
-		panic("DemandTrackerConfig.Sampler must not be nil")
+		return nil, errors.New("DemandTrackerConfig.Sampler must not be nil")
 	}
 
 	// Calculate number of buckets from time durations
@@ -128,7 +128,7 @@ func NewDemandTracker(config *DemandTrackerConfig) *DemandTracker {
 	return &DemandTracker{
 		buckets: make([]atomic.Int64, numBuckets),
 		sampler: config.Sampler,
-	}
+	}, nil
 }
 
 // GetPeakAndRotate samples the current demand, returns the peak across the entire
@@ -199,10 +199,4 @@ func (d *DemandTracker) Peak() int64 {
 // This is DemandWindow / RebalanceInterval.
 func (d *DemandTracker) NumBuckets() int {
 	return len(d.buckets)
-}
-
-// Close is a no-op kept for API compatibility.
-// The DemandTracker does not have any background goroutines.
-func (d *DemandTracker) Close() {
-	// No-op: no background goroutine to stop
 }

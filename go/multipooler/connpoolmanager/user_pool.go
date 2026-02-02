@@ -87,7 +87,8 @@ type UserPoolConfig struct {
 
 // NewUserPool creates a new UserPool for the given user.
 // The pool connects directly as the user using trust/peer authentication.
-func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
+// Returns an error if demand tracker configuration is invalid.
+func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error) {
 	logger := config.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -121,18 +122,28 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
 	// point-in-time sampling would miss (e.g., short-lived queries that complete between samples).
 	var regularDemandTracker, reservedDemandTracker *DemandTracker
 	if config.DemandWindow > 0 && config.RebalanceInterval > 0 {
-		// NewDemandTracker validates config and panics on invalid values
-		regularDemandTracker = NewDemandTracker(&DemandTrackerConfig{
+		var err error
+		regularDemandTracker, err = NewDemandTracker(&DemandTrackerConfig{
 			DemandWindow:      config.DemandWindow,
 			RebalanceInterval: config.RebalanceInterval,
 			Sampler:           regularPool.PeakRequestedAndReset,
 		})
+		if err != nil {
+			regularPool.Close()
+			reservedPool.Close()
+			return nil, fmt.Errorf("create regular demand tracker: %w", err)
+		}
 
-		reservedDemandTracker = NewDemandTracker(&DemandTrackerConfig{
+		reservedDemandTracker, err = NewDemandTracker(&DemandTrackerConfig{
 			DemandWindow:      config.DemandWindow,
 			RebalanceInterval: config.RebalanceInterval,
 			Sampler:           reservedPool.PeakRequestedAndReset,
 		})
+		if err != nil {
+			regularPool.Close()
+			reservedPool.Close()
+			return nil, fmt.Errorf("create reserved demand tracker: %w", err)
+		}
 	}
 
 	logger.InfoContext(ctx, "user pool created",
@@ -149,7 +160,7 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
 		reservedDemandTracker: reservedDemandTracker,
 	}
 	up.lastActivity.Store(time.Now().UnixNano())
-	return up
+	return up, nil
 }
 
 // Username returns the username for this pool.
@@ -226,14 +237,6 @@ func (p *UserPool) Close() {
 		return
 	}
 	p.closed = true
-
-	// Close demand trackers first
-	if p.regularDemandTracker != nil {
-		p.regularDemandTracker.Close()
-	}
-	if p.reservedDemandTracker != nil {
-		p.reservedDemandTracker.Close()
-	}
 
 	// Close reserved pool first (it has its own internal regular pool)
 	p.reservedPool.Close()
