@@ -303,7 +303,6 @@ func TestUserPool_StatsIncludesDemand(t *testing.T) {
 		ReservedPoolConfig:        &connpool.Config{Capacity: 4, MaxIdleCount: 4},
 		ReservedInactivityTimeout: 5 * time.Second,
 		DemandWindow:              100 * time.Millisecond,
-		DemandSampleInterval:      10 * time.Millisecond,
 		RebalanceInterval:         50 * time.Millisecond,
 	}
 

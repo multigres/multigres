@@ -81,9 +81,9 @@ func TestConfig_RegisterFlags(t *testing.T) {
 	require.NotNil(t, adminCapFlag)
 	assert.Equal(t, "5", adminCapFlag.DefValue)
 
-	maxUsersFlag := cmd.Flags().Lookup("connpool-max-users")
-	require.NotNil(t, maxUsersFlag)
-	assert.Equal(t, "0", maxUsersFlag.DefValue)
+	demandWindowFlag := cmd.Flags().Lookup("connpool-demand-window")
+	require.NotNil(t, demandWindowFlag)
+	assert.Equal(t, "30s", demandWindowFlag.DefValue)
 }
 
 func TestConfig_Getters_ReturnDefaults(t *testing.T) {

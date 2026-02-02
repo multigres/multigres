@@ -92,10 +92,10 @@ type Config struct {
 	rebalanceInterval viperutil.Value[time.Duration]
 
 	// Demand window is the sliding window duration for tracking peak demand.
+	// The rebalancer considers peak demand over this window when allocating capacity.
+	// Number of buckets = DemandWindow / RebalanceInterval.
+	// Example: 30s window with 10s rebalance interval = 3 buckets
 	demandWindow viperutil.Value[time.Duration]
-
-	// Demand sample interval is how often to sample pool demand within the window.
-	demandSampleInterval viperutil.Value[time.Duration]
 
 	// Inactive timeout is how long a user pool can be inactive before being garbage collected.
 	inactiveTimeout viperutil.Value[time.Duration]
@@ -129,10 +129,9 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		reservedRatio        = 0.2
 
 		// Rebalancer defaults
-		rebalanceInterval    = 10 * time.Second
-		demandWindow         = 30 * time.Second
-		demandSampleInterval = 100 * time.Millisecond
-		inactiveTimeout      = 5 * time.Minute
+		rebalanceInterval = 10 * time.Second
+		demandWindow      = 30 * time.Second // 30s window / 10s rebalance = 3 buckets
+		inactiveTimeout   = 5 * time.Minute
 
 		// Fair share allocation - minimum per user
 		// This ensures light users always have enough capacity for burst demand.
@@ -209,10 +208,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  demandWindow,
 			FlagName: "connpool-demand-window",
 		}),
-		demandSampleInterval: viperutil.Configure(reg, "connpool.demand-sample-interval", viperutil.Options[time.Duration]{
-			Default:  demandSampleInterval,
-			FlagName: "connpool-demand-sample-interval",
-		}),
 		inactiveTimeout: viperutil.Configure(reg, "connpool.inactive-timeout", viperutil.Options[time.Duration]{
 			Default:  inactiveTimeout,
 			FlagName: "connpool-inactive-timeout",
@@ -251,8 +246,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 
 	// Rebalancer flags
 	fs.Duration("connpool-rebalance-interval", c.rebalanceInterval.Default(), "How often to rebalance pool capacities")
-	fs.Duration("connpool-demand-window", c.demandWindow.Default(), "Sliding window duration for peak demand tracking")
-	fs.Duration("connpool-demand-sample-interval", c.demandSampleInterval.Default(), "How often to sample pool demand within the window")
+	fs.Duration("connpool-demand-window", c.demandWindow.Default(), "Sliding window for peak demand tracking (should be multiple of rebalance-interval)")
 	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
 	fs.Int64("connpool-min-capacity-per-user", c.minCapacityPerUser.Default(), "Minimum connections per user (protects against aggressive capacity reduction for light users)")
 
@@ -270,7 +264,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.reservedRatio,
 		c.rebalanceInterval,
 		c.demandWindow,
-		c.demandSampleInterval,
 		c.inactiveTimeout,
 		c.minCapacityPerUser,
 	)
@@ -342,13 +335,9 @@ func (c *Config) RebalanceInterval() time.Duration {
 }
 
 // DemandWindow returns the sliding window duration for peak demand tracking.
+// The rebalancer considers peak demand over this window when allocating capacity.
 func (c *Config) DemandWindow() time.Duration {
 	return c.demandWindow.Get()
-}
-
-// DemandSampleInterval returns how often to sample pool demand within the window.
-func (c *Config) DemandSampleInterval() time.Duration {
-	return c.demandSampleInterval.Get()
 }
 
 // InactiveTimeout returns how long a user pool can be inactive before garbage collection.

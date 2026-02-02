@@ -72,10 +72,14 @@ type UserPoolConfig struct {
 	// before being killed. This is typically more aggressive (e.g., 30s) than pool idle timeout.
 	ReservedInactivityTimeout time.Duration
 
-	// Demand tracking configuration
-	DemandWindow         time.Duration // Sliding window for peak demand
-	DemandSampleInterval time.Duration // How often to sample demand
-	RebalanceInterval    time.Duration // For bucket calculation
+	// DemandWindow is how far back to consider when calculating peak demand.
+	// Set to 0 to disable demand tracking.
+	// Example: 30s means "allocate based on peak demand over the last 30 seconds"
+	DemandWindow time.Duration
+
+	// RebalanceInterval is how often the rebalancer runs.
+	// Number of demand tracking buckets = DemandWindow / RebalanceInterval.
+	RebalanceInterval time.Duration
 
 	// Logger for pool operations.
 	Logger *slog.Logger
@@ -112,24 +116,22 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
 		},
 	})
 
-	// Create demand trackers for rebalancer
-	// DemandTrackerConfig: WindowDuration, PollInterval (rebalance interval), SampleInterval, Sampler
+	// Create demand trackers for rebalancer (if demand tracking is enabled).
 	// We use PeakRequestedAndReset instead of Requested to capture burst demand that
 	// point-in-time sampling would miss (e.g., short-lived queries that complete between samples).
 	var regularDemandTracker, reservedDemandTracker *DemandTracker
-	if config.DemandWindow > 0 && config.DemandSampleInterval > 0 && config.RebalanceInterval > 0 {
-		regularDemandTracker = NewDemandTracker(ctx, &DemandTrackerConfig{
-			WindowDuration: config.DemandWindow,
-			PollInterval:   config.RebalanceInterval,
-			SampleInterval: config.DemandSampleInterval,
-			Sampler:        regularPool.PeakRequestedAndReset,
+	if config.DemandWindow > 0 && config.RebalanceInterval > 0 {
+		// NewDemandTracker validates config and panics on invalid values
+		regularDemandTracker = NewDemandTracker(&DemandTrackerConfig{
+			DemandWindow:      config.DemandWindow,
+			RebalanceInterval: config.RebalanceInterval,
+			Sampler:           regularPool.PeakRequestedAndReset,
 		})
 
-		reservedDemandTracker = NewDemandTracker(ctx, &DemandTrackerConfig{
-			WindowDuration: config.DemandWindow,
-			PollInterval:   config.RebalanceInterval,
-			SampleInterval: config.DemandSampleInterval,
-			Sampler:        reservedPool.PeakRequestedAndReset,
+		reservedDemandTracker = NewDemandTracker(&DemandTrackerConfig{
+			DemandWindow:      config.DemandWindow,
+			RebalanceInterval: config.RebalanceInterval,
+			Sampler:           reservedPool.PeakRequestedAndReset,
 		})
 	}
 
@@ -167,8 +169,9 @@ func (p *UserPool) LastActivity() int64 {
 	return p.lastActivity.Load()
 }
 
-// RegularDemand returns the peak demand for regular connections.
-// Returns 0 if demand tracking is not enabled.
+// RegularDemand returns the peak demand for regular connections over the sliding window.
+// It also rotates the demand tracker to the next bucket, aging out old data.
+// This should be called once per rebalance cycle. Returns 0 if demand tracking is disabled.
 func (p *UserPool) RegularDemand() int64 {
 	if p.regularDemandTracker == nil {
 		return 0
@@ -176,8 +179,9 @@ func (p *UserPool) RegularDemand() int64 {
 	return p.regularDemandTracker.GetPeakAndRotate()
 }
 
-// ReservedDemand returns the peak demand for reserved connections.
-// Returns 0 if demand tracking is not enabled.
+// ReservedDemand returns the peak demand for reserved connections over the sliding window.
+// It also rotates the demand tracker to the next bucket, aging out old data.
+// This should be called once per rebalance cycle. Returns 0 if demand tracking is disabled.
 func (p *UserPool) ReservedDemand() int64 {
 	if p.reservedDemandTracker == nil {
 		return 0

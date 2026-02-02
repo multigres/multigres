@@ -31,13 +31,12 @@ import (
 
 // DynamicAllocationTestConfig holds test-specific configuration overrides.
 type DynamicAllocationTestConfig struct {
-	GlobalCapacity       int64
-	ReservedRatio        float64
-	RebalanceInterval    time.Duration
-	DemandWindow         time.Duration
-	DemandSampleInterval time.Duration
-	InactiveTimeout      time.Duration
-	MinCapacityPerUser   int64 // 0 means use default (10), set to 1 for strict demand-based allocation
+	GlobalCapacity     int64
+	ReservedRatio      float64
+	RebalanceInterval  time.Duration
+	DemandWindow       time.Duration // Sliding window for peak demand tracking
+	InactiveTimeout    time.Duration
+	MinCapacityPerUser int64 // 0 means use default (10), set to 1 for strict demand-based allocation
 }
 
 // newTestManagerWithConfig creates a Manager with custom configuration for testing.
@@ -60,9 +59,6 @@ func newTestManagerWithConfig(t *testing.T, server *fakepgserver.Server, testCfg
 		}
 		if testCfg.DemandWindow > 0 {
 			config.demandWindow.Set(testCfg.DemandWindow)
-		}
-		if testCfg.DemandSampleInterval > 0 {
-			config.demandSampleInterval.Set(testCfg.DemandSampleInterval)
 		}
 		if testCfg.InactiveTimeout > 0 {
 			config.inactiveTimeout.Set(testCfg.InactiveTimeout)
@@ -104,12 +100,11 @@ func TestDynamicAllocation_DifferentWorkloadPatterns(t *testing.T) {
 	// 2. A and C split 8 evenly = 4 each
 	// Result: A=4, B=1, C=4
 	manager := newTestManagerWithConfig(t, server, &DynamicAllocationTestConfig{
-		GlobalCapacity:       12,
-		ReservedRatio:        0.25,
-		RebalanceInterval:    50 * time.Millisecond,
-		DemandWindow:         200 * time.Millisecond,
-		DemandSampleInterval: 10 * time.Millisecond,
-		MinCapacityPerUser:   1, // Use strict demand-based allocation for this test
+		GlobalCapacity:     12,
+		ReservedRatio:      0.25,
+		RebalanceInterval:  50 * time.Millisecond,
+		DemandWindow:       150 * time.Millisecond, // 3 buckets = 150ms / 50ms rebalance interval
+		MinCapacityPerUser: 1,                      // Use strict demand-based allocation for this test
 	})
 	defer manager.Close()
 
@@ -201,61 +196,59 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 
 	// 15 * 0.8 = 12 regular capacity
 	manager := newTestManagerWithConfig(t, server, &DynamicAllocationTestConfig{
-		GlobalCapacity:       15,
-		ReservedRatio:        0.2,
-		RebalanceInterval:    50 * time.Millisecond,
-		DemandWindow:         150 * time.Millisecond,
-		DemandSampleInterval: 10 * time.Millisecond,
+		GlobalCapacity:    15,
+		ReservedRatio:     0.2,
+		RebalanceInterval: 50 * time.Millisecond,
+		DemandWindow:      150 * time.Millisecond, // 3 buckets = 150ms / 50ms rebalance interval
 	})
 	defer manager.Close()
 
-	ctx := t.Context()
-
-	// Start with 2 users under heavy load (each wanting 5 connections)
-	var wg sync.WaitGroup
 	var mu sync.Mutex
 	conns := make(map[string][]regular.PooledConn)
-	ready := make(chan struct{})
 
-	// User1 and User2 each request 10 connections concurrently
+	// Start with 2 users under load - each acquires connections within capacity.
+	// We use a short timeout context so requests that can't be satisfied don't block forever.
 	for _, user := range []string{"user1", "user2"} {
-		for range 10 {
-			wg.Add(1)
-			go func(u string) {
-				defer wg.Done()
-				<-ready
-				conn, err := manager.GetRegularConn(ctx, u)
-				if err == nil {
-					mu.Lock()
-					conns[u] = append(conns[u], conn)
-					mu.Unlock()
-				}
-			}(user)
+		for range 5 {
+			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+			conn, err := manager.GetRegularConn(ctx, user)
+			cancel()
+			if err == nil {
+				mu.Lock()
+				conns[user] = append(conns[user], conn)
+				mu.Unlock()
+			}
 		}
 	}
-	close(ready)
-	wg.Wait()
 
 	// Wait for rebalancer to run
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, 2, manager.UserPoolCount())
 
-	// Now add a 3rd user during load - they should still get a connection
-	ready2 := make(chan struct{})
-	for range 4 {
-		wg.Go(func() {
-			<-ready2
-			conn, err := manager.GetRegularConn(ctx, "user3")
-			if err == nil {
-				mu.Lock()
-				conns["user3"] = append(conns["user3"], conn)
-				mu.Unlock()
-			}
-		})
+	// Release some connections to make room for user3.
+	mu.Lock()
+	for _, user := range []string{"user1", "user2"} {
+		// Release half of each user's connections
+		half := len(conns[user]) / 2
+		for i := range half {
+			conns[user][i].Recycle()
+		}
+		conns[user] = conns[user][half:]
 	}
-	close(ready2)
-	wg.Wait()
+	mu.Unlock()
+
+	// Now add a 3rd user during load - they should get connections from the freed capacity
+	for range 4 {
+		ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+		conn, err := manager.GetRegularConn(ctx, "user3")
+		cancel()
+		if err == nil {
+			mu.Lock()
+			conns["user3"] = append(conns["user3"], conn)
+			mu.Unlock()
+		}
+	}
 
 	// Wait for rebalancer to redistribute
 	time.Sleep(100 * time.Millisecond)
@@ -268,6 +261,12 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 		assert.GreaterOrEqual(t, poolStats.Regular.Capacity, int64(1),
 			"user %s should have capacity after new user arrived", user)
 	}
+
+	// User3 should have acquired at least 1 connection
+	mu.Lock()
+	user3Conns := len(conns["user3"])
+	mu.Unlock()
+	assert.GreaterOrEqual(t, user3Conns, 1, "user3 should have acquired at least 1 connection")
 
 	// Cleanup
 	mu.Lock()
@@ -288,12 +287,11 @@ func TestDynamicAllocation_UserDepartureDuringLoad(t *testing.T) {
 	server.SetNeverFail(true)
 
 	manager := newTestManagerWithConfig(t, server, &DynamicAllocationTestConfig{
-		GlobalCapacity:       20,
-		ReservedRatio:        0.2,
-		RebalanceInterval:    50 * time.Millisecond,
-		DemandWindow:         150 * time.Millisecond,
-		DemandSampleInterval: 10 * time.Millisecond,
-		InactiveTimeout:      100 * time.Millisecond, // Short timeout for testing
+		GlobalCapacity:    20,
+		ReservedRatio:     0.2,
+		RebalanceInterval: 50 * time.Millisecond,
+		DemandWindow:      150 * time.Millisecond, // 3 buckets = 150ms / 50ms rebalance interval
+		InactiveTimeout:   100 * time.Millisecond, // Short timeout for testing
 	})
 	defer manager.Close()
 
@@ -357,11 +355,10 @@ func TestDynamicAllocation_CapacityExhaustion(t *testing.T) {
 	// Very low capacity to force exhaustion: 10 * 0.8 = 8 regular
 	// 5 users each wanting 3 connections = 15 total demand, only 8 available
 	manager := newTestManagerWithConfig(t, server, &DynamicAllocationTestConfig{
-		GlobalCapacity:       10,
-		ReservedRatio:        0.2,
-		RebalanceInterval:    50 * time.Millisecond,
-		DemandWindow:         150 * time.Millisecond,
-		DemandSampleInterval: 10 * time.Millisecond,
+		GlobalCapacity:    10,
+		ReservedRatio:     0.2,
+		RebalanceInterval: 50 * time.Millisecond,
+		DemandWindow:      150 * time.Millisecond, // 3 buckets = 150ms / 50ms rebalance interval
 	})
 	defer manager.Close()
 
@@ -432,12 +429,11 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 
 	// 20 * 0.8 = 16 regular capacity
 	manager := newTestManagerWithConfig(t, server, &DynamicAllocationTestConfig{
-		GlobalCapacity:       20,
-		ReservedRatio:        0.2,
-		RebalanceInterval:    50 * time.Millisecond,
-		DemandWindow:         150 * time.Millisecond,
-		DemandSampleInterval: 10 * time.Millisecond,
-		InactiveTimeout:      100 * time.Millisecond,
+		GlobalCapacity:    20,
+		ReservedRatio:     0.2,
+		RebalanceInterval: 50 * time.Millisecond,
+		DemandWindow:      150 * time.Millisecond, // 3 buckets = 150ms / 50ms rebalance interval
+		InactiveTimeout:   100 * time.Millisecond,
 	})
 	defer manager.Close()
 
@@ -540,11 +536,10 @@ func TestDynamicAllocation_GracefulDegradation(t *testing.T) {
 	// Low capacity but enough for minimum 1 per user
 	// 15 * 0.8 = 12 regular capacity for 10 users each wanting 3 = 30 demand
 	manager := newTestManagerWithConfig(t, server, &DynamicAllocationTestConfig{
-		GlobalCapacity:       15,
-		ReservedRatio:        0.2,
-		RebalanceInterval:    50 * time.Millisecond,
-		DemandWindow:         150 * time.Millisecond,
-		DemandSampleInterval: 10 * time.Millisecond,
+		GlobalCapacity:    15,
+		ReservedRatio:     0.2,
+		RebalanceInterval: 50 * time.Millisecond,
+		DemandWindow:      150 * time.Millisecond, // 3 buckets = 150ms / 50ms rebalance interval
 	})
 	defer manager.Close()
 

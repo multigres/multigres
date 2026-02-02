@@ -15,133 +15,104 @@
 package connpoolmanager
 
 import (
-	"context"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDemandTracker_BasicSampling(t *testing.T) {
-	ctx := t.Context()
+	var peak atomic.Int64
+	peak.Store(5)
 
-	var demand atomic.Int64
-	demand.Store(5)
-
-	tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 300 * time.Millisecond,
-		PollInterval:   100 * time.Millisecond,
-		SampleInterval: 10 * time.Millisecond,
-		Sampler:        demand.Load,
+	tracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           peak.Load,
 	})
 	defer tracker.Close()
 
-	// Wait for a few samples
-	time.Sleep(50 * time.Millisecond)
-
-	// Peak should be at least 5
-	assert.GreaterOrEqual(t, tracker.Peak(), int64(5))
+	// GetPeakAndRotate calls the sampler
+	result := tracker.GetPeakAndRotate()
+	assert.Equal(t, int64(5), result)
 
 	// Increase demand
-	demand.Store(10)
-	time.Sleep(50 * time.Millisecond)
-
-	// Peak should now be 10
-	assert.Equal(t, int64(10), tracker.Peak())
+	peak.Store(10)
+	result = tracker.GetPeakAndRotate()
+	assert.Equal(t, int64(10), result)
 }
 
 func TestDemandTracker_PeakTracking(t *testing.T) {
-	ctx := t.Context()
+	var peak atomic.Int64
 
-	var demand atomic.Int64
-
-	tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 300 * time.Millisecond,
-		PollInterval:   100 * time.Millisecond,
-		SampleInterval: 10 * time.Millisecond,
-		Sampler:        demand.Load,
+	tracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           peak.Load,
 	})
 	defer tracker.Close()
 
 	// Spike demand to 100
-	demand.Store(100)
-	time.Sleep(30 * time.Millisecond)
+	peak.Store(100)
+	tracker.GetPeakAndRotate()
 
 	// Drop demand to 10
-	demand.Store(10)
-	time.Sleep(30 * time.Millisecond)
+	peak.Store(10)
+	tracker.GetPeakAndRotate()
 
-	// Peak should still remember 100
+	// Peak should still remember 100 (it's in the sliding window)
 	assert.Equal(t, int64(100), tracker.Peak())
-
-	// Current should be 10
-	assert.Equal(t, int64(10), tracker.Current())
 }
 
 func TestDemandTracker_GetPeakAndRotate(t *testing.T) {
-	ctx := t.Context()
+	var peak atomic.Int64
 
-	var demand atomic.Int64
-
-	// 3 buckets: 300ms / 100ms = 3
-	tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 300 * time.Millisecond,
-		PollInterval:   100 * time.Millisecond,
-		SampleInterval: 10 * time.Millisecond,
-		Sampler:        demand.Load,
+	// 3 buckets: 30s / 10s = 3
+	tracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           peak.Load,
 	})
 	defer tracker.Close()
 
 	// Set initial demand
-	demand.Store(50)
-	time.Sleep(30 * time.Millisecond)
-
-	// First rotate: should get 50
-	peak := tracker.GetPeakAndRotate()
-	assert.Equal(t, int64(50), peak)
+	peak.Store(50)
+	result := tracker.GetPeakAndRotate()
+	assert.Equal(t, int64(50), result)
 
 	// Set higher demand in new bucket
-	demand.Store(80)
-	time.Sleep(30 * time.Millisecond)
-
-	// Second rotate: should get 80 (max of 50 in old bucket, 80 in current)
-	peak = tracker.GetPeakAndRotate()
-	assert.Equal(t, int64(80), peak)
+	peak.Store(80)
+	result = tracker.GetPeakAndRotate()
+	// Should get 80 (max of 50 in old bucket, 80 in current)
+	assert.Equal(t, int64(80), result)
 }
 
 func TestDemandTracker_SlidingWindowExpiry(t *testing.T) {
-	ctx := t.Context()
+	var peak atomic.Int64
 
-	var demand atomic.Int64
-
-	// 3 buckets: 150ms / 50ms = 3
-	tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 150 * time.Millisecond,
-		PollInterval:   50 * time.Millisecond,
-		SampleInterval: 5 * time.Millisecond,
-		Sampler:        demand.Load,
+	// 3 buckets: 30s / 10s = 3
+	tracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           peak.Load,
 	})
 	defer tracker.Close()
 
 	// Set high demand
-	demand.Store(100)
-	time.Sleep(20 * time.Millisecond)
+	peak.Store(100)
+	tracker.GetPeakAndRotate()
 
 	// Verify peak is 100
 	assert.Equal(t, int64(100), tracker.Peak())
 
 	// Drop demand
-	demand.Store(10)
+	peak.Store(10)
 
 	// Rotate 3 times to expire all old buckets
 	tracker.GetPeakAndRotate()
-	time.Sleep(20 * time.Millisecond)
 	tracker.GetPeakAndRotate()
-	time.Sleep(20 * time.Millisecond)
 	tracker.GetPeakAndRotate()
-	time.Sleep(20 * time.Millisecond)
 
 	// After 3 rotations, old peak should be gone
 	// Peak should now be 10 (current demand)
@@ -151,7 +122,7 @@ func TestDemandTracker_SlidingWindowExpiry(t *testing.T) {
 func TestDemandTracker_NumBuckets(t *testing.T) {
 	testCases := []struct {
 		window      time.Duration
-		poll        time.Duration
+		interval    time.Duration
 		wantBuckets int
 	}{
 		{30 * time.Second, 10 * time.Second, 3},
@@ -160,35 +131,31 @@ func TestDemandTracker_NumBuckets(t *testing.T) {
 		{5 * time.Second, 10 * time.Second, 1}, // Floor to 1
 	}
 
-	for _, tc := range testCases {
-		ctx, cancel := context.WithCancel(context.Background())
+	var demand atomic.Int64
+	sampler := demand.Load
 
-		tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-			WindowDuration: tc.window,
-			PollInterval:   tc.poll,
-			SampleInterval: 100 * time.Millisecond,
-			Sampler:        nil,
+	for _, tc := range testCases {
+		tracker := NewDemandTracker(&DemandTrackerConfig{
+			DemandWindow:      tc.window,
+			RebalanceInterval: tc.interval,
+			Sampler:           sampler,
 		})
 
-		assert.Equal(t, tc.wantBuckets, len(tracker.buckets),
-			"window=%v poll=%v", tc.window, tc.poll)
+		assert.Equal(t, tc.wantBuckets, tracker.NumBuckets(),
+			"window=%v interval=%v", tc.window, tc.interval)
 
 		tracker.Close()
-		cancel()
 	}
 }
 
 func TestDemandTracker_ConcurrentAccess(t *testing.T) {
-	ctx := t.Context()
+	var peak atomic.Int64
+	peak.Store(1)
 
-	var demand atomic.Int64
-	demand.Store(1)
-
-	tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 100 * time.Millisecond,
-		PollInterval:   50 * time.Millisecond,
-		SampleInterval: 5 * time.Millisecond,
-		Sampler:        demand.Load,
+	tracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           peak.Load,
 	})
 	defer tracker.Close()
 
@@ -196,35 +163,31 @@ func TestDemandTracker_ConcurrentAccess(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := int64(1); i <= 100; i++ {
-			demand.Store(i)
-			time.Sleep(time.Millisecond)
+			peak.Store(i)
 		}
 		close(done)
 	}()
 
-	// Concurrent peak reads
+	// Concurrent peak reads and rotations
 	for {
 		select {
 		case <-done:
 			return
 		default:
 			_ = tracker.Peak()
-			_ = tracker.Current()
+			_ = tracker.GetPeakAndRotate()
 		}
 	}
 }
 
 func TestDemandTracker_Close(t *testing.T) {
-	ctx := t.Context()
+	var peak atomic.Int64
+	peak.Store(5)
 
-	var demand atomic.Int64
-	demand.Store(5)
-
-	tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		SampleInterval: 10 * time.Millisecond,
-		WindowDuration: 100 * time.Millisecond,
-		PollInterval:   50 * time.Millisecond,
-		Sampler:        demand.Load,
+	tracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           peak.Load,
 	})
 
 	// Close should not block
@@ -232,36 +195,34 @@ func TestDemandTracker_Close(t *testing.T) {
 
 	// Methods should still work after close (no panic)
 	_ = tracker.Peak()
-	_ = tracker.Current()
 }
 
 func TestDemandTracker_TwoTrackers(t *testing.T) {
-	ctx := t.Context()
-
 	// Simulate regular and reserved pools
-	var regularDemand atomic.Int64
-	var reservedDemand atomic.Int64
+	var regularPeak atomic.Int64
+	var reservedPeak atomic.Int64
 
-	regularTracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 100 * time.Millisecond,
-		PollInterval:   50 * time.Millisecond,
-		SampleInterval: 5 * time.Millisecond,
-		Sampler:        regularDemand.Load,
+	regularTracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           regularPeak.Load,
 	})
 	defer regularTracker.Close()
 
-	reservedTracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 100 * time.Millisecond,
-		PollInterval:   50 * time.Millisecond,
-		SampleInterval: 5 * time.Millisecond,
-		Sampler:        reservedDemand.Load,
+	reservedTracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           reservedPeak.Load,
 	})
 	defer reservedTracker.Close()
 
 	// Set different demands
-	regularDemand.Store(100)
-	reservedDemand.Store(20)
-	time.Sleep(30 * time.Millisecond)
+	regularPeak.Store(100)
+	reservedPeak.Store(20)
+
+	// Sample them
+	regularTracker.GetPeakAndRotate()
+	reservedTracker.GetPeakAndRotate()
 
 	// Verify they're independent
 	assert.Equal(t, int64(100), regularTracker.Peak())
@@ -272,29 +233,56 @@ func TestDemandTracker_TwoTrackers(t *testing.T) {
 	assert.Equal(t, int64(20), reservedTracker.Peak())
 }
 
-func TestDemandTracker_AccuratePeakCapture(t *testing.T) {
-	// This test verifies that brief spikes in demand are captured
-	ctx := t.Context()
+func TestDemandTracker_PeakCapturedOnRotate(t *testing.T) {
+	// This test verifies that peaks are captured when GetPeakAndRotate is called
+	var peak atomic.Int64
 
-	var demand atomic.Int64
-
-	tracker := NewDemandTracker(ctx, &DemandTrackerConfig{
-		WindowDuration: 500 * time.Millisecond,
-		PollInterval:   100 * time.Millisecond,
-		SampleInterval: 5 * time.Millisecond, // Fast sampling
-		Sampler:        demand.Load,
+	tracker := NewDemandTracker(&DemandTrackerConfig{
+		DemandWindow:      30 * time.Second,
+		RebalanceInterval: 10 * time.Second,
+		Sampler:           peak.Load,
 	})
 	defer tracker.Close()
 
-	// Create a brief spike
-	demand.Store(1000)
-	time.Sleep(20 * time.Millisecond)
-	demand.Store(10)
+	// Set a spike
+	peak.Store(1000)
 
-	// Wait for sampling to capture it
-	time.Sleep(30 * time.Millisecond)
+	// GetPeakAndRotate should capture the spike
+	result := tracker.GetPeakAndRotate()
+	assert.Equal(t, int64(1000), result, "Spike should be captured on rotate")
 
-	// Peak should have captured the spike
-	peak := tracker.Peak()
-	require.GreaterOrEqual(t, peak, int64(1000), "Brief spike should be captured")
+	// Peak should also show 1000
+	assert.Equal(t, int64(1000), tracker.Peak())
+}
+
+func TestDemandTracker_InvalidConfigPanics(t *testing.T) {
+	var peak atomic.Int64
+	sampler := peak.Load
+
+	// DemandWindow <= 0 should panic
+	assert.Panics(t, func() {
+		NewDemandTracker(&DemandTrackerConfig{
+			DemandWindow:      0,
+			RebalanceInterval: 10 * time.Second,
+			Sampler:           sampler,
+		})
+	})
+
+	// RebalanceInterval <= 0 should panic
+	assert.Panics(t, func() {
+		NewDemandTracker(&DemandTrackerConfig{
+			DemandWindow:      30 * time.Second,
+			RebalanceInterval: 0,
+			Sampler:           sampler,
+		})
+	})
+
+	// Nil sampler should panic
+	assert.Panics(t, func() {
+		NewDemandTracker(&DemandTrackerConfig{
+			DemandWindow:      30 * time.Second,
+			RebalanceInterval: 10 * time.Second,
+			Sampler:           nil,
+		})
+	})
 }

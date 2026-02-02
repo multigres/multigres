@@ -207,36 +207,68 @@ including users who are waiting for connections.
 
 **Pool-Level Tracking:**
 
-The connection pool tracks a `requested` counter (similar to `borrowed`):
+The connection pool tracks two counters:
 
-- Incremented when `Get()` is called (request starts)
-- Decremented when `Get()` fails OR when `Recycle()` is called (request ends)
+1. **`requested`** - Current number of in-flight requests (similar to `borrowed`):
+   - Incremented when `Get()` is called (request starts)
+   - Decremented when `Get()` fails OR when `Recycle()` is called (request ends)
+
+2. **`peakRequested`** - High-water mark since last reset:
+   - Updated atomically when `requested` increases to a new peak
+   - Reset by `PeakRequestedAndReset()` (called once per rebalance interval)
+
+This design captures true demand including queued waiters—if 50 goroutines call
+`Get()` simultaneously but only 10 connections are available, `requested` will
+reach 50 momentarily, and `peakRequested` will record that spike. No continuous
+polling is needed—peaks are captured precisely as they occur.
 
 **Memory-Efficient Sliding Window:**
 
-Instead of storing all samples, we use a bucketed approach:
+The `DemandTracker` uses a bucketed sliding window to smooth out transient spikes
+and provide stable allocation decisions:
 
 ```text
 Configuration:
-  --connpool-demand-window=30s       # Total sliding window
-  --connpool-rebalance-interval=10s  # Rebalance interval
+  --connpool-demand-window=30s       # How far back to consider
+  --connpool-rebalance-interval=10s  # How often rebalancer runs
 
 Buckets = window / interval = 30s / 10s = 3 buckets
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Sliding Window (3 buckets)                    │
+│              Sliding Window (3 buckets, ring buffer)             │
 │                                                                  │
-│   Bucket 0        Bucket 1        Bucket 2 (current)            │
-│   [t-30s,t-20s]   [t-20s,t-10s]   [t-10s,now]                   │
-│   max=15          max=25          max=20                         │
+│  Time:  [t-30s,t-20s]   [t-20s,t-10s]   [t-10s,now]             │
 │                                                                  │
-│   Peak for window = max(15, 25, 20) = 25                        │
+│  Bucket:     0              1               2                    │
+│  Peak:       15             25              20                   │
+│              ↑                              ↑                    │
+│         (oldest)                       (current)                 │
+│                                                                  │
+│  Window peak = max(15, 25, 20) = 25                             │
 └─────────────────────────────────────────────────────────────────┘
+
+How GetPeakAndRotate() works (called once per rebalance interval):
+
+  1. Sample: Call pool.PeakRequestedAndReset() → get peak for this interval
+  2. Store: Save the sampled peak in the current bucket
+  3. Calculate: Return max across ALL buckets (the window peak)
+  4. Rotate: Move current index to next bucket (old data overwritten on next call)
+
+Example flow over 4 rebalance cycles:
+
+  Cycle 1: Sample peak=20, store in bucket[0], return max(20,0,0)=20
+  Cycle 2: Sample peak=25, store in bucket[1], return max(20,25,0)=25
+  Cycle 3: Sample peak=15, store in bucket[2], return max(20,25,15)=25
+  Cycle 4: Sample peak=10, store in bucket[0], return max(10,25,15)=25  ← overwrites old bucket[0]
+  Cycle 5: Sample peak=5,  store in bucket[1], return max(10,5,15)=15   ← 25 expired
 ```
 
-A sampling goroutine reads the pool's `requested` counter at a configured interval
-and updates the current bucket's max. On rebalance, `GetPeakAndRotate()` returns
-the max across all buckets and rotates to the next bucket.
+This approach provides:
+
+- **No polling goroutine**: Sampling happens once per rebalance, not continuously
+- **Spike smoothing**: Recent high demand (within the window) influences allocation
+- **Graceful decay**: Old peaks naturally expire as the window slides forward
+- **Minimal memory**: Only `numBuckets` integers per pool, regardless of window duration
 
 ### Fair Share Algorithm
 
@@ -271,13 +303,16 @@ Example with globalRegularCapacity=400:
 
 **Bounds:**
 
-- **Minimum**: 1 connection per user (hard floor to ensure usability)
+- **Minimum**: Configurable via `--connpool-min-capacity` (default: 5 connections per user)
 - **Maximum**: Full global capacity (single user can use everything)
+
+The minimum ensures that light users or new arrivals always have enough connections
+for burst traffic, even when competing with high-demand users.
 
 ```text
 1 user  with globalCapacity=400 → user gets 400
 2 users with globalCapacity=400 → each gets up to 200 (based on demand)
-400 users with globalCapacity=400 → each gets 1
+80 users with globalCapacity=400 and minCapacity=5 → each gets at least 5
 ```
 
 ### Background Rebalancer
@@ -544,14 +579,14 @@ The connection pool manager is configured via command-line flags (backed by vipe
 
 These flags control how pool capacities are distributed across users:
 
-| Flag                                | Default | Description                                    |
-| ----------------------------------- | ------- | ---------------------------------------------- |
-| `--connpool-global-capacity`        | 100     | Total PostgreSQL connections to manage         |
-| `--connpool-reserved-ratio`         | 0.2     | Fraction of global capacity for reserved pools |
-| `--connpool-rebalance-interval`     | 10s     | How often to run rebalancing                   |
-| `--connpool-demand-window`          | 30s     | Sliding window for peak demand tracking        |
-| `--connpool-demand-sample-interval` | 100ms   | How often to sample pool demand                |
-| `--connpool-inactive-timeout`       | 5m      | Remove user pools after this inactivity        |
+| Flag                            | Default | Description                                    |
+| ------------------------------- | ------- | ---------------------------------------------- |
+| `--connpool-global-capacity`    | 100     | Total PostgreSQL connections to manage         |
+| `--connpool-reserved-ratio`     | 0.2     | Fraction of global capacity for reserved pools |
+| `--connpool-rebalance-interval` | 10s     | How often to run rebalancing                   |
+| `--connpool-demand-window`      | 30s     | Sliding window for peak demand tracking        |
+| `--connpool-inactive-timeout`   | 5m      | Remove user pools after this inactivity        |
+| `--connpool-min-capacity`       | 5       | Minimum connections per user (floor guarantee) |
 
 Derived values:
 
@@ -601,15 +636,17 @@ multipooler \
   --connpool-reserved-ratio=0.2 \
   --connpool-rebalance-interval=10s \
   --connpool-demand-window=30s \
-  --connpool-demand-sample-interval=100ms \
-  --connpool-inactive-timeout=5m
+  --connpool-inactive-timeout=5m \
+  --connpool-min-capacity=5
 ```
 
 With this configuration:
 
 - Total capacity of 500 connections (400 regular, 100 reserved)
 - New users start with 10 connections each
-- Rebalancer adjusts capacities every 10 seconds based on 30-second demand window
+- Rebalancer adjusts capacities every 10 seconds based on 30-second peak demand
+- Demand window uses 3 buckets (30s ÷ 10s) to smooth allocation decisions
+- Each user is guaranteed at least 5 connections regardless of demand
 - Inactive user pools are garbage collected after 5 minutes
 
 ## Statistics

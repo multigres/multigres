@@ -63,19 +63,27 @@ func (m *Manager) rebalance(ctx context.Context) {
 	// 1. Collect demands from all user pools
 	regularDemands := make(map[string]int64, len(*pools))
 	reservedDemands := make(map[string]int64, len(*pools))
+	var totalRegularDemand, totalReservedDemand int64
 	for user, pool := range *pools {
-		regularDemands[user] = pool.RegularDemand()
-		reservedDemands[user] = pool.ReservedDemand()
+		rd := pool.RegularDemand()
+		sd := pool.ReservedDemand()
+		regularDemands[user] = rd
+		reservedDemands[user] = sd
+		totalRegularDemand += rd
+		totalReservedDemand += sd
 	}
 
 	// 2. Compute fair allocations
 	regularAllocs := m.regularAllocator.Allocate(regularDemands)
 	reservedAllocs := m.reservedAllocator.Allocate(reservedDemands)
 
-	// 3. Apply new capacities to each pool
+	// 3. Apply new capacities to each pool and collect stats
+	var totalRegularCap, totalReservedCap int64
 	for user, pool := range *pools {
 		regularCap := regularAllocs[user]
 		reservedCap := reservedAllocs[user]
+		totalRegularCap += regularCap
+		totalReservedCap += reservedCap
 
 		if err := pool.SetCapacity(ctx, regularCap, reservedCap); err != nil {
 			m.logger.WarnContext(ctx, "failed to set capacity",
@@ -85,6 +93,17 @@ func (m *Manager) rebalance(ctx context.Context) {
 				"error", err)
 		}
 	}
+
+	// Log rebalance summary at debug level (can be expensive with many users)
+	m.logger.DebugContext(ctx, "rebalance complete",
+		"user_count", len(*pools),
+		"total_regular_demand", totalRegularDemand,
+		"total_reserved_demand", totalReservedDemand,
+		"total_regular_allocated", totalRegularCap,
+		"total_reserved_allocated", totalReservedCap,
+		"regular_budget", m.regularAllocator.Capacity(),
+		"reserved_budget", m.reservedAllocator.Capacity(),
+	)
 
 	// 4. Garbage collect inactive pools
 	m.garbageCollectInactivePools(ctx)

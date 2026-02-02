@@ -244,7 +244,6 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		},
 		ReservedInactivityTimeout: m.config.UserReservedInactivityTimeout(),
 		DemandWindow:              m.config.DemandWindow(),
-		DemandSampleInterval:      m.config.DemandSampleInterval(),
 		RebalanceInterval:         m.config.RebalanceInterval(),
 		Logger:                    m.logger,
 	})
