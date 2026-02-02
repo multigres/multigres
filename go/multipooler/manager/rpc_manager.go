@@ -898,6 +898,46 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 		return nil, err
 	}
 
+	// Wait for postgres to accept connections after restart
+	// restartPostgresAsStandby uses skip_wait=true, so postgres may not be ready immediately
+	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections after demotion")
+	maxRetries := 30
+	var lastErr error
+	for i := range maxRetries {
+		// Check if postgres is ready by querying pg_is_in_recovery
+		queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+		cancel()
+
+		if err == nil {
+			var inRecovery bool
+			if scanErr := executor.ScanSingleRow(result, &inRecovery); scanErr == nil {
+				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections after demotion",
+					"in_recovery", inRecovery,
+					"attempts", i+1)
+				lastErr = nil
+				break
+			} else {
+				lastErr = scanErr
+			}
+		} else {
+			lastErr = err
+		}
+
+		if i < maxRetries-1 {
+			pm.logger.InfoContext(ctx, "Waiting for postgres to accept connections",
+				"attempt", i+1,
+				"max_retries", maxRetries,
+				"error", lastErr)
+			time.Sleep(1 * time.Second)
+		}
+	}
+	if lastErr != nil {
+		pm.logger.WarnContext(ctx, "Postgres did not accept connections within timeout, continuing anyway", "error", lastErr)
+		// Don't fail the demotion - postgres will eventually be ready
+		// The cleanup or subsequent operations will retry
+	}
+
 	// Reset Synchronous Replication Configuration
 	// Now that the server is read-only, it's safe to clear sync replication settings
 	// This ensures we don't have a window where writes could be accepted with incorrect replication config
