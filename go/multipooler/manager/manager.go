@@ -226,6 +226,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		cancel: cancel,
 	}
 
+	// Consensus state is always available; it will be loaded when needed.
+	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
+
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
 

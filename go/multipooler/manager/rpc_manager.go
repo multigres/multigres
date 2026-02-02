@@ -565,6 +565,18 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	}
 	status.SyncReplicationConfig = syncConfig
 
+	// Include primary term from consensus state.
+	if pm.consensusState == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "consensus state not initialized")
+	}
+	term, err := pm.consensusState.GetInconsistentTerm()
+	if err != nil {
+		return nil, err
+	}
+	if term != nil {
+		status.PrimaryTerm = term.GetPrimaryTerm()
+	}
+
 	return status, nil
 }
 
@@ -1034,6 +1046,12 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
+	// Clear primary_term since this node is no longer primary for any term.
+	// Note: consensusState can't be nil here because validateTerm passed.
+	if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear primary term")
+	}
+
 	// Get final LSN
 	finalLSN := ""
 	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
@@ -1143,6 +1161,19 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
 		return nil, err
+	}
+
+	// ORDERING: Set primary_term BEFORE writing to history table.
+	// This ordering is intentional to avoid an inconsistent state:
+	// - If we set primary_term then history write fails: promotion fails, but primary_term is set.
+	//   This only means this primary doesn't have any committed transactions yet. On retry,
+	//   setting primary_term is idempotent and history write will succeed. This is safe.
+	// - On the contrary, if we write history then primary_term fails: history transaction is COMMITTED AND REPLICATED,
+	//   but the node doesn't know it's primary for this term. This creates inconsistent state with
+	//   a committed transaction that can't be easily rolled back.
+	// Therefore, we persist primary_term first, then commit the transaction.
+	if err := pm.consensusState.SetPrimaryTerm(ctx, consensusTerm, force); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
 
 	// Write leadership history record - this validates that sync replication is working.

@@ -147,7 +147,13 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		newPrimaryClient.Close()
 		require.NoError(t, err, "should be able to get status from new primary")
 		newPrimaryTerm := status.Status.ConsensusTerm.TermNumber
-		t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
+		newPrimaryTermActual := status.Status.ConsensusTerm.PrimaryTerm
+		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
+
+		// Verify primary_term is set and matches the consensus term
+		require.NotZero(t, newPrimaryTermActual, "Primary term must be non-zero for new primary %s", newPrimaryName)
+		assert.Equal(t, newPrimaryTerm, newPrimaryTermActual,
+			"Primary term should match consensus term for new primary %s (term=%d)", newPrimaryName, newPrimaryTerm)
 
 		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
 		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
@@ -204,6 +210,27 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 			return true
 		}, 10*time.Second, 500*time.Millisecond, "Multipooler %s should be healthy", name)
+	}
+
+	// Verify replicas have primary_term = 0 (never been primary)
+	t.Logf("Verifying replicas have primary_term = 0...")
+	for name, inst := range setup.Multipoolers {
+		if name == setup.PrimaryName {
+			continue // Skip primary
+		}
+
+		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+
+		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+		client.Close()
+
+		require.NoError(t, err)
+		if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+			require.NotNil(t, status.Status.ConsensusTerm, "Replica %s should have consensus term", name)
+			assert.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
+				"Replica %s should have primary_term=0 (never been primary)", name)
+		}
 	}
 
 	// Verify final primary is functional

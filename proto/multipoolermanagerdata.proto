@@ -167,6 +167,10 @@ message PrimaryStatus {
 
   // Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
   SynchronousReplicationConfiguration sync_replication_config = 4;
+
+  // The term for which this pooler was promoted to primary.
+  // Non-zero for current primaries. See ConsensusTerm.primary_term for full lifecycle details.
+  int64 primary_term = 5;
 }
 
 // PrimaryStatus gets the status of the primary server
@@ -570,6 +574,13 @@ message ConsensusTerm {
 
   // ID of the leader of the current term
   clustermetadata.ID leader_id = 4;
+
+  // The term for which this pooler was promoted to primary.
+  // Set during promotion (InitializeEmptyPrimary or Promote).
+  // Preserved when consensus term increases (new elections).
+  // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
+  // 0 if never primary.
+  int64 primary_term = 5;
 }
 
 // InitializeEmptyPrimary initializes this pooler as an empty primary

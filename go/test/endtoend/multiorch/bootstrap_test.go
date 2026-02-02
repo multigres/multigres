@@ -110,6 +110,15 @@ func TestBootstrapInitialization(t *testing.T) {
 
 		ctx := t.Context()
 
+		// Verify primary term is set to 1 (bootstrap term)
+		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "Should be able to get status from primary")
+		require.NotNil(t, status.Status.ConsensusTerm, "Primary should have consensus term")
+		assert.Equal(t, int64(1), status.Status.ConsensusTerm.TermNumber, "Primary should be on term 1 after bootstrap")
+		assert.Equal(t, int64(1), status.Status.ConsensusTerm.PrimaryTerm, "Primary term should be set to 1 after bootstrap")
+		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
+			status.Status.ConsensusTerm.TermNumber, status.Status.ConsensusTerm.PrimaryTerm)
+
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
 			"SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'multigres')", 1)
@@ -183,7 +192,14 @@ func TestBootstrapInitialization(t *testing.T) {
 			require.NoError(t, err)
 			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				standbyCount++
-				t.Logf("Standby node: %s (pooler_type=%s)", name, status.Status.PoolerType)
+
+				// Verify replica has primary_term = 0 (never been primary)
+				require.NotNil(t, status.Status.ConsensusTerm, "Standby %s should have consensus term", name)
+				assert.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
+					"Standby %s should have primary_term=0 (never been primary)", name)
+
+				t.Logf("Standby node: %s (pooler_type=%s, primary_term=%d)",
+					name, status.Status.PoolerType, status.Status.ConsensusTerm.PrimaryTerm)
 			}
 		}
 		// Should have at least 1 standby
