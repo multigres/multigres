@@ -303,10 +303,10 @@ message GetFollowersResponse {
   SynchronousReplicationConfiguration sync_config = 2;
 }
 
-// Demote demotes the current leader server
+// EmergencyDemote demotes the current leader server
 // This is called during the Revocation stage of generalized consensus to safely
 // transition a primary to read-only mode and prevent it from making further progress.
-message DemoteRequest {
+message EmergencyDemoteRequest {
   // Consensus term for this demotion operation
   // When force=true, this field is ignored and should be passed as 0
   int64 consensus_term = 1;
@@ -318,7 +318,7 @@ message DemoteRequest {
   bool force = 3;
 }
 
-message DemoteResponse {
+message EmergencyDemoteResponse {
   // Whether the pooler was already demoted (idempotent check)
   bool was_already_demoted = 1;
 

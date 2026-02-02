@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
@@ -170,6 +171,73 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			i+1, successWrites, failedWrites, newPrimaryName)
 		time.Sleep(200 * time.Millisecond) // Let writes accumulate before next failover
 	}
+
+	// Perform one more failover using BeginTerm to trigger emergency demotion
+	t.Logf("=== Failover iteration 4 (via BeginTerm emergency demotion) ===")
+
+	// Refresh and get current primary
+	currentPrimary := setup.RefreshPrimary(t)
+	require.NotNil(t, currentPrimary, "current primary should exist")
+	currentPrimaryName := currentPrimary.Name
+
+	// Get the current primary's term
+	primaryClient, err := shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	oldPrimaryTerm := statusResp.Status.ConsensusTerm.TermNumber
+	t.Logf("Primary %s is on term %d", currentPrimaryName, oldPrimaryTerm)
+
+	// Call BeginTerm with a higher term to trigger emergency demotion
+	beginTermTerm := oldPrimaryTerm + 1
+	t.Logf("Calling BeginTerm on primary %s with term %d to trigger emergency demotion", currentPrimaryName, beginTermTerm)
+
+	beginTermReq := &consensusdatapb.BeginTermRequest{
+		Term: beginTermTerm,
+		CandidateId: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIORCH,
+			Cell:      setup.CellName,
+			Name:      "test-coordinator",
+		},
+	}
+	beginTermResp, err := primaryClient.Consensus.BeginTerm(utils.WithTimeout(t, 10*time.Second), beginTermReq)
+	primaryClient.Close()
+
+	require.NoError(t, err, "BeginTerm should succeed")
+	require.True(t, beginTermResp.Accepted, "Primary should accept BeginTerm with higher term")
+	t.Logf("BeginTerm accepted by primary, emergency demotion triggered (demote_lsn=%s)", beginTermResp.DemoteLsn)
+
+	// Wait for multiorch to detect failure and elect new primary
+	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")
+	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 20*time.Second)
+	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary after emergency demotion")
+	t.Logf("New primary elected: %s", newPrimaryName)
+
+	// Get the new primary's consensus term
+	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
+	require.NotNil(t, newPrimary, "new primary instance should exist")
+	newPrimaryClient, err := shardsetup.NewMultipoolerClient(newPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	newStatusResp, err := newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	newPrimaryClient.Close()
+	require.NoError(t, err, "should be able to get status from new primary")
+	newPrimaryTerm := newStatusResp.Status.ConsensusTerm.TermNumber
+	t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
+
+	// Verify new primary's term is higher than the old primary's original term
+	require.Greater(t, newPrimaryTerm, oldPrimaryTerm, "New primary should have higher term than old primary's original term")
+
+	// Wait for emergency demoted primary to rejoin as standby
+	waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
+
+	// Ensure monitoring is disabled on all multipoolers
+	t.Logf("Re-disabling monitoring on all multipoolers after failover 4...")
+	disableMonitoringOnAllNodes(t, setup)
+
+	successWrites, failedWrites := validator.Stats()
+	t.Logf("Iteration 4: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
+		successWrites, failedWrites, newPrimaryName)
+	time.Sleep(200 * time.Millisecond) // Let writes accumulate
 
 	// Stop writes after all failovers
 	validator.Stop()
