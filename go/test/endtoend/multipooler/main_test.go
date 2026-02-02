@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -102,7 +103,20 @@ func restoreAfterEmergencyDemotion(t *testing.T, setup *MultipoolerTestSetup, pg
 	// Wait for manager to be ready
 	waitForManagerReady(t, setup, multipooler)
 
-	// Step 4: Reset synchronous replication configuration
+	// Step 4: Re-enable the monitor (emergency demotion disabled it)
+	t.Logf("Re-enabling monitor for pooler %s...", multipoolerName)
+	multipoolerClient, err := shardsetup.NewMultipoolerClient(multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer multipoolerClient.Close()
+
+	setMonitorCtx, setMonitorCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer setMonitorCancel()
+	_, err = multipoolerClient.Manager.SetMonitor(setMonitorCtx, &multipoolermanagerdatapb.SetMonitorRequest{
+		Enabled: true,
+	})
+	require.NoError(t, err, "Should re-enable monitor on pooler: %s", multipoolerName)
+
+	// Step 5: Reset synchronous replication configuration
 	// Clear synchronous_standby_names that may have been set when this was primary
 	t.Logf("Resetting synchronous replication config for pooler %s...", multipoolerName)
 	poolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", multipooler.GrpcPort))

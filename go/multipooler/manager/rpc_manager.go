@@ -796,6 +796,8 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	defer pm.actionLock.Release(ctx)
 
 	// Permanently disable monitoring to prevent accidental postgres restart after emergency demotion
+	// TODO: This is not a long-term solution. The disableMonitor() approach will likely be
+	// replaced with proper state management in follow-up work to PR #550.
 	pm.disableMonitorInternal()
 
 	// Validate the term but DON'T update yet. We only update the term AFTER
