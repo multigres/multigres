@@ -928,7 +928,8 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 
 		if queryErr == nil {
 			var inRecovery bool
-			if scanErr := executor.ScanSingleRow(result, &inRecovery); scanErr == nil {
+			scanErr := executor.ScanSingleRow(result, &inRecovery)
+			if scanErr == nil {
 				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections after demotion",
 					"in_recovery", inRecovery,
 					"attempts", attempt)
@@ -1113,7 +1114,8 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 
 		if queryErr == nil {
 			var inRecovery bool
-			if scanErr := executor.ScanSingleRow(result, &inRecovery); scanErr == nil {
+			scanErr := executor.ScanSingleRow(result, &inRecovery)
+			if scanErr == nil {
 				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections",
 					"in_recovery", inRecovery,
 					"attempts", attempt)
