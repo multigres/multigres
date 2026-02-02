@@ -45,6 +45,9 @@ type PoolManager interface {
 	// Close shuts down all connection pools.
 	Close()
 
+	// InternalUser returns the configured internal user for system queries.
+	InternalUser() string
+
 	// --- Admin Pool Operations ---
 
 	// GetAdminConn acquires an admin connection from the pool.
