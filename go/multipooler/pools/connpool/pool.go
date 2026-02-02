@@ -840,25 +840,54 @@ func (pool *Pool[C]) setCapacity(newcap int64) error {
 	// Update the idle count to match the new capacity
 	defer pool.setIdleCount()
 
-	// Aggressively close idle connections to get closer to new capacity.
-	// Don't wait for borrowed connections - they will be closed on recycle
-	// via closeOnOverCapacity() in tryReturnConn().
-	for pool.active.Load() > newcap {
-		// Try closing from connections which are currently idle in the stacks
-		conn := pool.getFromSettingsStack(nil)
-		if conn == nil {
-			conn = pool.pop(&pool.clean)
+	if newcap > oldcap {
+		// Capacity increased: proactively create connections for any waiters.
+		// This ensures waiters don't have to wait for existing connections to be recycled.
+		pool.satisfyWaitersOnCapacityIncrease()
+	} else {
+		// Capacity decreased: close idle connections to get closer to new capacity.
+		// Don't wait for borrowed connections - they will be closed on recycle
+		// via closeOnOverCapacity() in tryReturnConn().
+		for pool.active.Load() > newcap {
+			// Try closing from connections which are currently idle in the stacks
+			conn := pool.getFromSettingsStack(nil)
+			if conn == nil {
+				conn = pool.pop(&pool.clean)
+			}
+			if conn == nil {
+				// No idle connections available to close.
+				// Remaining over-capacity connections will be closed when recycled.
+				break
+			}
+			conn.Close()
+			pool.closedConn()
 		}
-		if conn == nil {
-			// No idle connections available to close.
-			// Remaining over-capacity connections will be closed when recycled.
-			break
-		}
-		conn.Close()
-		pool.closedConn()
 	}
 
 	return nil
+}
+
+// satisfyWaitersOnCapacityIncrease creates new connections for waiting clients
+// when capacity has been increased. This is called from setCapacity.
+func (pool *Pool[C]) satisfyWaitersOnCapacityIncrease() {
+	// Create connections for waiters while we have capacity and waiters
+	for pool.wait.waiting() > 0 {
+		conn, err := pool.getNew(pool.ctx)
+		if err != nil {
+			// Connection creation failed, stop trying
+			return
+		}
+		if conn == nil {
+			// No capacity available (active >= capacity), stop
+			return
+		}
+		// Try to hand the connection to a waiter
+		if !pool.wait.tryReturnConn(conn) {
+			// No more waiters, push connection to idle stack
+			pool.clean.Push(conn)
+			return
+		}
+	}
 }
 
 func (pool *Pool[C]) closeIdleResources(now time.Time) {

@@ -411,3 +411,67 @@ func TestPoolSetCapacity_ClosesIdleImmediately(t *testing.T) {
 	// Active should be reduced immediately since connections were idle
 	assert.LessOrEqual(t, pool.Active(), int64(2))
 }
+
+func TestPoolSetCapacity_IncreaseUnblocksWaiters(t *testing.T) {
+	// Start with capacity 1
+	pool := newTestPool(1)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Exhaust the pool by borrowing the only connection
+	conn1, err := pool.Get(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), pool.Active())
+	assert.Equal(t, int64(1), pool.InUse())
+
+	// Start goroutines that will wait for connections
+	const numWaiters = 3
+	results := make(chan *Pooled[*mockConnection], numWaiters)
+	errors := make(chan error, numWaiters)
+
+	for range numWaiters {
+		go func() {
+			// Use a long timeout - we expect to be unblocked by capacity increase
+			waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			conn, err := pool.Get(waitCtx)
+			if err != nil {
+				errors <- err
+				return
+			}
+			results <- conn
+		}()
+	}
+
+	// Give goroutines time to start waiting
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify we have waiters (pool at capacity, requests pending)
+	assert.Equal(t, int64(1), pool.Capacity())
+	assert.Equal(t, int64(1), pool.InUse())
+
+	// Increase capacity - this should proactively create connections for waiters
+	err = pool.SetCapacity(ctx, 4)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(4), pool.Capacity())
+
+	// All waiters should get connections quickly (not waiting for recycle)
+	for range numWaiters {
+		select {
+		case conn := <-results:
+			require.NotNil(t, conn)
+			conn.Recycle()
+		case err := <-errors:
+			t.Fatalf("waiter got error: %v", err)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("timed out waiting for waiter to get connection - capacity increase did not unblock waiters")
+		}
+	}
+
+	// Return the original connection
+	conn1.Recycle()
+}
