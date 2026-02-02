@@ -15,9 +15,8 @@
 package local
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -32,8 +31,8 @@ import (
 
 // generateCA generates a self-signed CA certificate and private key for pgBackRest TLS.
 func generateCA(certPath, keyPath string) error {
-	// Generate ECDSA private key
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	// Generate RSA private key (4096 bits to match k8s setup)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
 		return fmt.Errorf("failed to generate CA private key: %w", err)
 	}
@@ -47,7 +46,7 @@ func generateCA(certPath, keyPath string) error {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			CommonName:   "multigres-pgbackrest-ca",
+			CommonName:   "Multigres Root CA",
 			Organization: []string{"Multigres"},
 		},
 		NotBefore:             time.Now(),
@@ -55,11 +54,10 @@ func generateCA(certPath, keyPath string) error {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
-		MaxPathLen:            1,
 	}
 
 	// Self-sign the CA certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, privateKey.Public(), privateKey)
 	if err != nil {
 		return fmt.Errorf("failed to create CA certificate: %w", err)
 	}
@@ -88,11 +86,8 @@ func generateCA(certPath, keyPath string) error {
 		return fmt.Errorf("failed to create key file: %w", err)
 	}
 	defer keyFile.Close()
-	keyDER, err := x509.MarshalECPrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("failed to marshal private key: %w", err)
-	}
-	if err := pem.Encode(keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}); err != nil {
+	keyDER := x509.MarshalPKCS1PrivateKey(privateKey)
+	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER}); err != nil {
 		return fmt.Errorf("failed to write key: %w", err)
 	}
 
@@ -108,8 +103,8 @@ func generateCert(caCertPath, caKeyPath, certPath, keyPath, cn string, sans []st
 		return fmt.Errorf("failed to load CA: %w", err)
 	}
 
-	// Generate server private key
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	// Generate server private key (2048 bits to match k8s setup)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return fmt.Errorf("failed to generate server private key: %w", err)
 	}
@@ -135,7 +130,7 @@ func generateCert(caCertPath, caKeyPath, certPath, keyPath, cn string, sans []st
 	}
 
 	// Sign the certificate with CA
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, caCert, &privateKey.PublicKey, caKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, caCert, privateKey.Public(), caKey)
 	if err != nil {
 		return fmt.Errorf("failed to create server certificate: %w", err)
 	}
@@ -164,11 +159,8 @@ func generateCert(caCertPath, caKeyPath, certPath, keyPath, cn string, sans []st
 		return fmt.Errorf("failed to create key file: %w", err)
 	}
 	defer keyFile.Close()
-	keyDER, err := x509.MarshalECPrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("failed to marshal private key: %w", err)
-	}
-	if err := pem.Encode(keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}); err != nil {
+	keyDER := x509.MarshalPKCS1PrivateKey(privateKey)
+	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER}); err != nil {
 		return fmt.Errorf("failed to write key: %w", err)
 	}
 
@@ -176,7 +168,7 @@ func generateCert(caCertPath, caKeyPath, certPath, keyPath, cn string, sans []st
 }
 
 // loadCA loads a CA certificate and private key from disk.
-func loadCA(certPath, keyPath string) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+func loadCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {
 	// Load CA certificate
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
@@ -200,7 +192,7 @@ func loadCA(certPath, keyPath string) (*x509.Certificate, *ecdsa.PrivateKey, err
 	if block == nil {
 		return nil, nil, errors.New("failed to decode CA key PEM")
 	}
-	caKey, err := x509.ParseECPrivateKey(block.Bytes)
+	caKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse CA key: %w", err)
 	}
