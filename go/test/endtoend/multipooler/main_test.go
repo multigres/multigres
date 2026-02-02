@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -68,7 +67,9 @@ func restoreAfterEmergencyDemotion(t *testing.T, setup *MultipoolerTestSetup, pg
 	defer pgctldClient.Close()
 
 	t.Logf("Restarting stopped postgres as standby for pooler %s...", multipoolerName)
-	_, err = pgctldClient.Restart(utils.WithTimeout(t, 10*time.Second), &pgctldpb.RestartRequest{
+	restartCtx, restartCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer restartCancel()
+	_, err = pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
 		Mode:      "fast",
 		AsStandby: true,
 	})
