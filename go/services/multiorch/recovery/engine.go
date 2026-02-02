@@ -246,12 +246,10 @@ type Engine struct {
 	reloadConfig func() []string
 
 	// Periodic runners for background tasks
-	bookkeepingRunner *timer.PeriodicRunner
-	recoveryRunner    *timer.PeriodicRunner
-
-	// Goroutine management - prevent pile-up of concurrent operations
-	metadataRefreshInProgress atomic.Bool
-	healthCheckInProgress     atomic.Bool
+	bookkeepingRunner      *timer.PeriodicRunner
+	recoveryRunner         *timer.PeriodicRunner
+	metadataRefreshRunner  *timer.PeriodicRunner
+	healthCheckQueueRunner *timer.PeriodicRunner
 
 	// Cache for deduplication (prevents redundant health checks)
 	recentPollCache   map[string]time.Time
@@ -292,19 +290,21 @@ func NewEngine(
 	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
 	engine := &Engine{
-		ts:                ts,
-		logger:            logger,
-		config:            config,
-		rpcClient:         rpcClient,
-		poolerStore:       poolerStore,
-		healthCheckQueue:  NewQueue(logger, config),
-		shardWatchTargets: shardWatchTargets,
-		recentPollCache:   make(map[string]time.Time),
-		detectedProblems:  nil,
-		shutdownCtx:       ctx,
-		cancel:            cancel,
-		bookkeepingRunner: timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
-		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
+		ts:                     ts,
+		logger:                 logger,
+		config:                 config,
+		rpcClient:              rpcClient,
+		poolerStore:            poolerStore,
+		healthCheckQueue:       NewQueue(logger, config),
+		shardWatchTargets:      shardWatchTargets,
+		recentPollCache:        make(map[string]time.Time),
+		detectedProblems:       nil,
+		shutdownCtx:            ctx,
+		cancel:                 cancel,
+		bookkeepingRunner:      timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
+		recoveryRunner:         timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
+		metadataRefreshRunner:  timer.NewPeriodicRunner(ctx, config.GetClusterMetadataRefreshInterval()),
+		healthCheckQueueRunner: timer.NewPeriodicRunner(ctx, config.GetPoolerHealthCheckInterval()),
 	}
 
 	// Initialize metrics
@@ -384,14 +384,28 @@ func (re *Engine) Start() error {
 		re.performRecoveryCycle()
 	}, nil)
 
-	// Start maintenance loop (cluster metadata refresh only)
-	re.wg.Go(func() {
-		re.runMaintenanceLoop()
+	// Start metadata refresh runner
+	re.metadataRefreshRunner.Start(func(ctx context.Context) {
+		// This interval is static today, but UpdateInterval keeps behavior consistent across runners.
+		newInterval := re.config.GetClusterMetadataRefreshInterval()
+		if re.metadataRefreshRunner.UpdateInterval(newInterval) {
+			re.logger.InfoContext(re.shutdownCtx, "cluster metadata refresh interval changed", "interval", newInterval)
+		}
+		re.refreshClusterMetadata()
+	}, func() { // OnStart callback
+		re.logger.Info("maintenance loop started")
+		re.refreshClusterMetadata()
 	})
 
-	// Start health check ticker loop (queues poolers for health checking)
-	re.wg.Go(func() {
-		re.runHealthCheckTickerLoop()
+	// Start health check ticker runner
+	re.healthCheckQueueRunner.Start(func(ctx context.Context) {
+		newInterval := re.config.GetPoolerHealthCheckInterval()
+		if re.healthCheckQueueRunner.UpdateInterval(newInterval) {
+			re.logger.InfoContext(re.shutdownCtx, "pooler health check interval changed", "interval", newInterval)
+		}
+		re.queuePoolersHealthCheck()
+	}, func() { // OnStart callback
+		re.logger.Info("health check ticker loop started")
 	})
 
 	re.logger.Info("recovery engine started successfully")
@@ -405,31 +419,10 @@ func (re *Engine) Stop() {
 	re.cancel()
 	re.bookkeepingRunner.Stop()
 	re.recoveryRunner.Stop()
+	re.metadataRefreshRunner.Stop()
+	re.healthCheckQueueRunner.Stop()
 	re.wg.Wait()
 	re.logger.Info("recovery engine stopped")
-}
-
-// runMaintenanceLoop runs the cluster metadata refresh task.
-// Supports dynamic reloading of shardWatchTargets via SetConfigReloader.
-func (re *Engine) runMaintenanceLoop() {
-	metadataTicker := time.NewTicker(re.config.GetClusterMetadataRefreshInterval())
-	defer metadataTicker.Stop()
-
-	re.logger.Info("maintenance loop started")
-
-	// Do initial metadata refresh
-	re.refreshClusterMetadata()
-
-	for {
-		select {
-		case <-re.shutdownCtx.Done():
-			re.logger.Info("maintenance loop stopped")
-			return
-
-		case <-metadataTicker.C:
-			runIfNotRunning(re.logger, &re.metadataRefreshInProgress, "cluster_metadata_refresh", re.refreshClusterMetadata)
-		}
-	}
 }
 
 // startHealthCheckWorkers starts the worker pool that consumes from the health check queue.
@@ -442,25 +435,6 @@ func (re *Engine) startHealthCheckWorkers() {
 		})
 	}
 	re.logger.Info("health check worker pool started", "workers", numWorkers)
-}
-
-// runHealthCheckTickerLoop periodically queues poolers for health checking.
-func (re *Engine) runHealthCheckTickerLoop() {
-	healthCheckTicker := time.NewTicker(re.config.GetPoolerHealthCheckInterval())
-	defer healthCheckTicker.Stop()
-
-	re.logger.Info("health check ticker loop started")
-
-	for {
-		select {
-		case <-re.shutdownCtx.Done():
-			re.logger.Info("health check ticker loop stopped")
-			return
-
-		case <-healthCheckTicker.C:
-			runIfNotRunning(re.logger, &re.healthCheckInProgress, "health_check_queue", re.queuePoolersHealthCheck)
-		}
-	}
 }
 
 // reloadConfigs checks for configuration changes and reloads if necessary.
