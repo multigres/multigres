@@ -136,7 +136,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to set pooler type")
 	}
 
-	// Record primary term during propagation
+	// Set primary term during bootstrap initialization
 	if pm.consensusState != nil {
 		if err := pm.consensusState.SetPrimaryTerm(ctx, req.ConsensusTerm, false /* force */); err != nil {
 			return nil, mterrors.Wrap(err, "failed to set primary term")

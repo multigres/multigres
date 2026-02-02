@@ -565,12 +565,16 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	}
 	status.SyncReplicationConfig = syncConfig
 
-	// Include primary term if available
-	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetInconsistentTerm()
-		if err == nil && term != nil {
-			status.PrimaryTerm = term.GetPrimaryTerm()
-		}
+	// Include primary term from consensus state.
+	if pm.consensusState == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "consensus state not initialized")
+	}
+	term, err := pm.consensusState.GetInconsistentTerm()
+	if err != nil {
+		return nil, err
+	}
+	if term != nil {
+		status.PrimaryTerm = term.GetPrimaryTerm()
 	}
 
 	return status, nil
@@ -1042,11 +1046,10 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
-	// Clear primary_term since this node is no longer primary for any term
-	if pm.consensusState != nil {
-		if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
-			return nil, mterrors.Wrap(err, "failed to clear primary term")
-		}
+	// Clear primary_term since this node is no longer primary for any term.
+	// Note: consensusState can't be nil here because validateTerm passed.
+	if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear primary term")
 	}
 
 	// Get final LSN
