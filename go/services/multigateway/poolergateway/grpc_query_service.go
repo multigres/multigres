@@ -266,5 +266,188 @@ func (g *grpcQueryService) Close(ctx context.Context) error {
 	return nil
 }
 
+// CopyStream creates a bidirectional stream for COPY operations.
+func (g *grpcQueryService) CopyStream(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+) (queryservice.CopyStreamClient, error) {
+	g.logger.DebugContext(ctx, "creating COPY stream",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"query", copyQuery)
+
+	// Start the bidirectional stream
+	stream, err := g.client.BidirectionalExecute(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
+	}
+
+	// Return wrapper that implements CopyStreamClient
+	return &grpcCopyStreamClient{
+		stream:    stream,
+		target:    target,
+		copyQuery: copyQuery,
+		options:   options,
+		logger:    g.logger,
+		poolerID:  g.poolerID,
+	}, nil
+}
+
+// grpcCopyStreamClient implements queryservice.CopyStreamClient using gRPC bidirectional streaming.
+type grpcCopyStreamClient struct {
+	stream    multipoolerservice.MultiPoolerService_BidirectionalExecuteClient
+	target    *query.Target
+	copyQuery string
+	options   *query.ExecuteOptions
+	logger    *slog.Logger
+	poolerID  string
+}
+
+// Ready initiates the COPY operation and returns format information.
+func (c *grpcCopyStreamClient) Ready() (int16, []int16, queryservice.ReservedState, error) {
+	// Send INITIATE message
+	initiateReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase:   multipoolerservice.BidirectionalExecuteRequest_INITIATE,
+		Query:   c.copyQuery,
+		Target:  c.target,
+		Options: c.options,
+	}
+
+	if err := c.stream.Send(initiateReq); err != nil {
+		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to send INITIATE: %w", err)
+	}
+
+	c.logger.Debug("sent INITIATE message", "pooler_id", c.poolerID)
+
+	// Receive READY response
+	resp, err := c.stream.Recv()
+	if err != nil {
+		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to receive READY response: %w", err)
+	}
+
+	// Check for ERROR response
+	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
+		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("COPY initiation failed: %s", resp.Error)
+	}
+
+	// Validate READY response
+	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_READY {
+		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("expected READY, got %v", resp.Phase)
+	}
+
+	// Convert columnFormats from []int32 to []int16
+	columnFormats := make([]int16, len(resp.ColumnFormats))
+	for i, f := range resp.ColumnFormats {
+		columnFormats[i] = int16(f)
+	}
+
+	reservedState := queryservice.ReservedState{
+		ReservedConnectionId: resp.ReservedConnectionId,
+		PoolerID:             resp.PoolerId,
+	}
+
+	c.logger.Debug("received READY response",
+		"pooler_id", c.poolerID,
+		"reserved_conn_id", resp.ReservedConnectionId,
+		"format", resp.Format,
+		"num_columns", len(columnFormats))
+
+	return int16(resp.Format), columnFormats, reservedState, nil
+}
+
+// SendData sends a chunk of COPY data to the server.
+func (c *grpcCopyStreamClient) SendData(data []byte) error {
+	dataReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase: multipoolerservice.BidirectionalExecuteRequest_DATA,
+		Data:  data,
+	}
+
+	if err := c.stream.Send(dataReq); err != nil {
+		return fmt.Errorf("failed to send DATA: %w", err)
+	}
+
+	c.logger.Debug("sent DATA message", "pooler_id", c.poolerID, "size", len(data))
+
+	return nil
+}
+
+// Finalize completes the COPY operation.
+func (c *grpcCopyStreamClient) Finalize(finalData []byte) (*sqltypes.Result, error) {
+	// Send DONE message with final data
+	doneReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase: multipoolerservice.BidirectionalExecuteRequest_DONE,
+		Data:  finalData,
+	}
+
+	if err := c.stream.Send(doneReq); err != nil {
+		return nil, fmt.Errorf("failed to send DONE: %w", err)
+	}
+
+	// Close send direction
+	if err := c.stream.CloseSend(); err != nil {
+		return nil, fmt.Errorf("failed to close send: %w", err)
+	}
+
+	c.logger.Debug("sent DONE message", "pooler_id", c.poolerID, "final_data_size", len(finalData))
+
+	// Receive RESULT response
+	resp, err := c.stream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive RESULT response: %w", err)
+	}
+
+	// Check for ERROR response
+	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
+		return nil, fmt.Errorf("COPY finalization failed: %s", resp.Error)
+	}
+
+	// Validate RESULT response
+	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_RESULT {
+		return nil, fmt.Errorf("expected RESULT, got %v", resp.Phase)
+	}
+
+	result := sqltypes.ResultFromProto(resp.Result)
+
+	c.logger.Debug("received RESULT response", "pooler_id", c.poolerID)
+
+	return result, nil
+}
+
+// Abort aborts the COPY operation.
+func (c *grpcCopyStreamClient) Abort(errorMsg string) error {
+	// Send FAIL message
+	failReq := &multipoolerservice.BidirectionalExecuteRequest{
+		Phase:        multipoolerservice.BidirectionalExecuteRequest_FAIL,
+		ErrorMessage: errorMsg,
+	}
+
+	if err := c.stream.Send(failReq); err != nil {
+		// Log but don't return error - we're already aborting
+		c.logger.Debug("failed to send FAIL message", "pooler_id", c.poolerID, "error", err)
+	}
+
+	// Close send direction
+	if err := c.stream.CloseSend(); err != nil {
+		c.logger.Debug("failed to close send after FAIL", "pooler_id", c.poolerID, "error", err)
+	}
+
+	// Try to receive response (may be ERROR)
+	_, err := c.stream.Recv()
+	if err != nil && !errors.Is(err, io.EOF) {
+		c.logger.Debug("error receiving response after FAIL (expected)", "pooler_id", c.poolerID, "error", err)
+	}
+
+	c.logger.Debug("COPY aborted", "pooler_id", c.poolerID)
+
+	return nil
+}
+
+// Ensure grpcCopyStreamClient implements queryservice.CopyStreamClient
+var _ queryservice.CopyStreamClient = (*grpcCopyStreamClient)(nil)
+
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)

@@ -22,15 +22,14 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
 // CopyState tracks the state of an active COPY FROM STDIN operation.
 // Reserved connection info is stored in ShardStates (same as regular queries).
-// CopyState only tracks the bidirectional gRPC stream used for COPY data transfer.
+// CopyState only tracks the CopyStreamClient used for COPY data transfer.
 type CopyState struct {
-	Stream multipoolerservice.MultiPoolerService_BidirectionalExecuteClient // Bidirectional gRPC stream
+	StreamClient queryservice.CopyStreamClient // CopyStreamClient for COPY operations
 }
 
 // MultiGatewayConnectionState keeps track of the information specific
@@ -209,46 +208,46 @@ func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string
 	}
 }
 
-// IsInCopyMode returns true if currently in COPY mode (has an active stream)
+// IsInCopyMode returns true if currently in COPY mode (has an active stream client)
 func (m *MultiGatewayConnectionState) IsInCopyMode() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.CopyState != nil && m.CopyState.Stream != nil
+	return m.CopyState != nil && m.CopyState.StreamClient != nil
 }
 
-// GetCopyStream returns the bidirectional gRPC stream for COPY
-func (m *MultiGatewayConnectionState) GetCopyStream() multipoolerservice.MultiPoolerService_BidirectionalExecuteClient {
+// GetCopyStreamClient returns the CopyStreamClient for COPY operations
+func (m *MultiGatewayConnectionState) GetCopyStreamClient() queryservice.CopyStreamClient {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.CopyState != nil {
-		return m.CopyState.Stream
+		return m.CopyState.StreamClient
 	}
 	return nil
 }
 
-// SetCopyStream temporarily stores the COPY stream before full COPY mode is entered
-// This is used during initiation when we have the stream but not yet the full state
-func (m *MultiGatewayConnectionState) SetCopyStream(stream multipoolerservice.MultiPoolerService_BidirectionalExecuteClient) {
+// SetCopyStreamClient stores the CopyStreamClient for COPY operations
+// This is used during initiation when we have the stream client but not yet the full state
+func (m *MultiGatewayConnectionState) SetCopyStreamClient(streamClient queryservice.CopyStreamClient) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// If we don't have CopyState yet, create a minimal one to store the stream
+	// If we don't have CopyState yet, create a minimal one to store the stream client
 	if m.CopyState == nil {
 		m.CopyState = &CopyState{
-			Stream: stream,
+			StreamClient: streamClient,
 		}
 	} else {
-		m.CopyState.Stream = stream
+		m.CopyState.StreamClient = streamClient
 	}
 }
 
-// ClearCopyStream safely removes any stale COPY stream from connection state.
-// This should be called when COPY initiation fails to prevent stream reuse.
-// Note: We don't close the stream here as it's managed by the connection lifecycle.
+// ClearCopyState safely removes any COPY state from connection state.
+// This should be called when COPY operation completes or fails.
+// Note: We don't close the stream client here as it's managed by the caller.
 // We only clear the reference from the connection state.
-func (m *MultiGatewayConnectionState) ClearCopyStream() {
+func (m *MultiGatewayConnectionState) ClearCopyState() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Clear the entire CopyState since Stream is the only field
+	// Clear the entire CopyState since StreamClient is the only field
 	m.CopyState = nil
 }

@@ -117,4 +117,47 @@ type QueryService interface {
 	// Close closes the query service and releases resources.
 	// After Close is called, no other methods should be called.
 	Close(ctx context.Context) error
+
+	// CopyStream creates a bidirectional stream for COPY operations.
+	// This is used for COPY FROM STDIN and COPY TO STDOUT commands.
+	// Returns a CopyStreamClient that can be used to send data and finalize the operation.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   copyQuery: The COPY SQL statement to execute
+	//   options: Execute options including user and session settings
+	//
+	// The returned CopyStreamClient should be used to:
+	//   1. Call Ready() to get format info and reserved connection state
+	//   2. Call SendData() for each chunk of data
+	//   3. Call Finalize() to complete the operation
+	//   4. Call Abort() if an error occurs
+	CopyStream(
+		ctx context.Context,
+		target *query.Target,
+		copyQuery string,
+		options *query.ExecuteOptions,
+	) (CopyStreamClient, error)
+}
+
+// CopyStreamClient is the client-side interface for bidirectional COPY operations.
+// It encapsulates the gRPC bidirectional stream and provides a clean API for COPY operations.
+type CopyStreamClient interface {
+	// Ready initiates the COPY operation and returns format information.
+	// This should be called first after creating the stream.
+	// Returns: format (0=text, 1=binary), column formats, reserved connection state, error
+	Ready() (format int16, columnFormats []int16, reservedState ReservedState, err error)
+
+	// SendData sends a chunk of COPY data to the server.
+	// For COPY FROM STDIN, this sends data to be inserted.
+	SendData(data []byte) error
+
+	// Finalize completes the COPY operation.
+	// For COPY FROM STDIN, this sends any final data and CopyDone, then waits for the result.
+	Finalize(finalData []byte) (*sqltypes.Result, error)
+
+	// Abort aborts the COPY operation.
+	// This should be called if an error occurs during the COPY operation.
+	Abort(errorMsg string) error
 }

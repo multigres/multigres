@@ -32,7 +32,6 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -297,69 +296,36 @@ func (sc *ScatterConn) CopyInitiate(
 		Shard:      shard,
 	}
 
-	// Create bidirectional stream
-	stream, err := sc.gateway.GetBidirectionalExecuteStream(ctx, target)
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to create bidirectional execute stream: %w", err)
-	}
-
-	// Send INITIATE message (but don't store stream yet)
+	// Create execute options
 	execOptions := &query.ExecuteOptions{
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
 
-	initiateReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase:   multipoolerservice.BidirectionalExecuteRequest_INITIATE,
-		Query:   queryStr,
-		Target:  target,
-		Options: execOptions,
-	}
-
-	if err := stream.Send(initiateReq); err != nil {
-		return 0, nil, fmt.Errorf("failed to send INITIATE: %w", err)
-	}
-
-	sc.logger.DebugContext(ctx, "sent INITIATE message")
-
-	// Receive READY response (CopyInResponse for COPY FROM STDIN)
-	resp, err := stream.Recv()
+	// Create CopyStream via gateway (uses queryservice.CopyStream)
+	streamClient, err := sc.gateway.CopyStream(ctx, target, queryStr, execOptions)
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to receive READY response: %w", err)
+		return 0, nil, fmt.Errorf("failed to create COPY stream: %w", err)
 	}
 
-	// Check for ERROR response
-	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
-		return 0, nil, fmt.Errorf("operation failed: %s", resp.Error)
+	// Call Ready() to initiate the COPY and get format info
+	format, columnFormats, reservedState, err := streamClient.Ready()
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
-	// Validate READY response
-	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_READY {
-		return 0, nil, fmt.Errorf("expected READY, got %v", resp.Phase)
-	}
-
-	// SUCCESS - Store stream and reserved connection in state
-	state.SetCopyStream(stream)
+	// Store stream client in connection state
+	state.SetCopyStreamClient(streamClient)
 
 	// Store reserved connection in ShardStates (same pattern as regular queries)
-	reservedState := queryservice.ReservedState{
-		ReservedConnectionId: resp.ReservedConnectionId,
-		PoolerID:             resp.PoolerId,
-	}
 	state.StoreReservedConnection(target, reservedState)
 
-	// Convert columnFormats from []int32 to []int16
-	columnFormats := make([]int16, len(resp.ColumnFormats))
-	for i, f := range resp.ColumnFormats {
-		columnFormats[i] = int16(f)
-	}
-
-	sc.logger.DebugContext(ctx, "received READY response",
-		"reserved_conn_id", resp.ReservedConnectionId,
-		"format", resp.Format,
+	sc.logger.DebugContext(ctx, "COPY initiated successfully",
+		"reserved_conn_id", reservedState.ReservedConnectionId,
+		"format", format,
 		"num_columns", len(columnFormats))
 
-	return int16(resp.Format), columnFormats, nil
+	return format, columnFormats, nil
 }
 
 // CopySendData sends a chunk of COPY data via bidirectional stream.
@@ -377,23 +343,18 @@ func (sc *ScatterConn) CopySendData(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
-	// Get the stream from connection state
-	stream := state.GetCopyStream()
-	if stream == nil {
-		return errors.New("no active bidirectional execute stream")
+	// Get the stream client from connection state
+	streamClient := state.GetCopyStreamClient()
+	if streamClient == nil {
+		return errors.New("no active COPY stream")
 	}
 
-	// Send DATA message
-	dataReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase: multipoolerservice.BidirectionalExecuteRequest_DATA,
-		Data:  data,
+	// Send data via stream client
+	if err := streamClient.SendData(data); err != nil {
+		return fmt.Errorf("failed to send COPY data: %w", err)
 	}
 
-	if err := stream.Send(dataReq); err != nil {
-		return fmt.Errorf("failed to send DATA: %w", err)
-	}
-
-	sc.logger.DebugContext(ctx, "sent DATA message", "size", len(data))
+	sc.logger.DebugContext(ctx, "sent COPY data", "size", len(data))
 
 	return nil
 }
@@ -414,50 +375,27 @@ func (sc *ScatterConn) CopyFinalize(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
-	// Get the stream from connection state
-	stream := state.GetCopyStream()
-	if stream == nil {
-		return errors.New("no active bidirectional execute stream")
+	// Get the stream client from connection state
+	streamClient := state.GetCopyStreamClient()
+	if streamClient == nil {
+		return errors.New("no active COPY stream")
 	}
 
-	// Send DONE message with final data
-	doneReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase: multipoolerservice.BidirectionalExecuteRequest_DONE,
-		Data:  finalData,
-	}
-
-	if err := stream.Send(doneReq); err != nil {
-		return fmt.Errorf("failed to send DONE: %w", err)
-	}
-
-	// Close our side of the stream
-	if err := stream.CloseSend(); err != nil {
-		return fmt.Errorf("failed to close send: %w", err)
-	}
-
-	sc.logger.DebugContext(ctx, "sent DONE message, waiting for result")
-
-	// Receive RESULT message
-	resp, err := stream.Recv()
+	// Finalize the COPY operation
+	result, err := streamClient.Finalize(finalData)
 	if err != nil {
-		return fmt.Errorf("failed to receive RESULT: %w", err)
+		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
-	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
-		return fmt.Errorf("operation failed: %s", resp.Error)
-	}
+	sc.logger.DebugContext(ctx, "COPY finalized successfully")
 
-	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_RESULT {
-		return fmt.Errorf("expected RESULT, got %v", resp.Phase)
-	}
-
-	sc.logger.DebugContext(ctx, "received RESULT message")
-
-	// Convert result and call callback
-	result := sqltypes.ResultFromProto(resp.Result)
+	// Call callback with result
 	if err := callback(ctx, result); err != nil {
 		return err
 	}
+
+	// Clear COPY state
+	state.ClearCopyState()
 
 	return nil
 }
@@ -475,41 +413,22 @@ func (sc *ScatterConn) CopyAbort(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
-	// Get the stream from connection state
-	stream := state.GetCopyStream()
-	if stream == nil {
+	// Get the stream client from connection state
+	streamClient := state.GetCopyStreamClient()
+	if streamClient == nil {
 		// Already cleaned up
 		return nil
 	}
 
-	// Send FAIL message
-	failReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase:        multipoolerservice.BidirectionalExecuteRequest_FAIL,
-		ErrorMessage: "operation aborted by client",
+	// Abort the COPY operation
+	if err := streamClient.Abort("operation aborted by client"); err != nil {
+		sc.logger.WarnContext(ctx, "error during COPY abort", "error", err)
 	}
 
-	if err := stream.Send(failReq); err != nil {
-		sc.logger.WarnContext(ctx, "failed to send FAIL message", "error", err)
-	}
+	// Clear COPY state
+	state.ClearCopyState()
 
-	// Close our side of the stream
-	if err := stream.CloseSend(); err != nil {
-		sc.logger.WarnContext(ctx, "failed to close send", "error", err)
-	}
-
-	// Drain any remaining responses until stream ends
-	// We intentionally ignore errors here as stream closure is expected
-	for {
-		_, recvErr := stream.Recv()
-		if recvErr != nil {
-			// Expected to fail with io.EOF or stream closed
-			// This is the normal exit condition, not an error to return
-			sc.logger.DebugContext(ctx, "stream closed as expected", "error", recvErr)
-			break
-		}
-	}
-
-	sc.logger.DebugContext(ctx, "operation aborted")
+	sc.logger.DebugContext(ctx, "COPY aborted")
 
 	return nil
 }

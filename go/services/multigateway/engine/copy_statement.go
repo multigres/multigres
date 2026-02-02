@@ -61,21 +61,19 @@ func (c *CopyStatement) StreamExecute(
 		return nil
 	})
 	if err != nil {
-		// Initiation failed - clean up any partial stream state
-		state.ClearCopyStream()
+		state.ClearCopyState()
 		return fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
 	// Send CopyInResponse to client
 	if err := conn.WriteCopyInResponse(format, columnFormats); err != nil {
-		// Failed to send response to client - abort and clean up
-		c.abort(ctx, exec, conn, state, shard)
-		state.ClearCopyStream()
+		_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
+		state.ClearCopyState()
 		return fmt.Errorf("failed to write CopyInResponse: %w", err)
 	}
 	if err := conn.Flush(); err != nil {
-		c.abort(ctx, exec, conn, state, shard)
-		state.ClearCopyStream()
+		_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
+		state.ClearCopyState()
 		return fmt.Errorf("failed to flush CopyInResponse: %w", err)
 	}
 
@@ -83,93 +81,50 @@ func (c *CopyStatement) StreamExecute(
 	for {
 		msgType, err := conn.ReadMessageType()
 		if err != nil {
-			c.abort(ctx, exec, conn, state, shard)
+			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("failed to read message: %w", err)
 		}
 
 		length, err := conn.ReadMessageLength()
 		if err != nil {
-			c.abort(ctx, exec, conn, state, shard)
+			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("failed to read message length: %w", err)
 		}
 
 		switch msgType {
 		case protocol.MsgCopyData:
-			if err := c.handleData(ctx, exec, conn, state, shard, length); err != nil {
-				c.abort(ctx, exec, conn, state, shard)
+			data, err := conn.ReadCopyDataMessage(length)
+			if err != nil {
+				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 				return err
+			}
+			if err := exec.CopySendData(ctx, conn, c.TableGroup, shard, state, data); err != nil {
+				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
+				return fmt.Errorf("failed to send COPY data: %w", err)
 			}
 
 		case protocol.MsgCopyDone:
 			if err := conn.ReadCopyDoneMessage(length); err != nil {
-				c.abort(ctx, exec, conn, state, shard)
+				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 				return err
 			}
-			// Phase 3: DONE - Finalize
-			return c.finalize(ctx, exec, conn, state, shard, callback)
+			// Phase 3: DONE - Finalize (no buffered data in streaming mode)
+			return exec.CopyFinalize(ctx, conn, c.TableGroup, shard, state, nil, callback)
 
 		case protocol.MsgCopyFail:
 			errMsg, err := conn.ReadCopyFailMessage(length)
 			if err != nil {
-				c.abort(ctx, exec, conn, state, shard)
+				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 				return err
 			}
-			c.abort(ctx, exec, conn, state, shard)
+			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("COPY failed: %s", errMsg)
 
 		default:
-			c.abort(ctx, exec, conn, state, shard)
+			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("unexpected message type during COPY: %c", msgType)
 		}
 	}
-}
-
-// handleData processes CopyData messages from client.
-func (c *CopyStatement) handleData(
-	ctx context.Context,
-	exec IExecute,
-	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
-	shard string,
-	length int,
-) error {
-	data, err := conn.ReadCopyDataMessage(length)
-	if err != nil {
-		return err
-	}
-
-	// Stream data immediately to pooler
-	if err := exec.CopySendData(ctx, conn, c.TableGroup, shard, state, data); err != nil {
-		return fmt.Errorf("failed to send COPY data: %w", err)
-	}
-
-	return nil
-}
-
-// finalize sends CopyDone and receives result.
-// With streaming, there should be no buffered data.
-func (c *CopyStatement) finalize(
-	ctx context.Context,
-	exec IExecute,
-	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
-	shard string,
-	callback func(context.Context, *sqltypes.Result) error,
-) error {
-	// Call executor's CopyFinalize with no buffered data (streaming mode)
-	// CopyFinalize looks up reserved connection from state internally
-	return exec.CopyFinalize(ctx, conn, c.TableGroup, shard, state, nil, callback)
-}
-
-// abort sends CopyFail to pooler.
-func (c *CopyStatement) abort(
-	ctx context.Context,
-	exec IExecute,
-	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
-	shard string,
-) {
-	_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 }
 
 // GetTableGroup implements the Primitive interface.

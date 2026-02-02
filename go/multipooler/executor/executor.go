@@ -654,5 +654,17 @@ func int32ToInt16Slice(in []int32) []int16 {
 	return out
 }
 
+// CopyStream is not implemented on the server side.
+// COPY streaming is handled by the BidirectionalExecute gRPC handler, not through this interface method.
+// This method exists only to satisfy the queryservice.QueryService interface.
+func (e *Executor) CopyStream(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+) (queryservice.CopyStreamClient, error) {
+	return nil, errors.New("CopyStream is not supported on server-side Executor; use BidirectionalExecute RPC instead")
+}
+
 // Ensure Executor implements queryservice.QueryService
 var _ queryservice.QueryService = (*Executor)(nil)
