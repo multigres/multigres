@@ -4099,7 +4099,7 @@
   {
     "comment": "alter_table - Statement 858",
     "query": "SELECT indexrelid::regclass::text as index, obj_description(indexrelid, 'pg_class') as comment FROM pg_index where indrelid = 'comment_test'::regclass ORDER BY 1, 2",
-    "expected": "SELECT CAST(CAST(indexrelid AS regclass) AS TEXT) AS \"index\", obj_description(indexrelid, 'pg_class') AS comment FROM pg_index WHERE indrelid = CAST('comment_test' AS regclass) ORDER BY 1, 2"
+    "expected": "SELECT CAST(CAST(indexrelid AS regclass) AS TEXT) AS index, obj_description(indexrelid, 'pg_class') AS comment FROM pg_index WHERE indrelid = CAST('comment_test' AS regclass) ORDER BY 1, 2"
   },
   {
     "comment": "alter_table - Statement 859",
@@ -4171,7 +4171,7 @@
   {
     "comment": "alter_table - Statement 873",
     "query": "SELECT indexrelid::regclass::text as index, obj_description(indexrelid, 'pg_class') as comment FROM pg_index where indrelid = 'comment_test_child'::regclass ORDER BY 1, 2",
-    "expected": "SELECT CAST(CAST(indexrelid AS regclass) AS TEXT) AS \"index\", obj_description(indexrelid, 'pg_class') AS comment FROM pg_index WHERE indrelid = CAST('comment_test_child' AS regclass) ORDER BY 1, 2"
+    "expected": "SELECT CAST(CAST(indexrelid AS regclass) AS TEXT) AS index, obj_description(indexrelid, 'pg_class') AS comment FROM pg_index WHERE indrelid = CAST('comment_test_child' AS regclass) ORDER BY 1, 2"
   },
   {
     "comment": "alter_table - Statement 874",

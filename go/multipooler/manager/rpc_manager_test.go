@@ -304,10 +304,10 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "Demote times out when lock is held",
+			name:       "EmergencyDemote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
-				_, err := manager.Demote(ctx, 1, 5*time.Second, false)
+				_, err := manager.EmergencyDemote(ctx, 1, 5*time.Second, false)
 				return err
 			},
 		},
@@ -1034,6 +1034,11 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 	pm.mu.Unlock()
 
+	// Verify primary_term is 0 before promotion
+	term, err := pm.consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be 0 before promotion")
+
 	// Call Promote - should FAIL because leadership history insertion fails
 	resp, err := pm.Promote(ctx, 10, "0/9876543", nil, false /* force */, "test_reason", "test_coordinator", nil, nil)
 	require.Error(t, err, "Promote should fail when leadership history insertion fails")
@@ -1042,10 +1047,92 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	// Error message should indicate the leadership history failure
 	assert.Contains(t, err.Error(), "leadership history")
 
+	// CRITICAL: Verify that primary_term WAS set even though promotion failed.
+	// This is intentional - we set primary_term (local state) before writing to history table
+	// (committed transaction). If the order were reversed and history write succeeded but
+	// primary_term write failed, we'd have a committed transaction without local state.
+	// With this ordering, on retry the primary_term set is idempotent and history write will succeed.
+	term, err = pm.consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), term.GetPrimaryTerm(),
+		"primary_term should be set to 10 even though promotion failed (set before history write)")
+
 	// Note: PostgreSQL was promoted but we return error to indicate the promotion is incomplete.
 	// The coordinator should handle this partial promotion state (e.g., retry or repair).
 	// The mock expectations should still be met (all queries were executed).
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+func TestSetPrimaryTerm_InvariantValidation(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create pg_data directory structure
+	createPgDataDir(t, tmpDir)
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+
+	// Create consensus state and set initial term to 5
+	consensusState := NewConsensusState(tmpDir, serviceID)
+	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
+		TermNumber:  5,
+		PrimaryTerm: 0,
+	}
+	setTermForTest(t, tmpDir, initialTerm)
+	_, err := consensusState.Load()
+	require.NoError(t, err)
+
+	// Create action lock and acquire it
+	actionLock := NewActionLock()
+	lockCtx, err := actionLock.Acquire(ctx, "test-primary-term")
+	require.NoError(t, err)
+	defer actionLock.Release(lockCtx)
+
+	// Setting primary_term to match current term should succeed
+	err = consensusState.SetPrimaryTerm(lockCtx, 5, false /* force */)
+	require.NoError(t, err, "Should be able to set primary_term to current term value")
+
+	term, err := consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should be set to 5")
+
+	// Setting primary_term to a different value should fail (invariant violation)
+	err = consensusState.SetPrimaryTerm(lockCtx, 7, false /* force */)
+	require.Error(t, err, "Should fail when primary_term doesn't match current term")
+
+	// Verify primary_term was not changed
+	term, err = consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), term.GetPrimaryTerm(), "primary_term should still be 5")
+
+	// But with force=true, setting a mismatched term should succeed
+	err = consensusState.SetPrimaryTerm(lockCtx, 7, true /* force */)
+	require.NoError(t, err, "Should succeed with force=true even when terms don't match")
+
+	term, err = consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), term.GetPrimaryTerm(), "primary_term should be updated to 7 with force")
+
+	// Clearing primary_term to 0 should always succeed (exception to invariant)
+	err = consensusState.SetPrimaryTerm(lockCtx, 0, false /* force */)
+	require.NoError(t, err, "Should be able to clear primary_term to 0 regardless of current term")
+
+	term, err = consensusState.GetInconsistentTerm()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be cleared to 0")
+
+	// Negative primary_term should fail even with force
+	err = consensusState.SetPrimaryTerm(lockCtx, -1, false /* force */)
+	require.Error(t, err, "Should fail with negative primary_term")
+	assert.Contains(t, err.Error(), "primary_term cannot be negative")
+
+	err = consensusState.SetPrimaryTerm(lockCtx, -1, true /* force */)
+	require.Error(t, err, "Should fail with negative primary_term even with force=true")
+	assert.Contains(t, err.Error(), "primary_term cannot be negative")
 }
 
 func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
@@ -1657,6 +1744,193 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, resp)
 		require.Contains(t, err.Error(), "manager is not open")
+	})
+}
+
+func TestStopPostgresForEmergencyDemote(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+
+	t.Run("Success_StopsPostgres", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		createPgDataDir(t, tmpDir)
+		multipooler.PoolerDir = tmpDir
+
+		config := &Config{
+			TopoClient: ts,
+			PgctldAddr: pgctldAddr,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		defer pm.Close()
+
+		err = pm.setInitialized()
+		require.NoError(t, err)
+
+		mockQueryService := mock.NewQueryService()
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create demotion state indicating postgres is running as primary (not read-only)
+		state := &demotionState{
+			isReadOnly: false,
+		}
+
+		// Verify monitoring is initially running
+		require.True(t, pm.pgMonitor.Running(), "Monitor should be running initially")
+
+		// Call stopPostgresForEmergencyDemote - should succeed
+		err = pm.stopPostgresForEmergencyDemote(ctx, state)
+		require.NoError(t, err, "Should successfully stop postgres for emergency demotion")
+
+		// Verify monitoring remains enabled after emergency demotion to allow node to detect changes and rejoin
+		require.True(t, pm.pgMonitor.Running(), "Monitor should remain running after emergency demotion to allow node to rejoin")
+	})
+
+	t.Run("Error_AlreadyInStandbyMode", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		t.Cleanup(cleanupPgctld)
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		createPgDataDir(t, tmpDir)
+		multipooler.PoolerDir = tmpDir
+
+		config := &Config{
+			TopoClient: ts,
+			PgctldAddr: pgctldAddr,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		defer pm.Close()
+
+		err = pm.setInitialized()
+		require.NoError(t, err)
+
+		mockQueryService := mock.NewQueryService()
+		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+		pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+		senv := servenv.NewServEnv(viperutil.NewRegistry())
+		go pm.Start(senv)
+
+		require.Eventually(t, func() bool {
+			return pm.GetState() == ManagerStateReady
+		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+		// Create demotion state indicating postgres is already in standby mode
+		state := &demotionState{
+			isReadOnly: true,
+		}
+
+		// Call stopPostgresForEmergencyDemote - should fail with unexpected state error
+		err = pm.stopPostgresForEmergencyDemote(ctx, state)
+		require.Error(t, err, "Should fail when postgres is already in standby mode")
+		assert.Contains(t, err.Error(), "unexpected state")
+		assert.Contains(t, err.Error(), "standby mode")
+
+		// Verify error code
+		code := mterrors.Code(err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
+	})
+
+	t.Run("Error_PgctldClientNotInitialized", func(t *testing.T) {
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		database := "testdb"
+		addDatabaseToTopo(t, ts, database)
+
+		multipooler := &clustermetadatapb.MultiPooler{
+			Id:            serviceID,
+			Database:      database,
+			Hostname:      "localhost",
+			PortMap:       map[string]int32{"grpc": 8080},
+			Type:          clustermetadatapb.PoolerType_PRIMARY,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			TableGroup:    constants.DefaultTableGroup,
+			Shard:         constants.DefaultShard,
+		}
+		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+		tmpDir := t.TempDir()
+		createPgDataDir(t, tmpDir)
+		multipooler.PoolerDir = tmpDir
+
+		// No pgctld address - client will not be initialized
+		config := &Config{
+			TopoClient: ts,
+		}
+		pm, err := NewMultiPoolerManager(logger, multipooler, config)
+		require.NoError(t, err)
+		defer pm.Close()
+
+		// Create demotion state
+		state := &demotionState{
+			isReadOnly: false,
+		}
+
+		// Call stopPostgresForEmergencyDemote - should fail because pgctld client is nil
+		err = pm.stopPostgresForEmergencyDemote(ctx, state)
+		require.Error(t, err, "Should fail when pgctld client is not initialized")
+		assert.Contains(t, err.Error(), "pgctld client not initialized")
+
+		// Verify error code
+		code := mterrors.Code(err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, code)
 	})
 }
 

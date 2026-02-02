@@ -21,11 +21,12 @@
 package multipoolermanager
 
 import (
+	reflect "reflect"
+	unsafe "unsafe"
+
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	unsafe "unsafe"
 )
 
 const (
@@ -39,7 +40,7 @@ var File_multipoolermanagerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xd3\x19\n" +
+	"\x1fmultipoolermanagerservice.proto\x12\x12multipoolermanager\x1a\x1cmultipoolermanagerdata.proto2\xee\x19\n" +
 	"\x12MultiPoolerManager\x12c\n" +
 	"\n" +
 	"WaitForLSN\x12).multipoolermanagerdata.WaitForLSNRequest\x1a*.multipoolermanagerdata.WaitForLSNResponse\x12{\n" +
@@ -58,8 +59,8 @@ const file_multipoolermanagerservice_proto_rawDesc = "" +
 	"\x16CreateDurabilityPolicy\x125.multipoolermanagerdata.CreateDurabilityPolicyRequest\x1a6.multipoolermanagerdata.CreateDurabilityPolicyResponse\x12c\n" +
 	"\n" +
 	"ChangeType\x12).multipoolermanagerdata.ChangeTypeRequest\x1a*.multipoolermanagerdata.ChangeTypeResponse\x12i\n" +
-	"\fGetFollowers\x12+.multipoolermanagerdata.GetFollowersRequest\x1a,.multipoolermanagerdata.GetFollowersResponse\x12W\n" +
-	"\x06Demote\x12%.multipoolermanagerdata.DemoteRequest\x1a&.multipoolermanagerdata.DemoteResponse\x12c\n" +
+	"\fGetFollowers\x12+.multipoolermanagerdata.GetFollowersRequest\x1a,.multipoolermanagerdata.GetFollowersResponse\x12r\n" +
+	"\x0fEmergencyDemote\x12..multipoolermanagerdata.EmergencyDemoteRequest\x1a/.multipoolermanagerdata.EmergencyDemoteResponse\x12c\n" +
 	"\n" +
 	"UndoDemote\x12).multipoolermanagerdata.UndoDemoteRequest\x1a*.multipoolermanagerdata.UndoDemoteResponse\x12{\n" +
 	"\x12DemoteStalePrimary\x121.multipoolermanagerdata.DemoteStalePrimaryRequest\x1a2.multipoolermanagerdata.DemoteStalePrimaryResponse\x12Z\n" +
@@ -92,7 +93,7 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.CreateDurabilityPolicyRequest)(nil),           // 13: multipoolermanagerdata.CreateDurabilityPolicyRequest
 	(*multipoolermanagerdata.ChangeTypeRequest)(nil),                       // 14: multipoolermanagerdata.ChangeTypeRequest
 	(*multipoolermanagerdata.GetFollowersRequest)(nil),                     // 15: multipoolermanagerdata.GetFollowersRequest
-	(*multipoolermanagerdata.DemoteRequest)(nil),                           // 16: multipoolermanagerdata.DemoteRequest
+	(*multipoolermanagerdata.EmergencyDemoteRequest)(nil),                  // 16: multipoolermanagerdata.EmergencyDemoteRequest
 	(*multipoolermanagerdata.UndoDemoteRequest)(nil),                       // 17: multipoolermanagerdata.UndoDemoteRequest
 	(*multipoolermanagerdata.DemoteStalePrimaryRequest)(nil),               // 18: multipoolermanagerdata.DemoteStalePrimaryRequest
 	(*multipoolermanagerdata.PromoteRequest)(nil),                          // 19: multipoolermanagerdata.PromoteRequest
@@ -120,7 +121,7 @@ var file_multipoolermanagerservice_proto_goTypes = []any{
 	(*multipoolermanagerdata.CreateDurabilityPolicyResponse)(nil),          // 41: multipoolermanagerdata.CreateDurabilityPolicyResponse
 	(*multipoolermanagerdata.ChangeTypeResponse)(nil),                      // 42: multipoolermanagerdata.ChangeTypeResponse
 	(*multipoolermanagerdata.GetFollowersResponse)(nil),                    // 43: multipoolermanagerdata.GetFollowersResponse
-	(*multipoolermanagerdata.DemoteResponse)(nil),                          // 44: multipoolermanagerdata.DemoteResponse
+	(*multipoolermanagerdata.EmergencyDemoteResponse)(nil),                 // 44: multipoolermanagerdata.EmergencyDemoteResponse
 	(*multipoolermanagerdata.UndoDemoteResponse)(nil),                      // 45: multipoolermanagerdata.UndoDemoteResponse
 	(*multipoolermanagerdata.DemoteStalePrimaryResponse)(nil),              // 46: multipoolermanagerdata.DemoteStalePrimaryResponse
 	(*multipoolermanagerdata.PromoteResponse)(nil),                         // 47: multipoolermanagerdata.PromoteResponse
@@ -150,7 +151,7 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	13, // 13: multipoolermanager.MultiPoolerManager.CreateDurabilityPolicy:input_type -> multipoolermanagerdata.CreateDurabilityPolicyRequest
 	14, // 14: multipoolermanager.MultiPoolerManager.ChangeType:input_type -> multipoolermanagerdata.ChangeTypeRequest
 	15, // 15: multipoolermanager.MultiPoolerManager.GetFollowers:input_type -> multipoolermanagerdata.GetFollowersRequest
-	16, // 16: multipoolermanager.MultiPoolerManager.Demote:input_type -> multipoolermanagerdata.DemoteRequest
+	16, // 16: multipoolermanager.MultiPoolerManager.EmergencyDemote:input_type -> multipoolermanagerdata.EmergencyDemoteRequest
 	17, // 17: multipoolermanager.MultiPoolerManager.UndoDemote:input_type -> multipoolermanagerdata.UndoDemoteRequest
 	18, // 18: multipoolermanager.MultiPoolerManager.DemoteStalePrimary:input_type -> multipoolermanagerdata.DemoteStalePrimaryRequest
 	19, // 19: multipoolermanager.MultiPoolerManager.Promote:input_type -> multipoolermanagerdata.PromoteRequest
@@ -178,7 +179,7 @@ var file_multipoolermanagerservice_proto_depIdxs = []int32{
 	41, // 41: multipoolermanager.MultiPoolerManager.CreateDurabilityPolicy:output_type -> multipoolermanagerdata.CreateDurabilityPolicyResponse
 	42, // 42: multipoolermanager.MultiPoolerManager.ChangeType:output_type -> multipoolermanagerdata.ChangeTypeResponse
 	43, // 43: multipoolermanager.MultiPoolerManager.GetFollowers:output_type -> multipoolermanagerdata.GetFollowersResponse
-	44, // 44: multipoolermanager.MultiPoolerManager.Demote:output_type -> multipoolermanagerdata.DemoteResponse
+	44, // 44: multipoolermanager.MultiPoolerManager.EmergencyDemote:output_type -> multipoolermanagerdata.EmergencyDemoteResponse
 	45, // 45: multipoolermanager.MultiPoolerManager.UndoDemote:output_type -> multipoolermanagerdata.UndoDemoteResponse
 	46, // 46: multipoolermanager.MultiPoolerManager.DemoteStalePrimary:output_type -> multipoolermanagerdata.DemoteStalePrimaryResponse
 	47, // 47: multipoolermanager.MultiPoolerManager.Promote:output_type -> multipoolermanagerdata.PromoteResponse

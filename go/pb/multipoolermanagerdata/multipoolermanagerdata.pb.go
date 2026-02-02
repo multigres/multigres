@@ -21,14 +21,15 @@
 package multipoolermanagerdata
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -1059,8 +1060,11 @@ type PrimaryStatus struct {
 	ConnectedFollowers []*clustermetadata.ID `protobuf:"bytes,3,rep,name=connected_followers,json=connectedFollowers,proto3" json:"connected_followers,omitempty"`
 	// Synchronous replication configuration (parsed from synchronous_standby_names and synchronous_commit)
 	SyncReplicationConfig *SynchronousReplicationConfiguration `protobuf:"bytes,4,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// The term for which this pooler was promoted to primary.
+	// Non-zero for current primaries. See ConsensusTerm.primary_term for full lifecycle details.
+	PrimaryTerm   int64 `protobuf:"varint,5,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PrimaryStatus) Reset() {
@@ -1119,6 +1123,13 @@ func (x *PrimaryStatus) GetSyncReplicationConfig() *SynchronousReplicationConfig
 		return x.SyncReplicationConfig
 	}
 	return nil
+}
+
+func (x *PrimaryStatus) GetPrimaryTerm() int64 {
+	if x != nil {
+		return x.PrimaryTerm
+	}
+	return 0
 }
 
 // PrimaryStatus gets the status of the primary server
@@ -1799,10 +1810,10 @@ func (x *GetFollowersResponse) GetSyncConfig() *SynchronousReplicationConfigurat
 	return nil
 }
 
-// Demote demotes the current leader server
+// EmergencyDemote demotes the current leader server
 // This is called during the Revocation stage of generalized consensus to safely
 // transition a primary to read-only mode and prevent it from making further progress.
-type DemoteRequest struct {
+type EmergencyDemoteRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Consensus term for this demotion operation
 	// When force=true, this field is ignored and should be passed as 0
@@ -1815,20 +1826,20 @@ type DemoteRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DemoteRequest) Reset() {
-	*x = DemoteRequest{}
+func (x *EmergencyDemoteRequest) Reset() {
+	*x = EmergencyDemoteRequest{}
 	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DemoteRequest) String() string {
+func (x *EmergencyDemoteRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DemoteRequest) ProtoMessage() {}
+func (*EmergencyDemoteRequest) ProtoMessage() {}
 
-func (x *DemoteRequest) ProtoReflect() protoreflect.Message {
+func (x *EmergencyDemoteRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolermanagerdata_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1840,33 +1851,33 @@ func (x *DemoteRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DemoteRequest.ProtoReflect.Descriptor instead.
-func (*DemoteRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use EmergencyDemoteRequest.ProtoReflect.Descriptor instead.
+func (*EmergencyDemoteRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *DemoteRequest) GetConsensusTerm() int64 {
+func (x *EmergencyDemoteRequest) GetConsensusTerm() int64 {
 	if x != nil {
 		return x.ConsensusTerm
 	}
 	return 0
 }
 
-func (x *DemoteRequest) GetDrainTimeout() *durationpb.Duration {
+func (x *EmergencyDemoteRequest) GetDrainTimeout() *durationpb.Duration {
 	if x != nil {
 		return x.DrainTimeout
 	}
 	return nil
 }
 
-func (x *DemoteRequest) GetForce() bool {
+func (x *EmergencyDemoteRequest) GetForce() bool {
 	if x != nil {
 		return x.Force
 	}
 	return false
 }
 
-type DemoteResponse struct {
+type EmergencyDemoteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Whether the pooler was already demoted (idempotent check)
 	WasAlreadyDemoted bool `protobuf:"varint,1,opt,name=was_already_demoted,json=wasAlreadyDemoted,proto3" json:"was_already_demoted,omitempty"`
@@ -1880,20 +1891,20 @@ type DemoteResponse struct {
 	sizeCache             protoimpl.SizeCache
 }
 
-func (x *DemoteResponse) Reset() {
-	*x = DemoteResponse{}
+func (x *EmergencyDemoteResponse) Reset() {
+	*x = EmergencyDemoteResponse{}
 	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DemoteResponse) String() string {
+func (x *EmergencyDemoteResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DemoteResponse) ProtoMessage() {}
+func (*EmergencyDemoteResponse) ProtoMessage() {}
 
-func (x *DemoteResponse) ProtoReflect() protoreflect.Message {
+func (x *EmergencyDemoteResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolermanagerdata_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1905,33 +1916,33 @@ func (x *DemoteResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DemoteResponse.ProtoReflect.Descriptor instead.
-func (*DemoteResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use EmergencyDemoteResponse.ProtoReflect.Descriptor instead.
+func (*EmergencyDemoteResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{26}
 }
 
-func (x *DemoteResponse) GetWasAlreadyDemoted() bool {
+func (x *EmergencyDemoteResponse) GetWasAlreadyDemoted() bool {
 	if x != nil {
 		return x.WasAlreadyDemoted
 	}
 	return false
 }
 
-func (x *DemoteResponse) GetConsensusTerm() int64 {
+func (x *EmergencyDemoteResponse) GetConsensusTerm() int64 {
 	if x != nil {
 		return x.ConsensusTerm
 	}
 	return 0
 }
 
-func (x *DemoteResponse) GetLsnPosition() string {
+func (x *EmergencyDemoteResponse) GetLsnPosition() string {
 	if x != nil {
 		return x.LsnPosition
 	}
 	return ""
 }
 
-func (x *DemoteResponse) GetConnectionsTerminated() int32 {
+func (x *EmergencyDemoteResponse) GetConnectionsTerminated() int32 {
 	if x != nil {
 		return x.ConnectionsTerminated
 	}
@@ -2933,7 +2944,13 @@ type ConsensusTerm struct {
 	// Timestamp of the last acceptance
 	LastAcceptanceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_acceptance_time,json=lastAcceptanceTime,proto3" json:"last_acceptance_time,omitempty"`
 	// ID of the leader of the current term
-	LeaderId      *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	LeaderId *clustermetadata.ID `protobuf:"bytes,4,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	// The term for which this pooler was promoted to primary.
+	// Set during promotion (InitializeEmptyPrimary or Promote).
+	// Preserved when consensus term increases (new elections).
+	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
+	// 0 if never primary.
+	PrimaryTerm   int64 `protobuf:"varint,5,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2994,6 +3011,13 @@ func (x *ConsensusTerm) GetLeaderId() *clustermetadata.ID {
 		return x.LeaderId
 	}
 	return nil
+}
+
+func (x *ConsensusTerm) GetPrimaryTerm() int64 {
+	if x != nil {
+		return x.PrimaryTerm
+	}
+	return 0
 }
 
 // InitializeEmptyPrimary initializes this pooler as an empty primary
@@ -4060,12 +4084,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
 	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
 	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
-	"standbyIds\"\xf2\x01\n" +
+	"standbyIds\"\x95\x02\n" +
 	"\rPrimaryStatus\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x14\n" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready\x12D\n" +
 	"\x13connected_followers\x18\x03 \x03(\v2\x13.clustermetadata.IDR\x12connectedFollowers\x12s\n" +
-	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\"\x16\n" +
+	"\x17sync_replication_config\x18\x04 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\x15syncReplicationConfig\x12!\n" +
+	"\fprimary_term\x18\x05 \x01(\x03R\vprimaryTerm\"\x16\n" +
 	"\x14PrimaryStatusRequest\"V\n" +
 	"\x15PrimaryStatusResponse\x12=\n" +
 	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
@@ -4115,12 +4140,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x14GetFollowersResponse\x12B\n" +
 	"\tfollowers\x18\x01 \x03(\v2$.multipoolermanagerdata.FollowerInfoR\tfollowers\x12\\\n" +
 	"\vsync_config\x18\x02 \x01(\v2;.multipoolermanagerdata.SynchronousReplicationConfigurationR\n" +
-	"syncConfig\"\x8c\x01\n" +
-	"\rDemoteRequest\x12%\n" +
+	"syncConfig\"\x95\x01\n" +
+	"\x16EmergencyDemoteRequest\x12%\n" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12>\n" +
 	"\rdrain_timeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\fdrainTimeout\x12\x14\n" +
-	"\x05force\x18\x03 \x01(\bR\x05force\"\xc1\x01\n" +
-	"\x0eDemoteResponse\x12.\n" +
+	"\x05force\x18\x03 \x01(\bR\x05force\"\xca\x01\n" +
+	"\x17EmergencyDemoteResponse\x12.\n" +
 	"\x13was_already_demoted\x18\x01 \x01(\bR\x11wasAlreadyDemoted\x12%\n" +
 	"\x0econsensus_term\x18\x02 \x01(\x03R\rconsensusTerm\x12!\n" +
 	"\flsn_position\x18\x03 \x01(\tR\vlsnPosition\x125\n" +
@@ -4179,13 +4204,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
 	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
 	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
-	"$UpdateSynchronousStandbyListResponse\"\x8f\x02\n" +
+	"$UpdateSynchronousStandbyListResponse\"\xb2\x02\n" +
 	"\rConsensusTerm\x12\x1f\n" +
 	"\vterm_number\x18\x01 \x01(\x03R\n" +
 	"termNumber\x12]\n" +
 	"!accepted_term_from_coordinator_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\x1dacceptedTermFromCoordinatorId\x12L\n" +
 	"\x14last_acceptance_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastAcceptanceTime\x120\n" +
-	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\"\xf6\x01\n" +
+	"\tleader_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bleaderId\x12!\n" +
+	"\fprimary_term\x18\x05 \x01(\x03R\vprimaryTerm\"\xf6\x01\n" +
 	"\x1dInitializeEmptyPrimaryRequest\x12%\n" +
 	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x124\n" +
 	"\x16durability_policy_name\x18\x02 \x01(\tR\x14durabilityPolicyName\x12Q\n" +
@@ -4314,8 +4340,8 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*FollowerInfo)(nil),                            // 27: multipoolermanagerdata.FollowerInfo
 	(*GetFollowersRequest)(nil),                     // 28: multipoolermanagerdata.GetFollowersRequest
 	(*GetFollowersResponse)(nil),                    // 29: multipoolermanagerdata.GetFollowersResponse
-	(*DemoteRequest)(nil),                           // 30: multipoolermanagerdata.DemoteRequest
-	(*DemoteResponse)(nil),                          // 31: multipoolermanagerdata.DemoteResponse
+	(*EmergencyDemoteRequest)(nil),                  // 30: multipoolermanagerdata.EmergencyDemoteRequest
+	(*EmergencyDemoteResponse)(nil),                 // 31: multipoolermanagerdata.EmergencyDemoteResponse
 	(*DemoteStalePrimaryRequest)(nil),               // 32: multipoolermanagerdata.DemoteStalePrimaryRequest
 	(*DemoteStalePrimaryResponse)(nil),              // 33: multipoolermanagerdata.DemoteStalePrimaryResponse
 	(*UndoDemoteRequest)(nil),                       // 34: multipoolermanagerdata.UndoDemoteRequest
@@ -4388,7 +4414,7 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	26, // 22: multipoolermanagerdata.FollowerInfo.replication_stats:type_name -> multipoolermanagerdata.ReplicationStats
 	27, // 23: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
 	17, // 24: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	70, // 25: multipoolermanagerdata.DemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
+	70, // 25: multipoolermanagerdata.EmergencyDemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
 	71, // 26: multipoolermanagerdata.DemoteStalePrimaryRequest.source:type_name -> clustermetadata.MultiPooler
 	0,  // 27: multipoolermanagerdata.StopReplicationAndGetStatusRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
 	6,  // 28: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus

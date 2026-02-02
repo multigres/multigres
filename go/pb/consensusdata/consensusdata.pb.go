@@ -21,13 +21,14 @@
 package consensusdata
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -397,7 +398,13 @@ type StatusResponse struct {
 	// Current role (primary/replica)
 	Role string `protobuf:"bytes,9,opt,name=role,proto3" json:"role,omitempty"`
 	// Timeline information for divergence detection
-	TimelineInfo  *TimelineInfo `protobuf:"bytes,10,opt,name=timeline_info,json=timelineInfo,proto3" json:"timeline_info,omitempty"`
+	TimelineInfo *TimelineInfo `protobuf:"bytes,10,opt,name=timeline_info,json=timelineInfo,proto3" json:"timeline_info,omitempty"`
+	// The term for which this multipooler was promoted to primary.
+	// Set during promotion (InitializeEmptyPrimary or Promote).
+	// Preserved when consensus term increases (new elections).
+	// Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
+	// 0 if never primary. For current primaries, must be non-zero.
+	PrimaryTerm   int64 `protobuf:"varint,11,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -486,6 +493,13 @@ func (x *StatusResponse) GetTimelineInfo() *TimelineInfo {
 		return x.TimelineInfo
 	}
 	return nil
+}
+
+func (x *StatusResponse) GetPrimaryTerm() int64 {
+	if x != nil {
+		return x.PrimaryTerm
+	}
+	return 0
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table
@@ -777,7 +791,7 @@ const file_consensusdata_proto_rawDesc = "" +
 	"demote_lsn\x18\x04 \x01(\tR\tdemoteLsn\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
-	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xb9\x02\n" +
+	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xdc\x02\n" +
 	"\x0eStatusResponse\x12\x1b\n" +
 	"\tpooler_id\x18\x01 \x01(\tR\bpoolerId\x12!\n" +
 	"\fcurrent_term\x18\x02 \x01(\x03R\vcurrentTerm\x12=\n" +
@@ -789,7 +803,8 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\x04cell\x18\a \x01(\tR\x04cell\x12\x12\n" +
 	"\x04role\x18\t \x01(\tR\x04role\x12@\n" +
 	"\rtimeline_info\x18\n" +
-	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\"2\n" +
+	" \x01(\v2\x1b.consensusdata.TimelineInfoR\ftimelineInfo\x12!\n" +
+	"\fprimary_term\x18\v \x01(\x03R\vprimaryTerm\"2\n" +
 	"\x15LeadershipViewRequest\x12\x19\n" +
 	"\bshard_id\x18\x01 \x01(\tR\ashardId\"\xa6\x01\n" +
 	"\x16LeadershipViewResponse\x12\x1b\n" +

@@ -48,21 +48,31 @@ var (
 	// SQL identifier regex: must start with letter or underscore, followed by letters, digits, underscores, or dollar signs
 	sqlIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_$]*$`)
 
-	// PostgreSQL reserved keywords that always need quoting when used as identifiers
-	// This is a subset of the most common keywords - can be expanded as needed
-	reservedKeywords = map[string]bool{
-		"all": true, "and": true, "any": true, "as": true, "asc": true, "between": true, "by": true,
-		"case": true, "create": true, "desc": true, "distinct": true, "drop": true,
-		"else": true, "end": true, "exists": true, "false": true, "from": true,
-		"group": true, "having": true, "in": true, "insert": true, "into": true,
-		"is": true, "join": true, "like": true, "not": true, "null": true, "or": true,
-		"order": true, "select": true, "table": true, "then": true, "true": true,
-		"union": true, "update": true, "values": true, "when": true, "where": true,
-		"with": true, "limit": true, "offset": true, "inner": true, "outer": true,
-		"left": true, "right": true, "full": true, "cross": true, "natural": true,
-		"on": true, "using": true, "primary": true, "key": true, "foreign": true,
-		"references": true, "unique": true, "check": true, "constraint": true,
-		"default": true, "index": true, "alter": true, "add": true, "column": true,
+	// PostgreSQL keywords that need quoting when used as column identifiers
+	// Includes reserved_keyword and type_func_name_keyword from postgres.y
+	keywordsNeedingQuotes = map[string]bool{
+		// reserved_keyword (from postgres.y lines 1513-1591)
+		"all": true, "analyse": true, "analyze": true, "and": true, "any": true, "array": true,
+		"as": true, "asc": true, "asymmetric": true, "both": true, "case": true, "cast": true,
+		"check": true, "collate": true, "column": true, "constraint": true, "create": true,
+		"current_catalog": true, "current_date": true, "current_role": true, "current_time": true,
+		"current_timestamp": true, "current_user": true, "default": true, "deferrable": true,
+		"desc": true, "distinct": true, "do": true, "else": true, "end": true, "except": true,
+		"false": true, "fetch": true, "for": true, "foreign": true, "from": true, "grant": true,
+		"group": true, "having": true, "in": true, "initially": true, "intersect": true, "into": true,
+		"lateral": true, "leading": true, "limit": true, "localtime": true, "localtimestamp": true,
+		"not": true, "null": true, "offset": true, "on": true, "only": true, "or": true, "order": true,
+		"placing": true, "primary": true, "references": true, "returning": true, "select": true,
+		"session_user": true, "some": true, "symmetric": true, "system_user": true, "table": true,
+		"then": true, "to": true, "trailing": true, "true": true, "union": true, "unique": true,
+		"user": true, "using": true, "variadic": true, "when": true, "where": true, "window": true,
+		"with": true,
+		// type_func_name_keyword (from postgres.y lines 1481-1505)
+		"authorization": true, "binary": true, "collation": true, "concurrently": true,
+		"cross": true, "current_schema": true, "freeze": true, "full": true, "ilike": true,
+		"inner": true, "is": true, "isnull": true, "join": true, "left": true, "like": true,
+		"natural": true, "notnull": true, "outer": true, "overlaps": true, "right": true,
+		"similar": true, "tablesample": true, "verbose": true,
 	}
 )
 
@@ -77,8 +87,8 @@ func QuoteIdentifier(name string) string {
 	// Must quote if doesn't match identifier pattern
 	needsQuoting := !sqlIdentifierRegex.MatchString(name)
 
-	// Must quote if it's a reserved keyword (case-insensitive check)
-	if reservedKeywords[strings.ToLower(name)] {
+	// Must quote if it's a keyword that can't be used as a column name (case-insensitive check)
+	if keywordsNeedingQuotes[strings.ToLower(name)] {
 		needsQuoting = true
 	}
 

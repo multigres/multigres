@@ -188,22 +188,22 @@
   {
     "comment": "float4 - Statement 39",
     "query": "SELECT 'Infinity'::float4 / 'Infinity'::float4",
-    "expected": "SELECT CAST(CAST('Infinity' AS REAL) / 'Infinity' AS REAL)"
+    "expected": "SELECT CAST('Infinity' AS REAL) / CAST('Infinity' AS REAL)"
   },
   {
     "comment": "float4 - Statement 40",
     "query": "SELECT '42'::float4 / 'Infinity'::float4",
-    "expected": "SELECT CAST(CAST('42' AS REAL) / 'Infinity' AS REAL)"
+    "expected": "SELECT CAST('42' AS REAL) / CAST('Infinity' AS REAL)"
   },
   {
     "comment": "float4 - Statement 41",
     "query": "SELECT 'nan'::float4 / 'nan'::float4",
-    "expected": "SELECT CAST(CAST('nan' AS REAL) / 'nan' AS REAL)"
+    "expected": "SELECT CAST('nan' AS REAL) / CAST('nan' AS REAL)"
   },
   {
     "comment": "float4 - Statement 42",
     "query": "SELECT 'nan'::float4 / '0'::float4",
-    "expected": "SELECT CAST(CAST('nan' AS REAL) / '0' AS REAL)"
+    "expected": "SELECT CAST('nan' AS REAL) / CAST('0' AS REAL)"
   },
   {
     "comment": "float4 - Statement 43",

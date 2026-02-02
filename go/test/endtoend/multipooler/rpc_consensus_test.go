@@ -33,6 +33,7 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 func TestConsensus_Status(t *testing.T) {
@@ -313,6 +314,11 @@ func TestConsensus_BeginTerm(t *testing.T) {
 	t.Run("BeginTerm_NewTerm_Accepted", func(t *testing.T) {
 		t.Log("Testing BeginTerm with new term (should be accepted)...")
 
+		// Register cleanup early so it runs even if assertions fail
+		t.Cleanup(func() {
+			restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
+		})
+
 		// Begin with a newer term
 		expectedTerm++
 		req := &consensusdatapb.BeginTermRequest{
@@ -334,6 +340,17 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		assert.True(t, resp.Accepted, "New term should be accepted")
 		assert.Equal(t, expectedTerm, resp.Term, "Response term should be updated to new term")
 		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
+
+		// Verify PostgreSQL is stopped (emergency demotion stops postgres)
+		pgctldClient, err := shardsetup.NewPgctldClient(setup.PrimaryPgctld.GrpcPort)
+		require.NoError(t, err)
+		defer pgctldClient.Close()
+
+		require.Eventually(t, func() bool {
+			statusResp, err := pgctldClient.Status(context.Background(), &pgctldpb.StatusRequest{})
+			return err == nil && statusResp.Status == pgctldpb.ServerStatus_STOPPED
+		}, 10*time.Second, 1*time.Second, "PostgreSQL should be stopped after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
+		t.Log("Confirmed: PostgreSQL stopped after emergency demotion")
 
 		t.Logf("BeginTerm correctly granted for new term %d", expectedTerm)
 	})
@@ -564,10 +581,10 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 	})
 }
 
-// TestBeginTermDemotesPrimary verifies that when a primary accepts a BeginTerm
-// for a higher term, it automatically demotes itself to prevent split-brain.
-// The response includes the demote_lsn (final LSN before demotion).
-func TestBeginTermDemotesPrimary(t *testing.T) {
+// TestBeginTermEmergencyDemotesPrimary verifies that when a primary accepts a BeginTerm
+// for a higher term, it automatically performs an emergency demotion to prevent split-brain.
+// The response includes the demote_lsn (final LSN before emergency demotion).
+func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -596,10 +613,10 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 
-	t.Run("BeginTerm_AutoDemotesPrimary", func(t *testing.T) {
+	t.Run("BeginTerm_AutoEmergencyDemotesPrimary", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
-		t.Log("=== Testing BeginTerm auto-demotion of primary ===")
+		t.Log("=== Testing BeginTerm auto emergency demotion of primary ===")
 
 		// Get current term and verify primary is actually primary
 		statusReq := &consensusdatapb.StatusRequest{}
@@ -645,29 +662,25 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 		t.Logf("BeginTerm response: accepted=%v, term=%d, demote_lsn=%s",
 			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.DemoteLsn)
 
-		// Wait for PostgreSQL to restart as standby
-		time.Sleep(2 * time.Second)
-
-		// Verify PostgreSQL is now in recovery mode (demoted)
-		resp, err = primaryPoolerClient.ExecuteQuery(context.Background(), "SELECT pg_is_in_recovery()", 1)
+		// Verify PostgreSQL is stopped (emergency demotion stops postgres, doesn't restart as standby)
+		pgctldClient, err := shardsetup.NewPgctldClient(setup.PrimaryPgctld.GrpcPort)
 		require.NoError(t, err)
-		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
-		assert.Equal(t, "t", string(resp.Rows[0].Values[0]),
-			"PostgreSQL should be in recovery after auto-demotion")
-		t.Log("SUCCESS: PostgreSQL is now in recovery mode (demoted)")
+		defer pgctldClient.Close()
 
-		// Verify writes are rejected
-		_, err = primaryPoolerClient.ExecuteQuery(context.Background(),
-			"CREATE TABLE IF NOT EXISTS beginterm_demote_test (id serial PRIMARY KEY)", 1)
-		require.Error(t, err, "Writes should be rejected after demotion")
-		assert.Contains(t, err.Error(), "read-only", "Error should indicate read-only mode")
-		t.Logf("SUCCESS: Writes correctly rejected: %v", err)
+		require.Eventually(t, func() bool {
+			statusResp, err := pgctldClient.Status(context.Background(), &pgctldpb.StatusRequest{})
+			return err == nil && statusResp.Status == pgctldpb.ServerStatus_STOPPED
+		}, 10*time.Second, 1*time.Second, "PostgreSQL should be stopped after emergency demotion on pooler: %s", setup.PrimaryMultipooler.Name)
+		t.Log("SUCCESS: PostgreSQL is stopped after emergency demotion")
 
 		// === RESTORE STATE ===
 		// We need to restore the primary back to its original state for other tests
 		t.Log("Restoring original state...")
 
-		// Configure demoted primary to replicate from standby
+		// Restore demoted primary to working state
+		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
+
+		// Step 4: Configure demoted primary to replicate from standby
 		primary := &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -710,13 +723,16 @@ func TestBeginTermDemotesPrimary(t *testing.T) {
 
 		// Now demote the new primary (standby) and promote original primary back
 		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			Force:         true,
 		}
-		_, err = standbyManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		_, err = standbyManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed on new primary")
 		t.Log("New primary (original standby) demoted")
+
+		// Restore demoted standby to working state
+		restoreAfterEmergencyDemotion(t, setup, setup.StandbyPgctld, setup.StandbyMultipooler, setup.StandbyMultipooler.Name)
 
 		// Promote original primary back
 		// Use Force=true since we're testing BeginTerm auto-demote, not term validation

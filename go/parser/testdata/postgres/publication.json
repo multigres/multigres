@@ -39,12 +39,12 @@
   {
     "comment": "publication - Statement 10",
     "query": "CREATE PUBLICATION testpib_ins_trunct WITH (publish = insert)",
-    "expected": "CREATE PUBLICATION testpib_ins_trunct WITH ( publish = \"insert\" )"
+    "expected": "CREATE PUBLICATION testpib_ins_trunct WITH ( publish = insert )"
   },
   {
     "comment": "publication - Statement 11",
     "query": "ALTER PUBLICATION testpub_default SET (publish = update)",
-    "expected": "ALTER PUBLICATION testpub_default SET ( publish = \"update\" )"
+    "expected": "ALTER PUBLICATION testpub_default SET ( publish = update )"
   },
   {
     "comment": "publication - Statement 12",

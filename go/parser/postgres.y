@@ -249,7 +249,10 @@ type ImportQual struct {
 %nonassoc        IDENT SET PARTITION RANGE ROWS GROUPS PRECEDING FOLLOWING CUBE ROLLUP
                 KEYS OBJECT_P SCALAR VALUE_P WITH WITHOUT PATH
 %left            Op OPERATOR
-/* Expression precedence */
+/* Expression precedence - matching PostgreSQL's gram.y */
+%left            '+' '-'
+%left            '*' '/' '%'
+%left            '^'
 %left            AT                /* sets precedence for AT TIME ZONE, AT LOCAL */
 %left            COLLATE
 %right           UMINUS
@@ -257,9 +260,6 @@ type ImportQual struct {
 %left            '(' ')'
 %left            TYPECAST
 %left            '.'
-%left            '+' '-'
-%left            '*' '/' '%'
-%left            '^'
 /* JOIN operators - high precedence to support use as function names */
 %left            JOIN CROSS LEFT FULL RIGHT INNER_P NATURAL
 
@@ -10180,17 +10180,17 @@ CreateFunctionStmt:
 		|	CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
 			RETURNS TABLE '(' table_func_column_list ')' opt_createfunc_opt_list opt_routine_body
 				{
-					// Handle RETURNS TABLE variant
+					// Handle RETURNS TABLE variant - merge table columns into parameters
+					// and create a RECORD return type, matching PostgreSQL's approach
 					stmt := &ast.CreateFunctionStmt{
 						IsProcedure: false,
-						Replace: $2,
-						FuncName: $4,
-						Parameters: $5,
-						ReturnType: nil, // TODO: Handle table return type
-						Options: $11,
-						SQLBody: $12,
+						Replace:     $2,
+						FuncName:    $4,
+						Parameters:  ast.MergeTableFuncParameters($5, $9),
+						ReturnType:  ast.TableFuncTypeName($9),
+						Options:     $11,
+						SQLBody:     $12,
 					}
-					// TODO: Process table_func_column_list into appropriate return type
 					$$ = stmt
 				}
 		|	CREATE opt_or_replace FUNCTION func_name func_args_with_defaults
