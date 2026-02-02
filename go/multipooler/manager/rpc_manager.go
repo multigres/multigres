@@ -29,6 +29,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -900,42 +901,44 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 
 	// Wait for postgres to accept connections after restart
 	// restartPostgresAsStandby uses skip_wait=true, so postgres may not be ready immediately
+	// Use exponential backoff with 10-second timeout
 	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections after demotion")
-	maxRetries := 30
-	var lastErr error
-	for i := range maxRetries {
-		// Check if postgres is ready by querying pg_is_in_recovery
-		queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
-		cancel()
 
-		if err == nil {
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	r := retry.New(100*time.Millisecond, 1*time.Second)
+	var lastErr error
+	for attempt, err := range r.Attempts(waitCtx) {
+		if err != nil {
+			// Context timeout or cancellation
+			pm.logger.WarnContext(ctx, "Postgres did not accept connections within timeout, continuing anyway",
+				"attempts", attempt,
+				"last_error", lastErr,
+				"timeout_error", err)
+			// Don't fail the demotion - postgres will eventually be ready
+			// The cleanup or subsequent operations will retry
+			break
+		}
+
+		// Check if postgres is ready by querying pg_is_in_recovery
+		queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		result, queryErr := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+		queryCancel()
+
+		if queryErr == nil {
 			var inRecovery bool
 			if scanErr := executor.ScanSingleRow(result, &inRecovery); scanErr == nil {
 				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections after demotion",
 					"in_recovery", inRecovery,
-					"attempts", i+1)
-				lastErr = nil
+					"attempts", attempt)
 				break
-			} else {
-				lastErr = scanErr
 			}
+			lastErr = scanErr
 		} else {
-			lastErr = err
+			lastErr = queryErr
 		}
-
-		if i < maxRetries-1 {
-			pm.logger.InfoContext(ctx, "Waiting for postgres to accept connections",
-				"attempt", i+1,
-				"max_retries", maxRetries,
-				"error", lastErr)
-			time.Sleep(1 * time.Second)
-		}
-	}
-	if lastErr != nil {
-		pm.logger.WarnContext(ctx, "Postgres did not accept connections within timeout, continuing anyway", "error", lastErr)
-		// Don't fail the demotion - postgres will eventually be ready
-		// The cleanup or subsequent operations will retry
+		// Will automatically backoff before next attempt
 	}
 
 	// Reset Synchronous Replication Configuration
@@ -1085,40 +1088,48 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 
 	// Wait for postgres to accept connections and verify replication is active
+	// Use exponential backoff with 30-second timeout
 	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections")
-	maxRetries := 30
-	var lastErr error
-	for i := range maxRetries {
-		// Check if postgres is ready by querying pg_is_in_recovery
-		queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
-		cancel()
 
-		if err == nil {
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	r := retry.New(100*time.Millisecond, 1*time.Second)
+	var lastErr error
+	var lastAttempt int
+	connected := false
+	for attempt, err := range r.Attempts(waitCtx) {
+		lastAttempt = attempt
+		if err != nil {
+			// Context timeout or cancellation
+			msg := fmt.Sprintf("postgres did not accept connections after restart (timeout after %d attempts, last error: %v)", attempt, lastErr)
+			return nil, mterrors.Wrap(err, msg)
+		}
+
+		// Check if postgres is ready by querying pg_is_in_recovery
+		queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		result, queryErr := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+		queryCancel()
+
+		if queryErr == nil {
 			var inRecovery bool
 			if scanErr := executor.ScanSingleRow(result, &inRecovery); scanErr == nil {
 				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections",
 					"in_recovery", inRecovery,
-					"attempts", i+1)
-				lastErr = nil
+					"attempts", attempt)
+				connected = true
 				break
-			} else {
-				lastErr = scanErr
 			}
+			lastErr = scanErr
 		} else {
-			lastErr = err
+			lastErr = queryErr
 		}
-
-		if i < maxRetries-1 {
-			pm.logger.InfoContext(ctx, "Waiting for postgres to accept connections",
-				"attempt", i+1,
-				"max_retries", maxRetries,
-				"error", lastErr)
-			time.Sleep(1 * time.Second)
-		}
+		// Will automatically backoff before next attempt
 	}
-	if lastErr != nil {
-		return nil, mterrors.Wrap(lastErr, "postgres did not accept connections after restart")
+
+	if !connected {
+		msg := fmt.Sprintf("postgres did not accept connections after restart (tried %d attempts)", lastAttempt)
+		return nil, mterrors.Wrap(lastErr, msg)
 	}
 
 	// Update topology to REPLICA
