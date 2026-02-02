@@ -1660,16 +1660,8 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 
 // hasCompleteBackups checks if there are any complete backups available
 func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
-	// Acquire action lock to safely check backups
-	lockCtx, err := pm.actionLock.Acquire(ctx, "hasCompleteBackups")
-	if err != nil {
-		// If we can't acquire the lock, assume no backups to avoid blocking
-		return false
-	}
-	defer pm.actionLock.Release(lockCtx)
-
 	// Get list of backups
-	backups, err := pm.listBackups(lockCtx)
+	backups, err := pm.listBackups(ctx)
 	if err != nil {
 		return false
 	}
