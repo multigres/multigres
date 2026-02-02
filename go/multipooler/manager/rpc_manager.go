@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multipooler/executor"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -1003,6 +1004,38 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "pg_rewind failed")
 	}
 
+	// Configure primary_conninfo BEFORE restarting postgres
+	// After pg_rewind, postgres needs to stream WAL from the primary to reach consistent
+	// recovery state. If we try to configure primary_conninfo AFTER starting postgres,
+	// we hit a chicken-and-egg problem: postgres won't accept connections until it
+	// reaches consistent state, but it can't reach consistent state without streaming
+	// WAL, which requires primary_conninfo to be configured.
+	//
+	// Solution: Write primary_conninfo directly to postgresql.auto.conf before starting postgres.
+	pm.logger.InfoContext(ctx, "Configuring replication to source primary before restart",
+		"source", source.Id.Name,
+		"source_host", source.Hostname,
+		"source_port", port)
+
+	pm.mu.Lock()
+	database := pm.multipooler.Database
+	poolerDir := pm.multipooler.PoolerDir
+	pm.primaryPoolerID = source.Id
+	pm.primaryHost = source.Hostname
+	pm.primaryPort = port
+	pm.mu.Unlock()
+
+	appName := generateApplicationName(pm.serviceID)
+	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
+		source.Hostname, port, database, appName)
+
+	// Write primary_conninfo directly to postgresql.auto.conf
+	if err := pm.writePrimaryConnInfoToFile(ctx, poolerDir, connInfo); err != nil {
+		return nil, mterrors.Wrap(err, "failed to write primary_conninfo to file")
+	}
+
+	// Now restart postgres - it will read primary_conninfo from postgresql.auto.conf
+	// and immediately start streaming WAL from the primary
 	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to restart as standby")
 	}
@@ -1011,45 +1044,27 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
 	}
 
-	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
-		"source", source.Id.Name,
-		"source_host", source.Hostname,
-		"source_port", port)
-
-	// Store primary pooler ID for tracking
-	pm.mu.Lock()
-	pm.primaryPoolerID = source.Id
-	pm.primaryHost = source.Hostname
-	pm.primaryPort = port
-	pm.mu.Unlock()
-
-	// Configure primary_conninfo by calling lower-level functions directly
-	// We bypass setPrimaryConnInfoLocked because it checks isPrimary first, which requires
-	// a database connection. But postgres (restarted in standby mode) won't accept connections
-	// until it has primary_conninfo configured to stream WAL and reach consistent recovery state.
-	//
-	// Retry the configuration because postgres may not be accepting connections yet.
-	pm.mu.Lock()
-	database := pm.multipooler.Database
-	pm.mu.Unlock()
-
-	appName := generateApplicationName(pm.serviceID)
-	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		source.Hostname, port, database, appName)
-
+	// Wait for postgres to accept connections and verify replication is active
+	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections")
 	maxRetries := 30
 	var lastErr error
 	for i := range maxRetries {
-		// Try to set primary_conninfo
-		err := pm.setPrimaryConnInfo(ctx, connInfo)
+		// Check if postgres is ready by querying pg_is_in_recovery
+		queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+		cancel()
+
 		if err == nil {
-			// Try to reload config
-			if err = pm.reloadPostgresConfig(ctx); err == nil {
+			var inRecovery bool
+			if scanErr := executor.ScanSingleRow(result, &inRecovery); scanErr == nil {
+				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections",
+					"in_recovery", inRecovery,
+					"attempts", i+1)
 				lastErr = nil
-				pm.logger.InfoContext(ctx, "Successfully configured primary_conninfo")
 				break
+			} else {
+				lastErr = scanErr
 			}
-			lastErr = err
 		} else {
 			lastErr = err
 		}
@@ -1063,7 +1078,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		}
 	}
 	if lastErr != nil {
-		return nil, mterrors.Wrap(lastErr, "failed to configure replication to source primary")
+		return nil, mterrors.Wrap(lastErr, "postgres did not accept connections after restart")
 	}
 
 	// Update topology to REPLICA

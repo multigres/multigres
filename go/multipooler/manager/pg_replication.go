@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -307,6 +308,58 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to reload PostgreSQL configuration")
 	}
 
+	return nil
+}
+
+// writePrimaryConnInfoToFile writes primary_conninfo directly to postgresql.auto.conf
+// This is used during failover recovery when postgres is not yet running and we need
+// to configure replication before starting the server.
+//
+// After pg_rewind, postgres needs primary_conninfo configured BEFORE it starts so it
+// can immediately stream WAL from the primary to reach consistent recovery state.
+func (pm *MultiPoolerManager) writePrimaryConnInfoToFile(ctx context.Context, poolerDir, connInfo string) error {
+	pm.logger.InfoContext(ctx, "Writing primary_conninfo to postgresql.auto.conf", "conninfo", connInfo)
+
+	autoConfPath := poolerDir + "/pg_data/postgresql.auto.conf"
+
+	// Read existing postgresql.auto.conf content
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil && !os.IsNotExist(err) {
+		return mterrors.Wrap(err, "failed to read postgresql.auto.conf")
+	}
+
+	// Parse existing content and update primary_conninfo
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	foundPrimaryConnInfo := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip existing primary_conninfo lines
+		if strings.HasPrefix(trimmed, "primary_conninfo") || strings.HasPrefix(trimmed, "#primary_conninfo") {
+			if !foundPrimaryConnInfo {
+				// Replace with new value
+				newLines = append(newLines, fmt.Sprintf("primary_conninfo = '%s'", connInfo))
+				foundPrimaryConnInfo = true
+			}
+			// Skip the old line
+			continue
+		}
+		newLines = append(newLines, line)
+	}
+
+	// If primary_conninfo wasn't found, add it
+	if !foundPrimaryConnInfo {
+		newLines = append(newLines, fmt.Sprintf("primary_conninfo = '%s'", connInfo))
+	}
+
+	// Write back to file
+	newContent := strings.Join(newLines, "\n")
+	if err := os.WriteFile(autoConfPath, []byte(newContent), 0o644); err != nil {
+		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully wrote primary_conninfo to postgresql.auto.conf")
 	return nil
 }
 
