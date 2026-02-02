@@ -795,12 +795,8 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Pause monitoring during this operation to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
+	// Permanently disable monitoring to prevent accidental postgres restart after emergency demotion
+	pm.disableMonitorInternal()
 
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres

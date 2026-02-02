@@ -190,6 +190,11 @@ func TestConsensus_BeginTerm(t *testing.T) {
 	t.Run("BeginTerm_NewTerm_Accepted", func(t *testing.T) {
 		t.Log("Testing BeginTerm with new term (should be accepted)...")
 
+		// Register cleanup early so it runs even if assertions fail
+		t.Cleanup(func() {
+			restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
+		})
+
 		// Begin term 2 (newer than current term 1)
 		req := &consensusdatapb.BeginTermRequest{
 			Term: 2,
@@ -222,9 +227,6 @@ func TestConsensus_BeginTerm(t *testing.T) {
 			return err == nil && statusResp.Status == pgctldpb.ServerStatus_STOPPED
 		}, 10*time.Second, 1*time.Second, "PostgreSQL should be stopped after emergency demotion from BeginTerm on pooler: %s", setup.PrimaryMultipooler.Name)
 		t.Log("Confirmed: PostgreSQL stopped after emergency demotion")
-
-		// BeginTerm on primary triggers emergency demotion - restore to working state
-		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
 
 		t.Log("BeginTerm correctly granted for new term")
 	})
