@@ -74,7 +74,7 @@ func (p *Planner) Plan(
 		return p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn)
 
 	case ast.T_CopyStmt:
-		return p.planCopyStmt(sql, stmt.(*ast.CopyStmt), conn)
+		return p.planCopyStmt(sql, stmt.(*ast.CopyStmt))
 
 	// Future: Add more statement types here
 	// case ast.T_TransactionStmt:

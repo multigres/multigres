@@ -26,13 +26,11 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// CopyState tracks the state of an active COPY FROM STDIN operation
+// CopyState tracks the state of an active COPY FROM STDIN operation.
+// Reserved connection info is stored in ShardStates (same as regular queries).
+// CopyState only tracks the bidirectional gRPC stream used for COPY data transfer.
 type CopyState struct {
-	Query          string                                                           // Original COPY query
-	ReservedConnID uint64                                                           // Pooler reserved connection ID
-	PoolerID       *clustermetadata.ID                                              // Pooler ID owning the connection
-	Format         int16                                                            // COPY format (0=text, 1=binary)
-	Stream         multipoolerservice.MultiPoolerService_BidirectionalExecuteClient // Bidirectional gRPC stream
+	Stream multipoolerservice.MultiPoolerService_BidirectionalExecuteClient // Bidirectional gRPC stream
 }
 
 // MultiGatewayConnectionState keeps track of the information specific
@@ -211,53 +209,11 @@ func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string
 	}
 }
 
-// EnterCopyMode initializes COPY state when starting a COPY operation
-// If a stream was already set via SetCopyStream, it will be preserved
-func (m *MultiGatewayConnectionState) EnterCopyMode(query string, reservedConnID uint64, poolerID *clustermetadata.ID, format int16, stream multipoolerservice.MultiPoolerService_BidirectionalExecuteClient) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Preserve existing stream if one was already set
-	existingStream := stream
-	if m.CopyState != nil && m.CopyState.Stream != nil {
-		existingStream = m.CopyState.Stream
-	}
-
-	m.CopyState = &CopyState{
-		Query:          query,
-		ReservedConnID: reservedConnID,
-		PoolerID:       poolerID,
-		Format:         format,
-		Stream:         existingStream,
-	}
-}
-
-// ExitCopyMode clears COPY state when operation completes
-func (m *MultiGatewayConnectionState) ExitCopyMode() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.CopyState = nil
-}
-
-// IsInCopyMode returns true if currently in COPY mode
+// IsInCopyMode returns true if currently in COPY mode (has an active stream)
 func (m *MultiGatewayConnectionState) IsInCopyMode() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.CopyState != nil
-}
-
-// Note: AppendCopyData and FlushCopyBuffer were removed as we now stream
-// COPY data immediately without buffering. All CopyData messages are sent
-// directly to the pooler as they arrive from the client.
-
-// GetCopyReservedConn returns the reserved connection info for COPY
-func (m *MultiGatewayConnectionState) GetCopyReservedConn() (uint64, *clustermetadata.ID) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.CopyState != nil {
-		return m.CopyState.ReservedConnID, m.CopyState.PoolerID
-	}
-	return 0, nil
+	return m.CopyState != nil && m.CopyState.Stream != nil
 }
 
 // GetCopyStream returns the bidirectional gRPC stream for COPY
@@ -293,15 +249,6 @@ func (m *MultiGatewayConnectionState) ClearCopyStream() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.CopyState != nil {
-		// Clear the stream reference without closing it
-		// The stream lifecycle is managed elsewhere
-		m.CopyState.Stream = nil
-
-		// If we haven't entered full COPY mode yet (ReservedConnID not set),
-		// clear the entire state since initiation never completed
-		if m.CopyState.ReservedConnID == 0 {
-			m.CopyState = nil
-		}
-	}
+	// Clear the entire CopyState since Stream is the only field
+	m.CopyState = nil
 }

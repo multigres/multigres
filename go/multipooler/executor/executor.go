@@ -429,7 +429,6 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 // HandleCopyInitiate handles the INITIATE phase of a COPY operation
 // It sends the COPY command to PostgreSQL and reads the CopyInResponse or CopyOutResponse
 // Returns: reservedConnID, poolerID, format, error
-// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
 func (e *Executor) HandleCopyInitiate(
 	ctx context.Context,
 	copyQuery string,
@@ -484,7 +483,6 @@ func (e *Executor) HandleCopyInitiate(
 
 // HandleCopyData handles the DATA phase of a COPY FROM STDIN operation
 // It writes the data chunk to PostgreSQL
-// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
 func (e *Executor) HandleCopyData(
 	ctx context.Context,
 	reservedConnID uint64,
@@ -520,7 +518,6 @@ func (e *Executor) HandleCopyData(
 
 // HandleCopyDone handles the DONE phase of a COPY operation
 // For COPY FROM STDIN: sends remaining data and CopyDone, waits for CommandComplete
-// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
 func (e *Executor) HandleCopyDone(
 	ctx context.Context,
 	reservedConnID uint64,
@@ -586,7 +583,6 @@ func (e *Executor) HandleCopyDone(
 
 // HandleCopyFail handles the FAIL phase of a COPY operation
 // It sends CopyFail to PostgreSQL to abort the operation
-// Note: This is a stub - full implementation pending access to raw PostgreSQL client methods
 func (e *Executor) HandleCopyFail(
 	ctx context.Context,
 	reservedConnID uint64,

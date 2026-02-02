@@ -18,6 +18,7 @@ package grpcpoolerservice
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -28,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/pb/query"
 )
 
 // poolerService is the gRPC wrapper for MultiPooler
@@ -332,7 +334,7 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 }
 
 // getUserFromOptions extracts the user from ExecuteOptions, defaulting to "postgres"
-func getUserFromOptions(options *querypb.ExecuteOptions) string {
+func getUserFromOptions(options *query.ExecuteOptions) string {
 	if options != nil && options.User != "" {
 		return options.User
 	}

@@ -64,7 +64,7 @@ type Gateway interface {
 	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
 
 	// GetBidirectionalExecuteStream creates a bidirectional stream for commands requiring streaming (e.g., COPY)
-	GetBidirectionalExecuteStream(ctx context.Context, target *query.Target) (multipoolerservice.MultiPoolerService_BidirectionalExecuteClient, error)
+	GetBidirectionalExecuteStream(ctx context.Context, target *query.Target) (multipoolerpb.MultiPoolerService_BidirectionalExecuteClient, error)
 }
 
 // PoolerGateway selects and manages connections to multipooler instances.
@@ -399,7 +399,7 @@ func (pg *PoolerGateway) Stats() map[string]any {
 func (pg *PoolerGateway) GetBidirectionalExecuteStream(
 	ctx context.Context,
 	target *query.Target,
-) (multipoolerservice.MultiPoolerService_BidirectionalExecuteClient, error) {
+) (multipoolerpb.MultiPoolerService_BidirectionalExecuteClient, error) {
 	// Get a pooler matching the target
 	pooler := pg.discovery.GetPooler(target)
 	if pooler == nil {
@@ -431,7 +431,7 @@ func (pg *PoolerGateway) GetBidirectionalExecuteStream(
 	pg.mu.Unlock()
 
 	// Create the gRPC client
-	client := multipoolerservice.NewMultiPoolerServiceClient(conn.conn)
+	client := multipoolerpb.NewMultiPoolerServiceClient(conn.conn)
 
 	// Start the bidirectional stream
 	stream, err := client.BidirectionalExecute(ctx)

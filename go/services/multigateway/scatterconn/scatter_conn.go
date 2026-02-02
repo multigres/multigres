@@ -272,39 +272,35 @@ func (sc *ScatterConn) Describe(
 // --- COPY FROM STDIN methods ---
 
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
-// Returns: reservedConnID, poolerID, format, columnFormats, error
+// Stores reserved connection info in state.ShardStates for the given tableGroup/shard.
+// Returns: format, columnFormats, error
 func (sc *ScatterConn) CopyInitiate(
 	ctx context.Context,
 	conn *server.Conn,
+	tableGroup string,
+	shard string,
 	queryStr string,
+	state *handler.MultiGatewayConnectionState,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
-) (uint64, *clustermetadatapb.ID, int16, []int16, error) {
+) (int16, []int16, error) {
 	sc.logger.DebugContext(ctx, "initiating COPY FROM STDIN",
 		"query", queryStr,
+		"tablegroup", tableGroup,
+		"shard", shard,
 		"user", conn.User(),
 		"database", conn.Database())
 
-	// For COPY operations, we need to get the table group from somewhere
-	// Since ScatterConn doesn't have access to the planner, we'll use a default
-	// In practice, this will be called by CopyStatement which knows the table group
-	// but we need to extract it from context or pass it differently
-	// For now, hardcode to "default" - this matches what Executor does
-	const defaultTableGroup = "default"
-
 	// Create target for routing - COPY always goes to PRIMARY
 	target := &query.Target{
-		TableGroup: defaultTableGroup,
+		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      "",
+		Shard:      shard,
 	}
-
-	// Get connection state
-	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
 
 	// Create bidirectional stream
 	stream, err := sc.gateway.GetBidirectionalExecuteStream(ctx, target)
 	if err != nil {
-		return 0, nil, 0, nil, fmt.Errorf("failed to create bidirectional execute stream: %w", err)
+		return 0, nil, fmt.Errorf("failed to create bidirectional execute stream: %w", err)
 	}
 
 	// Send INITIATE message (but don't store stream yet)
@@ -321,7 +317,7 @@ func (sc *ScatterConn) CopyInitiate(
 	}
 
 	if err := stream.Send(initiateReq); err != nil {
-		return 0, nil, 0, nil, fmt.Errorf("failed to send INITIATE: %w", err)
+		return 0, nil, fmt.Errorf("failed to send INITIATE: %w", err)
 	}
 
 	sc.logger.DebugContext(ctx, "sent INITIATE message")
@@ -329,21 +325,28 @@ func (sc *ScatterConn) CopyInitiate(
 	// Receive READY response (CopyInResponse for COPY FROM STDIN)
 	resp, err := stream.Recv()
 	if err != nil {
-		return 0, nil, 0, nil, fmt.Errorf("failed to receive READY response: %w", err)
+		return 0, nil, fmt.Errorf("failed to receive READY response: %w", err)
 	}
 
 	// Check for ERROR response
 	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
-		return 0, nil, 0, nil, fmt.Errorf("operation failed: %s", resp.Error)
+		return 0, nil, fmt.Errorf("operation failed: %s", resp.Error)
 	}
 
 	// Validate READY response
 	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_READY {
-		return 0, nil, 0, nil, fmt.Errorf("expected READY, got %v", resp.Phase)
+		return 0, nil, fmt.Errorf("expected READY, got %v", resp.Phase)
 	}
 
-	// SUCCESS - Store stream ONLY after initiation succeeds
+	// SUCCESS - Store stream and reserved connection in state
 	state.SetCopyStream(stream)
+
+	// Store reserved connection in ShardStates (same pattern as regular queries)
+	reservedState := queryservice.ReservedState{
+		ReservedConnectionId: resp.ReservedConnectionId,
+		PoolerID:             resp.PoolerId,
+	}
+	state.StoreReservedConnection(target, reservedState)
 
 	// Convert columnFormats from []int32 to []int16
 	columnFormats := make([]int16, len(resp.ColumnFormats))
@@ -356,23 +359,25 @@ func (sc *ScatterConn) CopyInitiate(
 		"format", resp.Format,
 		"num_columns", len(columnFormats))
 
-	return resp.ReservedConnectionId, resp.PoolerId, int16(resp.Format), columnFormats, nil
+	return int16(resp.Format), columnFormats, nil
 }
 
 // CopySendData sends a chunk of COPY data via bidirectional stream.
+// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
 func (sc *ScatterConn) CopySendData(
 	ctx context.Context,
 	conn *server.Conn,
-	reservedConnID uint64,
-	poolerID *clustermetadatapb.ID,
+	tableGroup string,
+	shard string,
+	state *handler.MultiGatewayConnectionState,
 	data []byte,
 ) error {
 	sc.logger.DebugContext(ctx, "sending COPY data chunk",
 		"size", len(data),
-		"reserved_conn_id", reservedConnID)
+		"tablegroup", tableGroup,
+		"shard", shard)
 
 	// Get the stream from connection state
-	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
 	stream := state.GetCopyStream()
 	if stream == nil {
 		return errors.New("no active bidirectional execute stream")
@@ -394,20 +399,22 @@ func (sc *ScatterConn) CopySendData(
 }
 
 // CopyFinalize sends the final chunk and CopyDone via bidirectional stream.
+// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
 func (sc *ScatterConn) CopyFinalize(
 	ctx context.Context,
 	conn *server.Conn,
-	reservedConnID uint64,
-	poolerID *clustermetadatapb.ID,
+	tableGroup string,
+	shard string,
+	state *handler.MultiGatewayConnectionState,
 	finalData []byte,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
 	sc.logger.DebugContext(ctx, "finalizing COPY",
 		"final_chunk_size", len(finalData),
-		"reserved_conn_id", reservedConnID)
+		"tablegroup", tableGroup,
+		"shard", shard)
 
 	// Get the stream from connection state
-	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
 	stream := state.GetCopyStream()
 	if stream == nil {
 		return errors.New("no active bidirectional execute stream")
@@ -456,17 +463,19 @@ func (sc *ScatterConn) CopyFinalize(
 }
 
 // CopyAbort aborts the COPY operation via bidirectional stream.
+// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
 func (sc *ScatterConn) CopyAbort(
 	ctx context.Context,
 	conn *server.Conn,
-	reservedConnID uint64,
-	poolerID *clustermetadatapb.ID,
+	tableGroup string,
+	shard string,
+	state *handler.MultiGatewayConnectionState,
 ) error {
 	sc.logger.DebugContext(ctx, "aborting COPY",
-		"reserved_conn_id", reservedConnID)
+		"tablegroup", tableGroup,
+		"shard", shard)
 
 	// Get the stream from connection state
-	state := conn.GetConnectionState().(*handler.MultiGatewayConnectionState)
 	stream := state.GetCopyStream()
 	if stream == nil {
 		// Already cleaned up

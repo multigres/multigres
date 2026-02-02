@@ -17,7 +17,6 @@ package planner
 import (
 	"errors"
 
-	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/multigateway/engine"
 	"github.com/multigres/multigres/go/parser/ast"
 )
@@ -28,7 +27,6 @@ import (
 func (p *Planner) planCopyStmt(
 	sql string,
 	stmt *ast.CopyStmt,
-	conn *server.Conn,
 ) (*engine.Plan, error) {
 	// SECURITY: Reject COPY FROM/TO PROGRAM (arbitrary command execution)
 	if stmt.IsProgram {

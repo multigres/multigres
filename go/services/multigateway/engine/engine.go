@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/multigateway/handler"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -101,41 +102,53 @@ type IExecute interface {
 	) (*query.StatementDescription, error)
 
 	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---
+	// These methods follow the same pattern as StreamExecute: they take tableGroup/shard
+	// and manage reserved connection state internally via state.ShardStates.
 
 	// CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
-	// Returns: reservedConnID, poolerID, format, columnFormats, error
+	// Stores reserved connection info in state.ShardStates for the given tableGroup/shard.
+	// Returns: format, columnFormats, error
 	CopyInitiate(
 		ctx context.Context,
 		conn *server.Conn,
+		tableGroup string,
+		shard string,
 		queryStr string,
+		state *handler.MultiGatewayConnectionState,
 		callback func(ctx context.Context, result *sqltypes.Result) error,
-	) (reservedConnID uint64, poolerID *clustermetadata.ID, format int16, columnFormats []int16, err error)
+	) (format int16, columnFormats []int16, err error)
 
 	// CopySendData sends a chunk of COPY data via bidirectional stream.
+	// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
 	CopySendData(
 		ctx context.Context,
 		conn *server.Conn,
-		reservedConnID uint64,
-		poolerID *clustermetadata.ID,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
 		data []byte,
 	) error
 
 	// CopyFinalize sends the final chunk and CopyDone via bidirectional stream.
+	// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
 	CopyFinalize(
 		ctx context.Context,
 		conn *server.Conn,
-		reservedConnID uint64,
-		poolerID *clustermetadata.ID,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
 		finalData []byte,
 		callback func(ctx context.Context, result *sqltypes.Result) error,
 	) error
 
 	// CopyAbort aborts the COPY operation via bidirectional stream.
+	// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
 	CopyAbort(
 		ctx context.Context,
 		conn *server.Conn,
-		reservedConnID uint64,
-		poolerID *clustermetadata.ID,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
 	) error
 }
 
