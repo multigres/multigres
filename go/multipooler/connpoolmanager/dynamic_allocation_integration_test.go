@@ -203,52 +203,65 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 	})
 	defer manager.Close()
 
+	ctx := t.Context()
+	// Start with 2 users under heavy load (each wanting 5 connections)
+	var wg sync.WaitGroup
 	var mu sync.Mutex
 	conns := make(map[string][]regular.PooledConn)
+	ready := make(chan struct{})
+	release := make(chan struct{})
 
-	// Start with 2 users under load - each acquires connections within capacity.
-	// We use a short timeout context so requests that can't be satisfied don't block forever.
+	// User1 and User2 each request 10 connections concurrently
 	for _, user := range []string{"user1", "user2"} {
-		for range 5 {
-			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
-			conn, err := manager.GetRegularConn(ctx, user)
-			cancel()
-			if err == nil {
-				mu.Lock()
-				conns[user] = append(conns[user], conn)
-				mu.Unlock()
-			}
+		for i := range 10 {
+			shouldRelease := i > 3
+			wg.Add(1)
+			go func(u string, shouldRelease bool) {
+				defer wg.Done()
+				<-ready
+				conn, err := manager.GetRegularConn(ctx, u)
+				if err == nil {
+					if !shouldRelease {
+						mu.Lock()
+						conns[u] = append(conns[u], conn)
+						mu.Unlock()
+					}
+				}
+				if !shouldRelease {
+					return
+				}
+				<-release
+				conn.Recycle()
+			}(user, shouldRelease)
 		}
 	}
+	close(ready)
 
 	// Wait for rebalancer to run
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, 2, manager.UserPoolCount())
-
-	// Release some connections to make room for user3.
-	mu.Lock()
-	for _, user := range []string{"user1", "user2"} {
-		// Release half of each user's connections
-		half := len(conns[user]) / 2
-		for i := range half {
-			conns[user][i].Recycle()
-		}
-		conns[user] = conns[user][half:]
+	// Both users should have equal capacity
+	stats := manager.Stats()
+	for user, poolStats := range stats.UserPools {
+		assert.Equal(t, poolStats.Regular.Capacity, int64(6),
+			"user %s should have half of total capacity", user)
 	}
-	mu.Unlock()
 
-	// Now add a 3rd user during load - they should get connections from the freed capacity
+	// Now add a 3rd user during load
 	for range 4 {
-		ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
-		conn, err := manager.GetRegularConn(ctx, "user3")
-		cancel()
-		if err == nil {
-			mu.Lock()
-			conns["user3"] = append(conns["user3"], conn)
-			mu.Unlock()
-		}
+		wg.Go(func() {
+			conn, err := manager.GetRegularConn(ctx, "user3")
+			if err == nil {
+				mu.Lock()
+				conns["user3"] = append(conns["user3"], conn)
+				mu.Unlock()
+			}
+		})
 	}
+
+	// They should get connections just as they are released from the other users
+	close(release)
 
 	// Wait for rebalancer to redistribute
 	time.Sleep(100 * time.Millisecond)
@@ -256,7 +269,7 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 	assert.Equal(t, 3, manager.UserPoolCount())
 
 	// All users should have capacity
-	stats := manager.Stats()
+	stats = manager.Stats()
 	for user, poolStats := range stats.UserPools {
 		assert.GreaterOrEqual(t, poolStats.Regular.Capacity, int64(1),
 			"user %s should have capacity after new user arrived", user)
@@ -276,6 +289,8 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 		}
 	}
 	mu.Unlock()
+	// Make sure all go routines have returned.
+	wg.Wait()
 }
 
 // TestDynamicAllocation_UserDepartureDuringLoad tests that when users
