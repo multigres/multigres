@@ -73,9 +73,6 @@ type Config struct {
 	userReservedIdleTimeout       viperutil.Value[time.Duration] // For underlying pool connections
 	userReservedMaxLifetime       viperutil.Value[time.Duration]
 
-	// Maximum number of user pools (0 = unlimited)
-	maxUsers viperutil.Value[int64]
-
 	// Settings cache size (0 = use default)
 	settingsCacheSize viperutil.Value[int64]
 
@@ -123,9 +120,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		userReservedInactivityTimeout = 30 * time.Second // Aggressive - kills reserved connections if client inactive
 		userReservedIdleTimeout       = 5 * time.Minute  // Less aggressive - for pool size reduction
 		userReservedMaxLifetime       = 1 * time.Hour
-
-		// Maximum number of user pools (0 = unlimited)
-		maxUsers int64 = 0
 
 		// Settings cache size
 		settingsCacheSize int64 = 1024
@@ -190,12 +184,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			FlagName: "connpool-user-reserved-max-lifetime",
 		}),
 
-		// Maximum number of user pools
-		maxUsers: viperutil.Configure(reg, "connpool.max-users", viperutil.Options[int64]{
-			Default:  maxUsers,
-			FlagName: "connpool-max-users",
-		}),
-
 		// Settings cache size
 		settingsCacheSize: viperutil.Configure(reg, "connpool.settings-cache-size", viperutil.Options[int64]{
 			Default:  settingsCacheSize,
@@ -254,9 +242,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-user-reserved-idle-timeout", c.userReservedIdleTimeout.Default(), "How long a connection in the reserved pool can remain idle before being closed")
 	fs.Duration("connpool-user-reserved-max-lifetime", c.userReservedMaxLifetime.Default(), "Maximum lifetime of a user's reserved connection before recycling")
 
-	// Max users flag
-	fs.Int64("connpool-max-users", c.maxUsers.Default(), "Maximum number of user pools (0 = unlimited)")
-
 	// Settings cache size flag
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
 
@@ -280,7 +265,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.userReservedInactivityTimeout,
 		c.userReservedIdleTimeout,
 		c.userReservedMaxLifetime,
-		c.maxUsers,
 		c.settingsCacheSize,
 		c.globalCapacity,
 		c.reservedRatio,
@@ -333,11 +317,6 @@ func (c *Config) UserReservedIdleTimeout() time.Duration {
 // UserReservedMaxLifetime returns the per-user reserved pool max lifetime.
 func (c *Config) UserReservedMaxLifetime() time.Duration {
 	return c.userReservedMaxLifetime.Get()
-}
-
-// MaxUsers returns the maximum number of user pools (0 = unlimited).
-func (c *Config) MaxUsers() int64 {
-	return c.maxUsers.Get()
 }
 
 // SettingsCacheSize returns the settings cache size.

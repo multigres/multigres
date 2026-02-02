@@ -59,7 +59,6 @@ func TestConfig_DefaultValues(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, config.userReservedIdleTimeout.Default())
 	assert.Equal(t, 1*time.Hour, config.userReservedMaxLifetime.Default())
 
-	assert.Equal(t, int64(0), config.maxUsers.Default())
 	assert.Equal(t, int64(1024), config.settingsCacheSize.Default())
 }
 
@@ -112,7 +111,6 @@ func TestConfig_Getters_ReturnDefaults(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, config.UserReservedIdleTimeout())
 	assert.Equal(t, 1*time.Hour, config.UserReservedMaxLifetime())
 
-	assert.Equal(t, int64(0), config.MaxUsers())
 	assert.Equal(t, 1024, config.SettingsCacheSize())
 }
 
