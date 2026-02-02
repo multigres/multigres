@@ -761,6 +761,10 @@ func (m *mockPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRewindR
 	return &pgctldpb.PgRewindResponse{}, nil
 }
 
+func (m *mockPgctldClient) CrashRecovery(ctx context.Context, req *pgctldpb.CrashRecoveryRequest, opts ...grpc.CallOption) (*pgctldpb.CrashRecoveryResponse, error) {
+	return &pgctldpb.CrashRecoveryResponse{}, nil
+}
+
 // mockPgctldClientWithCounter extends mockPgctldClient with call counters
 type mockPgctldClientWithCounter struct {
 	mockPgctldClient

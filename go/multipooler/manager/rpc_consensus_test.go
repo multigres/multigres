@@ -177,7 +177,8 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-B",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// No health check expected - rejection happens before health check
+				// because we already accepted a different candidate in this term
 			},
 			expectedAccepted:                    false,
 			expectedTerm:                        5,

@@ -48,20 +48,6 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// CRITICAL: Must be able to reach Postgres to participate in cohort
-	// Test database connectivity with a simple query
-	if _, err = pm.query(ctx, "SELECT 1"); err != nil {
-		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
-	}
-
-	// Check if we're currently a primary (before any term changes)
-	wasPrimary, err := pm.isPrimary(ctx)
-	if err != nil {
-		// If we can't determine role, log warning but continue
-		pm.logger.WarnContext(ctx, "Failed to determine if primary", "error", err)
-		wasPrimary = false
-	}
-
 	// Get current consensus state
 	pm.mu.Lock()
 	cs := pm.consensusState
@@ -98,6 +84,23 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		if !proto.Equal(term.AcceptedTermFromCoordinatorId, req.CandidateId) {
 			return response, nil
 		}
+	}
+
+	// CRITICAL: Must be able to reach Postgres to participate in cohort
+	// We check health here (after rejection logic) because:
+	// - We don't need postgres healthy to reject old/duplicate terms
+	// - We DO need postgres healthy to accept terms (for demotion checks, etc.)
+	// This prevents spurious errors when postgres is temporarily unavailable (e.g., during restart)
+	if _, err = pm.query(ctx, "SELECT 1"); err != nil {
+		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
+	}
+
+	// Check if we're currently a primary (before any term changes)
+	wasPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		// If we can't determine role, log warning but continue
+		pm.logger.WarnContext(ctx, "Failed to determine if primary", "error", err)
+		wasPrimary = false
 	}
 
 	// If we're a primary accepting a higher term, we must demote FIRST.

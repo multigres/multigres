@@ -24,10 +24,12 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/multipooler/executor"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -909,6 +911,49 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 		return nil, err
 	}
 
+	// Wait for postgres to accept connections after restart
+	// restartPostgresAsStandby uses skip_wait=true, so postgres may not be ready immediately
+	// Use exponential backoff with 10-second timeout
+	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections after demotion")
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	r := retry.New(100*time.Millisecond, 1*time.Second)
+	var lastErr error
+	for attempt, err := range r.Attempts(waitCtx) {
+		if err != nil {
+			// Context timeout or cancellation
+			pm.logger.WarnContext(ctx, "Postgres did not accept connections within timeout, continuing anyway",
+				"attempts", attempt,
+				"last_error", lastErr,
+				"timeout_error", err)
+			// Don't fail the demotion - postgres will eventually be ready
+			// The cleanup or subsequent operations will retry
+			break
+		}
+
+		// Check if postgres is ready by querying pg_is_in_recovery
+		queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		result, queryErr := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+		queryCancel()
+
+		if queryErr == nil {
+			var inRecovery bool
+			scanErr := executor.ScanSingleRow(result, &inRecovery)
+			if scanErr == nil {
+				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections after demotion",
+					"in_recovery", inRecovery,
+					"attempts", attempt)
+				break
+			}
+			lastErr = scanErr
+		} else {
+			lastErr = queryErr
+		}
+		// Will automatically backoff before next attempt
+	}
+
 	// Reset Synchronous Replication Configuration
 	// Now that the server is read-only, it's safe to clear sync replication settings
 	// This ensures we don't have a window where writes could be accepted with incorrect replication config
@@ -1015,6 +1060,38 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "pg_rewind failed")
 	}
 
+	// Configure primary_conninfo BEFORE restarting postgres
+	// After pg_rewind, postgres needs to stream WAL from the primary to reach consistent
+	// recovery state. If we try to configure primary_conninfo AFTER starting postgres,
+	// we hit a chicken-and-egg problem: postgres won't accept connections until it
+	// reaches consistent state, but it can't reach consistent state without streaming
+	// WAL, which requires primary_conninfo to be configured.
+	//
+	// Solution: Write primary_conninfo directly to postgresql.auto.conf before starting postgres.
+	pm.logger.InfoContext(ctx, "Configuring replication to source primary before restart",
+		"source", source.Id.Name,
+		"source_host", source.Hostname,
+		"source_port", port)
+
+	pm.mu.Lock()
+	database := pm.multipooler.Database
+	poolerDir := pm.multipooler.PoolerDir
+	pm.primaryPoolerID = source.Id
+	pm.primaryHost = source.Hostname
+	pm.primaryPort = port
+	pm.mu.Unlock()
+
+	appName := generateApplicationName(pm.serviceID)
+	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
+		source.Hostname, port, database, appName)
+
+	// Write primary_conninfo directly to postgresql.auto.conf
+	if err := pm.writePrimaryConnInfoToFile(ctx, poolerDir, connInfo); err != nil {
+		return nil, mterrors.Wrap(err, "failed to write primary_conninfo to file")
+	}
+
+	// Now restart postgres - it will read primary_conninfo from postgresql.auto.conf
+	// and immediately start streaming WAL from the primary
 	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to restart as standby")
 	}
@@ -1023,22 +1100,50 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
 	}
 
-	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
-		"source", source.Id.Name,
-		"source_host", source.Hostname,
-		"source_port", port)
+	// Wait for postgres to accept connections and verify replication is active
+	// Use exponential backoff with 30-second timeout
+	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections")
 
-	// Store primary pooler ID for tracking
-	pm.mu.Lock()
-	pm.primaryPoolerID = source.Id
-	pm.primaryHost = source.Hostname
-	pm.primaryPort = port
-	pm.mu.Unlock()
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 
-	// Call the locked version directly since we already hold the action lock
-	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
-	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
-		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
+	r := retry.New(100*time.Millisecond, 1*time.Second)
+	var lastErr error
+	var lastAttempt int
+	connected := false
+	for attempt, err := range r.Attempts(waitCtx) {
+		lastAttempt = attempt
+		if err != nil {
+			// Context timeout or cancellation
+			msg := fmt.Sprintf("postgres did not accept connections after restart (timeout after %d attempts, last error: %v)", attempt, lastErr)
+			return nil, mterrors.Wrap(err, msg)
+		}
+
+		// Check if postgres is ready by querying pg_is_in_recovery
+		queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		result, queryErr := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
+		queryCancel()
+
+		if queryErr == nil {
+			var inRecovery bool
+			scanErr := executor.ScanSingleRow(result, &inRecovery)
+			if scanErr == nil {
+				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections",
+					"in_recovery", inRecovery,
+					"attempts", attempt)
+				connected = true
+				break
+			}
+			lastErr = scanErr
+		} else {
+			lastErr = queryErr
+		}
+		// Will automatically backoff before next attempt
+	}
+
+	if !connected {
+		msg := fmt.Sprintf("postgres did not accept connections after restart (tried %d attempts)", lastAttempt)
+		return nil, mterrors.Wrap(lastErr, msg)
 	}
 
 	// Update topology to REPLICA
@@ -1451,10 +1556,18 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 
 	pm.logger.InfoContext(ctx, "Stopping postgres if running")
 
-	// Close manager to release connections
-	if err := pm.Close(); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to close manager", "error", err)
+	// Close ONLY connection pools to release database connections.
+	// This allows postgres to stop cleanly without waiting for connections,
+	// but keeps the manager operational for subsequent operations.
+	pm.mu.Lock()
+	if pm.replTracker != nil {
+		pm.replTracker.Close()
+		pm.replTracker = nil
 	}
+	if pm.connPoolMgr != nil {
+		pm.connPoolMgr.Close()
+	}
+	pm.mu.Unlock()
 
 	// Stop postgres (no-op if already stopped)
 	stopReq := &pgctldpb.StopRequest{Mode: "fast"}
@@ -1470,6 +1583,23 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string, sourcePort int32) (bool, error) {
 	if pm.pgctldClient == nil {
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
+	}
+
+	// Run crash recovery if needed before pg_rewind
+	pm.logger.InfoContext(ctx, "Checking if crash recovery needed before pg_rewind")
+	crashRecoveryResp, err := pm.pgctldClient.CrashRecovery(ctx, &pgctldpb.CrashRecoveryRequest{})
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "Crash recovery check failed", "error", err)
+		return false, mterrors.Wrap(err, "crash recovery check failed")
+	}
+
+	if crashRecoveryResp.RecoveryPerformed {
+		pm.logger.InfoContext(ctx, "Crash recovery performed successfully",
+			"state_before", crashRecoveryResp.StateBefore,
+			"state_after", crashRecoveryResp.StateAfter)
+	} else {
+		pm.logger.InfoContext(ctx, "No crash recovery needed, database already clean",
+			"state", crashRecoveryResp.StateBefore)
 	}
 
 	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run", "source_host", sourceHost, "source_port", sourcePort)
