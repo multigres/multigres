@@ -23,12 +23,12 @@ import (
 )
 
 func TestFairShareAllocator_New(t *testing.T) {
-	alloc := NewFairShareAllocator(100)
+	alloc := NewFairShareAllocator(100, 1)
 	assert.Equal(t, int64(100), alloc.Capacity())
 }
 
 func TestFairShareAllocator_EmptyDemands(t *testing.T) {
-	alloc := NewFairShareAllocator(100)
+	alloc := NewFairShareAllocator(100, 1)
 	result := alloc.Allocate(map[string]int64{})
 
 	assert.Empty(t, result)
@@ -69,7 +69,7 @@ func TestFairShareAllocator_SingleUser(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			alloc := NewFairShareAllocator(tc.capacity)
+			alloc := NewFairShareAllocator(tc.capacity, 1)
 			result := alloc.Allocate(map[string]int64{
 				"userA": tc.demand,
 			})
@@ -82,7 +82,7 @@ func TestFairShareAllocator_SingleUser(t *testing.T) {
 
 func TestFairShareAllocator_EqualDemand(t *testing.T) {
 	// Two users with equal demand that fits within capacity
-	alloc := NewFairShareAllocator(100)
+	alloc := NewFairShareAllocator(100, 1)
 	result := alloc.Allocate(map[string]int64{
 		"userA": 30,
 		"userB": 30,
@@ -98,7 +98,7 @@ func TestFairShareAllocator_MaxMinFairness(t *testing.T) {
 	// Capacity: 400
 	// User A wants 150, User B wants 100, User C wants 80
 	// All should be satisfied since total demand (330) < capacity (400)
-	alloc := NewFairShareAllocator(400)
+	alloc := NewFairShareAllocator(400, 1)
 
 	result := alloc.Allocate(map[string]int64{
 		"userA": 150,
@@ -115,7 +115,7 @@ func TestFairShareAllocator_MaxMinFairness(t *testing.T) {
 func TestFairShareAllocator_DemandExceedsCapacity(t *testing.T) {
 	// Three users each want 50, but only 100 capacity
 	// Fair share = 100/3 ≈ 33 each
-	alloc := NewFairShareAllocator(100)
+	alloc := NewFairShareAllocator(100, 1)
 
 	result := alloc.Allocate(map[string]int64{
 		"userA": 50,
@@ -136,7 +136,7 @@ func TestFairShareAllocator_DemandExceedsCapacity(t *testing.T) {
 func TestFairShareAllocator_MixedSatisfaction(t *testing.T) {
 	// User A wants a lot, User B wants a little
 	// B should be fully satisfied, A gets the rest
-	alloc := NewFairShareAllocator(100)
+	alloc := NewFairShareAllocator(100, 1)
 
 	result := alloc.Allocate(map[string]int64{
 		"userA": 200, // Wants more than capacity
@@ -151,7 +151,7 @@ func TestFairShareAllocator_MixedSatisfaction(t *testing.T) {
 
 func TestFairShareAllocator_ZeroDemandUser(t *testing.T) {
 	// User with zero demand should still get minimum 1
-	alloc := NewFairShareAllocator(100)
+	alloc := NewFairShareAllocator(100, 1)
 
 	result := alloc.Allocate(map[string]int64{
 		"active": 50,
@@ -166,8 +166,8 @@ func TestFairShareAllocator_TwoAllocatorsForDifferentResources(t *testing.T) {
 	// Demonstrate using two allocators for regular and reserved pools
 	// This is how it would be used in the rebalancer
 
-	regularAlloc := NewFairShareAllocator(400)  // 80% of 500
-	reservedAlloc := NewFairShareAllocator(100) // 20% of 500
+	regularAlloc := NewFairShareAllocator(400, 1)  // 80% of 500
+	reservedAlloc := NewFairShareAllocator(100, 1) // 20% of 500
 
 	// User A: high regular demand, low reserved
 	// User B: low regular demand, high reserved
@@ -198,7 +198,7 @@ func TestFairShareAllocator_Property_TotalDoesNotExceedCapacity(t *testing.T) {
 	// Property: Total allocation should not exceed capacity
 	// (except when minimum 1 per user causes overflow)
 	capacity := int64(80)
-	alloc := NewFairShareAllocator(capacity)
+	alloc := NewFairShareAllocator(capacity, 1)
 
 	for i := range 100 {
 		numUsers := rand.IntN(10) + 1
@@ -224,7 +224,7 @@ func TestFairShareAllocator_Property_TotalDoesNotExceedCapacity(t *testing.T) {
 
 func TestFairShareAllocator_Property_MinimumOneConnection(t *testing.T) {
 	// Property: Every user gets at least 1 connection
-	alloc := NewFairShareAllocator(100)
+	alloc := NewFairShareAllocator(100, 1)
 
 	for i := range 100 {
 		numUsers := rand.IntN(20) + 1
@@ -244,7 +244,7 @@ func TestFairShareAllocator_Property_MinimumOneConnection(t *testing.T) {
 
 func TestFairShareAllocator_Property_NeverExceedsDemand(t *testing.T) {
 	// Property: No user gets more than their demand (treating 0 demand as 1)
-	alloc := NewFairShareAllocator(1000) // Large capacity
+	alloc := NewFairShareAllocator(1000, 1) // Large capacity
 
 	for i := range 100 {
 		numUsers := rand.IntN(10) + 1
@@ -265,7 +265,7 @@ func TestFairShareAllocator_Property_NeverExceedsDemand(t *testing.T) {
 
 func TestFairShareAllocator_Property_FullSatisfactionWhenCapacitySufficient(t *testing.T) {
 	// Property: If total demand <= capacity, everyone gets their full demand
-	alloc := NewFairShareAllocator(1000)
+	alloc := NewFairShareAllocator(1000, 1)
 
 	for i := range 100 {
 		numUsers := rand.IntN(5) + 1
@@ -296,7 +296,7 @@ func TestFairShareAllocator_Property_FullSatisfactionWhenCapacitySufficient(t *t
 // Benchmark
 
 func BenchmarkFairShareAllocator_Allocate(b *testing.B) {
-	alloc := NewFairShareAllocator(400)
+	alloc := NewFairShareAllocator(400, 1)
 
 	// Create 10 users with varying demands
 	demands := map[string]int64{

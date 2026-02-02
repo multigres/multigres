@@ -102,6 +102,10 @@ type Config struct {
 
 	// Inactive timeout is how long a user pool can be inactive before being garbage collected.
 	inactiveTimeout viperutil.Value[time.Duration]
+
+	// Minimum capacity per user ensures light users always have enough connections
+	// for burst demand that point-in-time sampling might miss.
+	minCapacityPerUser viperutil.Value[int64]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -135,6 +139,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		demandWindow         = 30 * time.Second
 		demandSampleInterval = 100 * time.Millisecond
 		inactiveTimeout      = 5 * time.Minute
+
+		// Fair share allocation - minimum per user
+		// This ensures light users always have enough capacity for burst demand.
+		// Set equal to initialUserPoolCapacity (10) so capacity isn't reduced
+		// below the initial value until there's actual resource pressure.
+		minCapacityPerUser int64 = 10
 	)
 
 	return &Config{
@@ -219,6 +229,10 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  inactiveTimeout,
 			FlagName: "connpool-inactive-timeout",
 		}),
+		minCapacityPerUser: viperutil.Configure(reg, "connpool.min-capacity-per-user", viperutil.Options[int64]{
+			Default:  minCapacityPerUser,
+			FlagName: "connpool-min-capacity-per-user",
+		}),
 	}
 }
 
@@ -255,6 +269,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-demand-window", c.demandWindow.Default(), "Sliding window duration for peak demand tracking")
 	fs.Duration("connpool-demand-sample-interval", c.demandSampleInterval.Default(), "How often to sample pool demand within the window")
 	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
+	fs.Int64("connpool-min-capacity-per-user", c.minCapacityPerUser.Default(), "Minimum connections per user (protects against aggressive capacity reduction for light users)")
 
 	viperutil.BindFlags(fs,
 		c.adminUser,
@@ -273,6 +288,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.demandWindow,
 		c.demandSampleInterval,
 		c.inactiveTimeout,
+		c.minCapacityPerUser,
 	)
 }
 
@@ -359,6 +375,12 @@ func (c *Config) DemandSampleInterval() time.Duration {
 // InactiveTimeout returns how long a user pool can be inactive before garbage collection.
 func (c *Config) InactiveTimeout() time.Duration {
 	return c.inactiveTimeout.Get()
+}
+
+// MinCapacityPerUser returns the minimum connections per user.
+// This ensures light users always have enough capacity for burst demand.
+func (c *Config) MinCapacityPerUser() int64 {
+	return c.minCapacityPerUser.Get()
 }
 
 // NewManager creates a new connection pool manager from this config.

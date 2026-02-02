@@ -37,6 +37,7 @@ type DynamicAllocationTestConfig struct {
 	DemandWindow         time.Duration
 	DemandSampleInterval time.Duration
 	InactiveTimeout      time.Duration
+	MinCapacityPerUser   int64 // 0 means use default (10), set to 1 for strict demand-based allocation
 }
 
 // newTestManagerWithConfig creates a Manager with custom configuration for testing.
@@ -65,6 +66,11 @@ func newTestManagerWithConfig(t *testing.T, server *fakepgserver.Server, testCfg
 		}
 		if testCfg.InactiveTimeout > 0 {
 			config.inactiveTimeout.Set(testCfg.InactiveTimeout)
+		}
+		// Use 1 for tests that need strict demand-based allocation (the original behavior).
+		// Otherwise minCapacityPerUser defaults to 10 which ensures burst capacity for light users.
+		if testCfg.MinCapacityPerUser > 0 {
+			config.minCapacityPerUser.Set(testCfg.MinCapacityPerUser)
 		}
 	}
 
@@ -103,6 +109,7 @@ func TestDynamicAllocation_DifferentWorkloadPatterns(t *testing.T) {
 		RebalanceInterval:    50 * time.Millisecond,
 		DemandWindow:         200 * time.Millisecond,
 		DemandSampleInterval: 10 * time.Millisecond,
+		MinCapacityPerUser:   1, // Use strict demand-based allocation for this test
 	})
 	defer manager.Close()
 

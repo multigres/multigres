@@ -18,18 +18,26 @@ package connpoolmanager
 // It is agnostic of resource type - create separate instances for regular and reserved pools.
 //
 // The algorithm ensures:
-//   - Each user gets at least 1 connection (hard floor)
-//   - No user gets more than their demand
+//   - Each user gets at least minPerUser connections (floor to handle burst demand)
+//   - No user gets more than their demand (unless demand < minPerUser)
 //   - Total allocation does not exceed capacity
 //   - Remaining capacity is distributed fairly among unsatisfied users
 type FairShareAllocator struct {
-	capacity int64
+	capacity   int64
+	minPerUser int64
 }
 
 // NewFairShareAllocator creates a new allocator with the given capacity budget.
-func NewFairShareAllocator(capacity int64) *FairShareAllocator {
+// minPerUser sets the minimum allocation per user to handle burst demand that
+// point-in-time sampling might miss. This prevents capacity from being reduced
+// too aggressively for light users who occasionally need concurrent connections.
+func NewFairShareAllocator(capacity int64, minPerUser int64) *FairShareAllocator {
+	if minPerUser < 1 {
+		minPerUser = 1
+	}
 	return &FairShareAllocator{
-		capacity: capacity,
+		capacity:   capacity,
+		minPerUser: minPerUser,
 	}
 }
 
@@ -58,7 +66,7 @@ func (a *FairShareAllocator) Allocate(demands map[string]int64) map[string]int64
 		allocs[user] = 0
 	}
 
-	// Track which users are still unsatisfied (allocation < demand)
+	// Track which users are still unsatisfied (allocation < effective demand)
 	unsatisfied := make(map[string]bool, numUsers)
 	for user := range demands {
 		unsatisfied[user] = true
@@ -80,14 +88,9 @@ func (a *FairShareAllocator) Allocate(demands map[string]int64) map[string]int64
 		newlySatisfied := make([]string, 0)
 
 		for user := range unsatisfied {
-			demand := demands[user]
-			currentAlloc := allocs[user]
-			remainingDemand := demand - currentAlloc
-
-			// Ensure minimum 1 connection, even if demand is 0
-			if demand <= 0 {
-				remainingDemand = 1 - currentAlloc
-			}
+			// Effective demand is at least minPerUser to handle burst demand
+			demand := max(demands[user], a.minPerUser)
+			remainingDemand := demand - allocs[user]
 
 			if remainingDemand <= 0 {
 				// Already satisfied
@@ -105,11 +108,7 @@ func (a *FairShareAllocator) Allocate(demands map[string]int64) map[string]int64
 			allocated += give
 
 			// Check if now satisfied
-			newDemand := demands[user]
-			if newDemand <= 0 {
-				newDemand = 1 // Minimum demand
-			}
-			if allocs[user] >= newDemand {
+			if allocs[user] >= demand {
 				newlySatisfied = append(newlySatisfied, user)
 			}
 		}

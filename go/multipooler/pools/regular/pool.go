@@ -117,3 +117,9 @@ func (p *Pool) InnerPool() *connpool.Pool[*Conn] {
 func (p *Pool) Requested() int64 {
 	return p.pool.Requested()
 }
+
+// PeakRequestedAndReset returns the peak demand since the last reset and resets the peak.
+// This captures burst demand that point-in-time sampling might miss.
+func (p *Pool) PeakRequestedAndReset() int64 {
+	return p.pool.PeakRequestedAndReset()
+}

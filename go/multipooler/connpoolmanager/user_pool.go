@@ -114,20 +114,22 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) *UserPool {
 
 	// Create demand trackers for rebalancer
 	// DemandTrackerConfig: WindowDuration, PollInterval (rebalance interval), SampleInterval, Sampler
+	// We use PeakRequestedAndReset instead of Requested to capture burst demand that
+	// point-in-time sampling would miss (e.g., short-lived queries that complete between samples).
 	var regularDemandTracker, reservedDemandTracker *DemandTracker
 	if config.DemandWindow > 0 && config.DemandSampleInterval > 0 && config.RebalanceInterval > 0 {
 		regularDemandTracker = NewDemandTracker(ctx, &DemandTrackerConfig{
 			WindowDuration: config.DemandWindow,
 			PollInterval:   config.RebalanceInterval,
 			SampleInterval: config.DemandSampleInterval,
-			Sampler:        regularPool.Requested,
+			Sampler:        regularPool.PeakRequestedAndReset,
 		})
 
 		reservedDemandTracker = NewDemandTracker(ctx, &DemandTrackerConfig{
 			WindowDuration: config.DemandWindow,
 			PollInterval:   config.RebalanceInterval,
 			SampleInterval: config.DemandSampleInterval,
-			Sampler:        reservedPool.Requested,
+			Sampler:        reservedPool.PeakRequestedAndReset,
 		})
 	}
 

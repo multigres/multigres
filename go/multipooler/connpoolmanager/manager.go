@@ -126,11 +126,16 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	// Create fair share allocators based on global capacity and reserved ratio
 	globalCapacity := m.config.GlobalCapacity()
 	reservedRatio := m.config.ReservedRatio()
+	minPerUser := m.config.MinCapacityPerUser()
 	regularCapacity := int64(float64(globalCapacity) * (1 - reservedRatio))
 	reservedCapacity := globalCapacity - regularCapacity
+	regularMinPerUser := max(int64(float64(minPerUser)*(1-reservedRatio)), 1)
+	reservedMinPerUser := max(minPerUser-regularMinPerUser, 1)
 
-	m.regularAllocator = NewFairShareAllocator(regularCapacity)
-	m.reservedAllocator = NewFairShareAllocator(reservedCapacity)
+	// Use configurable minCapacityPerUser as the minimum per-user floor.
+	// This ensures light users always have enough capacity for burst demand.
+	m.regularAllocator = NewFairShareAllocator(regularCapacity, regularMinPerUser)
+	m.reservedAllocator = NewFairShareAllocator(reservedCapacity, reservedMinPerUser)
 
 	// Start the rebalancer goroutine
 	m.rebalancerCtx, m.rebalancerCancel = context.WithCancel(ctx)

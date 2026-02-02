@@ -114,6 +114,9 @@ type Pool[C Connection] struct {
 	// This includes both waiting requests and borrowed connections.
 	// Used for demand tracking: incremented on Get() start, decremented on Get() fail or Recycle().
 	requested atomic.Int64
+	// peakRequested tracks the highest requested value since last reset.
+	// Used for demand tracking: captures burst demand that point-in-time sampling might miss.
+	peakRequested atomic.Int64
 	// active is the number of connections that the pool has opened; this includes connections
 	// in the pool and borrowed by clients
 	active atomic.Int64
@@ -477,9 +480,8 @@ func (pool *Pool[C]) put(conn *Pooled[C]) {
 }
 
 func (pool *Pool[C]) tryReturnConn(conn *Pooled[C]) bool {
-	// If we're over capacity, close the connection instead of returning to pool.
+	// If we're over capacity, close the connection.
 	// This enables non-blocking SetCapacity - excess connections are closed on recycle.
-	// Check this first, before handing to waiters, to converge to target capacity.
 	if pool.closeOnOverCapacity(conn) {
 		return false
 	}
@@ -651,7 +653,14 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	pool.Metrics.getCount.Add(1)
 
 	// Track demand: increment at start, decrement on error (success decrements in put on Recycle)
-	pool.requested.Add(1)
+	newRequested := pool.requested.Add(1)
+	// Update peak demand for accurate demand tracking (captures bursts that sampling might miss)
+	for {
+		peak := pool.peakRequested.Load()
+		if newRequested <= peak || pool.peakRequested.CompareAndSwap(peak, newRequested) {
+			break
+		}
+	}
 	returnErr := func(err error) (*Pooled[C], error) {
 		pool.requested.Add(-1)
 		return nil, err
@@ -718,7 +727,14 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	pool.Metrics.getWithStateCount.Add(1)
 
 	// Track demand: increment at start, decrement on error (success decrements in put on Recycle)
-	pool.requested.Add(1)
+	newRequested := pool.requested.Add(1)
+	// Update peak demand for accurate demand tracking (captures bursts that sampling might miss)
+	for {
+		peak := pool.peakRequested.Load()
+		if newRequested <= peak || pool.peakRequested.CompareAndSwap(peak, newRequested) {
+			break
+		}
+	}
 	returnErr := func(err error) (*Pooled[C], error) {
 		pool.requested.Add(-1)
 		return nil, err
@@ -900,6 +916,13 @@ func (pool *Pool[C]) closeIdleResources(now time.Time) {
 // if all current requests were served immediately.
 func (pool *Pool[C]) Requested() int64 {
 	return pool.requested.Load()
+}
+
+// PeakRequestedAndReset returns the peak demand since the last reset and resets the peak.
+// This captures burst demand that point-in-time sampling might miss. For accurate demand
+// tracking, call this method periodically to get the peak demand over an interval.
+func (pool *Pool[C]) PeakRequestedAndReset() int64 {
+	return pool.peakRequested.Swap(0)
 }
 
 // Stats returns pool statistics.
