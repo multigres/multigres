@@ -309,10 +309,16 @@ Example with globalRegularCapacity=400:
 The minimum ensures that light users or new arrivals always have enough connections
 for burst traffic, even when competing with high-demand users.
 
+**Burst Headroom:**
+
+After all demands are satisfied, any remaining capacity is split evenly among all
+users. This provides headroom for sudden traffic spikes without waiting for the
+next rebalance cycle.
+
 ```text
-1 user  with globalCapacity=400 → user gets 400
-2 users with globalCapacity=400 → each gets up to 200 (based on demand)
-80 users with globalCapacity=400 and minCapacity=5 → each gets at least 5
+1 user  with globalCapacity=400, demand=100 → user gets 400 (demand + all remaining)
+2 users with globalCapacity=400, demand=50 each → each gets 200 (50 + 150 headroom)
+3 users with globalCapacity=400, demand=100 each → each gets 133 (100 + 33 headroom)
 ```
 
 ### Background Rebalancer

@@ -54,6 +54,7 @@ func (a *FairShareAllocator) Capacity() int64 {
 //  3. Give each unsatisfied user min(their_demand, fair_share)
 //  4. Users whose demand is met become "satisfied"
 //  5. Repeat with remaining capacity among unsatisfied users
+//  6. If capacity remains after all demands are met, split it evenly for burst headroom
 func (a *FairShareAllocator) Allocate(demands map[string]int64) map[string]int64 {
 	numUsers := len(demands)
 	if numUsers == 0 {
@@ -123,6 +124,18 @@ func (a *FairShareAllocator) Allocate(demands map[string]int64) map[string]int64
 		// Safety: if we allocated nothing this round, break to avoid infinite loop
 		if allocated == 0 {
 			break
+		}
+	}
+
+	// If there's remaining capacity after all demands are met, distribute it evenly
+	// among all users for burst headroom. This ensures users can handle sudden
+	// traffic spikes without waiting for the next rebalance cycle.
+	if remaining > 0 {
+		extraPerUser := remaining / int64(numUsers)
+		if extraPerUser > 0 {
+			for user := range allocs {
+				allocs[user] += extraPerUser
+			}
 		}
 	}
 

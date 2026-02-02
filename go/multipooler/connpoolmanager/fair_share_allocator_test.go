@@ -42,10 +42,10 @@ func TestFairShareAllocator_SingleUser(t *testing.T) {
 		want     int64
 	}{
 		{
-			name:     "demand below capacity",
+			name:     "demand below capacity gets full capacity for burst headroom",
 			capacity: 400,
 			demand:   150,
-			want:     150,
+			want:     400, // Gets full capacity since they're the only user
 		},
 		{
 			name:     "demand equals capacity",
@@ -60,10 +60,10 @@ func TestFairShareAllocator_SingleUser(t *testing.T) {
 			want:     100, // capped at capacity
 		},
 		{
-			name:     "zero demand gets minimum",
+			name:     "zero demand gets full capacity for burst headroom",
 			capacity: 100,
 			demand:   0,
-			want:     1,
+			want:     100, // Single user gets full capacity
 		},
 	}
 
@@ -82,22 +82,23 @@ func TestFairShareAllocator_SingleUser(t *testing.T) {
 
 func TestFairShareAllocator_EqualDemand(t *testing.T) {
 	// Two users with equal demand that fits within capacity
+	// Total demand: 60, capacity: 100, extra: 40 / 2 = 20 each
 	alloc := NewFairShareAllocator(100, 1)
 	result := alloc.Allocate(map[string]int64{
 		"userA": 30,
 		"userB": 30,
 	})
 
-	// Both should get their full demand
-	assert.Equal(t, int64(30), result["userA"])
-	assert.Equal(t, int64(30), result["userB"])
+	// Both get demand + burst headroom: 30 + 20 = 50 each
+	assert.Equal(t, int64(50), result["userA"])
+	assert.Equal(t, int64(50), result["userB"])
 }
 
 func TestFairShareAllocator_MaxMinFairness(t *testing.T) {
 	// Classic max-min fairness scenario from the design doc
 	// Capacity: 400
 	// User A wants 150, User B wants 100, User C wants 80
-	// All should be satisfied since total demand (330) < capacity (400)
+	// Total demand: 330, extra: 70 / 3 = 23 each
 	alloc := NewFairShareAllocator(400, 1)
 
 	result := alloc.Allocate(map[string]int64{
@@ -106,10 +107,10 @@ func TestFairShareAllocator_MaxMinFairness(t *testing.T) {
 		"userC": 80,
 	})
 
-	// All users should get their full demand
-	assert.Equal(t, int64(150), result["userA"])
-	assert.Equal(t, int64(100), result["userB"])
-	assert.Equal(t, int64(80), result["userC"])
+	// All users get demand + burst headroom (23 each)
+	assert.Equal(t, int64(173), result["userA"]) // 150 + 23
+	assert.Equal(t, int64(123), result["userB"]) // 100 + 23
+	assert.Equal(t, int64(103), result["userC"]) // 80 + 23
 }
 
 func TestFairShareAllocator_DemandExceedsCapacity(t *testing.T) {
@@ -150,7 +151,8 @@ func TestFairShareAllocator_MixedSatisfaction(t *testing.T) {
 }
 
 func TestFairShareAllocator_ZeroDemandUser(t *testing.T) {
-	// User with zero demand should still get minimum 1
+	// User with zero demand should still get minimum 1, plus burst headroom
+	// Total effective demand: 50 + 1 = 51, capacity: 100, extra: 49 / 2 = 24 each
 	alloc := NewFairShareAllocator(100, 1)
 
 	result := alloc.Allocate(map[string]int64{
@@ -158,8 +160,8 @@ func TestFairShareAllocator_ZeroDemandUser(t *testing.T) {
 		"idle":   0,
 	})
 
-	assert.Equal(t, int64(50), result["active"])
-	assert.Equal(t, int64(1), result["idle"])
+	assert.Equal(t, int64(74), result["active"]) // 50 + 24
+	assert.Equal(t, int64(25), result["idle"])   // 1 + 24
 }
 
 func TestFairShareAllocator_TwoAllocatorsForDifferentResources(t *testing.T) {
@@ -183,13 +185,13 @@ func TestFairShareAllocator_TwoAllocatorsForDifferentResources(t *testing.T) {
 	regularResult := regularAlloc.Allocate(regularDemands)
 	reservedResult := reservedAlloc.Allocate(reservedDemands)
 
-	// Regular: A wants 300, B wants 50. Both get full demand (total 350 < 400)
-	assert.Equal(t, int64(300), regularResult["userA"])
-	assert.Equal(t, int64(50), regularResult["userB"])
+	// Regular: demand 350 from 400, extra: 50 / 2 = 25 each
+	assert.Equal(t, int64(325), regularResult["userA"]) // 300 + 25
+	assert.Equal(t, int64(75), regularResult["userB"])  // 50 + 25
 
-	// Reserved: A wants 10, B wants 80. Both get full demand (total 90 < 100)
-	assert.Equal(t, int64(10), reservedResult["userA"])
-	assert.Equal(t, int64(80), reservedResult["userB"])
+	// Reserved: demand 90 from 100, extra: 10 / 2 = 5 each
+	assert.Equal(t, int64(15), reservedResult["userA"]) // 10 + 5
+	assert.Equal(t, int64(85), reservedResult["userB"]) // 80 + 5
 }
 
 // Property-based tests
@@ -242,29 +244,39 @@ func TestFairShareAllocator_Property_MinimumOneConnection(t *testing.T) {
 	}
 }
 
-func TestFairShareAllocator_Property_NeverExceedsDemand(t *testing.T) {
-	// Property: No user gets more than their demand (treating 0 demand as 1)
+func TestFairShareAllocator_Property_AtLeastDemandWhenCapacitySufficient(t *testing.T) {
+	// Property: When capacity is sufficient, every user gets at least their demand
+	// (plus potential burst headroom from extra capacity)
 	alloc := NewFairShareAllocator(1000, 1) // Large capacity
 
 	for i := range 100 {
 		numUsers := rand.IntN(10) + 1
 		demands := make(map[string]int64, numUsers)
+		var totalDemand int64
 		for j := range numUsers {
-			demands[string(rune('A'+j))] = rand.Int64N(100) + 1 // At least 1 demand
+			d := rand.Int64N(50) + 1 // Small demands so total fits in capacity
+			demands[string(rune('A'+j))] = d
+			totalDemand += d
+		}
+
+		// Only test when demand fits
+		if totalDemand > 1000 {
+			continue
 		}
 
 		result := alloc.Allocate(demands)
 
 		for user, allocation := range result {
 			demand := demands[user]
-			assert.LessOrEqual(t, allocation, demand,
+			assert.GreaterOrEqual(t, allocation, demand,
 				"iteration %d: user %s got %d but demanded %d", i, user, allocation, demand)
 		}
 	}
 }
 
-func TestFairShareAllocator_Property_FullSatisfactionWhenCapacitySufficient(t *testing.T) {
-	// Property: If total demand <= capacity, everyone gets their full demand
+func TestFairShareAllocator_Property_FullSatisfactionPlusBurstHeadroom(t *testing.T) {
+	// Property: If total demand <= capacity, everyone gets at least their full demand
+	// plus an equal share of the remaining capacity for burst headroom
 	alloc := NewFairShareAllocator(1000, 1)
 
 	for i := range 100 {
@@ -285,11 +297,63 @@ func TestFairShareAllocator_Property_FullSatisfactionWhenCapacitySufficient(t *t
 
 		result := alloc.Allocate(demands)
 
+		// Calculate expected burst headroom per user
+		remaining := int64(1000) - totalDemand
+		extraPerUser := remaining / int64(numUsers)
+
 		for user, allocation := range result {
 			demand := demands[user]
-			assert.Equal(t, demand, allocation,
-				"iteration %d: user %s should get full demand", i, user)
+			expectedAlloc := demand + extraPerUser
+			assert.Equal(t, expectedAlloc, allocation,
+				"iteration %d: user %s should get demand + burst headroom", i, user)
 		}
+	}
+}
+
+func TestFairShareAllocator_BurstHeadroom(t *testing.T) {
+	// Test that remaining capacity is split evenly for burst headroom
+	alloc := NewFairShareAllocator(100, 1)
+
+	// Three users with small demands: 10 + 10 + 10 = 30
+	// Remaining: 100 - 30 = 70, split evenly: 70 / 3 = 23 each
+	result := alloc.Allocate(map[string]int64{
+		"userA": 10,
+		"userB": 10,
+		"userC": 10,
+	})
+
+	// Each user gets 10 + 23 = 33
+	assert.Equal(t, int64(33), result["userA"])
+	assert.Equal(t, int64(33), result["userB"])
+	assert.Equal(t, int64(33), result["userC"])
+
+	// Total should be 99 (1 left over due to integer division)
+	total := result["userA"] + result["userB"] + result["userC"]
+	assert.Equal(t, int64(99), total)
+}
+
+func TestFairShareAllocator_NoBurstHeadroomWhenCapacityExhausted(t *testing.T) {
+	// When demand exceeds capacity, no burst headroom is given
+	// because all capacity is used satisfying demands
+	alloc := NewFairShareAllocator(100, 1)
+
+	// Three users each want 50 (total 150 > capacity 100)
+	result := alloc.Allocate(map[string]int64{
+		"userA": 50,
+		"userB": 50,
+		"userC": 50,
+	})
+
+	// Total should be exactly capacity (no extra to give)
+	total := result["userA"] + result["userB"] + result["userC"]
+	assert.Equal(t, int64(100), total)
+
+	// Each user should get ~33 (fair share of capacity)
+	for user, alloc := range result {
+		assert.GreaterOrEqual(t, alloc, int64(33),
+			"user %s should get at least 33", user)
+		assert.LessOrEqual(t, alloc, int64(34),
+			"user %s should get at most 34", user)
 	}
 }
 
