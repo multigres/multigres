@@ -28,8 +28,10 @@ actual demand and automatically rebalances as users come and go.
 │                                                                                  │
 │  ┌────────────────────────────────┐  ┌────────────────────────────────┐          │
 │  │  FairShareAllocator (Regular)  │  │  FairShareAllocator (Reserved) │          │
-│  │  Capacity: 400 (80% of 500)    │  │  Capacity: 100 (20% of 500)    │          │
+│  │  Global Budget: 400 (80%)      │  │  Global Budget: 100 (20%)      │          │
 │  └────────────────────────────────┘  └────────────────────────────────┘          │
+│  Note: 80:20 split is at the GLOBAL level. Per-user pools scale independently   │
+│  within these budgets based on demand (e.g., alice: regular=15, reserved=75).   │
 │                                                                                  │
 │  userPoolsSnapshot (atomic pointer - lock-free reads)                            │
 │  ┌──────────────────────────────────────────────────────────────────────────┐    │
@@ -37,7 +39,7 @@ actual demand and automatically rebalances as users come and go.
 │  │  ┌──────────────────┐   ┌──────────────────────────┐                     │    │
 │  │  │   RegularPool    │   │      ReservedPool        │                     │    │
 │  │  │   (user: alice)  │   │      (user: alice)       │                     │    │
-│  │  │   Capacity: 80   │   │      Capacity: 20        │                     │    │
+│  │  │   Capacity: 0-400│   │      Capacity: 0-100     │                     │    │
 │  │  │                  │   │ ┌─────────────────────┐  │                     │    │
 │  │  │ RegularConn      │   │ │ internal RegularPool│  │                     │    │
 │  │  │   └─ ConnState   │   │ └─────────────────────┘  │                     │    │
@@ -65,18 +67,19 @@ actual demand and automatically rebalances as users come and go.
 
 ### 1. AdminPool (Shared)
 
-**Purpose:** Control plane operations for connection management.
+**Purpose:** Control plane operations requiring superuser privileges.
 
 **Characteristics:**
 
 - Small pool size (default: 5 connections)
 - Connects as PostgreSQL superuser (default: `postgres`)
 - Shared across all users
-- Used exclusively for `pg_terminate_backend()` operations
+- Used for privileged operations that user connections cannot perform
 
 **Use Cases:**
 
-- Canceling long-running queries
+- Authentication queries (e.g., password verification via `pg_shadow`)
+- Canceling long-running queries via `pg_terminate_backend()`
 - Terminating connections when clients disconnect unexpectedly
 - Killing timed-out reserved connections
 

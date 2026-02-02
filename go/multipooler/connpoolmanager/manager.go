@@ -18,7 +18,6 @@ package connpoolmanager
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"maps"
 	"sync"
@@ -145,7 +144,6 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 		"admin_user", m.config.AdminUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
 		"initial_user_capacity", initialUserPoolCapacity,
-		"max_users", m.config.MaxUsers(),
 		"settings_cache_size", m.config.SettingsCacheSize(),
 		"global_capacity", globalCapacity,
 		"reserved_ratio", reservedRatio,
@@ -212,13 +210,13 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		return nil, errors.New("manager is closed")
 	}
 
-	// Check max users limit
-	// TODO: Consider garbage collecting user pools after a period of inactivity
-	// to reduce the odds of reaching the user pool maximum.
 	currentPools := *pools
-	if maxUsers := m.config.MaxUsers(); maxUsers > 0 && int64(len(currentPools)) >= maxUsers {
-		return nil, fmt.Errorf("maximum number of user pools (%d) reached", maxUsers)
-	}
+
+	// Calculate initial capacities proportional to the global split.
+	// Regular pools get (1 - reservedRatio) of initial capacity, reserved pools get reservedRatio.
+	reservedRatio := m.config.ReservedRatio()
+	initialRegularCap := max(int64(float64(initialUserPoolCapacity)*(1-reservedRatio)), 1)
+	initialReservedCap := max(int64(float64(initialUserPoolCapacity)*reservedRatio), 1)
 
 	// Create new user pool with per-user pool names for metric cardinality.
 	// Note: Including username in pool names enables per-user monitoring but increases
@@ -230,7 +228,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
 			Name:            "regular:" + user,
-			Capacity:        initialUserPoolCapacity,
+			Capacity:        initialRegularCap,
 			IdleTimeout:     m.config.UserRegularIdleTimeout(),
 			MaxLifetime:     m.config.UserRegularMaxLifetime(),
 			ConnectionCount: m.metrics.RegularConnCount(),
@@ -238,7 +236,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		},
 		ReservedPoolConfig: &connpool.Config{
 			Name:            "reserved:" + user,
-			Capacity:        initialUserPoolCapacity,
+			Capacity:        initialReservedCap,
 			IdleTimeout:     m.config.UserReservedIdleTimeout(),
 			MaxLifetime:     m.config.UserReservedMaxLifetime(),
 			ConnectionCount: m.metrics.ReservedConnCount(),
