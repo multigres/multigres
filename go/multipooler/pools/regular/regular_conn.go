@@ -390,8 +390,31 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 	}
 }
 
-// ClientConn returns the underlying PostgreSQL client connection.
-// This is used for low-level protocol operations like COPY.
-func (c *Conn) ClientConn() *client.Conn {
-	return c.conn
+// --- COPY FROM STDIN operations ---
+
+// InitiateCopyFromStdin sends a COPY FROM STDIN command and reads the CopyInResponse.
+// Returns the COPY format and column formats.
+func (c *Conn) InitiateCopyFromStdin(ctx context.Context, copyQuery string) (format int16, columnFormats []int16, err error) {
+	return c.conn.InitiateCopyFromStdin(ctx, copyQuery)
+}
+
+// WriteCopyData writes a CopyData message to PostgreSQL.
+func (c *Conn) WriteCopyData(data []byte) error {
+	return c.conn.WriteCopyData(data)
+}
+
+// WriteCopyDone sends a CopyDone message to signal completion of COPY data.
+func (c *Conn) WriteCopyDone() error {
+	return c.conn.WriteCopyDone()
+}
+
+// ReadCopyDoneResponse reads the CommandComplete and ReadyForQuery after CopyDone.
+// Returns the command tag and rows affected.
+func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error) {
+	return c.conn.ReadCopyDoneResponse(ctx)
+}
+
+// WriteCopyFail sends a CopyFail message to abort the COPY operation.
+func (c *Conn) WriteCopyFail(errorMsg string) error {
+	return c.conn.WriteCopyFail(errorMsg)
 }

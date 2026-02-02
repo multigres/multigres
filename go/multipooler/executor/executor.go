@@ -454,11 +454,11 @@ func (e *Executor) HandleCopyInitiate(
 
 	connID := reservedConn.ConnID
 
-	// Get the underlying PostgreSQL client connection
-	clientConn := reservedConn.Conn().ClientConn()
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
 
 	// Send COPY command and read CopyInResponse
-	format, columnFormats, err := clientConn.InitiateCopyFromStdin(ctx, copyQuery)
+	format, columnFormats, err := conn.InitiateCopyFromStdin(ctx, copyQuery)
 	if err != nil {
 		// Connection is in bad state after failed COPY initiation - close it instead of recycling
 		reservedConn.Close()
@@ -499,11 +499,11 @@ func (e *Executor) HandleCopyData(
 		return fmt.Errorf("reserved connection %d not found for user %s", reservedConnID, user)
 	}
 
-	// Get the underlying PostgreSQL client connection
-	clientConn := reservedConn.Conn().ClientConn()
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
 
 	// Write CopyData to PostgreSQL
-	if err := clientConn.WriteCopyData(data); err != nil {
+	if err := conn.WriteCopyData(data); err != nil {
 		e.logger.ErrorContext(ctx, "failed to write COPY data",
 			"error", err,
 			"data_size", len(data))
@@ -534,12 +534,12 @@ func (e *Executor) HandleCopyDone(
 		return nil, fmt.Errorf("reserved connection %d not found for user %s", reservedConnID, user)
 	}
 
-	// Get the underlying PostgreSQL client connection
-	clientConn := reservedConn.Conn().ClientConn()
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
 
 	// Send any remaining data first
 	if len(finalData) > 0 {
-		if err := clientConn.WriteCopyData(finalData); err != nil {
+		if err := conn.WriteCopyData(finalData); err != nil {
 			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
 			// Connection is in bad state - close it instead of recycling
 			reservedConn.Close()
@@ -549,7 +549,7 @@ func (e *Executor) HandleCopyDone(
 	}
 
 	// Send CopyDone to signal completion
-	if err := clientConn.WriteCopyDone(); err != nil {
+	if err := conn.WriteCopyDone(); err != nil {
 		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
 		// Connection is in bad state - close it instead of recycling
 		reservedConn.Close()
@@ -557,7 +557,7 @@ func (e *Executor) HandleCopyDone(
 	}
 
 	// Read CommandComplete response from PostgreSQL
-	commandTag, rowsAffected, err := clientConn.ReadCopyDoneResponse(ctx)
+	commandTag, rowsAffected, err := conn.ReadCopyDoneResponse(ctx)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
 		// Connection might be in bad state - close it instead of recycling
@@ -600,12 +600,12 @@ func (e *Executor) HandleCopyFail(
 		return nil
 	}
 
-	// Get the underlying PostgreSQL client connection
-	clientConn := reservedConn.Conn().ClientConn()
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
 
 	// Send CopyFail to abort the operation
 	writeFailed := false
-	if err := clientConn.WriteCopyFail(errorMsg); err != nil {
+	if err := conn.WriteCopyFail(errorMsg); err != nil {
 		e.logger.ErrorContext(ctx, "failed to write CopyFail", "error", err)
 		writeFailed = true
 		// Continue to try reading response
@@ -614,7 +614,7 @@ func (e *Executor) HandleCopyFail(
 	// Read ErrorResponse from PostgreSQL
 	// After CopyFail, PostgreSQL should respond with ErrorResponse and ReadyForQuery
 	// We can try to read it, but if it fails, that's okay since we're aborting anyway
-	_, _, readErr := clientConn.ReadCopyDoneResponse(ctx)
+	_, _, readErr := conn.ReadCopyDoneResponse(ctx)
 	if readErr != nil {
 		e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)", "error", readErr)
 	}
