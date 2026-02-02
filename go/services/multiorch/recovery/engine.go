@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -32,20 +31,6 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/timer"
 )
-
-// runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
-// If the operation is already in progress, it logs a debug message and returns immediately.
-// This prevents pile-up of concurrent operations that may be slow.
-func runIfNotRunning(logger *slog.Logger, inProgress *atomic.Bool, taskName string, fn func()) {
-	if !inProgress.CompareAndSwap(false, true) {
-		logger.Debug("skipping task, previous run still in progress", "task", taskName)
-		return
-	}
-	go func() {
-		defer inProgress.Store(false)
-		fn()
-	}()
-}
 
 // Engine orchestrates health checking and automated recovery for Multigres poolers.
 //

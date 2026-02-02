@@ -345,52 +345,6 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 	}
 }
 
-func TestRecoveryEngine_GoroutinePileupPrevention(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var executionCount int32
-	var inProgress atomic.Bool
-
-	// Slow operation: first call proceeds immediately, subsequent calls sleep first
-	slowOperation := func() {
-		// Read current count before incrementing
-		currentCount := atomic.LoadInt32(&executionCount)
-
-		// If count > 0, sleep before incrementing (simulates slow operation)
-		if currentCount > 0 {
-			sleepTime := time.Duration(currentCount*1000) * time.Millisecond
-			select {
-			case <-time.After(sleepTime):
-			case <-ctx.Done():
-				return
-			}
-		}
-
-		// Increment after sleep (or immediately for first call)
-		atomic.AddInt32(&executionCount, 1)
-	}
-
-	// Try to trigger the operation 10 times rapidly
-	for range 10 {
-		runIfNotRunning(logger, &inProgress, "test_operation", slowOperation)
-	}
-
-	// Wait for the first goroutine to complete (it doesn't sleep, so should be fast)
-	// Use Eventually to avoid flakiness while keeping test fast
-	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&executionCount) == 1
-	}, 100*time.Millisecond, 5*time.Millisecond, "expected exactly 1 execution due to pile-up prevention")
-
-	// Clean up - cancel context to stop the sleeping goroutine
-	cancel()
-
-	// Wait a bit for cleanup
-	time.Sleep(50 * time.Millisecond)
-}
-
 func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 	// Create a test topology store
 	ts := newTestTopoStore()
