@@ -210,7 +210,7 @@ func TestConfig_InternalUser_CustomValue(t *testing.T) {
 	config.RegisterFlags(fs)
 
 	// Parse a custom value
-	err := fs.Parse([]string{"--connpool-internal-user", "custom_internal_user"})
+	err := fs.Parse([]string{"--connpool-internal-user", "custom-internal-user"})
 	require.NoError(t, err)
 
 	// Bind to viper
@@ -219,7 +219,7 @@ func TestConfig_InternalUser_CustomValue(t *testing.T) {
 	require.NoError(t, err)
 
 	// The value should be available through viper
-	assert.Equal(t, "custom_internal_user", v.GetString("connpool-internal-user"))
+	assert.Equal(t, "custom-internal-user", v.GetString("connpool-internal-user"))
 }
 
 func TestConfig_InternalUser_EnvVar(t *testing.T) {

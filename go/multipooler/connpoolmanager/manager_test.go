@@ -504,7 +504,7 @@ func TestManager_InternalUser_CustomValue(t *testing.T) {
 	config.RegisterFlags(fs)
 
 	// Parse a custom value
-	err := fs.Parse([]string{"--connpool-internal-user", "replication_user"})
+	err := fs.Parse([]string{"--connpool-internal-user", "replication-user"})
 	require.NoError(t, err)
 
 	// Bind to viper (this is what happens in the real application)
@@ -516,7 +516,7 @@ func TestManager_InternalUser_CustomValue(t *testing.T) {
 
 	// Manager should delegate to config and return the configured value
 	// The viperutil binding picks up the flag value correctly
-	assert.Equal(t, "replication_user", manager.InternalUser(),
+	assert.Equal(t, "replication-user", manager.InternalUser(),
 		"Manager should return the custom internal user set via flag")
 }
 
