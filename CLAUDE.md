@@ -27,6 +27,7 @@ make clean      # Remove build artifacts
 **IMPORTANT**: Always use the `/mt-dev` skill for running tests. Do NOT run `go test` commands directly.
 
 **Unit tests** (fast, isolated):
+
 ```bash
 /mt-dev unit all                          # All unit tests
 /mt-dev unit ./go/multipooler/...         # Specific package
@@ -34,6 +35,7 @@ make clean      # Remove build artifacts
 ```
 
 **Integration tests** (end-to-end, slower):
+
 ```bash
 /mt-dev integration all                    # All integration tests
 /mt-dev integration multipooler            # Specific package
@@ -41,12 +43,14 @@ make clean      # Remove build artifacts
 ```
 
 **Common flags**:
+
 - `-v` for verbose output
 - `-race` for race detection
 - `-count=10` to check for flaky tests
 - `-cover` for coverage reports
 
 **When developing**:
+
 1. After writing code, run relevant unit tests first (fast feedback)
 2. Then run integration tests (comprehensive validation)
 3. Use the skill for all test execution - it handles building and provides better output

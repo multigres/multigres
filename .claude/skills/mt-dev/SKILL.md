@@ -16,6 +16,7 @@ Development commands for the multigres project.
 ## For Claude Code
 
 When executing commands:
+
 - Always run `make build` before integration tests
 - Show the actual command being executed before running it
 - Summarize test results (passed/failed counts, execution time)
@@ -45,6 +46,7 @@ Executes: `go test ./go/...`
 ```
 
 Examples:
+
 - `/mt-dev unit ./go/multipooler/...` - All multipooler package tests
 - `/mt-dev unit ./go/multigateway/...` - All multigateway package tests
 - `/mt-dev unit ./go/pgprotocol/...` - All pgprotocol package tests
@@ -56,6 +58,7 @@ Examples:
 ```
 
 Examples:
+
 - `/mt-dev unit ./go/multipooler TestConnectionPool`
 - `/mt-dev unit ./go/pgprotocol TestParseQuery`
 
@@ -66,6 +69,7 @@ Examples:
 ```
 
 Examples:
+
 - `/mt-dev unit ./go/multipooler TestConn.*` - All tests starting with TestConn
 - `/mt-dev unit ./go/multigateway Test.*Route.*` - All tests with "Route" in name
 
@@ -145,6 +149,7 @@ Executes: `make build && go test ./go/test/endtoend/...`
 ```
 
 Examples:
+
 - `/mt-dev integration multipooler` → `make build && go test ./go/test/endtoend/multipooler/...`
 - `/mt-dev integration multiorch` → `make build && go test ./go/test/endtoend/multiorch/...`
 - `/mt-dev integration queryserving` → `make build && go test ./go/test/endtoend/queryserving/...`
@@ -156,6 +161,7 @@ Examples:
 ```
 
 Examples:
+
 - `/mt-dev integration multiorch TestFixReplication` → `make build && go test -run TestFixReplication ./go/test/endtoend/multiorch/...`
 - `/mt-dev integration multipooler TestConnCache` → `make build && go test -run TestConnCache ./go/test/endtoend/multipooler/...`
 
@@ -166,6 +172,7 @@ Examples:
 ```
 
 Example:
+
 - `/mt-dev integration all TestBootstrap` → `make build && go test -run TestBootstrap ./go/test/endtoend/...`
 
 **Run with pattern matching:**
@@ -175,12 +182,14 @@ Example:
 ```
 
 Examples:
+
 - `/mt-dev integration queryserving Test.*Transaction.*` - All transaction tests
 - `/mt-dev integration multipooler TestConn.*` - All connection tests
 
 ### Common Flags
 
 Same flags as unit tests, plus:
+
 - `-timeout=30m` - Integration tests often need longer timeouts (default: 10m)
 - `-p=1` - Run packages sequentially (useful if tests conflict on resources)
 - `-count=1` - Run how many iterations of the tests (useful to detect flakes)
@@ -223,34 +232,41 @@ Same flags as unit tests, plus:
 ## Interpreting Test Results
 
 ### Success Output
+
 ```
 PASS
 ok      github.com/multigres/multigres/go/multipooler    2.456s
 ```
+
 - All tests passed
 - Shows package path and execution time
 
 ### Failure Output
+
 ```
 --- FAIL: TestConnectionPool (0.15s)
     pool_test.go:45: expected 10 connections, got 8
 FAIL
 FAIL    github.com/multigres/multigres/go/multipooler    2.456s
 ```
+
 - Shows which test failed
 - Shows file, line number, and failure message
 - Claude should summarize: "TestConnectionPool failed in pool_test.go:45"
 
 ### Build Failure
+
 ```
 # github.com/multigres/multigres/go/multipooler
 ./connection.go:123:45: undefined: somethingMissing
 FAIL    github.com/multigres/multigres/go/multipooler [build failed]
 ```
+
 - Compilation error before tests could run
 - Claude should highlight the build error and suggest checking the code
 
 ### Race Condition Detected
+
 ```
 ==================
 WARNING: DATA RACE
@@ -258,13 +274,16 @@ Read at 0x00c0001a2080 by goroutine 7:
   ...
 ==================
 ```
+
 - Race detector found a potential concurrency bug
 - Claude should flag this as critical and recommend investigation
 
 ### Timeout
+
 ```
 panic: test timed out after 10m0s
 ```
+
 - Test exceeded timeout
 - Claude should suggest increasing timeout or investigating hanging test
 
@@ -273,6 +292,7 @@ panic: test timed out after 10m0s
 ## Common Workflows
 
 ### Before Committing Code
+
 ```bash
 # 1. Run unit tests (fast feedback)
 /mt-dev unit all
@@ -285,6 +305,7 @@ panic: test timed out after 10m0s
 ```
 
 ### Debugging a Failing Test
+
 ```bash
 # 1. Run the specific test with verbose output
 /mt-dev integration multipooler TestConnCache -v
@@ -297,6 +318,7 @@ panic: test timed out after 10m0s
 ```
 
 ### Testing a Specific Package After Changes
+
 ```bash
 # Unit tests first (fast)
 /mt-dev unit ./go/multipooler/... -v
@@ -311,11 +333,13 @@ panic: test timed out after 10m0s
 ## Troubleshooting
 
 ### "build failed" during integration tests
+
 - Run `make build` manually to see detailed error
 - Check for uncommitted generated files (protobuf)
 - Verify all dependencies are installed
 
 ### Flaky tests (pass sometimes, fail others)
+
 - Run with `-count=10` to reproduce
 - Enable race detector: `-race`
 - Check for timing-dependent code or shared state
@@ -357,11 +381,13 @@ panic: test timed out after 10m0s
 ### Command Construction
 
 **Unit tests:**
+
 ```bash
 go test [flags] [-run TestName] <package-path>
 ```
 
 **Integration tests:**
+
 ```bash
 make build && go test [flags] [-run TestName] ./go/test/endtoend/<package>/...
 ```
