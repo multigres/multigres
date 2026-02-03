@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package poolergateway implements load balancing and connection management
+// for multipooler instances. The LoadBalancer selects poolers based on target
+// specifications (tablegroup, shard, type) with cell locality optimization.
+//
+// Design documentation: docs/query_serving/load_balancing.md
 package poolergateway
 
 import (
@@ -53,7 +58,9 @@ func NewLoadBalancer(localCell string, logger *slog.Logger) *LoadBalancer {
 }
 
 // AddPooler creates or updates a PoolerConnection for the given pooler.
-// If a connection already exists, its metadata is updated (to handle type changes like REPLICA -> PRIMARY).
+// If a connection already exists, its metadata is updated rather than reconnecting.
+// This optimization is important during failover: when a replica is promoted to primary,
+// we want to reuse the existing gRPC connection rather than creating a new one.
 func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	poolerID := poolerIDString(pooler.Id)
 
@@ -174,8 +181,8 @@ func matchesTarget(conn *PoolerConnection, target *query.Target) bool {
 		return false
 	}
 
-	// Check shard match (empty target shard matches any)
-	if target.Shard != "" && target.Shard != poolerInfo.GetShard() {
+	// Check shard match (must be exact)
+	if target.Shard != poolerInfo.GetShard() {
 		return false
 	}
 

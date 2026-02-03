@@ -61,7 +61,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	assert.Equal(t, 0, lb.ConnectionCount())
 
 	// Add a pooler
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	err := lb.AddPooler(pooler)
 	require.NoError(t, err)
 	assert.Equal(t, 1, lb.ConnectionCount())
@@ -85,12 +85,13 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add a primary
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(primary))
 
 	// Should find the primary
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	conn, err := lb.GetConnection(target)
@@ -103,14 +104,15 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add replicas in both cells
-	localReplica := createTestMultiPooler("local-replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	remoteReplica := createTestMultiPooler("remote-replica", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	localReplica := createTestMultiPooler("local-replica", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
+	remoteReplica := createTestMultiPooler("remote-replica", "zone2", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
 	require.NoError(t, lb.AddPooler(localReplica))
 	require.NoError(t, lb.AddPooler(remoteReplica))
 
 	// Should prefer local cell for replicas
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
 	conn, err := lb.GetConnection(target)
@@ -123,12 +125,13 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add primary only in remote cell
-	remotePrimary := createTestMultiPooler("remote-primary", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	remotePrimary := createTestMultiPooler("remote-primary", "zone2", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(remotePrimary))
 
 	// Should find primary in remote cell
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	conn, err := lb.GetConnection(target)
@@ -141,12 +144,13 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add a primary
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(primary))
 
 	// Request a replica - should not find one
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
 	_, err := lb.GetConnection(target)
@@ -159,7 +163,7 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add primaries for different shards
-	shard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	shard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	shard1 := createTestMultiPooler("primary-shard1", "zone1", constants.DefaultTableGroup, "1", clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(shard0))
 	require.NoError(t, lb.AddPooler(shard1))
@@ -180,14 +184,15 @@ func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add both primary and replica
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
 	require.NoError(t, lb.AddPooler(primary))
 	require.NoError(t, lb.AddPooler(replica))
 
 	// Request with UNKNOWN type should default to PRIMARY
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
 	}
 	conn, err := lb.GetConnection(target)
@@ -200,8 +205,8 @@ func TestLoadBalancer_Close(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add some poolers
-	pooler1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	pooler2 := createTestMultiPooler("pooler2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	pooler1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	pooler2 := createTestMultiPooler("pooler2", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
 	require.NoError(t, lb.AddPooler(pooler1))
 	require.NoError(t, lb.AddPooler(pooler2))
 	assert.Equal(t, 2, lb.ConnectionCount())
@@ -233,7 +238,7 @@ func TestLoadBalancer_ConcurrentAddRemove(t *testing.T) {
 					fmt.Sprintf("pooler-%d-%d", goroutineID, j),
 					"zone1",
 					constants.DefaultTableGroup,
-					"0",
+					constants.DefaultShard,
 					clustermetadatapb.PoolerType_REPLICA,
 				)
 				err := lb.AddPooler(pooler)
@@ -277,6 +282,7 @@ func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
 
@@ -312,7 +318,7 @@ func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 				poolerName,
 				"zone1",
 				constants.DefaultTableGroup,
-				"0",
+				constants.DefaultShard,
 				clustermetadatapb.PoolerType_REPLICA,
 			)
 			_ = lb.AddPooler(pooler)
@@ -344,7 +350,7 @@ func TestLoadBalancerListener(t *testing.T) {
 	listener := NewLoadBalancerListener(lb)
 
 	// OnPoolerChanged should add pooler
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	listener.OnPoolerChanged(pooler)
 	assert.Equal(t, 1, lb.ConnectionCount())
 
@@ -358,15 +364,16 @@ func TestLoadBalancer_GetConnection_MultipleReplicasSameCell(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add multiple replicas in the same cell
-	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	replica2 := createTestMultiPooler("replica2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	replica3 := createTestMultiPooler("replica3", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
+	replica2 := createTestMultiPooler("replica2", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
+	replica3 := createTestMultiPooler("replica3", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
 	require.NoError(t, lb.AddPooler(replica1))
 	require.NoError(t, lb.AddPooler(replica2))
 	require.NoError(t, lb.AddPooler(replica3))
 
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
 
@@ -386,7 +393,7 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add a pooler
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(pooler))
 
 	// Calling with nil target should not panic and should return error
@@ -400,7 +407,7 @@ func TestLoadBalancer_GetConnection_EmptyTableGroup(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add a pooler for default tablegroup
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(pooler))
 
 	// Request with empty tablegroup should not match
@@ -418,13 +425,14 @@ func TestLoadBalancer_GetConnection_MultipleRemoteReplicas(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add replicas only in remote cells (no local replica)
-	remote1 := createTestMultiPooler("remote1", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	remote2 := createTestMultiPooler("remote2", "zone3", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	remote1 := createTestMultiPooler("remote1", "zone2", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
+	remote2 := createTestMultiPooler("remote2", "zone3", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
 	require.NoError(t, lb.AddPooler(remote1))
 	require.NoError(t, lb.AddPooler(remote2))
 
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
 
@@ -442,7 +450,7 @@ func TestLoadBalancer_GetConnection_TablegroupMismatch(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add a pooler for default tablegroup
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(pooler))
 
 	// Request a different tablegroup
@@ -460,7 +468,7 @@ func TestLoadBalancer_GetConnection_ShardMismatch(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add pooler for shard 0
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(pooler))
 
 	// Request shard 1 (which doesn't exist)
@@ -479,13 +487,14 @@ func TestLoadBalancer_GetConnection_MultiplePrimaries(t *testing.T) {
 	lb := NewLoadBalancer("zone1", logger)
 
 	// Add multiple primaries (shouldn't happen in practice, but test the behavior)
-	primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(primary1))
 	require.NoError(t, lb.AddPooler(primary2))
 
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 
