@@ -94,15 +94,16 @@ type MultiPoolerManager struct {
 	isOpen bool
 	// all fields other than Type and ServingStatus never change after initialization.
 	// They can be accessed without holding the lock.
-	multipooler     *clustermetadatapb.MultiPooler
-	state           ManagerState
-	stateError      error
-	consensusState  *ConsensusState
-	topoLoaded      bool
-	consensusLoaded bool
-	ctx             context.Context
-	cancel          context.CancelFunc
-	loadTimeout     time.Duration
+	multipooler         *clustermetadatapb.MultiPooler
+	state               ManagerState
+	stateError          error
+	consensusState      *ConsensusState
+	recoveryActionState *RecoveryActionState
+	topoLoaded          bool
+	consensusLoaded     bool
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	loadTimeout         time.Duration
 
 	// readyChan is closed when state becomes Ready or Error, to broadcast to all waiters.
 	// Unbuffered is safe here because we only close() the channel (which never blocks
@@ -228,6 +229,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Consensus state is always available; it will be loaded when needed.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
+
+	// Recovery action state is always available; it will be loaded when needed.
+	pm.recoveryActionState = NewRecoveryActionState(pm.multipooler.PoolerDir, pm.serviceID)
 
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
@@ -881,6 +885,33 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 	}
 }
 
+// loadRecoveryActionFromDisk loads the recovery action state from local disk.
+// This is called synchronously during Open() to ensure recovery state is loaded
+// before the monitor can attempt to start postgres.
+// Fail-safe: If loading fails, logs a warning and continues (treats as no action pending).
+func (pm *MultiPoolerManager) loadRecoveryActionFromDisk() {
+	pm.logger.Info("Loading recovery action state from disk")
+
+	// Load recovery action from local disk
+	if err := pm.recoveryActionState.Load(); err != nil {
+		// Don't fail Open() - just log warning and continue (fail-safe behavior)
+		pm.logger.Warn("Failed to load recovery action state from disk (treating as no action pending)", "error", err)
+		return
+	}
+
+	// Check if a recovery action is pending and log it (lock-free read for informational logging only)
+	action, _ := pm.recoveryActionState.GetInconsistentRecoveryAction()
+	if action != nil {
+		pm.logger.Warn("Recovery action pending on startup - postgres monitor will not auto-start postgres",
+			"action_type", action.ActionType,
+			"reason", action.Reason,
+			"set_time", action.SetTime,
+			"consensus_term", action.ConsensusTerm)
+	} else {
+		pm.logger.Info("No recovery action pending")
+	}
+}
+
 // checkDemotionState checks the current state to determine what steps remain
 func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
 	state := &demotionState{}
@@ -1388,6 +1419,11 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 
 // Start initializes the MultiPoolerManager
 func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
+	// Load recovery action state from disk once at startup
+	// This ensures the monitor won't try to start postgres if a recovery action is pending
+	// Note: Recovery action state is not backed up (unlike consensus state), so we only load once
+	pm.loadRecoveryActionFromDisk()
+
 	// Open the database connections, connection pool manager, and start background operations
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
 	if err := pm.Open(); err != nil {
@@ -1617,6 +1653,18 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 	if err := AssertActionLockHeld(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
 		return
+	}
+
+	// Check for pending recovery action with lock held (authoritative check)
+	// If a recovery action is pending, block remedial actions that would start postgres
+	if recoveryAction, err := pm.recoveryActionState.GetRecoveryAction(ctx); err == nil && recoveryAction != nil {
+		// Only block actions that would start postgres
+		if action == remedialActionStartPostgres || action == remedialActionRestoreFromBackup {
+			pm.setMonitorReason(ctx, "recovery_action_pending",
+				fmt.Sprintf("MonitorPostgres: recovery action pending (type=%s, reason=%s) - not starting postgres",
+					recoveryAction.ActionType, recoveryAction.Reason))
+			return
+		}
 	}
 
 	const (

@@ -432,10 +432,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	ctx := context.Background()
 
-	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: NewActionLock(),
-	}
+	pm := newTestManager(t)
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -452,13 +449,9 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
 	ctx := context.Background()
 
-	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: NewActionLock(),
-		multipooler: &clustermetadatapb.MultiPooler{
-			Type: clustermetadatapb.PoolerType_REPLICA,
-		},
-	}
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+	})
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -477,11 +470,9 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
-	}
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.pgctldClient = mockPgctld
+	})
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -502,13 +493,10 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		startError: assert.AnError,
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
-	}
-
-	pm.pgMonitorLastLoggedReason = "starting_postgres"
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.pgctldClient = mockPgctld
+		pm.pgMonitorLastLoggedReason = "starting_postgres"
+	})
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -525,10 +513,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	ctx := context.Background()
 
-	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: NewActionLock(),
-	}
+	pm := newTestManager(t)
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -547,16 +532,11 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		actionLock:   NewActionLock(),
-		pgctldClient: mockPgctld,
-		multipooler: &clustermetadatapb.MultiPooler{
-			Type: clustermetadatapb.PoolerType_REPLICA,
-		},
-	}
-
-	pm.pgMonitorLastLoggedReason = "starting_postgres"
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.pgctldClient = mockPgctld
+		pm.multipooler.Type = clustermetadatapb.PoolerType_REPLICA
+		pm.pgMonitorLastLoggedReason = "starting_postgres"
+	})
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -705,13 +685,11 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateStarting,
-		actionLock:   NewActionLock(),
-	}
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.readyChan = readyChan
+		pm.pgctldClient = mockPgctld
+		pm.state = ManagerStateStarting
+	})
 
 	// Call iteration when not ready - should return early without calling pgctld
 	pm.monitorPostgresIteration(ctx)
@@ -740,16 +718,12 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-		multipooler: &clustermetadatapb.MultiPooler{
-			Type: clustermetadatapb.PoolerType_PRIMARY,
-		},
-	}
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.readyChan = readyChan
+		pm.pgctldClient = mockPgctld
+		pm.state = ManagerStateReady
+		pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
+	})
 
 	// Call iteration - should discover running state and not call Start
 	pm.monitorPostgresIteration(ctx)
@@ -770,13 +744,11 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-	}
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.readyChan = readyChan
+		pm.pgctldClient = mockPgctld
+		pm.state = ManagerStateReady
+	})
 
 	// Call iteration - should discover stopped state and attempt to start
 	pm.monitorPostgresIteration(ctx)
@@ -800,13 +772,11 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		readyChan:    readyChan,
-		pgctldClient: mockPgctld,
-		state:        ManagerStateReady,
-		actionLock:   NewActionLock(),
-	}
+	pm := newTestManager(t, func(pm *MultiPoolerManager) {
+		pm.readyChan = readyChan
+		pm.pgctldClient = mockPgctld
+		pm.state = ManagerStateReady
+	})
 
 	// Call iteration multiple times to simulate retry behavior
 	for range 5 {

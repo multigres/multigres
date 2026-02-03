@@ -807,7 +807,20 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	}
 	defer pm.actionLock.Release(ctx)
 
-	pm.setPostgresCrashRecoveryAction(NeedsRewind)
+	// CRITICAL: Set recovery action to block monitor from auto-starting postgres
+	// If we cannot persist this flag and multipooler crashes after shutting down postgres,
+	// the monitor will auto-start a diverged primary (dangerous!)
+	// We MUST fail the operation if we can't persist the recovery action.
+	if err := pm.recoveryActionState.SetRecoveryAction(
+		ctx,
+		RecoveryActionTypeNeedsRewind,
+		"EmergencyDemote: stale primary needs pg_rewind before restart",
+		consensusTerm,
+	); err != nil {
+		pm.logger.ErrorContext(ctx, "CRITICAL: Failed to persist recovery action - aborting emergency demote for safety", "error", err)
+		// TODO: Emit critical metric for alerting
+		return nil, mterrors.Wrap(err, "failed to persist recovery action - aborting for safety")
+	}
 
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
@@ -998,6 +1011,16 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	rewindPerformed, err := pm.runPgRewind(ctx, source.Hostname, port)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "pg_rewind failed")
+	}
+
+	// Clear recovery action after successful rewind
+	if err := pm.recoveryActionState.ClearRecoveryAction(ctx); err != nil {
+		// WARN but don't fail - worst case is postgres stays stopped (safe)
+		// Operators can manually remove the file if needed
+		pm.logger.ErrorContext(ctx, "Failed to clear recovery action - manual intervention may be required",
+			"error", err)
+		// TODO: Emit warning metric for alerting
+		// Don't return error - rewind succeeded, monitor will stay paused but that's safer than other alternatives
 	}
 
 	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
@@ -1361,6 +1384,14 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 
 		pm.logger.InfoContext(ctx, "pg_rewind completed successfully", "message", rewindResp.Message)
 		rewindPerformed = true
+
+		// Clear recovery action after successful rewind
+		if err := pm.recoveryActionState.ClearRecoveryAction(ctx); err != nil {
+			// WARN but don't fail
+			pm.logger.ErrorContext(ctx, "Failed to clear recovery action - manual intervention may be required",
+				"error", err)
+			// TODO: Emit warning metric for alerting
+		}
 	} else {
 		pm.logger.InfoContext(ctx, "No timeline divergence detected, skipping rewind")
 	}
