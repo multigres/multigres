@@ -195,6 +195,8 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 
 	if isPrimary {
 		// Revoke primary: demote
+		// TODO: Implement graceful (non-emergency) demote for planned failovers.
+		// This emergency demote path will remain for BeginTerm REVOKE actions.
 		pm.logger.InfoContext(ctx, "Revoking primary", "term", term)
 		drainTimeout := 5 * time.Second
 		demoteResp, err := pm.emergencyDemoteLocked(ctx, term, drainTimeout)
@@ -204,7 +206,7 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		response.DemoteLsn = demoteResp.LsnPosition
 		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
 	} else {
-		// Revoke standby: pause replication, then check if caught up
+		// Revoke standby: pause replication to break connection with old primary
 		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
 
 		// First, pause replication to break connection with old primary

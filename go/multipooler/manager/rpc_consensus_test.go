@@ -285,7 +285,7 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
 		},
 		{
-			name:   "StandbyAcceptsTermWhenNoWALReceiver",
+			name:   "StandbyAcceptsTermAndPausesReplication",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
@@ -312,7 +312,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
-			description:                         "Standby should accept term when no WAL receiver (expected during failover)",
+			description:                         "Standby accepts term with REVOKE action and pauses replication",
 		},
 		{
 			name:   "StandbyPausesReplicationWhenAcceptingNewTerm",
@@ -407,7 +407,7 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "NO_ACTION still respects term acceptance rules",
 		},
 		{
-			name:   "PrimaryWithPostgresDownRejectsTerm_TemporaryBehavior",
+			name:   "PostgresDownRejectsTerm_TemporaryBehavior",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
@@ -426,29 +426,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    false, // TODO(FUTURE): Once we separate voting term from primary term, this should be TRUE
 			expectedTerm:                        5,     // Should remain at current term since we rejected
 			expectedAcceptedTermFromCoordinator: "",    // Should not accept new coordinator
-			description:                         "Primary with postgres down should accept term once we separate voting term from primary term",
-		},
-		{
-			name:   "StandbyWithPostgresDownRejectsTerm_TemporaryBehavior",
-			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-			},
-			requestTerm: 10,
-			requestCandidate: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "new-candidate",
-			},
-			setupMocks: func(m *mock.QueryService) {
-				// Phase 1: Health check FAILS - postgres is down
-				// DO NOT add SELECT 1 expectation - let it fail
-			},
-			expectedError:                       false,
-			expectedAccepted:                    false, // TODO(FUTURE): Once we separate voting term from primary term, this should be TRUE
-			expectedTerm:                        5,     // Should remain at current term since we rejected
-			expectedAcceptedTermFromCoordinator: "",    // Should not accept new coordinator
-			description:                         "Standby with postgres down should accept term once we separate voting term from primary term",
+			description:                         "Node with postgres down rejects REVOKE term until we separate voting term from primary term",
 		},
 	}
 
