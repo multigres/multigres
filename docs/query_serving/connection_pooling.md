@@ -78,7 +78,7 @@ actual demand and automatically rebalances as users come and go.
 
 **Use Cases:**
 
-- Authentication queries (e.g., password verification via `pg_shadow`)
+- Authentication queries (e.g., password verification via `pg_authid`)
 - Canceling long-running queries via `pg_terminate_backend()`
 - Terminating connections when clients disconnect unexpectedly
 - Killing timed-out reserved connections
