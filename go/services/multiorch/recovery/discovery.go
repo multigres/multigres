@@ -16,6 +16,7 @@ package recovery
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	commontypes "github.com/multigres/multigres/go/common/types"
@@ -71,17 +72,21 @@ func (re *Engine) forceHealthCheckShardPoolers(ctx context.Context, shardKey com
 		return true // continue
 	})
 
-	// Poll the collected poolers (outside the Range lock)
-	polledCount := 0
+	// Poll the collected poolers in parallel (outside the Range lock)
+	var wg sync.WaitGroup
 	for _, p := range poolersToPoll {
-		pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		re.pollPooler(pollCtx, p.id, p.health, true /* forceDiscovery */)
-		cancel()
-		polledCount++
+		wg.Add(1)
+		go func(pooler poolerToPoll) {
+			defer wg.Done()
+			pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			re.pollPooler(pollCtx, pooler.id, pooler.health, true /* forceDiscovery */)
+		}(p)
 	}
+	wg.Wait()
 
 	re.logger.DebugContext(ctx, "shard pooler force refresh complete",
 		"shard_key", shardKey.String(),
-		"poolers_polled", polledCount,
+		"poolers_polled", len(poolersToPoll),
 	)
 }

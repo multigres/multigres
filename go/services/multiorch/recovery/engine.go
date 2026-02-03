@@ -616,11 +616,11 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context) ([]DetectedProblemData
 			return problems, ctx.Err()
 		}
 
-		// Brief sleep to avoid tight loop
+		// Brief sleep to avoid tight loop (100ms for faster convergence)
 		select {
 		case <-ctx.Done():
 			return re.collectDetectedProblemsData(), ctx.Err()
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
 }
@@ -640,7 +640,14 @@ func (re *Engine) forceHealthCheckAllShardPoolers(ctx context.Context) {
 		return true
 	})
 
+	// Force health check each shard in parallel
+	var wg sync.WaitGroup
 	for shardKey := range shards {
-		re.forceHealthCheckShardPoolers(ctx, shardKey, nil /* poolersToIgnore */)
+		wg.Add(1)
+		go func(key commontypes.ShardKey) {
+			defer wg.Done()
+			re.forceHealthCheckShardPoolers(ctx, key, nil /* poolersToIgnore */)
+		}(shardKey)
 	}
+	wg.Wait()
 }
