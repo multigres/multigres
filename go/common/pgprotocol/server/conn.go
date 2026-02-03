@@ -400,8 +400,15 @@ func (c *Conn) handleQuery() error {
 		}
 
 		// If CommandTag is set, this is the last packet of the current result set.
-		// Send CommandComplete and reset state for the next result set.
+		// Send notices (if any) before CommandComplete, then reset state for next result set.
 		if result.CommandTag != "" {
+			// Send any notices before CommandComplete.
+			for _, notice := range result.Notices {
+				if err := c.writeNoticeResponse(notice); err != nil {
+					return fmt.Errorf("writing notice response: %w", err)
+				}
+			}
+
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
@@ -654,8 +661,15 @@ func (c *Conn) handleExecute() error {
 		}
 
 		// If CommandTag is set, this is the last packet.
-		// Send CommandComplete.
+		// Send notices (if any) before CommandComplete.
 		if result.CommandTag != "" {
+			// Send any notices before CommandComplete.
+			for _, notice := range result.Notices {
+				if err := c.writeNoticeResponse(notice); err != nil {
+					return fmt.Errorf("writing notice response: %w", err)
+				}
+			}
+
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
