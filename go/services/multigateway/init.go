@@ -30,12 +30,12 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/multigateway/auth"
-	"github.com/multigres/multigres/go/multigateway/executor"
-	"github.com/multigres/multigres/go/multigateway/handler"
-	"github.com/multigres/multigres/go/multigateway/poolergateway"
-	"github.com/multigres/multigres/go/multigateway/scatterconn"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/services/multigateway/auth"
+	"github.com/multigres/multigres/go/services/multigateway/executor"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 

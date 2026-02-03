@@ -21,7 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // Sequence executes multiple primitives in order.

@@ -21,7 +21,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/multigateway/handler"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // ApplySessionState updates local session state after a SET/RESET command
