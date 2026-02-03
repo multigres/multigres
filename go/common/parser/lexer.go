@@ -41,7 +41,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // Lexer represents the main lexer instance
@@ -52,7 +52,7 @@ type Lexer struct {
 }
 
 // Import ast package (will be added at the top)
-// "github.com/manangupta/multigres/go/parser/ast"
+// "github.com/manangupta/multigres/go/common/parser/ast"
 
 // NewLexer creates a new PostgreSQL-compatible lexer instance
 // Equivalent to postgres/src/backend/parser/scan.l:1404 (scanner_init function)

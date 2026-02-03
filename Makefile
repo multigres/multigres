@@ -73,7 +73,7 @@ pb: $(PROTO_SRCS)
 # Generate parser from grammar files
 parser: ## Generate PostgreSQL parser from grammar.
 	@echo "$$(date): Generating PostgreSQL parser from grammar and AST helpers"
-	go generate ./go/parser/...
+	go generate ./go/common/parser/...
 	@echo "Parser and ast helpers generation completed"
 
 generate: parser ## Alias for parser.

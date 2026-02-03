@@ -23,7 +23,7 @@ To regenerate these test files from PostgreSQL source:
 
 2. **Run the conversion script**:
    ```bash
-   cd <home>/multigres/go/parser/testdata/postgres
+   cd <home>/multigres/go/common/parser/testdata/postgres
    python3 convert_postgres_tests.py
    ```
 
