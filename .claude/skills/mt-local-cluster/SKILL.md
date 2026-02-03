@@ -27,13 +27,18 @@ Parse `./multigres_local/multigres.yaml` once when this skill is first invoked a
 **Start entire cluster**:
 
 ```bash
-./bin/multigres cluster up
+./bin/multigres cluster start
 ```
 
 **Stop entire cluster**:
 
 ```bash
-./bin/multigres cluster down
+./bin/multigres cluster stop
+```
+
+**Stop entire cluster and delete all cluster data**:
+```bash
+./bin/multigres cluster stop --clean
 ```
 
 **Check cluster status**:
@@ -186,11 +191,11 @@ Extract from YAML config at `.provisioner-config.cells.<zone>.pgctld.pooler-dir`
 
 User: "start the cluster"
 
-- Execute: `./bin/multigres cluster up`
+- Execute: `./bin/multigres cluster start`
 
 User: "stop cluster"
 
-- Execute: `./bin/multigres cluster down`
+- Execute: `./bin/multigres cluster stop`
 
 User: "cluster status"
 
