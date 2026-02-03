@@ -62,7 +62,7 @@ func TargetEquals(t1, t2 *query.Target) bool {
 	if t1 == nil && t2 == nil {
 		return true
 	}
-	if t1 != nil || t2 != nil {
+	if (t1 == nil) != (t2 == nil) {
 		return false
 	}
 	if t1.GetPoolerType() != t2.GetPoolerType() {

@@ -311,9 +311,6 @@ func (sc *ScatterConn) CopyInitiate(
 	// Store reserved connection in ShardStates (same pattern as regular queries)
 	state.StoreReservedConnection(target, reservedState)
 
-	// Mark that we're in COPY mode
-	state.SetCopyMode()
-
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",
 		"reserved_conn_id", reservedState.ReservedConnectionId,
 		"format", format,
@@ -406,18 +403,25 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
+		// Clear state even on error - the reserved connection has been released/closed on the server side
+		state.ClearReservedConnection(target)
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
-	sc.logger.DebugContext(ctx, "COPY finalized successfully")
+	sc.logger.DebugContext(ctx, "COPY finalized successfully",
+		"command_tag", result.CommandTag,
+		"rows_affected", result.RowsAffected)
 
 	// Call callback with result
 	if err := callback(ctx, result); err != nil {
+		sc.logger.ErrorContext(ctx, "callback error in CopyFinalize", "error", err)
+		// Clear state even on callback error - the reserved connection has already been released
+		state.ClearReservedConnection(target)
 		return err
 	}
 
-	// Clear COPY state
-	state.ClearCopyMode()
+	// Clear reserved connection since it's been released
+	state.ClearReservedConnection(target)
 
 	return nil
 }
@@ -462,8 +466,8 @@ func (sc *ScatterConn) CopyAbort(
 		sc.logger.WarnContext(ctx, "error during COPY abort", "error", err)
 	}
 
-	// Clear COPY state
-	state.ClearCopyMode()
+	// Clear reserved connection since it's been released
+	state.ClearReservedConnection(target)
 
 	sc.logger.DebugContext(ctx, "COPY aborted")
 

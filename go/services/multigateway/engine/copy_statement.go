@@ -61,19 +61,16 @@ func (c *CopyStatement) StreamExecute(
 		return nil
 	})
 	if err != nil {
-		state.ClearCopyMode()
 		return fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
 	// Send CopyInResponse to client
 	if err := conn.WriteCopyInResponse(format, columnFormats); err != nil {
 		_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
-		state.ClearCopyMode()
 		return fmt.Errorf("failed to write CopyInResponse: %w", err)
 	}
 	if err := conn.Flush(); err != nil {
 		_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
-		state.ClearCopyMode()
 		return fmt.Errorf("failed to flush CopyInResponse: %w", err)
 	}
 

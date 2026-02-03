@@ -49,10 +49,6 @@ type MultiGatewayConnectionState struct {
 	// pooled connection (with matching settings) is reused.
 	// Map keys are variable names, values are the string representation.
 	SessionSettings map[string]string
-
-	// inCopyMode tracks whether an active COPY FROM STDIN operation is in progress.
-	// The reserved connection info is stored in ShardStates (same as regular queries).
-	inCopyMode bool
 }
 
 type ShardState struct {
@@ -133,6 +129,24 @@ func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Targ
 	m.ShardStates = append(m.ShardStates, ss)
 }
 
+// ClearReservedConnection removes a reserved connection for a given target.
+// This should be called when a reserved connection is released (e.g., after COPY completes).
+func (m *MultiGatewayConnectionState) ClearReservedConnection(target *query.Target) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			// Remove by swapping with last element and truncating
+			lastIdx := len(m.ShardStates) - 1
+			if i != lastIdx {
+				m.ShardStates[i] = m.ShardStates[lastIdx]
+			}
+			m.ShardStates = m.ShardStates[:lastIdx]
+			return
+		}
+	}
+}
+
 // SetSessionVariable sets a session variable (from SET command).
 // The variable name and value are stored to be propagated to multipooler.
 func (m *MultiGatewayConnectionState) SetSessionVariable(name, value string) {
@@ -199,27 +213,4 @@ func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string
 		m.SessionSettings = make(map[string]string, len(settings))
 		maps.Copy(m.SessionSettings, settings)
 	}
-}
-
-// IsInCopyMode returns true if currently in COPY mode.
-func (m *MultiGatewayConnectionState) IsInCopyMode() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.inCopyMode
-}
-
-// SetCopyMode marks the connection as being in COPY mode.
-// The reserved connection info is stored separately in ShardStates.
-func (m *MultiGatewayConnectionState) SetCopyMode() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.inCopyMode = true
-}
-
-// ClearCopyMode marks the connection as no longer in COPY mode.
-// This should be called when COPY operation completes or fails.
-func (m *MultiGatewayConnectionState) ClearCopyMode() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.inCopyMode = false
 }
