@@ -34,6 +34,7 @@ package etcdtopo
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"sync"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -79,7 +80,9 @@ type etcdtopo struct {
 	// root is the root path for this client.
 	root string
 
-	running chan struct{}
+	running    chan struct{}
+	closeOnce  sync.Once
+	closeError error
 }
 
 func init() {
@@ -97,12 +100,17 @@ func registerEtcdTopoFlags(fs *pflag.FlagSet) {
 // It will nil out the global and cells fields, so any attempt to
 // re-use this server will panic.
 func (s *etcdtopo) Close() error {
-	close(s.running)
-	if err := s.cli.Close(); err != nil {
-		return err
+	if s == nil {
+		return nil
 	}
-	s.cli = nil
-	return nil
+	s.closeOnce.Do(func() {
+		close(s.running)
+		if s.cli != nil {
+			s.closeError = s.cli.Close()
+			s.cli = nil
+		}
+	})
+	return s.closeError
 }
 
 func newTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
