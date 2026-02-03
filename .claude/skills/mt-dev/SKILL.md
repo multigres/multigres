@@ -9,7 +9,7 @@ Development commands for the multigres project.
 
 ## Command Structure
 
-```
+```text
 /mt-dev [test-type] [args...]
 ```
 
@@ -28,6 +28,7 @@ When executing commands:
 ## Unit Tests
 
 Unit tests are fast, isolated tests for individual functions and packages. They don't require external services or build artifacts.
+Note: plain `go test ./go/...` will also traverse `go/test/endtoend/...`; use `-short` for unit-focused runs.
 
 ### Command Syntax
 
@@ -37,7 +38,7 @@ Unit tests are fast, isolated tests for individual functions and packages. They 
 /mt-dev unit all
 ```
 
-Executes: `go test ./go/...`
+Executes: `go test -short ./go/...`
 
 **Run specific package:**
 
@@ -79,7 +80,7 @@ Examples:
 - `-race` - Enable race detector (slower, catches concurrency bugs)
 - `-cover` - Show coverage percentage
 - `-coverprofile=coverage.out` - Generate coverage report
-- `-count=N` - Run tests N times (useful for flaky test detection)
+- `-count=N` - Run tests N times (useful for flaky test detection); `-count=1` also forces re-run and bypasses test cache
 - `-timeout=30s` - Set timeout (default: 10m)
 - `-short` - Skip long-running tests
 - `-parallel=N` - Run N tests in parallel (default: GOMAXPROCS)
@@ -132,7 +133,7 @@ Integration tests are end-to-end tests that start real components (MultiGateway,
 - `shardsetup` - Shard configuration and management
 - `pgregresstest` - PostgreSQL regression tests (opt-in, comprehensive)
 
-### Command Syntax
+### Integration Test Command Syntax
 
 **Run all integration tests:**
 
@@ -186,15 +187,15 @@ Examples:
 - `/mt-dev integration queryserving Test.*Transaction.*` - All transaction tests
 - `/mt-dev integration multipooler TestConn.*` - All connection tests
 
-### Common Flags
+### Integration Test Flags
 
 Same flags as unit tests, plus:
 
 - `-timeout=30m` - Integration tests often need longer timeouts (default: 10m)
 - `-p=1` - Run packages sequentially (useful if tests conflict on resources)
-- `-count=1` - Run how many iterations of the tests (useful to detect flakes)
+- `-count=N` - Run tests N times (useful to detect flakes); `-count=1` also forces re-run and bypasses test cache
 
-### Examples
+### Integration Test Examples
 
 ```bash
 # Run all integration tests
@@ -219,7 +220,7 @@ Same flags as unit tests, plus:
 /mt-dev integration all -p=1
 ```
 
-### Natural Language Support
+### Integration Test Natural Language
 
 - "run integration tests" → `/mt-dev integration all`
 - "run multipooler tests" → `/mt-dev integration multipooler`
@@ -233,7 +234,7 @@ Same flags as unit tests, plus:
 
 ### Success Output
 
-```
+```text
 PASS
 ok      github.com/multigres/multigres/go/multipooler    2.456s
 ```
@@ -243,7 +244,7 @@ ok      github.com/multigres/multigres/go/multipooler    2.456s
 
 ### Failure Output
 
-```
+```text
 --- FAIL: TestConnectionPool (0.15s)
     pool_test.go:45: expected 10 connections, got 8
 FAIL
@@ -256,7 +257,7 @@ FAIL    github.com/multigres/multigres/go/multipooler    2.456s
 
 ### Build Failure
 
-```
+```text
 # github.com/multigres/multigres/go/multipooler
 ./connection.go:123:45: undefined: somethingMissing
 FAIL    github.com/multigres/multigres/go/multipooler [build failed]
@@ -267,7 +268,7 @@ FAIL    github.com/multigres/multigres/go/multipooler [build failed]
 
 ### Race Condition Detected
 
-```
+```text
 ==================
 WARNING: DATA RACE
 Read at 0x00c0001a2080 by goroutine 7:
@@ -280,7 +281,7 @@ Read at 0x00c0001a2080 by goroutine 7:
 
 ### Timeout
 
-```
+```text
 panic: test timed out after 10m0s
 ```
 
@@ -354,6 +355,7 @@ panic: test timed out after 10m0s
 - Use `-v` flag when debugging to see which test is running
 - Use `-race` flag before committing to catch concurrency bugs
 - Use `-count=10` to verify test stability (per CLAUDE.md guidelines)
+- Use `-count=1` to bypass cached results after environment or build changes
 - If build fails, check that you've committed all generated files
 - Coverage reports help identify untested code: `-coverprofile=coverage.out`
 - Most integration test failures indicate real bugs, not flaky tests
