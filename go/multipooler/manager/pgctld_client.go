@@ -34,6 +34,9 @@ type protectedPgctldClient struct {
 	client pgctldpb.PgCtldClient
 }
 
+// Compile-time assertion that protectedPgctldClient implements pgctldpb.PgCtldClient
+var _ pgctldpb.PgCtldClient = (*protectedPgctldClient)(nil)
+
 // NewProtectedPgctldClient creates a new protected pgctld client wrapper.
 func NewProtectedPgctldClient(client pgctldpb.PgCtldClient) pgctldpb.PgCtldClient {
 	return &protectedPgctldClient{
