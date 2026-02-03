@@ -19,6 +19,7 @@ package planner
 import (
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -88,7 +89,7 @@ func (p *Planner) Plan(
 // planDefault creates a simple route plan for queries without special handling.
 // This is the fallback for most SQL statements.
 func (p *Planner) planDefault(sql string, conn *server.Conn) (*engine.Plan, error) {
-	route := engine.NewRoute(p.defaultTableGroup, "", sql)
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
 	plan := engine.NewPlan(sql, route)
 
 	p.logger.Debug("created default route plan",

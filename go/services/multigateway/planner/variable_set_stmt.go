@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -61,7 +62,7 @@ func (p *Planner) planVariableSetStmt(
 		"value", value)
 
 	// 1. Route: Send to PostgreSQL for validation and execution
-	route := engine.NewRoute(p.defaultTableGroup, "", sql)
+	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
 
 	// 2. ApplySessionState: Update local tracking after successful execution
 	applyState := engine.NewApplySessionState(stmt, value)
