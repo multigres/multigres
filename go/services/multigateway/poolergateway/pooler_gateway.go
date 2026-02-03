@@ -208,7 +208,7 @@ func (pg *PoolerGateway) getSystemServiceClient(ctx context.Context, database st
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 
-	conn, err := pg.loadBalancer.GetConnection(target, nil)
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		// PRIMARY not found, try REPLICA
 		target.PoolerType = clustermetadatapb.PoolerType_REPLICA
