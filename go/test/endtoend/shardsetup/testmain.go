@@ -90,14 +90,17 @@
 package shardsetup
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/multigres/multigres/go/tools/pathutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 const (
@@ -114,6 +117,7 @@ type SetupFunc func(t *testing.T) *ShardSetup
 // It handles:
 //   - Setting up PATH for binaries
 //   - Setting environment variables for orphan detection
+//   - Initializing telemetry (no-op if OTEL not configured)
 //   - Handling signals for graceful shutdown
 //
 // Cleanup should be handled by the caller via SharedSetupManager.
@@ -141,6 +145,20 @@ func RunTestMain(m *testing.M) int {
 
 	// Set PGPASSWORD to a known value so tests can authenticate
 	os.Setenv("PGPASSWORD", TestPostgresPassword)
+
+	// Initialize telemetry (no-op if OTEL environment variables aren't set)
+	tel := telemetry.NewTelemetry()
+	ctx := context.Background()
+	if err := tel.InitTelemetry(ctx, "tests"); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize telemetry: %v\n", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := tel.ShutdownTelemetry(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to shutdown telemetry: %v\n", err)
+		}
+	}()
 
 	// Set up signal handler for cleanup on interrupt
 	sigChan := make(chan os.Signal, 1)

@@ -83,7 +83,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	watchTargets := []string{"postgres/default/0-inf"}
 	config := &shardsetup.SetupConfig{CellName: setup.CellName}
 	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", watchTargets, config)
-	require.NoError(t, mo.Start(t), "should start multiorch")
+	require.NoError(t, mo.Start(t.Context(), t), "should start multiorch")
 	t.Cleanup(moCleanup)
 
 	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
@@ -371,7 +371,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Removed pg_data directory: %s", pgDataDir)
 
 		// Restart multipooler (should auto-restore from backup)
-		require.NoError(t, standbyInst.Multipooler.Start(t), "Should restart multipooler")
+		require.NoError(t, standbyInst.Multipooler.Start(t.Context(), t), "Should restart multipooler")
 		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyName)
 
 		// Wait for multipooler to be ready

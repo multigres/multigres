@@ -1467,20 +1467,67 @@ type postgresState struct {
 	isPrimary        bool
 }
 
+// remedialAction represents actions the postgres monitor can take
+type remedialAction int
+
+const (
+	remedialActionNone remedialAction = iota
+	remedialActionStartPostgres
+	remedialActionRestoreFromBackup
+	remedialActionAdjustTypeToPrimary
+	remedialActionAdjustTypeToReplica
+)
+
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
 // This is called periodically by the monitor runner.
 func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) {
+	const (
+		reasonPgctldUnavailable = "pgctld_unavailable"
+		reasonPostgresRunning   = "postgres_running"
+		reasonWaitingForBackup  = "waiting_for_backup"
+	)
+
 	// Wait for manager to be ready
 	if err := pm.checkReady(); err != nil {
 		pm.logger.InfoContext(pm.ctx, "MonitorPostgres: manager not ready yet")
 		return
 	}
 
-	// Discover current status
+	// Discover current state
 	currentState := pm.discoverPostgresState(ctx)
 
-	// Take remedial action based on state
-	pm.takeRemedialAction(ctx, currentState)
+	// Determine what remediation is needed
+	action := pm.determineRemedialAction(currentState)
+	if action == remedialActionNone {
+		// No action needed - just log status
+		if !currentState.pgctldAvailable {
+			// Log every time (not just on reason change) - pgctld being unavailable is critical
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable")
+			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
+		} else if currentState.postgresRunning {
+			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		} else if !currentState.dirInitialized && !currentState.backupsAvailable {
+			pm.setMonitorReason(ctx, reasonWaitingForBackup, "MonitorPostgres: directory not initialized and no backups available, waiting")
+		}
+		return
+	}
+
+	// Acquire action lock before taking remedial action
+	lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
+	if err != nil {
+		pm.logger.InfoContext(ctx, "MonitorPostgres: failed to acquire action lock", "error", err)
+		return
+	}
+	defer pm.actionLock.Release(lockCtx)
+
+	// Re-verify state after acquiring lock (conditions may have changed)
+	currentState = pm.discoverPostgresState(lockCtx)
+
+	// Re-determine action based on current state
+	action = pm.determineRemedialAction(currentState)
+
+	// Take remedial action with lock held
+	pm.takeRemedialAction(lockCtx, action)
 }
 
 // discoverPostgresState discovers the current state of PostgreSQL
@@ -1522,114 +1569,101 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 	return state
 }
 
-// takeRemedialAction takes remedial action based on discovered state
-func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, currentState postgresState) {
+// setMonitorReason sets the current monitor state reason and logs on state changes.
+// This avoids log spam during repeated monitor iterations with the same state.
+func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, message string) {
+	if pm.pgMonitorLastLoggedReason != reason {
+		pm.logger.InfoContext(ctx, message)
+		pm.pgMonitorLastLoggedReason = reason
+	}
+}
+
+// determineRemedialAction decides what action to take based on discovered state.
+// This is pure decision logic with no side effects.
+func (pm *MultiPoolerManager) determineRemedialAction(currentState postgresState) remedialAction {
+	// Pgctld unavailable: No action possible
+	if !currentState.pgctldAvailable {
+		return remedialActionNone
+	}
+
+	// Postgres is running: Check if pooler type needs adjustment
+	if currentState.postgresRunning {
+		if currentState.isPrimary && pm.getPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
+			return remedialActionAdjustTypeToPrimary
+		}
+		if !currentState.isPrimary && pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
+			return remedialActionAdjustTypeToReplica
+		}
+		return remedialActionNone // Pooler type already matches
+	}
+
+	// Postgres not running: Try to start or restore
+	if currentState.dirInitialized {
+		return remedialActionStartPostgres
+	}
+
+	if currentState.backupsAvailable {
+		return remedialActionRestoreFromBackup
+	}
+
+	// Directory not initialized and no backups: Wait
+	return remedialActionNone
+}
+
+// takeRemedialAction executes the specified remedial action.
+// Caller must hold the action lock.
+func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action remedialAction) {
+	// Assert that the action lock is held
+	if err := AssertActionLockHeld(ctx); err != nil {
+		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
+		return
+	}
+
 	const (
-		reasonPgctldUnavailable   = "pgctld_unavailable"
 		reasonPostgresRunning     = "postgres_running"
 		reasonStartingPostgres    = "starting_postgres"
 		reasonRestoringFromBackup = "restoring_from_backup"
-		reasonWaitingForBackup    = "waiting_for_backup"
 	)
 
-	// Pgctld unavailable: Log every time
-	if !currentState.pgctldAvailable {
-		pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable")
-		pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
+	switch action {
+	case remedialActionNone:
+		// No action to take
 		return
-	}
 
-	// Postgres is running: No action (if postgres is running, directory must be initialized)
-	if currentState.postgresRunning {
-		// Log only on reason change
-		if pm.pgMonitorLastLoggedReason != reasonPostgresRunning {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running")
-			pm.pgMonitorLastLoggedReason = reasonPostgresRunning
+	case remedialActionAdjustTypeToPrimary:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running and primary")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to primary")
+		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to primary", "error", err)
 		}
-		if currentState.isPrimary {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running and primary")
-			if pm.getPoolerType() != clustermetadatapb.PoolerType_PRIMARY {
-				func() {
-					pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to primary")
-					lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
-					if err != nil {
-						return
-					}
-					defer pm.actionLock.Release(lockCtx)
-					if err := pm.changeTypeLocked(lockCtx, clustermetadatapb.PoolerType_PRIMARY); err != nil {
-						pm.logger.ErrorContext(lockCtx, "MonitorPostgres: failed to change pooler type to primary", "error", err)
-					}
-				}()
-			}
-		} else {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running but not primary")
-			if pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY {
-				// Pooler type is primary, but isPrimary is false
-				func() {
-					pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to replica")
-					lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
-					if err != nil {
-						return
-					}
-					defer pm.actionLock.Release(lockCtx)
-					if err := pm.changeTypeLocked(lockCtx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-						pm.logger.ErrorContext(lockCtx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
-					}
-				}()
-			}
-		}
-		return
-	}
 
-	// Directory initialized and Postgres is not running: Start postgres
-	// Note: We only reach here if postgres is not running
-	if currentState.dirInitialized {
-		// Log only on reason change
-		if pm.pgMonitorLastLoggedReason != reasonStartingPostgres {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
-			pm.pgMonitorLastLoggedReason = reasonStartingPostgres
+	case remedialActionAdjustTypeToReplica:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL is running but not primary")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: Changing pooler type to replica")
+		if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to change pooler type to replica", "error", err)
 		}
+
+	case remedialActionStartPostgres:
+		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
 		if err := pm.startPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
 		}
-		return
-	}
 
-	// Directory not initialized, backup available: Restore from backup and start postgres
-	// Note: We only reach here if postgres is not running and directory is not initialized
-	if currentState.backupsAvailable {
-		// Log only on reason change
-		if pm.pgMonitorLastLoggedReason != reasonRestoringFromBackup {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
-			pm.pgMonitorLastLoggedReason = reasonRestoringFromBackup
-		}
+	case remedialActionRestoreFromBackup:
+		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
 		}
-		return
-	}
-
-	// Directory not initialized, no backup available: No action
-	// Note: We only reach here if postgres is not running, directory is not initialized, and no backups available
-	// Log only on reason change
-	if pm.pgMonitorLastLoggedReason != reasonWaitingForBackup {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: directory not initialized and no backups available, waiting")
-		pm.pgMonitorLastLoggedReason = reasonWaitingForBackup
 	}
 }
 
 // hasCompleteBackups checks if there are any complete backups available
 func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
-	// Acquire action lock to safely check backups
-	lockCtx, err := pm.actionLock.Acquire(ctx, "hasCompleteBackups")
-	if err != nil {
-		// If we can't acquire the lock, assume no backups to avoid blocking
-		return false
-	}
-	defer pm.actionLock.Release(lockCtx)
-
 	// Get list of backups
-	backups, err := pm.listBackups(lockCtx)
+	backups, err := pm.listBackups(ctx)
 	if err != nil {
 		return false
 	}
@@ -1662,18 +1696,12 @@ func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 
 // restoreAndStartPostgres restores from backup and starts PostgreSQL.
 // This is used by MonitorPostgres for auto-restore functionality.
+// Caller must hold the action lock.
 func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error {
-	// Acquire action lock for restore operation
-	lockCtx, err := pm.actionLock.Acquire(ctx, "restoreAndStartPostgres")
-	if err != nil {
-		return fmt.Errorf("failed to acquire action lock: %w", err)
-	}
-	defer pm.actionLock.Release(lockCtx)
-
-	// Re-check status after acquiring lock to ensure conditions haven't changed
-	// (e.g., another process may have initialized or started postgres while we waited)
+	// Re-check status to ensure conditions haven't changed
+	// (e.g., another process may have initialized or started postgres while we waited for lock)
 	if pm.pgctldClient != nil {
-		statusResp, err := pm.pgctldClient.Status(lockCtx, &pgctldpb.StatusRequest{})
+		statusResp, err := pm.pgctldClient.Status(ctx, &pgctldpb.StatusRequest{})
 		if err == nil {
 			// If directory is now initialized, skip restore
 			if statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED {
@@ -1685,7 +1713,7 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	}
 
 	// Get the latest complete backup
-	backups, err := pm.listBackups(lockCtx)
+	backups, err := pm.listBackups(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list backups: %w", err)
 	}
@@ -1709,7 +1737,7 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"backup_id", latestBackup.BackupId)
 
 	// Perform the restore
-	if err := pm.restoreFromBackupLocked(lockCtx, latestBackup.BackupId); err != nil {
+	if err := pm.restoreFromBackupLocked(ctx, latestBackup.BackupId); err != nil {
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 

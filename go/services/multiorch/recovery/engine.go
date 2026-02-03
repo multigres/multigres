@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
+	"github.com/multigres/multigres/go/tools/timer"
 )
 
 // runIfNotRunning executes fn in a goroutine only if inProgress flag is false.
@@ -244,11 +245,13 @@ type Engine struct {
 	// Config reloader for dynamic updates (only shardWatchTargets is dynamic)
 	reloadConfig func() []string
 
+	// Periodic runners for background tasks
+	bookkeepingRunner *timer.PeriodicRunner
+	recoveryRunner    *timer.PeriodicRunner
+
 	// Goroutine management - prevent pile-up of concurrent operations
 	metadataRefreshInProgress atomic.Bool
-	bookkeepingInProgress     atomic.Bool
 	healthCheckInProgress     atomic.Bool
-	recoveryLoopInProgress    atomic.Bool
 
 	// Cache for deduplication (prevents redundant health checks)
 	recentPollCache   map[string]time.Time
@@ -300,6 +303,8 @@ func NewEngine(
 		detectedProblems:  nil,
 		shutdownCtx:       ctx,
 		cancel:            cancel,
+		bookkeepingRunner: timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
+		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
 	// Initialize metrics
@@ -364,7 +369,22 @@ func (re *Engine) Start() error {
 	// Start health check worker pool
 	re.startHealthCheckWorkers()
 
-	// Start maintenance loop (cluster metadata refresh + bookkeeping)
+	// Start bookkeeping runner
+	re.bookkeepingRunner.Start(func(ctx context.Context) {
+		re.runBookkeeping()
+	}, nil)
+
+	// Start recovery runner with dynamic interval support
+	re.recoveryRunner.Start(func(ctx context.Context) {
+		// Check if interval changed (dynamic config)
+		newInterval := re.config.GetRecoveryCycleInterval()
+		if re.recoveryRunner.UpdateInterval(newInterval) {
+			re.logger.InfoContext(re.shutdownCtx, "recovery cycle interval changed", "interval", newInterval)
+		}
+		re.performRecoveryCycle()
+	}, nil)
+
+	// Start maintenance loop (cluster metadata refresh only)
 	re.wg.Go(func() {
 		re.runMaintenanceLoop()
 	})
@@ -372,11 +392,6 @@ func (re *Engine) Start() error {
 	// Start health check ticker loop (queues poolers for health checking)
 	re.wg.Go(func() {
 		re.runHealthCheckTickerLoop()
-	})
-
-	// Start recovery loop (problem detection and recovery)
-	re.wg.Go(func() {
-		re.runRecoveryLoop()
 	})
 
 	re.logger.Info("recovery engine started successfully")
@@ -388,16 +403,15 @@ func (re *Engine) Start() error {
 func (re *Engine) Stop() {
 	re.logger.Info("stopping recovery engine")
 	re.cancel()
+	re.bookkeepingRunner.Stop()
+	re.recoveryRunner.Stop()
 	re.wg.Wait()
 	re.logger.Info("recovery engine stopped")
 }
 
-// runMaintenanceLoop runs the cluster metadata refresh and bookkeeping tasks.
+// runMaintenanceLoop runs the cluster metadata refresh task.
 // Supports dynamic reloading of shardWatchTargets via SetConfigReloader.
 func (re *Engine) runMaintenanceLoop() {
-	bookkeepingTicker := time.NewTicker(re.config.GetBookkeepingInterval())
-	defer bookkeepingTicker.Stop()
-
 	metadataTicker := time.NewTicker(re.config.GetClusterMetadataRefreshInterval())
 	defer metadataTicker.Stop()
 
@@ -414,9 +428,6 @@ func (re *Engine) runMaintenanceLoop() {
 
 		case <-metadataTicker.C:
 			runIfNotRunning(re.logger, &re.metadataRefreshInProgress, "cluster_metadata_refresh", re.refreshClusterMetadata)
-
-		case <-bookkeepingTicker.C:
-			runIfNotRunning(re.logger, &re.bookkeepingInProgress, "bookkeeping", re.runBookkeeping)
 		}
 	}
 }
