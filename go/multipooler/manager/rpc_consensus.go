@@ -20,24 +20,26 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // BeginTerm handles coordinator requests during leader appointments.
-// Accepting a new term means this node will not accept any new requests from
-// the current term. This is the revocation step of consensus, which applies
-// to both primaries and standbys:
+// It consists of two phases:
 //
-//   - If this node is a primary and receives a higher term, it MUST demote
-//     itself before accepting. If demotion fails, the term is rejected.
-//   - If this node is a standby and receives a higher term, it pauses
-//     replication to break the connection with the old primary. The new
-//     primary will reconfigure replication via SetPrimaryConnInfo.
+// 1. Term Acceptance: Accept the new term based on consensus rules
+//   - Term must be >= current term
+//   - Cannot accept different coordinator for same term
+//   - Atomically update term and accept candidate
+//
+// 2. Action Execution: Execute the specified action after term acceptance
+//   - NO_ACTION: Do nothing
+//   - REVOKE: Demote primary or pause standby replication to revoke old term
 func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
@@ -48,21 +50,69 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// CRITICAL: Must be able to reach Postgres to participate in cohort
-	// Test database connectivity with a simple query
-	if _, err = pm.query(ctx, "SELECT 1"); err != nil {
-		return nil, fmt.Errorf("postgres unhealthy, cannot accept new term: %w", err)
+	// Log the action type for observability
+	pm.logger.InfoContext(ctx, "BeginTerm received",
+		"term", req.Term,
+		"candidate_id", req.CandidateId.GetName(),
+		"action", req.Action.String(),
+		"shard_id", req.ShardId)
+
+	// Validate action
+	switch req.Action {
+	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE:
+		// Valid action
+	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION:
+		// Valid action
+	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_UNSPECIFIED:
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			"action must be specified (cannot be UNSPECIFIED)")
+	default:
+		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"unknown BeginTerm action type: %v", req.Action)
 	}
 
-	// Check if we're currently a primary (before any term changes)
-	wasPrimary, err := pm.isPrimary(ctx)
-	if err != nil {
-		// If we can't determine role, log warning but continue
-		pm.logger.WarnContext(ctx, "Failed to determine if primary", "error", err)
-		wasPrimary = false
+	// TEMPORARY: Check postgres health before accepting term with REVOKE action.
+	//
+	// This is a temporary measure while we fully unwind the coupling between term acceptance
+	// and revoke execution. The current code conflates "voting term" (the term a node has
+	// agreed to participate in) with "primary term" (the term the node is actually primary for).
+	//
+	// Without this check, an unhealthy node would accept a new term but fail to revoke its
+	// old primary status. This breaks operations like DemoteStalePrimary: if two multipoolers
+	// both report themselves as primary (one stale at term N, one fresh at term N+1), we
+	// currently lack a reliable way to determine which is the true primary.
+	//
+	// Proper fix: Track two distinct term numbers:
+	// - Voting term: highest term accepted for consensus participation
+	// - Primary term: specific term for which this node is executing as primary
+	//
+	// With separate terms, a node accepting term 6 while still primary for term 5 would
+	// correctly report primary_term=5, making it unambiguous which node holds current authority.
+	if req.Action == consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE {
+		if _, err := pm.query(ctx, "SELECT 1"); err != nil {
+			pm.logger.WarnContext(ctx, "Postgres unhealthy, rejecting term with REVOKE action",
+				"term", req.Term,
+				"error", err)
+			// Return current term with accepted=false
+			pm.mu.Lock()
+			cs := pm.consensusState
+			pm.mu.Unlock()
+			currentTerm, termErr := cs.GetCurrentTermNumber(ctx)
+			if termErr != nil {
+				currentTerm = 0
+			}
+			return &consensusdatapb.BeginTermResponse{
+				Term:     currentTerm,
+				Accepted: false,
+				PoolerId: pm.serviceID.GetName(),
+			}, nil
+		}
 	}
 
-	// Get current consensus state
+	// ========================================================================
+	// Term Acceptance (Consensus Rules)
+	// ========================================================================
+
 	pm.mu.Lock()
 	cs := pm.consensusState
 	pm.mu.Unlock()
@@ -71,141 +121,106 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		return nil, errors.New("consensus state not initialized")
 	}
 
+	// Get current term for response
 	currentTerm, err := cs.GetCurrentTermNumber(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current term: %w", err)
 	}
 
-	term, err := cs.GetTerm(ctx)
+	// Atomically update term and accept candidate
+	// This handles all consensus rules: term validation, duplicate check, etc.
+	err = cs.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get term: %w", err)
+		// Term not accepted - return rejection
+		pm.logger.InfoContext(ctx, "Term not accepted",
+			"request_term", req.Term,
+			"current_term", currentTerm,
+			"error", err)
+		return &consensusdatapb.BeginTermResponse{
+			Term:     currentTerm,
+			Accepted: false,
+			PoolerId: pm.serviceID.GetName(),
+		}, nil
 	}
 
+	pm.logger.InfoContext(ctx, "Term accepted",
+		"term", req.Term,
+		"coordinator", req.CandidateId.GetName())
+
 	response := &consensusdatapb.BeginTermResponse{
-		Term:     currentTerm,
-		Accepted: false,
+		Term:     req.Term,
+		Accepted: true,
 		PoolerId: pm.serviceID.GetName(),
 	}
 
-	// Reject if term is outdated
-	if req.Term < currentTerm {
+	// ========================================================================
+	// Action Execution
+	// ========================================================================
+
+	switch req.Action {
+	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION:
+		return response, nil
+
+	case consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE:
+		if err := pm.executeRevoke(ctx, req.Term, response); err != nil {
+			// Term was already accepted and persisted above, so we must return
+			// the response with accepted=true AND the error. This tells the coordinator:
+			// 1. The term was accepted (response.Accepted = true)
+			// 2. The revoke action failed (error != nil)
+			pm.logger.ErrorContext(ctx, "Term accepted but revoke action failed",
+				"term", req.Term,
+				"error", err)
+			return response, mterrors.Wrap(err, "term accepted but revoke action failed")
+		}
+		return response, nil
+
+	default:
+		// Should never reach here due to validation above
 		return response, nil
 	}
+}
 
-	// Check if we've already accepted this term from a different coordinator
-	if req.Term == currentTerm && term != nil && term.AcceptedTermFromCoordinatorId != nil {
-		// Compare full ID (component, cell, name) not just name
-		if !proto.Equal(term.AcceptedTermFromCoordinatorId, req.CandidateId) {
-			return response, nil
-		}
+// executeRevoke executes the REVOKE action by demoting primary or pausing standby replication.
+// This is called after the term has been accepted.
+func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, response *consensusdatapb.BeginTermResponse) error {
+	// CRITICAL: Must be able to reach Postgres to execute revoke
+	if _, err := pm.query(ctx, "SELECT 1"); err != nil {
+		return mterrors.Wrap(err, "postgres unhealthy, cannot execute revoke")
 	}
 
-	// If we're a primary accepting a higher term, we must demote FIRST.
-	// Only accept the term if demotion succeeds. This prevents split-brain
-	// by ensuring the old primary stops accepting writes before acknowledging
-	// the new term.
-	if wasPrimary && req.Term > currentTerm {
-		pm.logger.InfoContext(ctx, "Primary receiving higher term, attempting demotion before acceptance",
-			"current_term", currentTerm,
-			"new_term", req.Term,
-			"candidate_id", req.CandidateId.GetName())
+	isPrimary, err := pm.isPrimary(ctx)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to determine role for revoke")
+	}
 
-		// Use a reasonable drain timeout for demotion
+	if isPrimary {
+		// Revoke primary: demote
+		// TODO: Implement graceful (non-emergency) demote for planned failovers.
+		// This emergency demote path will remain for BeginTerm REVOKE actions.
+		pm.logger.InfoContext(ctx, "Revoking primary", "term", term)
 		drainTimeout := 5 * time.Second
-		demoteLSN, demoteErr := pm.emergencyDemoteLocked(ctx, req.Term, drainTimeout)
-		if demoteErr != nil {
-			// Demotion failed - do NOT accept the term
-			// Return accepted=false so coordinator knows this node couldn't safely step down
-			pm.logger.ErrorContext(ctx, "Demotion failed, rejecting term acceptance",
-				"error", demoteErr,
-				"term", req.Term)
-			// TODO: we should attempt to undo the demote.
-			// UndoDemote has not been implemented yet
-			return response, nil
+		demoteResp, err := pm.emergencyDemoteLocked(ctx, term, drainTimeout)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to demote primary during revoke")
 		}
-
-		// Demotion succeeded - update term atomically with acceptance below
-		response.Term = req.Term
-		response.DemoteLsn = demoteLSN.LsnPosition
-
-		pm.logger.InfoContext(ctx, "Demotion completed, accepting term",
-			"demote_lsn", demoteLSN.LsnPosition,
-			"term", req.Term)
+		response.DemoteLsn = demoteResp.LsnPosition
+		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
 	} else {
-		// Check if we're caught up with replication (within 30 seconds)
-		// Only relevant for standbys - primaries don't have WAL receivers
-		// Do this check BEFORE updating term so we can reject early
-		if !wasPrimary {
-			var lastMsgReceiptTime *time.Time
-			result, queryErr := pm.query(ctx, "SELECT last_msg_receipt_time FROM pg_stat_wal_receiver")
-			if queryErr != nil {
-				// No WAL receiver (disconnected standby) - this is EXPECTED during failover
-				// when the primary just died. Don't reject - proceed with acceptance.
-				// The standby's data may still be recent even without an active WAL receiver.
-				pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
-					"term", req.Term)
-			} else {
-				queryErr = executor.ScanSingleRow(result, &lastMsgReceiptTime)
-				if queryErr != nil {
-					// No WAL receiver (disconnected standby) - this is EXPECTED during failover
-					// when the primary just died. Don't reject - proceed with acceptance.
-					// The standby's data may still be recent even without an active WAL receiver.
-					pm.logger.InfoContext(ctx, "Standby has no WAL receiver, proceeding with term acceptance",
-						"term", req.Term)
-				}
-			}
-			if lastMsgReceiptTime != nil {
-				timeSinceLastMessage := time.Since(*lastMsgReceiptTime)
-				if timeSinceLastMessage > 30*time.Second {
-					// We're too far behind in replication, update term but don't accept
-					pm.logger.WarnContext(ctx, "Rejecting term acceptance: standby too far behind",
-						"term", req.Term,
-						"last_msg_receipt_time", lastMsgReceiptTime,
-						"time_since_last_message", timeSinceLastMessage)
-					// Still update term if higher, but don't accept
-					if req.Term > currentTerm {
-						if err := pm.validateAndUpdateTerm(ctx, req.Term, false); err != nil {
-							return nil, fmt.Errorf("failed to update term: %w", err)
-						}
-						response.Term = req.Term
-					}
-					return response, nil
-				}
-			}
-		}
+		// Revoke standby: pause replication to break connection with old primary
+		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
 
-		// Update response term if higher (actual update happens atomically below)
-		if req.Term > currentTerm {
-			response.Term = req.Term
+		// First, pause replication to break connection with old primary
+		_, err := pm.pauseReplication(
+			ctx,
+			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+			false)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to pause replication during revoke")
 		}
-
-		// Standby accepting new term: reset primary_conninfo to break connection with old primary
-		// This ensures we don't continue replicating from a demoted primary
-		if !wasPrimary && req.Term > currentTerm {
-			pm.logger.InfoContext(ctx, "Standby accepting new term, resetting primary_conninfo",
-				"term", req.Term,
-				"current_term", currentTerm)
-
-			// Reset primary_conninfo - this will stop the WAL receiver
-			_, pauseErr := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, false)
-			if pauseErr != nil {
-				// TODO: is it actually safe to ignore this error? We need to look into what can cause this to fail
-				// If a dead primary can cause this to fail, we have to ignore errors, otherwise we should reject the new term on error
-				pm.logger.WarnContext(ctx, "Failed to reset primary_conninfo during term acceptance",
-					"error", pauseErr)
-			}
-		}
+		pm.logger.InfoContext(ctx, "Standby replication paused", "term", term)
 	}
 
-	// Atomically update term AND accept candidate in single file write
-	// This combines what used to be two separate file writes
-	if err := cs.UpdateTermAndAcceptCandidate(ctx, req.Term, req.CandidateId); err != nil {
-		return nil, fmt.Errorf("failed to update term and accept candidate: %w", err)
-	}
-
-	response.Accepted = true
-
-	return response, nil
+	return nil
 }
 
 // ConsensusStatus returns the current status of this node for consensus
