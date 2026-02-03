@@ -113,7 +113,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("BeginTerm without database connection should fail", func(t *testing.T) {
+	t.Run("BeginTerm with REVOKE action without database connection should reject", func(t *testing.T) {
 		req := &consensusdata.BeginTermRequest{
 			Term: 5,
 			CandidateId: &clustermetadata.ID{
@@ -122,14 +122,18 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 				Name:      "candidate-1",
 			},
 			ShardId: "shard-1",
+			Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 		}
 
 		resp, err := svc.BeginTerm(ctx, req)
 
-		// Should fail because no database connection
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "postgres")
+		// TODO: This behavior is temporary. Once we separate voting term from primary term,
+		// unhealthy nodes should accept the term (for voting) even if they can't execute revoke.
+		// Current behavior: reject term when postgres is down with REVOKE action
+		// Future behavior: accept term (voting term) but keep old primary term
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.False(t, resp.Accepted, "Term should be rejected when postgres is unhealthy with REVOKE action")
 	})
 }
 
@@ -458,11 +462,13 @@ func TestConsensusService_AllMethods(t *testing.T) {
 						Name:      "candidate-1",
 					},
 					ShardId: "shard-1",
+					Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 				}
 				_, err := svc.BeginTerm(ctx, req)
 				return err
 			},
-			shouldSucceed: false, // No database connection
+			// No database connection, revoke action short-circuits and rejects the call
+			shouldSucceed: true,
 		},
 		{
 			name: "Status",

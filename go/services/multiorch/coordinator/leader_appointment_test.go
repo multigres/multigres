@@ -255,7 +255,7 @@ func TestSelectCandidate(t *testing.T) {
 		candidate, err := c.selectCandidate(ctx, cohort)
 		require.Error(t, err)
 		require.Nil(t, candidate)
-		require.Contains(t, err.Error(), "no healthy nodes available")
+		require.Contains(t, err.Error(), "no healthy poolers available")
 	})
 }
 
@@ -282,7 +282,7 @@ func TestRecruitNodes(t *testing.T) {
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate)
+		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 3)
 	})
@@ -310,7 +310,35 @@ func TestRecruitNodes(t *testing.T) {
 		}
 		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate)
+		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+		require.NoError(t, err)
+		require.Len(t, recruited, 2)
+	})
+
+	t.Run("success - excludes nodes with BeginTerm error", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
+
+		cohort := []*multiorchdatapb.PoolerHealthState{
+			candidate,
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+		}
+
+		// mp3 returns an error even though it would accept the term
+		mp3ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp3",
+		}
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
+
+		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 2)
 	})

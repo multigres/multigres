@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -47,29 +48,17 @@ func TestReplicationAPIs(t *testing.T) {
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 	// Create shared clients for all subtests
-	primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
 	require.NoError(t, err)
-	t.Cleanup(func() { primaryPoolerClient.Close() })
+	t.Cleanup(func() { primaryClient.Close() })
+	primaryManagerClient := primaryClient.Manager
+	primaryPoolerClient := primaryClient.Pooler
 
-	standbyPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort))
+	standbyClient, err := shardsetup.NewMultipoolerClient(setup.StandbyMultipooler.GrpcPort)
 	require.NoError(t, err)
-	t.Cleanup(func() { standbyPoolerClient.Close() })
-
-	primaryConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryConn.Close() })
-	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
-
-	standbyConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyConn.Close() })
-	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+	t.Cleanup(func() { standbyClient.Close() })
+	standbyManagerClient := standbyClient.Manager
+	standbyPoolerClient := standbyClient.Pooler
 
 	t.Run("ConfigureReplicationAndValidate", func(t *testing.T) {
 		setupPoolerTest(t, setup, WithoutReplication(), WithDropTables("test_replication"))
@@ -228,6 +217,11 @@ func TestReplicationAPIs(t *testing.T) {
 		// PostgreSQL wire protocol returns boolean as 't' or 'f' in text format
 		assert.Equal(t, "f", isPaused, "WAL replay should not be paused initially")
 
+		// Get current term
+		consensusStatus, err := standbyClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		require.NoError(t, err)
+		currentTerm := consensusStatus.CurrentTerm
+
 		// Call SetPrimaryConnInfo with StopReplicationBefore=true and StartReplicationAfter=false
 		ctx := utils.WithTimeout(t, 1*time.Second)
 
@@ -245,7 +239,7 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: true,  // Stop before
-			CurrentTerm:           1,
+			CurrentTerm:           currentTerm,
 			Force:                 false,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
@@ -985,6 +979,11 @@ func TestReplicationAPIs(t *testing.T) {
 		require.Error(t, err, "WaitForLSN should timeout since replication is disconnected")
 		t.Log("Confirmed: Standby cannot reach primary LSN (data did NOT replicate)")
 
+		// Get current term
+		consensusStatus, err := standbyClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		require.NoError(t, err)
+		currentTerm := consensusStatus.CurrentTerm
+
 		// Re-enable replication using SetPrimaryConnInfo
 		t.Log("Re-enabling replication...")
 		primary = &clustermetadatapb.MultiPooler{
@@ -1000,7 +999,7 @@ func TestReplicationAPIs(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
+			CurrentTerm:           currentTerm,
 			Force:                 false,
 		}
 		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
@@ -1048,27 +1047,20 @@ func TestStandbyReplicationStatus(t *testing.T) {
 
 	setup := getSharedTestSetup(t)
 
-	// Connect to manager clients
-	primaryManagerConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { primaryManagerConn.Close() })
-
-	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryManagerConn)
-
-	standbyManagerConn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { standbyManagerConn.Close() })
-	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyManagerConn)
-
 	// Ensure managers are ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	// Create shared clients for all subtests
+	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryClient.Close() })
+	primaryManagerClient := primaryClient.Manager
+
+	standbyClient, err := shardsetup.NewMultipoolerClient(setup.StandbyMultipooler.GrpcPort)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyClient.Close() })
+	standbyManagerClient := standbyClient.Manager
 
 	t.Run("StandbyReplicationStatus_Primary_Fails", func(t *testing.T) {
 		setupPoolerTest(t, setup)
@@ -1124,6 +1116,11 @@ func TestStandbyReplicationStatus(t *testing.T) {
 	t.Run("ReplicationStatus_Standby_WithReplication", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
+		// Get current term
+		consensusStatus, err := standbyClient.Consensus.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		require.NoError(t, err)
+		currentTerm := consensusStatus.CurrentTerm
+
 		// Configure replication
 		t.Log("Configuring replication on standby...")
 		primary := &clustermetadatapb.MultiPooler{
@@ -1139,10 +1136,10 @@ func TestStandbyReplicationStatus(t *testing.T) {
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
-			CurrentTerm:           1,
+			CurrentTerm:           currentTerm,
 			Force:                 false,
 		}
-		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for config to take effect (pg_reload_conf is async)

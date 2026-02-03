@@ -199,6 +199,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			Cell:      setup.CellName,
 			Name:      "test-coordinator",
 		},
+		Action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 	}
 	beginTermResp, err := primaryClient.Consensus.BeginTerm(utils.WithTimeout(t, 10*time.Second), beginTermReq)
 	primaryClient.Close()
