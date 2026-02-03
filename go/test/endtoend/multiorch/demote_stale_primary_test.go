@@ -266,7 +266,12 @@ func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPr
 	oldPrimary := setup.GetMultipoolerInstance(oldPrimaryName)
 	require.NotNil(t, oldPrimary, "old primary instance should exist")
 
-	shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary}, timeout, 2*time.Second,
+	// Trigger recovery and wait for it to complete
+	t.Log("Triggering recovery to detect and repair stale primary...")
+	setup.TriggerRecoveryNow(t, "multiorch", timeout)
+
+	// Verify old primary is now a replica with replication configured
+	shardsetup.RequirePoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary},
 		func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
 			if s.PoolerType != clustermetadatapb.PoolerType_REPLICA {
 				return false, fmt.Sprintf("type=%v, waiting for REPLICA", s.PoolerType)
