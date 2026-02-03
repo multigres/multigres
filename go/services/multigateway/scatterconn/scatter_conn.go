@@ -302,23 +302,17 @@ func (sc *ScatterConn) CopyInitiate(
 		SessionSettings: state.GetSessionSettings(),
 	}
 
-	// Create CopyStream via gateway (uses queryservice.CopyStream)
-	streamClient, err := sc.gateway.CopyStream(ctx, target, queryStr, execOptions)
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to create COPY stream: %w", err)
-	}
-
-	// Call Ready() to initiate the COPY and get format info
-	format, columnFormats, reservedState, err := streamClient.Ready()
+	// Call CopyReady on gateway to initiate the COPY and get format info
+	format, columnFormats, reservedState, err := sc.gateway.CopyReady(ctx, target, queryStr, execOptions)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
-	// Store stream client in connection state
-	state.SetCopyStreamClient(streamClient)
-
 	// Store reserved connection in ShardStates (same pattern as regular queries)
 	state.StoreReservedConnection(target, reservedState)
+
+	// Mark that we're in COPY mode
+	state.SetCopyMode()
 
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",
 		"reserved_conn_id", reservedState.ReservedConnectionId,
@@ -343,14 +337,28 @@ func (sc *ScatterConn) CopySendData(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
-	// Get the stream client from connection state
-	streamClient := state.GetCopyStreamClient()
-	if streamClient == nil {
-		return errors.New("no active COPY stream")
+	// Create target for routing
+	target := &query.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
 	}
 
-	// Send data via stream client
-	if err := streamClient.SendData(data); err != nil {
+	// Get the reserved connection ID from shard state
+	ss := state.GetMatchingShardState(target)
+	if ss == nil || ss.ReservedConnectionId == 0 {
+		return errors.New("no active COPY connection")
+	}
+
+	// Build options with reserved connection ID
+	copyOptions := &query.ExecuteOptions{
+		User:                 conn.User(),
+		SessionSettings:      state.GetSessionSettings(),
+		ReservedConnectionId: uint64(ss.ReservedConnectionId),
+	}
+
+	// Send data via gateway
+	if err := sc.gateway.CopySendData(ctx, target, data, copyOptions); err != nil {
 		return fmt.Errorf("failed to send COPY data: %w", err)
 	}
 
@@ -375,14 +383,28 @@ func (sc *ScatterConn) CopyFinalize(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
-	// Get the stream client from connection state
-	streamClient := state.GetCopyStreamClient()
-	if streamClient == nil {
-		return errors.New("no active COPY stream")
+	// Create target for routing
+	target := &query.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
 	}
 
-	// Finalize the COPY operation
-	result, err := streamClient.Finalize(finalData)
+	// Get the reserved connection ID from shard state
+	ss := state.GetMatchingShardState(target)
+	if ss == nil || ss.ReservedConnectionId == 0 {
+		return errors.New("no active COPY connection")
+	}
+
+	// Build options with reserved connection ID
+	copyOptions := &query.ExecuteOptions{
+		User:                 conn.User(),
+		SessionSettings:      state.GetSessionSettings(),
+		ReservedConnectionId: uint64(ss.ReservedConnectionId),
+	}
+
+	// Finalize the COPY operation via gateway
+	result, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
@@ -395,7 +417,7 @@ func (sc *ScatterConn) CopyFinalize(
 	}
 
 	// Clear COPY state
-	state.ClearCopyState()
+	state.ClearCopyMode()
 
 	return nil
 }
@@ -413,20 +435,35 @@ func (sc *ScatterConn) CopyAbort(
 		"tablegroup", tableGroup,
 		"shard", shard)
 
-	// Get the stream client from connection state
-	streamClient := state.GetCopyStreamClient()
-	if streamClient == nil {
+	// Create target for routing
+	target := &query.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		Shard:      shard,
+	}
+
+	// Get the reserved connection ID from shard state
+	ss := state.GetMatchingShardState(target)
+	if ss == nil || ss.ReservedConnectionId == 0 {
 		// Already cleaned up
+		sc.logger.DebugContext(ctx, "COPY already cleaned up")
 		return nil
 	}
 
-	// Abort the COPY operation
-	if err := streamClient.Abort("operation aborted by client"); err != nil {
+	// Build options with reserved connection ID
+	copyOptions := &query.ExecuteOptions{
+		User:                 conn.User(),
+		SessionSettings:      state.GetSessionSettings(),
+		ReservedConnectionId: uint64(ss.ReservedConnectionId),
+	}
+
+	// Abort the COPY operation via gateway
+	if err := sc.gateway.CopyAbort(ctx, target, "operation aborted by client", copyOptions); err != nil {
 		sc.logger.WarnContext(ctx, "error during COPY abort", "error", err)
 	}
 
 	// Clear COPY state
-	state.ClearCopyState()
+	state.ClearCopyMode()
 
 	sc.logger.DebugContext(ctx, "COPY aborted")
 

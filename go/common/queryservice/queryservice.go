@@ -118,46 +118,64 @@ type QueryService interface {
 	// After Close is called, no other methods should be called.
 	Close(ctx context.Context) error
 
-	// CopyStream creates a bidirectional stream for COPY operations.
-	// This is used for COPY FROM STDIN and COPY TO STDOUT commands.
-	// Returns a CopyStreamClient that can be used to send data and finalize the operation.
+	// CopyReady initiates a COPY FROM STDIN operation and returns format information.
+	// Returns reserved connection state that must be stored and used for subsequent COPY calls
+	// via options.ReservedConnectionId.
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
 	//   target: Target specifying tablegroup, shard, and pooler type
 	//   copyQuery: The COPY SQL statement to execute
 	//   options: Execute options including user and session settings
-	//
-	// The returned CopyStreamClient should be used to:
-	//   1. Call Ready() to get format info and reserved connection state
-	//   2. Call SendData() for each chunk of data
-	//   3. Call Finalize() to complete the operation
-	//   4. Call Abort() if an error occurs
-	CopyStream(
+	CopyReady(
 		ctx context.Context,
 		target *query.Target,
 		copyQuery string,
 		options *query.ExecuteOptions,
-	) (CopyStreamClient, error)
-}
+	) (format int16, columnFormats []int16, reservedState ReservedState, err error)
 
-// CopyStreamClient is the client-side interface for bidirectional COPY operations.
-// It encapsulates the gRPC bidirectional stream and provides a clean API for COPY operations.
-type CopyStreamClient interface {
-	// Ready initiates the COPY operation and returns format information.
-	// This should be called first after creating the stream.
-	// Returns: format (0=text, 1=binary), column formats, reserved connection state, error
-	Ready() (format int16, columnFormats []int16, reservedState ReservedState, err error)
+	// CopySendData sends a chunk of data for an active COPY operation.
+	// options.ReservedConnectionId must be set to route to the correct connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   data: The chunk of COPY data to send
+	//   options: Execute options including reserved connection ID
+	CopySendData(
+		ctx context.Context,
+		target *query.Target,
+		data []byte,
+		options *query.ExecuteOptions,
+	) error
 
-	// SendData sends a chunk of COPY data to the server.
-	// For COPY FROM STDIN, this sends data to be inserted.
-	SendData(data []byte) error
+	// CopyFinalize completes a COPY operation, sending final data and returning the result.
+	// options.ReservedConnectionId must be set to route to the correct connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   finalData: Any remaining data to send before completing (can be nil)
+	//   options: Execute options including reserved connection ID
+	CopyFinalize(
+		ctx context.Context,
+		target *query.Target,
+		finalData []byte,
+		options *query.ExecuteOptions,
+	) (*sqltypes.Result, error)
 
-	// Finalize completes the COPY operation.
-	// For COPY FROM STDIN, this sends any final data and CopyDone, then waits for the result.
-	Finalize(finalData []byte) (*sqltypes.Result, error)
-
-	// Abort aborts the COPY operation.
-	// This should be called if an error occurs during the COPY operation.
-	Abort(errorMsg string) error
+	// CopyAbort aborts a COPY operation.
+	// options.ReservedConnectionId must be set to route to the correct connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   errorMsg: Error message to send to the server
+	//   options: Execute options including reserved connection ID
+	CopyAbort(
+		ctx context.Context,
+		target *query.Target,
+		errorMsg string,
+		options *query.ExecuteOptions,
+	) error
 }

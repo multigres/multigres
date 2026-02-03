@@ -25,13 +25,6 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// CopyState tracks the state of an active COPY FROM STDIN operation.
-// Reserved connection info is stored in ShardStates (same as regular queries).
-// CopyState only tracks the CopyStreamClient used for COPY data transfer.
-type CopyState struct {
-	StreamClient queryservice.CopyStreamClient // CopyStreamClient for COPY operations
-}
-
 // MultiGatewayConnectionState keeps track of the information specific
 // to each connection.
 type MultiGatewayConnectionState struct {
@@ -57,9 +50,9 @@ type MultiGatewayConnectionState struct {
 	// Map keys are variable names, values are the string representation.
 	SessionSettings map[string]string
 
-	// CopyState tracks the state of an active COPY FROM STDIN operation
-	// Nil when not in COPY mode
-	CopyState *CopyState
+	// inCopyMode tracks whether an active COPY FROM STDIN operation is in progress.
+	// The reserved connection info is stored in ShardStates (same as regular queries).
+	inCopyMode bool
 }
 
 type ShardState struct {
@@ -208,46 +201,25 @@ func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string
 	}
 }
 
-// IsInCopyMode returns true if currently in COPY mode (has an active stream client)
+// IsInCopyMode returns true if currently in COPY mode.
 func (m *MultiGatewayConnectionState) IsInCopyMode() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.CopyState != nil && m.CopyState.StreamClient != nil
+	return m.inCopyMode
 }
 
-// GetCopyStreamClient returns the CopyStreamClient for COPY operations
-func (m *MultiGatewayConnectionState) GetCopyStreamClient() queryservice.CopyStreamClient {
+// SetCopyMode marks the connection as being in COPY mode.
+// The reserved connection info is stored separately in ShardStates.
+func (m *MultiGatewayConnectionState) SetCopyMode() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.CopyState != nil {
-		return m.CopyState.StreamClient
-	}
-	return nil
+	m.inCopyMode = true
 }
 
-// SetCopyStreamClient stores the CopyStreamClient for COPY operations
-// This is used during initiation when we have the stream client but not yet the full state
-func (m *MultiGatewayConnectionState) SetCopyStreamClient(streamClient queryservice.CopyStreamClient) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// If we don't have CopyState yet, create a minimal one to store the stream client
-	if m.CopyState == nil {
-		m.CopyState = &CopyState{
-			StreamClient: streamClient,
-		}
-	} else {
-		m.CopyState.StreamClient = streamClient
-	}
-}
-
-// ClearCopyState safely removes any COPY state from connection state.
+// ClearCopyMode marks the connection as no longer in COPY mode.
 // This should be called when COPY operation completes or fails.
-// Note: We don't close the stream client here as it's managed by the caller.
-// We only clear the reference from the connection state.
-func (m *MultiGatewayConnectionState) ClearCopyState() {
+func (m *MultiGatewayConnectionState) ClearCopyMode() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	// Clear the entire CopyState since StreamClient is the only field
-	m.CopyState = nil
+	m.inCopyMode = false
 }

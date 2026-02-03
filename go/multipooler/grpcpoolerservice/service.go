@@ -25,7 +25,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -224,39 +223,43 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 		return status.Errorf(codes.Unavailable, "executor not initialized: %v", err)
 	}
 
-	// Cast to concrete executor type to access COPY methods
-	poolerExecutor, ok := exec.(*executor.Executor)
-	if !ok {
-		return status.Error(codes.Internal, "executor is not of expected type")
-	}
-
 	// Phase 1: INITIATE - Send COPY command and get reserved connection
-	reservedConnID, poolerIDBytes, format, columnFormats, err := poolerExecutor.HandleCopyInitiate(ctx, req.Query, req.Options)
+	format, columnFormats, reservedState, err := exec.CopyReady(ctx, req.Target, req.Query, req.Options)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to initiate COPY: %v", err)
 	}
 
-	// TODO: Convert poolerIDBytes to proper clustermetadata.ID
-	// For now, pass nil since this is stub code
-	_ = poolerIDBytes
+	// Convert columnFormats from []int16 to []int32 for protobuf
+	columnFormats32 := make([]int32, len(columnFormats))
+	for i, f := range columnFormats {
+		columnFormats32[i] = int32(f)
+	}
 
 	// Send READY response with reserved connection info
 	readyResp := &multipoolerpb.BidirectionalExecuteResponse{
 		Phase:                multipoolerpb.BidirectionalExecuteResponse_READY,
-		ReservedConnectionId: reservedConnID,
-		PoolerId:             nil, // TODO: construct proper ID from poolerIDBytes
-		Format:               format,
-		ColumnFormats:        columnFormats,
+		ReservedConnectionId: reservedState.ReservedConnectionId,
+		PoolerId:             reservedState.PoolerID,
+		Format:               int32(format),
+		ColumnFormats:        columnFormats32,
 	}
 	if err := stream.Send(readyResp); err != nil {
 		// Clean up reserved connection on send failure
-		user := getUserFromOptions(req.Options)
-		_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "failed to send READY response")
+		copyOptions := &query.ExecuteOptions{
+			User:                 req.Options.GetUser(),
+			SessionSettings:      req.Options.GetSessionSettings(),
+			ReservedConnectionId: reservedState.ReservedConnectionId,
+		}
+		_ = exec.CopyAbort(ctx, req.Target, "failed to send READY response", copyOptions)
 		return status.Errorf(codes.Internal, "failed to send READY response: %v", err)
 	}
 
-	// Extract user for subsequent operations
-	user := getUserFromOptions(req.Options)
+	// Build options with reserved connection ID for subsequent calls
+	copyOptions := &query.ExecuteOptions{
+		User:                 req.Options.GetUser(),
+		SessionSettings:      req.Options.GetSessionSettings(),
+		ReservedConnectionId: reservedState.ReservedConnectionId,
+	}
 
 	// Phase 2: Handle DATA/DONE/FAIL messages
 	for {
@@ -264,28 +267,28 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 		if err != nil {
 			// Stream closed or error
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "context canceled")
+				_ = exec.CopyAbort(ctx, req.Target, "context canceled", copyOptions)
 				return status.Errorf(codes.Canceled, "stream canceled: %v", err)
 			}
-			_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "stream receive error")
+			_ = exec.CopyAbort(ctx, req.Target, "stream receive error", copyOptions)
 			return status.Errorf(codes.Internal, "failed to receive message: %v", err)
 		}
 
 		switch req.Phase {
 		case multipoolerpb.BidirectionalExecuteRequest_DATA:
 			// Phase 2a: DATA - Write data chunk to PostgreSQL
-			if err := poolerExecutor.HandleCopyData(ctx, reservedConnID, user, req.Data); err != nil {
-				_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "failed to write data")
+			if err := exec.CopySendData(ctx, req.Target, req.Data, copyOptions); err != nil {
+				_ = exec.CopyAbort(ctx, req.Target, "failed to write data", copyOptions)
 				return status.Errorf(codes.Internal, "failed to handle COPY data: %v", err)
 			}
 
 		case multipoolerpb.BidirectionalExecuteRequest_DONE:
 			// Phase 2b: DONE - Finalize COPY operation
-			result, err := poolerExecutor.HandleCopyDone(ctx, reservedConnID, user, req.Data)
+			result, err := exec.CopyFinalize(ctx, req.Target, req.Data, copyOptions)
 			if err != nil {
-				// Call HandleCopyFail to ensure protocol cleanup
-				// (even though connection might already be closed in HandleCopyDone)
-				_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, fmt.Sprintf("COPY failed: %v", err))
+				// Abort to ensure protocol cleanup
+				// (even though connection might already be closed in Finalize)
+				_ = exec.CopyAbort(ctx, req.Target, fmt.Sprintf("COPY failed: %v", err), copyOptions)
 
 				// Send ERROR response
 				errorResp := &multipoolerpb.BidirectionalExecuteResponse{
@@ -314,7 +317,7 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 			if errorMsg == "" {
 				errorMsg = "operation aborted by client"
 			}
-			if err := poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, errorMsg); err != nil {
+			if err := exec.CopyAbort(ctx, req.Target, errorMsg, copyOptions); err != nil {
 				return status.Errorf(codes.Internal, "failed to abort COPY: %v", err)
 			}
 
@@ -327,16 +330,8 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 			return status.Errorf(codes.Aborted, "COPY aborted: %s", errorMsg)
 
 		default:
-			_ = poolerExecutor.HandleCopyFail(ctx, reservedConnID, user, "unexpected phase")
+			_ = exec.CopyAbort(ctx, req.Target, "unexpected phase", copyOptions)
 			return status.Errorf(codes.InvalidArgument, "unexpected phase: %v", req.Phase)
 		}
 	}
-}
-
-// getUserFromOptions extracts the user from ExecuteOptions, defaulting to "postgres"
-func getUserFromOptions(options *query.ExecuteOptions) string {
-	if options != nil && options.User != "" {
-		return options.User
-	}
-	return "postgres"
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -43,8 +44,8 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect to multigateway using pgx for COPY protocol support
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort)
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
+		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 
 	ctx := utils.WithTimeout(t, 150*time.Second)
 

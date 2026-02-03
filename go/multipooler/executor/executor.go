@@ -426,30 +426,40 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	return canonicalName, nil
 }
 
-// HandleCopyInitiate handles the INITIATE phase of a COPY operation
-// It sends the COPY command to PostgreSQL and reads the CopyInResponse or CopyOutResponse
-// Returns: reservedConnID, poolerID, format, error
-func (e *Executor) HandleCopyInitiate(
+// CopyReady initiates a COPY FROM STDIN operation and returns format information.
+// Uses an existing reserved connection if ReservedConnectionId is set in options,
+// otherwise creates a new reserved connection (COPY requires connection affinity).
+func (e *Executor) CopyReady(
 	ctx context.Context,
+	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
-) (uint64, []byte, int32, []int32, error) {
+) (int16, []int16, queryservice.ReservedState, error) {
 	user := e.getUserFromOptions(options)
-
-	e.logger.DebugContext(ctx, "handling COPY INITIATE",
-		"query", copyQuery,
-		"user", user)
-
-	// Get session settings from options
 	var settings map[string]string
 	if options != nil {
 		settings = options.SessionSettings
 	}
 
-	// Create a reserved connection (COPY requires connection affinity)
-	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
-	if err != nil {
-		return 0, nil, 0, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
+	e.logger.DebugContext(ctx, "initiating COPY FROM STDIN",
+		"query", copyQuery,
+		"user", user)
+
+	var reservedConn *reserved.Conn
+	var err error
+
+	// Check if we should use an existing reserved connection
+	if options != nil && options.ReservedConnectionId > 0 {
+		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		if reservedConn == nil {
+			return 0, nil, queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+	} else {
+		// Create a new reserved connection (COPY requires connection affinity)
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
+		if err != nil {
+			return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
+		}
 	}
 
 	connID := reservedConn.ConnID
@@ -462,7 +472,7 @@ func (e *Executor) HandleCopyInitiate(
 	if err != nil {
 		// Connection is in bad state after failed COPY initiation - close it instead of recycling
 		reservedConn.Close()
-		return 0, nil, 0, nil, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
 	}
 
 	e.logger.DebugContext(ctx, "COPY INITIATE successful",
@@ -470,34 +480,36 @@ func (e *Executor) HandleCopyInitiate(
 		"format", format,
 		"num_columns", len(columnFormats))
 
-	// Convert columnFormats from []int16 to []int32 for protobuf
-	columnFormats32 := make([]int32, len(columnFormats))
-	for i, f := range columnFormats {
-		columnFormats32[i] = int32(f)
+	reservedState := queryservice.ReservedState{
+		ReservedConnectionId: uint64(connID),
+		PoolerID:             nil, // TODO: implement pooler ID retrieval
 	}
 
-	// Return reserved connection ID, format, and column formats
-	// Note: poolerID is passed as nil for now (TODO: implement pooler ID retrieval)
-	return uint64(connID), nil, int32(format), columnFormats32, nil
+	return format, columnFormats, reservedState, nil
 }
 
-// HandleCopyData handles the DATA phase of a COPY FROM STDIN operation
-// It writes the data chunk to PostgreSQL
-func (e *Executor) HandleCopyData(
+// CopySendData sends a chunk of data for an active COPY operation.
+func (e *Executor) CopySendData(
 	ctx context.Context,
-	reservedConnID uint64,
-	user string,
+	target *query.Target,
 	data []byte,
+	options *query.ExecuteOptions,
 ) error {
-	e.logger.DebugContext(ctx, "handling COPY DATA",
-		"reserved_conn_id", reservedConnID,
-		"data_size", len(data))
+	if options == nil || options.ReservedConnectionId == 0 {
+		return errors.New("options.ReservedConnectionId is required for CopySendData")
+	}
+
+	user := e.getUserFromOptions(options)
 
 	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(reservedConnID), user)
-	if !ok {
-		return fmt.Errorf("reserved connection %d not found for user %s", reservedConnID, user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		return fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 	}
+
+	e.logger.DebugContext(ctx, "sending COPY data",
+		"data_size", len(data),
+		"conn_id", options.ReservedConnectionId)
 
 	// Get the pooled connection for COPY operations
 	conn := reservedConn.Conn()
@@ -516,23 +528,28 @@ func (e *Executor) HandleCopyData(
 	return nil
 }
 
-// HandleCopyDone handles the DONE phase of a COPY operation
-// For COPY FROM STDIN: sends remaining data and CopyDone, waits for CommandComplete
-func (e *Executor) HandleCopyDone(
+// CopyFinalize completes a COPY operation, sending final data and returning the result.
+func (e *Executor) CopyFinalize(
 	ctx context.Context,
-	reservedConnID uint64,
-	user string,
+	target *query.Target,
 	finalData []byte,
+	options *query.ExecuteOptions,
 ) (*sqltypes.Result, error) {
-	e.logger.DebugContext(ctx, "handling COPY DONE",
-		"reserved_conn_id", reservedConnID,
-		"final_data_size", len(finalData))
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, errors.New("options.ReservedConnectionId is required for CopyFinalize")
+	}
+
+	user := e.getUserFromOptions(options)
 
 	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(reservedConnID), user)
-	if !ok {
-		return nil, fmt.Errorf("reserved connection %d not found for user %s", reservedConnID, user)
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 	}
+
+	e.logger.DebugContext(ctx, "finalizing COPY",
+		"final_data_size", len(finalData),
+		"conn_id", options.ReservedConnectionId)
 
 	// Get the pooled connection for COPY operations
 	conn := reservedConn.Conn()
@@ -581,24 +598,32 @@ func (e *Executor) HandleCopyDone(
 	return result, nil
 }
 
-// HandleCopyFail handles the FAIL phase of a COPY operation
-// It sends CopyFail to PostgreSQL to abort the operation
-func (e *Executor) HandleCopyFail(
+// CopyAbort aborts a COPY operation.
+func (e *Executor) CopyAbort(
 	ctx context.Context,
-	reservedConnID uint64,
-	user string,
+	target *query.Target,
 	errorMsg string,
+	options *query.ExecuteOptions,
 ) error {
-	e.logger.DebugContext(ctx, "handling COPY FAIL",
-		"reserved_conn_id", reservedConnID,
-		"error", errorMsg)
-
-	// Get the reserved connection
-	reservedConn, ok := e.poolManager.GetReservedConn(int64(reservedConnID), user)
-	if !ok {
-		// Already cleaned up
+	if options == nil || options.ReservedConnectionId == 0 {
+		// Already cleaned up or never initiated
 		return nil
 	}
+
+	user := e.getUserFromOptions(options)
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		// Already cleaned up
+		e.logger.DebugContext(ctx, "COPY connection already cleaned up",
+			"conn_id", options.ReservedConnectionId)
+		return nil
+	}
+
+	e.logger.DebugContext(ctx, "aborting COPY",
+		"error", errorMsg,
+		"conn_id", options.ReservedConnectionId)
 
 	// Get the pooled connection for COPY operations
 	conn := reservedConn.Conn()
@@ -652,18 +677,6 @@ func int32ToInt16Slice(in []int32) []int16 {
 		out[i] = int16(v)
 	}
 	return out
-}
-
-// CopyStream is not implemented on the server side.
-// COPY streaming is handled by the BidirectionalExecute gRPC handler, not through this interface method.
-// This method exists only to satisfy the queryservice.QueryService interface.
-func (e *Executor) CopyStream(
-	ctx context.Context,
-	target *query.Target,
-	copyQuery string,
-	options *query.ExecuteOptions,
-) (queryservice.CopyStreamClient, error) {
-	return nil, errors.New("CopyStream is not supported on server-side Executor; use BidirectionalExecute RPC instead")
 }
 
 // Ensure Executor implements queryservice.QueryService

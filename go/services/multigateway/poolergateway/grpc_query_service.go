@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -43,6 +44,12 @@ type grpcQueryService struct {
 
 	// poolerID for logging
 	poolerID string
+
+	// copyStreamsMu protects copyStreams map
+	copyStreamsMu sync.Mutex
+
+	// copyStreams maps reserved connection IDs to active bidirectional streams for COPY operations
+	copyStreams map[uint64]multipoolerservice.MultiPoolerService_BidirectionalExecuteClient
 }
 
 // newGRPCQueryService creates a new QueryService that uses gRPC to communicate
@@ -53,10 +60,11 @@ func newGRPCQueryService(
 	logger *slog.Logger,
 ) queryservice.QueryService {
 	return &grpcQueryService{
-		conn:     conn,
-		client:   multipoolerservice.NewMultiPoolerServiceClient(conn),
-		logger:   logger,
-		poolerID: poolerID,
+		conn:        conn,
+		client:      multipoolerservice.NewMultiPoolerServiceClient(conn),
+		logger:      logger,
+		poolerID:    poolerID,
+		copyStreams: make(map[uint64]multipoolerservice.MultiPoolerService_BidirectionalExecuteClient),
 	}
 }
 
@@ -266,14 +274,15 @@ func (g *grpcQueryService) Close(ctx context.Context) error {
 	return nil
 }
 
-// CopyStream creates a bidirectional stream for COPY operations.
-func (g *grpcQueryService) CopyStream(
+// CopyReady initiates a COPY FROM STDIN operation and returns format information.
+// The stream is stored internally and can be accessed via options.ReservedConnectionId in subsequent calls.
+func (g *grpcQueryService) CopyReady(
 	ctx context.Context,
 	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
-) (queryservice.CopyStreamClient, error) {
-	g.logger.DebugContext(ctx, "creating COPY stream",
+) (int16, []int16, queryservice.ReservedState, error) {
+	g.logger.DebugContext(ctx, "initiating COPY",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
@@ -283,48 +292,25 @@ func (g *grpcQueryService) CopyStream(
 	// Start the bidirectional stream
 	stream, err := g.client.BidirectionalExecute(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
+		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
 	}
 
-	// Return wrapper that implements CopyStreamClient
-	return &grpcCopyStreamClient{
-		stream:    stream,
-		target:    target,
-		copyQuery: copyQuery,
-		options:   options,
-		logger:    g.logger,
-		poolerID:  g.poolerID,
-	}, nil
-}
-
-// grpcCopyStreamClient implements queryservice.CopyStreamClient using gRPC bidirectional streaming.
-type grpcCopyStreamClient struct {
-	stream    multipoolerservice.MultiPoolerService_BidirectionalExecuteClient
-	target    *query.Target
-	copyQuery string
-	options   *query.ExecuteOptions
-	logger    *slog.Logger
-	poolerID  string
-}
-
-// Ready initiates the COPY operation and returns format information.
-func (c *grpcCopyStreamClient) Ready() (int16, []int16, queryservice.ReservedState, error) {
 	// Send INITIATE message
 	initiateReq := &multipoolerservice.BidirectionalExecuteRequest{
 		Phase:   multipoolerservice.BidirectionalExecuteRequest_INITIATE,
-		Query:   c.copyQuery,
-		Target:  c.target,
-		Options: c.options,
+		Query:   copyQuery,
+		Target:  target,
+		Options: options,
 	}
 
-	if err := c.stream.Send(initiateReq); err != nil {
+	if err := stream.Send(initiateReq); err != nil {
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to send INITIATE: %w", err)
 	}
 
-	c.logger.Debug("sent INITIATE message", "pooler_id", c.poolerID)
+	g.logger.DebugContext(ctx, "sent INITIATE message", "pooler_id", g.poolerID)
 
 	// Receive READY response
-	resp, err := c.stream.Recv()
+	resp, err := stream.Recv()
 	if err != nil {
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to receive READY response: %w", err)
 	}
@@ -350,8 +336,13 @@ func (c *grpcCopyStreamClient) Ready() (int16, []int16, queryservice.ReservedSta
 		PoolerID:             resp.PoolerId,
 	}
 
-	c.logger.Debug("received READY response",
-		"pooler_id", c.poolerID,
+	// Store the stream keyed by reserved connection ID
+	g.copyStreamsMu.Lock()
+	g.copyStreams[resp.ReservedConnectionId] = stream
+	g.copyStreamsMu.Unlock()
+
+	g.logger.DebugContext(ctx, "received READY response",
+		"pooler_id", g.poolerID,
 		"reserved_conn_id", resp.ReservedConnectionId,
 		"format", resp.Format,
 		"num_columns", len(columnFormats))
@@ -359,43 +350,88 @@ func (c *grpcCopyStreamClient) Ready() (int16, []int16, queryservice.ReservedSta
 	return int16(resp.Format), columnFormats, reservedState, nil
 }
 
-// SendData sends a chunk of COPY data to the server.
-func (c *grpcCopyStreamClient) SendData(data []byte) error {
+// CopySendData sends a chunk of data for an active COPY operation.
+func (g *grpcQueryService) CopySendData(
+	ctx context.Context,
+	target *query.Target,
+	data []byte,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return errors.New("options.ReservedConnectionId is required for CopySendData")
+	}
+
+	// Look up the stream by reserved connection ID
+	g.copyStreamsMu.Lock()
+	stream, ok := g.copyStreams[options.ReservedConnectionId]
+	g.copyStreamsMu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
+	}
+
 	dataReq := &multipoolerservice.BidirectionalExecuteRequest{
 		Phase: multipoolerservice.BidirectionalExecuteRequest_DATA,
 		Data:  data,
 	}
 
-	if err := c.stream.Send(dataReq); err != nil {
+	if err := stream.Send(dataReq); err != nil {
 		return fmt.Errorf("failed to send DATA: %w", err)
 	}
 
-	c.logger.Debug("sent DATA message", "pooler_id", c.poolerID, "size", len(data))
+	g.logger.DebugContext(ctx, "sent DATA message",
+		"pooler_id", g.poolerID,
+		"reserved_conn_id", options.ReservedConnectionId,
+		"size", len(data))
 
 	return nil
 }
 
-// Finalize completes the COPY operation.
-func (c *grpcCopyStreamClient) Finalize(finalData []byte) (*sqltypes.Result, error) {
+// CopyFinalize completes a COPY operation, sending final data and returning the result.
+func (g *grpcQueryService) CopyFinalize(
+	ctx context.Context,
+	target *query.Target,
+	finalData []byte,
+	options *query.ExecuteOptions,
+) (*sqltypes.Result, error) {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, errors.New("options.ReservedConnectionId is required for CopyFinalize")
+	}
+
+	// Look up and remove the stream by reserved connection ID
+	g.copyStreamsMu.Lock()
+	stream, ok := g.copyStreams[options.ReservedConnectionId]
+	if ok {
+		delete(g.copyStreams, options.ReservedConnectionId)
+	}
+	g.copyStreamsMu.Unlock()
+
+	if !ok {
+		return nil, fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
+	}
+
 	// Send DONE message with final data
 	doneReq := &multipoolerservice.BidirectionalExecuteRequest{
 		Phase: multipoolerservice.BidirectionalExecuteRequest_DONE,
 		Data:  finalData,
 	}
 
-	if err := c.stream.Send(doneReq); err != nil {
+	if err := stream.Send(doneReq); err != nil {
 		return nil, fmt.Errorf("failed to send DONE: %w", err)
 	}
 
 	// Close send direction
-	if err := c.stream.CloseSend(); err != nil {
+	if err := stream.CloseSend(); err != nil {
 		return nil, fmt.Errorf("failed to close send: %w", err)
 	}
 
-	c.logger.Debug("sent DONE message", "pooler_id", c.poolerID, "final_data_size", len(finalData))
+	g.logger.DebugContext(ctx, "sent DONE message",
+		"pooler_id", g.poolerID,
+		"reserved_conn_id", options.ReservedConnectionId,
+		"final_data_size", len(finalData))
 
 	// Receive RESULT response
-	resp, err := c.stream.Recv()
+	resp, err := stream.Recv()
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive RESULT response: %w", err)
 	}
@@ -412,42 +448,77 @@ func (c *grpcCopyStreamClient) Finalize(finalData []byte) (*sqltypes.Result, err
 
 	result := sqltypes.ResultFromProto(resp.Result)
 
-	c.logger.Debug("received RESULT response", "pooler_id", c.poolerID)
+	g.logger.DebugContext(ctx, "received RESULT response",
+		"pooler_id", g.poolerID,
+		"reserved_conn_id", options.ReservedConnectionId)
 
 	return result, nil
 }
 
-// Abort aborts the COPY operation.
-func (c *grpcCopyStreamClient) Abort(errorMsg string) error {
+// CopyAbort aborts a COPY operation.
+func (g *grpcQueryService) CopyAbort(
+	ctx context.Context,
+	target *query.Target,
+	errorMsg string,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return errors.New("options.ReservedConnectionId is required for CopyAbort")
+	}
+
+	// Look up and remove the stream by reserved connection ID
+	g.copyStreamsMu.Lock()
+	stream, ok := g.copyStreams[options.ReservedConnectionId]
+	if ok {
+		delete(g.copyStreams, options.ReservedConnectionId)
+	}
+	g.copyStreamsMu.Unlock()
+
+	if !ok {
+		// Already cleaned up or never existed - that's okay for abort
+		g.logger.DebugContext(ctx, "COPY stream already cleaned up",
+			"pooler_id", g.poolerID,
+			"reserved_conn_id", options.ReservedConnectionId)
+		return nil
+	}
+
 	// Send FAIL message
 	failReq := &multipoolerservice.BidirectionalExecuteRequest{
 		Phase:        multipoolerservice.BidirectionalExecuteRequest_FAIL,
 		ErrorMessage: errorMsg,
 	}
 
-	if err := c.stream.Send(failReq); err != nil {
+	if err := stream.Send(failReq); err != nil {
 		// Log but don't return error - we're already aborting
-		c.logger.Debug("failed to send FAIL message", "pooler_id", c.poolerID, "error", err)
+		g.logger.DebugContext(ctx, "failed to send FAIL message",
+			"pooler_id", g.poolerID,
+			"reserved_conn_id", options.ReservedConnectionId,
+			"error", err)
 	}
 
 	// Close send direction
-	if err := c.stream.CloseSend(); err != nil {
-		c.logger.Debug("failed to close send after FAIL", "pooler_id", c.poolerID, "error", err)
+	if err := stream.CloseSend(); err != nil {
+		g.logger.DebugContext(ctx, "failed to close send after FAIL",
+			"pooler_id", g.poolerID,
+			"reserved_conn_id", options.ReservedConnectionId,
+			"error", err)
 	}
 
 	// Try to receive response (may be ERROR)
-	_, err := c.stream.Recv()
+	_, err := stream.Recv()
 	if err != nil && !errors.Is(err, io.EOF) {
-		c.logger.Debug("error receiving response after FAIL (expected)", "pooler_id", c.poolerID, "error", err)
+		g.logger.DebugContext(ctx, "error receiving response after FAIL (expected)",
+			"pooler_id", g.poolerID,
+			"reserved_conn_id", options.ReservedConnectionId,
+			"error", err)
 	}
 
-	c.logger.Debug("COPY aborted", "pooler_id", c.poolerID)
+	g.logger.DebugContext(ctx, "COPY aborted",
+		"pooler_id", g.poolerID,
+		"reserved_conn_id", options.ReservedConnectionId)
 
 	return nil
 }
-
-// Ensure grpcCopyStreamClient implements queryservice.CopyStreamClient
-var _ queryservice.CopyStreamClient = (*grpcCopyStreamClient)(nil)
 
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)
