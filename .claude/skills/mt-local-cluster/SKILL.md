@@ -37,6 +37,7 @@ Parse `./multigres_local/multigres.yaml` once when this skill is first invoked a
 ```
 
 **Stop entire cluster and delete all cluster data**:
+
 ```bash
 ./bin/multigres cluster stop --clean
 ```
