@@ -17,8 +17,8 @@ package planner
 import (
 	"errors"
 
-	"github.com/multigres/multigres/go/multigateway/engine"
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
 // planCopyStmt plans COPY commands.

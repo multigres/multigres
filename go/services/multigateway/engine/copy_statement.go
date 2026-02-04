@@ -18,11 +18,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/multigateway/handler"
-	"github.com/multigres/multigres/go/parser/ast"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // CopyStatement implements the Primitive interface for executing COPY statements.
