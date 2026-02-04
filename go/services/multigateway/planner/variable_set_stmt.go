@@ -30,7 +30,6 @@ func (p *Planner) planVariableSetStmt(
 	stmt *ast.VariableSetStmt,
 	conn *server.Conn,
 ) (*engine.Plan, error) {
-	// TODO: implement when adding support for block transactions.
 	// Just pass through to PostgreSQL
 	if stmt.IsLocal {
 		p.logger.Debug("SET LOCAL detected, passing through",
