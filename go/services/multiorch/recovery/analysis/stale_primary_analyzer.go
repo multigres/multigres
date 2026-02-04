@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -27,11 +28,11 @@ import (
 
 // StalePrimaryAnalyzer detects stale primaries that came back online after failover.
 // This happens when an old primary restarts without being properly demoted.
-// The analyzer identifies the stale primary (lower consensus term) and triggers demotion.
+// The analyzer identifies the stale primary (lower PrimaryTerm) and triggers demotion.
 //
 // The analyzer detects stale primaries from both perspectives:
-// - When THIS node is stale (lower term): reports itself for demotion
-// - When OTHER primary is stale (this node has higher term): reports the other for demotion
+// - When THIS pooler is stale (lower PrimaryTerm): reports itself for demotion
+// - When OTHER primary is stale (this pooler has higher PrimaryTerm): reports the other for demotion
 //
 // This allows the correct primary to proactively demote stale primaries, which is important
 // because the stale primary may not be running multiorch yet or may not be healthy enough
@@ -71,39 +72,40 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 		return nil, nil
 	}
 
-	// Skip if no other primary detected
-	if poolerAnalysis.OtherPrimaryInShard == nil {
+	// Skip if no other primaries detected
+	if len(poolerAnalysis.OtherPrimariesInShard) == 0 {
+		return nil, nil
+	}
+
+	// Skip if no most advanced primary identified (tie or all PrimaryTerm=0)
+	if poolerAnalysis.MostAdvancedPrimary == nil {
 		return nil, nil
 	}
 
 	// Multiple primaries detected! Determine which one is stale.
-	// The one with the lower consensus term is stale and should be demoted.
-	// If terms are equal, neither node demotes - this is an unusual state that
-	// should be resolved through normal failover or manual intervention.
+	// The primary with the highest PrimaryTerm is the most advanced (correct) primary.
+	// All others should be demoted.
 
-	if poolerAnalysis.ConsensusTerm == poolerAnalysis.OtherPrimaryTerm {
-		// Terms are equal - unusual state, skip
-		return nil, nil
-	}
+	thisPoolerIDStr := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
+	mostAdvancedIDStr := topoclient.MultiPoolerIDString(poolerAnalysis.MostAdvancedPrimary.ID)
 
-	// Determine which primary is stale
 	var stalePrimaryID *clustermetadatapb.ID
 	var stalePrimaryTerm int64
-	var correctPrimaryName string
-	var correctPrimaryTerm int64
+	var mostAdvancedPrimaryName string
+	var mostAdvancedPrimaryTerm int64
 
-	if poolerAnalysis.ConsensusTerm < poolerAnalysis.OtherPrimaryTerm {
-		// This node is stale
-		stalePrimaryID = poolerAnalysis.PoolerID
-		stalePrimaryTerm = poolerAnalysis.ConsensusTerm
-		correctPrimaryName = poolerAnalysis.OtherPrimaryInShard.Name
-		correctPrimaryTerm = poolerAnalysis.OtherPrimaryTerm
+	if thisPoolerIDStr == mostAdvancedIDStr {
+		// This pooler is the most advanced - demote first other primary
+		stalePrimaryID = poolerAnalysis.OtherPrimariesInShard[0].ID
+		stalePrimaryTerm = poolerAnalysis.OtherPrimariesInShard[0].PrimaryTerm
+		mostAdvancedPrimaryName = poolerAnalysis.PoolerID.Name
+		mostAdvancedPrimaryTerm = poolerAnalysis.MostAdvancedPrimary.PrimaryTerm
 	} else {
-		// Other node is stale
-		stalePrimaryID = poolerAnalysis.OtherPrimaryInShard
-		stalePrimaryTerm = poolerAnalysis.OtherPrimaryTerm
-		correctPrimaryName = poolerAnalysis.PoolerID.Name
-		correctPrimaryTerm = poolerAnalysis.ConsensusTerm
+		// This pooler is stale
+		stalePrimaryID = poolerAnalysis.PoolerID
+		stalePrimaryTerm = poolerAnalysis.PrimaryTerm
+		mostAdvancedPrimaryName = poolerAnalysis.MostAdvancedPrimary.ID.Name
+		mostAdvancedPrimaryTerm = poolerAnalysis.MostAdvancedPrimary.PrimaryTerm
 	}
 
 	// Report the stale primary for demotion
@@ -112,11 +114,11 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 		CheckName: "StalePrimary",
 		PoolerID:  stalePrimaryID,
 		ShardKey:  poolerAnalysis.ShardKey,
-		Description: fmt.Sprintf("Stale primary detected: %s (term %d) is stale, correct primary %s has term %d",
+		Description: fmt.Sprintf("Stale primary detected: %s (stale_primary_term %d) is stale, most advanced primary %s (most_advanced_primary_term %d)",
 			stalePrimaryID.Name,
 			stalePrimaryTerm,
-			correctPrimaryName,
-			correctPrimaryTerm),
+			mostAdvancedPrimaryName,
+			mostAdvancedPrimaryTerm),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),

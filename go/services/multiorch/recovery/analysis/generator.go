@@ -194,6 +194,11 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		analysis.ConsensusTerm = pooler.ConsensusStatus.CurrentTerm
 	}
 
+	// Store primary term (term when this pooler was promoted to primary)
+	if pooler.ConsensusTerm != nil {
+		analysis.PrimaryTerm = pooler.ConsensusTerm.PrimaryTerm
+	}
+
 	// If this is a PRIMARY, populate primary-specific fields and aggregate replica stats
 	if analysis.IsPrimary {
 		if pooler.PrimaryStatus != nil {
@@ -489,8 +494,8 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	return true
 }
 
-// detectOtherPrimary checks if there's another PRIMARY in the same shard.
-// If found, populates OtherPrimaryInShard and OtherPrimaryTerm on the analysis.
+// detectOtherPrimary checks for all other PRIMARYs in the same shard.
+// Populates OtherPrimariesInShard and determines MostAdvancedPrimary based on PrimaryTerm.
 // This is used to detect stale primaries that came back online after failover.
 func (g *AnalysisGenerator) detectOtherPrimary(
 	analysis *store.ReplicationAnalysis,
@@ -503,7 +508,9 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 	}
 
 	thisIDStr := topoclient.MultiPoolerIDString(thisPooler.MultiPooler.Id)
+	var otherPrimaries []*store.PrimaryInfo
 
+	// Collect ALL other primaries (not just first one)
 	for poolerID, pooler := range poolers {
 		// Skip self
 		if poolerID == thisIDStr {
@@ -522,12 +529,67 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 		}
 
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			// Found another PRIMARY - one of them is stale!
-			analysis.OtherPrimaryInShard = pooler.MultiPooler.Id
+			// Extract consensus term and primary term
+			var consensusTerm, primaryTerm int64
 			if pooler.ConsensusStatus != nil {
-				analysis.OtherPrimaryTerm = pooler.ConsensusStatus.CurrentTerm
+				consensusTerm = pooler.ConsensusStatus.CurrentTerm
 			}
-			return // Found one, that's enough to trigger recovery
+			if pooler.ConsensusTerm != nil {
+				primaryTerm = pooler.ConsensusTerm.PrimaryTerm
+			}
+
+			otherPrimaries = append(otherPrimaries, &store.PrimaryInfo{
+				ID:            pooler.MultiPooler.Id,
+				ConsensusTerm: consensusTerm,
+				PrimaryTerm:   primaryTerm,
+			})
 		}
 	}
+
+	if len(otherPrimaries) == 0 {
+		return
+	}
+
+	analysis.OtherPrimariesInShard = otherPrimaries
+
+	// Find most advanced primary (include THIS primary in comparison)
+	allPrimaries := []*store.PrimaryInfo{
+		{
+			ID:            thisPooler.MultiPooler.Id,
+			ConsensusTerm: analysis.ConsensusTerm,
+			PrimaryTerm:   analysis.PrimaryTerm,
+		},
+	}
+	allPrimaries = append(allPrimaries, otherPrimaries...)
+	analysis.MostAdvancedPrimary = findMostAdvancedPrimary(allPrimaries)
+}
+
+// findMostAdvancedPrimary returns the primary with the highest PrimaryTerm.
+// Returns nil if all primaries have PrimaryTerm=0 or if there's a tie.
+func findMostAdvancedPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo {
+	var mostAdvanced *store.PrimaryInfo
+	maxPrimaryTerm := int64(0)
+	tieDetected := false
+
+	for _, p := range primaries {
+		if p.PrimaryTerm > maxPrimaryTerm {
+			maxPrimaryTerm = p.PrimaryTerm
+			mostAdvanced = p
+			tieDetected = false
+		} else if p.PrimaryTerm == maxPrimaryTerm && p.PrimaryTerm > 0 {
+			tieDetected = true
+		}
+	}
+
+	// Return nil if all primaries have PrimaryTerm=0
+	if maxPrimaryTerm == 0 {
+		return nil
+	}
+
+	// Return nil if there's a tie (requires manual intervention)
+	if tieDetected {
+		return nil
+	}
+
+	return mostAdvanced
 }
