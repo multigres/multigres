@@ -72,11 +72,16 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	assert.Equal(t, 1, lb.ConnectionCount())
 
 	// Remove the pooler
-	lb.RemovePooler("zone1/pooler1")
+	lb.RemovePooler(pooler.Id)
 	assert.Equal(t, 0, lb.ConnectionCount())
 
 	// Removing non-existent pooler is a no-op
-	lb.RemovePooler("zone1/nonexistent")
+	nonExistentID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "nonexistent",
+	}
+	lb.RemovePooler(nonExistentID)
 	assert.Equal(t, 0, lb.ConnectionCount())
 }
 
@@ -245,12 +250,11 @@ func TestLoadBalancer_ConcurrentAddRemove(t *testing.T) {
 				require.NoError(t, err)
 
 				// Spawn goroutine to remove this pooler
-				poolerRemoveID := fmt.Sprintf("zone1/pooler-%d-%d", goroutineID, j)
 				wg.Add(1)
-				go func(id string) {
+				go func(poolerID *clustermetadatapb.ID) {
 					defer wg.Done()
-					lb.RemovePooler(id)
-				}(poolerRemoveID)
+					lb.RemovePooler(poolerID)
+				}(pooler.Id)
 			}
 		}()
 	}
@@ -324,7 +328,7 @@ func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 			_ = lb.AddPooler(pooler)
 			// Small delay to increase chance of concurrent GetConnection calls
 			time.Sleep(time.Millisecond)
-			lb.RemovePooler("zone1/" + poolerName)
+			lb.RemovePooler(pooler.Id)
 		}()
 	}
 
@@ -505,4 +509,67 @@ func TestLoadBalancer_GetConnection_MultiplePrimaries(t *testing.T) {
 		poolerID(primary1),
 		poolerID(primary2),
 	}, conn.ID(), "Should return one of the primaries")
+}
+
+func TestLoadBalancer_GetConnectionByID(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer("zone1", logger)
+
+	// Add multiple poolers
+	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
+	replica2 := createTestMultiPooler("replica2", "zone2", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
+
+	require.NoError(t, lb.AddPooler(primary))
+	require.NoError(t, lb.AddPooler(replica1))
+	require.NoError(t, lb.AddPooler(replica2))
+
+	// Should find connection by ID
+	conn, err := lb.GetConnectionByID(primary.Id)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(primary), conn.ID())
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type())
+
+	// Should find replica by ID
+	conn, err = lb.GetConnectionByID(replica1.Id)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(replica1), conn.ID())
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, conn.Type())
+
+	// Should return error for non-existent ID
+	nonExistentID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "nonexistent",
+	}
+	_, err = lb.GetConnectionByID(nonExistentID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no connection found for pooler ID")
+
+	// Should return error for nil ID
+	_, err = lb.GetConnectionByID(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pooler ID cannot be nil")
+}
+
+func TestLoadBalancer_GetConnectionByID_AfterRemove(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer("zone1", logger)
+
+	// Add a pooler
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, lb.AddPooler(pooler))
+
+	// Should find it
+	conn, err := lb.GetConnectionByID(pooler.Id)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(pooler), conn.ID())
+
+	// Remove it
+	lb.RemovePooler(pooler.Id)
+
+	// Should not find it anymore
+	_, err = lb.GetConnectionByID(pooler.Id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no connection found for pooler ID")
 }

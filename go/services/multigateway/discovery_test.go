@@ -695,6 +695,60 @@ func TestPoolerDiscovery_ReplicaDoesNotEvictPrimary(t *testing.T) {
 	assert.True(t, names["replica"], "Replica should be present")
 }
 
+// TestPoolerDiscovery_EvictionCallsOnPoolerRemoved verifies that onPoolerRemoved
+// is called when a conflicting primary is evicted during failover.
+func TestPoolerDiscovery_EvictionCallsOnPoolerRemoved(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+	logger := slog.Default()
+
+	pd := NewCellPoolerDiscovery(ctx, store, "test-cell", logger)
+
+	// Track callback invocations
+	listener := &mockPoolerListener{}
+	pd.onPoolerChanged = listener.OnPoolerChanged
+	pd.onPoolerRemoved = listener.OnPoolerRemoved
+
+	// Create old primary
+	oldPrimary := createTestPooler("old-primary", "test-cell", "old-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, oldPrimary))
+
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for initial discovery
+	waitForPoolerCount(t, pd, 1)
+
+	// Clear the tracked callbacks (initial discovery triggers OnPoolerChanged)
+	listener.mu.Lock()
+	listener.changedPoolers = nil
+	listener.removedPoolers = nil
+	listener.mu.Unlock()
+
+	// Add new primary for the same tablegroup/shard (triggers eviction)
+	newPrimary := createTestPooler("new-primary", "test-cell", "new-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, newPrimary))
+
+	// Wait for the new primary to be discovered and old one evicted
+	waitForCondition(t, func() bool {
+		poolers := pd.GetPoolersForAdmin()
+		if len(poolers) != 1 {
+			return false
+		}
+		return poolers[0].Id.Name == "new-primary"
+	}, "Expected new-primary to replace old-primary")
+
+	// Verify OnPoolerRemoved was called for the evicted old primary
+	removedPoolers := listener.getRemovedPoolers()
+	require.Len(t, removedPoolers, 1, "OnPoolerRemoved should be called for evicted primary")
+	assert.Equal(t, topoclient.MultiPoolerIDString(oldPrimary.Id), removedPoolers[0])
+
+	// Verify OnPoolerChanged was called for the new primary
+	changedPoolers := listener.getChangedPoolers()
+	require.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(newPrimary.Id))
+}
+
 // TestCellPoolerDiscovery_ExtractPoolerIDFromPath tests the path parsing logic.
 func TestCellPoolerDiscovery_ExtractPoolerIDFromPath(t *testing.T) {
 	ctx := context.Background()

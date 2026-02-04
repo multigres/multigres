@@ -178,7 +178,3 @@ If there are a large number of replicas, each gate can connection to a different
 ### Health Streaming Integration
 
 When health streaming is added, LoadBalancer can avoid routing to unhealthy poolers.
-
-### Connection Affinity
-
-For queries requiring session state (temp tables, session variables), route all queries for a session to the same connection. Current design uses shared connections without affinity.

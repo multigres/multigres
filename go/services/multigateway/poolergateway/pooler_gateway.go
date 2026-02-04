@@ -67,9 +67,23 @@ func NewPoolerGateway(
 }
 
 // QueryServiceByID implements Gateway.
+// It returns a QueryService for a specific pooler ID.
+// This is used for reserved connections where queries must be routed to a specific
+// pooler instance (e.g., for session affinity with prepared statements and portals).
 func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error) {
-	// TODO: IMPLEMENT queryservicebyid
-	return pg, nil
+	// Get connection by pooler ID
+	conn, err := pg.loadBalancer.GetConnectionByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "got connection by pooler ID",
+		"pooler_id", conn.ID(),
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard)
+
+	// Return the connection as a QueryService
+	return conn, nil
 }
 
 // StreamExecute implements queryservice.QueryService.

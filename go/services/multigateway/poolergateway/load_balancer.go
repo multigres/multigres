@@ -95,23 +95,29 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 // RemovePooler closes and removes the PoolerConnection for the given pooler ID.
 // If no connection exists for this pooler, it is a no-op.
-func (lb *LoadBalancer) RemovePooler(poolerID string) {
+func (lb *LoadBalancer) RemovePooler(poolerID *clustermetadatapb.ID) {
+	if poolerID == nil {
+		return
+	}
+
+	idStr := poolerIDString(poolerID)
+
 	lb.mu.Lock()
-	conn, exists := lb.connections[poolerID]
+	conn, exists := lb.connections[idStr]
 	if !exists {
 		lb.mu.Unlock()
 		return
 	}
-	delete(lb.connections, poolerID)
+	delete(lb.connections, idStr)
 	lb.mu.Unlock()
 
 	// Close outside the lock
 	if err := conn.Close(); err != nil {
 		lb.logger.Error("error closing pooler connection",
-			"pooler_id", poolerID,
+			"pooler_id", idStr,
 			"error", err)
 	} else {
-		lb.logger.Debug("removed pooler connection", "pooler_id", poolerID)
+		lb.logger.Debug("removed pooler connection", "pooler_id", idStr)
 	}
 }
 
@@ -150,6 +156,29 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 
 	// Select best candidate
 	return lb.selectConnection(candidates, target), nil
+}
+
+// GetConnectionByID returns a PoolerConnection for a specific pooler ID.
+// This is used for reserved connections where queries need to be routed to
+// a specific pooler instance (e.g., for session affinity with prepared statements).
+// Returns an error immediately if the pooler connection doesn't exist (fail-fast).
+func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*PoolerConnection, error) {
+	if poolerID == nil {
+		return nil, errors.New("pooler ID cannot be nil")
+	}
+
+	idStr := poolerIDString(poolerID)
+
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	conn, exists := lb.connections[idStr]
+	if !exists {
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no connection found for pooler ID: %s", idStr)
+	}
+
+	return conn, nil
 }
 
 // selectConnection chooses the best connection from candidates.
@@ -257,5 +286,5 @@ func (l *LoadBalancerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPo
 
 // OnPoolerRemoved implements multigateway.PoolerChangeListener.
 func (l *LoadBalancerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
-	l.lb.RemovePooler(poolerIDString(pooler.Id))
+	l.lb.RemovePooler(pooler.Id)
 }

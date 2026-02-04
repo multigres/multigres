@@ -372,6 +372,9 @@ func (pd *CellPoolerDiscovery) evictConflictingPrimary(newPoolerID, tableGroup, 
 				"new_primary_id", newPoolerID,
 				"tableGroup", tableGroup,
 				"shard", shard)
+			if pd.onPoolerRemoved != nil {
+				pd.onPoolerRemoved(pooler.MultiPooler)
+			}
 		}
 	}
 }
