@@ -290,7 +290,9 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		assert.Equal(t, "stale-primary-1", problem.PoolerID.Name)
 	})
 
-	t.Run("skips when all primary_terms are zero", func(t *testing.T) {
+	t.Run("skips when this pooler has primary_term zero (invalid state)", func(t *testing.T) {
+		// Note: This tests the invariant check. In a properly initialized shard,
+		// PRIMARY poolers should never have PrimaryTerm=0.
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
 		analysis := &store.ReplicationAnalysis{
 			PoolerID: &clustermetadatapb.ID{
@@ -301,7 +303,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     true,
 			IsInitialized: true,
-			PrimaryTerm:   0,
+			PrimaryTerm:   0, // Invalid: initialized PRIMARY should never have PrimaryTerm=0
 			ConsensusTerm: 10,
 			OtherPrimariesInShard: []*store.PrimaryInfo{
 				{
@@ -311,16 +313,24 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 						Name:      "primary-b",
 					},
 					ConsensusTerm: 10,
-					PrimaryTerm:   0,
+					PrimaryTerm:   5,
 				},
 			},
-			MostAdvancedPrimary: nil, // All PrimaryTerm=0
+			MostAdvancedPrimary: &store.PrimaryInfo{
+				ID: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary-b",
+				},
+				ConsensusTerm: 10,
+				PrimaryTerm:   5,
+			},
 		}
 
 		problem, err := analyzer.Analyze(analysis)
 
 		require.NoError(t, err)
-		require.Nil(t, problem, "should skip when all primary_terms are zero")
+		require.Nil(t, problem, "should skip when this pooler's PrimaryTerm=0 (invalid state)")
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {

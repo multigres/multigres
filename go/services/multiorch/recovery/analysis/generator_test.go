@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -1098,4 +1099,230 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, analysis.IsInPrimaryStandbyList, "replica2 should not be in standby list")
 	})
+}
+
+func TestDetectOtherPrimary(t *testing.T) {
+	// Test the multiple primaries detection logic
+	t.Run("single other primary detected", func(t *testing.T) {
+		store := setupMultiplePrimariesStore(t, []primaryConfig{
+			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
+			{id: "primary-2", primaryTerm: 6, consensusTerm: 11},
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should detect one other primary
+		require.Len(t, analysis.OtherPrimariesInShard, 1)
+		assert.Equal(t, "primary-2", analysis.OtherPrimariesInShard[0].ID.Name)
+		assert.Equal(t, int64(6), analysis.OtherPrimariesInShard[0].PrimaryTerm)
+		assert.Equal(t, int64(11), analysis.OtherPrimariesInShard[0].ConsensusTerm)
+
+		// primary-2 has higher PrimaryTerm, so it's the most advanced
+		require.NotNil(t, analysis.MostAdvancedPrimary)
+		assert.Equal(t, "primary-2", analysis.MostAdvancedPrimary.ID.Name)
+		assert.Equal(t, int64(6), analysis.MostAdvancedPrimary.PrimaryTerm)
+	})
+
+	t.Run("multiple other primaries detected", func(t *testing.T) {
+		store := setupMultiplePrimariesStore(t, []primaryConfig{
+			{id: "primary-1", primaryTerm: 5, consensusTerm: 9},
+			{id: "primary-2", primaryTerm: 4, consensusTerm: 10},
+			{id: "primary-3", primaryTerm: 6, consensusTerm: 11},
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should detect two other primaries
+		require.Len(t, analysis.OtherPrimariesInShard, 2)
+
+		// Verify all other primaries are in the list
+		otherNames := []string{
+			analysis.OtherPrimariesInShard[0].ID.Name,
+			analysis.OtherPrimariesInShard[1].ID.Name,
+		}
+		assert.Contains(t, otherNames, "primary-2")
+		assert.Contains(t, otherNames, "primary-3")
+
+		// primary-3 has highest PrimaryTerm (6), so it's the most advanced
+		require.NotNil(t, analysis.MostAdvancedPrimary)
+		assert.Equal(t, "primary-3", analysis.MostAdvancedPrimary.ID.Name)
+		assert.Equal(t, int64(6), analysis.MostAdvancedPrimary.PrimaryTerm)
+	})
+
+	t.Run("this primary is most advanced", func(t *testing.T) {
+		store := setupMultiplePrimariesStore(t, []primaryConfig{
+			{id: "primary-1", primaryTerm: 7, consensusTerm: 12},
+			{id: "primary-2", primaryTerm: 5, consensusTerm: 10},
+			{id: "primary-3", primaryTerm: 6, consensusTerm: 11},
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should detect two other primaries
+		require.Len(t, analysis.OtherPrimariesInShard, 2)
+
+		// This primary has highest PrimaryTerm (7), so it's the most advanced
+		require.NotNil(t, analysis.MostAdvancedPrimary)
+		assert.Equal(t, "primary-1", analysis.MostAdvancedPrimary.ID.Name)
+		assert.Equal(t, int64(7), analysis.MostAdvancedPrimary.PrimaryTerm)
+	})
+
+	t.Run("tie in primary_term returns nil", func(t *testing.T) {
+		store := setupMultiplePrimariesStore(t, []primaryConfig{
+			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
+			{id: "primary-2", primaryTerm: 5, consensusTerm: 11}, // Same PrimaryTerm
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should detect one other primary
+		require.Len(t, analysis.OtherPrimariesInShard, 1)
+
+		// Tie detected, so MostAdvancedPrimary should be nil
+		assert.Nil(t, analysis.MostAdvancedPrimary, "tie in PrimaryTerm should result in nil MostAdvancedPrimary")
+	})
+
+	t.Run("all primary_terms zero returns nil (defensive - invalid state)", func(t *testing.T) {
+		// Note: This tests defensive behavior. In a properly initialized shard,
+		// PRIMARY poolers should never have PrimaryTerm=0. PrimaryTerm is set during
+		// promotion and only cleared during demotion.
+		store := setupMultiplePrimariesStore(t, []primaryConfig{
+			{id: "primary-1", primaryTerm: 0, consensusTerm: 10},
+			{id: "primary-2", primaryTerm: 0, consensusTerm: 11},
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should detect one other primary
+		require.Len(t, analysis.OtherPrimariesInShard, 1)
+
+		// All PrimaryTerm=0 is invalid state, defensive check returns nil
+		assert.Nil(t, analysis.MostAdvancedPrimary, "all PrimaryTerm=0 (invalid state) should result in nil MostAdvancedPrimary")
+	})
+
+	t.Run("mix of zero and non-zero primary_terms", func(t *testing.T) {
+		store := setupMultiplePrimariesStore(t, []primaryConfig{
+			{id: "primary-1", primaryTerm: 0, consensusTerm: 9},
+			{id: "primary-2", primaryTerm: 5, consensusTerm: 10},
+			{id: "primary-3", primaryTerm: 0, consensusTerm: 11},
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should detect two other primaries
+		require.Len(t, analysis.OtherPrimariesInShard, 2)
+
+		// primary-2 has non-zero PrimaryTerm (5), so it's the most advanced
+		require.NotNil(t, analysis.MostAdvancedPrimary)
+		assert.Equal(t, "primary-2", analysis.MostAdvancedPrimary.ID.Name)
+		assert.Equal(t, int64(5), analysis.MostAdvancedPrimary.PrimaryTerm)
+	})
+
+	t.Run("no other primaries detected", func(t *testing.T) {
+		store := setupMultiplePrimariesStore(t, []primaryConfig{
+			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should detect no other primaries
+		assert.Empty(t, analysis.OtherPrimariesInShard)
+
+		// Single primary is still the most advanced
+		require.NotNil(t, analysis.MostAdvancedPrimary)
+		assert.Equal(t, "primary-1", analysis.MostAdvancedPrimary.ID.Name)
+		assert.Equal(t, int64(5), analysis.MostAdvancedPrimary.PrimaryTerm)
+	})
+
+	t.Run("unreachable primary not detected", func(t *testing.T) {
+		store := setupMultiplePrimariesStoreWithReachability(t, []primaryConfigWithReachability{
+			{primaryConfig: primaryConfig{id: "primary-1", primaryTerm: 5, consensusTerm: 10}, reachable: true},
+			{primaryConfig: primaryConfig{id: "primary-2", primaryTerm: 6, consensusTerm: 11}, reachable: false},
+		})
+		generator := NewAnalysisGenerator(store)
+
+		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-primary-1")
+		require.NoError(t, err)
+
+		// Should NOT detect unreachable primary
+		assert.Empty(t, analysis.OtherPrimariesInShard, "unreachable primaries should not be detected")
+
+		// Only this primary is reachable, so it's the most advanced
+		require.NotNil(t, analysis.MostAdvancedPrimary)
+		assert.Equal(t, "primary-1", analysis.MostAdvancedPrimary.ID.Name)
+		assert.Equal(t, int64(5), analysis.MostAdvancedPrimary.PrimaryTerm)
+	})
+}
+
+// Helper types and functions for multiple primaries tests
+
+type primaryConfig struct {
+	id            string
+	primaryTerm   int64
+	consensusTerm int64
+}
+
+type primaryConfigWithReachability struct {
+	primaryConfig
+	reachable bool
+}
+
+func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store.PoolerHealthStore {
+	configs := make([]primaryConfigWithReachability, len(primaries))
+	for i, p := range primaries {
+		configs[i] = primaryConfigWithReachability{
+			primaryConfig: p,
+			reachable:     true,
+		}
+	}
+	return setupMultiplePrimariesStoreWithReachability(t, configs)
+}
+
+func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []primaryConfigWithReachability) *store.PoolerHealthStore {
+	poolerStore := store.NewPoolerHealthStore()
+
+	for _, p := range primaries {
+		poolerID := "multipooler-cell1-" + p.id
+		poolerState := &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      p.id,
+				},
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+				Type:       clustermetadatapb.PoolerType_PRIMARY,
+				Hostname:   "localhost",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid: p.reachable,
+			IsUpToDate:       true,
+			ConsensusStatus: &consensusdatapb.StatusResponse{
+				CurrentTerm: p.consensusTerm,
+			},
+			ConsensusTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber:  p.consensusTerm,
+				PrimaryTerm: p.primaryTerm,
+			},
+		}
+		poolerStore.Set(poolerID, poolerState)
+	}
+
+	return poolerStore
 }

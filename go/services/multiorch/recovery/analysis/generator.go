@@ -546,13 +546,11 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 		}
 	}
 
-	if len(otherPrimaries) == 0 {
-		return
-	}
-
+	// Populate other primaries list (empty if none detected)
 	analysis.OtherPrimariesInShard = otherPrimaries
 
-	// Find most advanced primary (include THIS primary in comparison)
+	// Find most advanced primary (include THIS pooler in comparison)
+	// This should always be set for PRIMARY poolers, even if there are no other primaries
 	allPrimaries := []*store.PrimaryInfo{
 		{
 			ID:            thisPooler.MultiPooler.Id,
@@ -565,7 +563,12 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 }
 
 // findMostAdvancedPrimary returns the primary with the highest PrimaryTerm.
-// Returns nil if all primaries have PrimaryTerm=0 or if there's a tie.
+// Returns nil if there's a tie between primaries with the same highest PrimaryTerm.
+//
+// Invariant: In a properly initialized shard, PrimaryTerm is always >0 for PRIMARY poolers.
+// PrimaryTerm is set during promotion and only cleared during demotion. This function
+// is defensive and returns nil if all primaries have PrimaryTerm=0, but this should
+// never happen in a properly initialized shard.
 func findMostAdvancedPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo {
 	var mostAdvanced *store.PrimaryInfo
 	maxPrimaryTerm := int64(0)
@@ -581,12 +584,12 @@ func findMostAdvancedPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo 
 		}
 	}
 
-	// Return nil if all primaries have PrimaryTerm=0
+	// Defensive: should not happen in initialized shards, but guard against invalid state
 	if maxPrimaryTerm == 0 {
 		return nil
 	}
 
-	// Return nil if there's a tie (requires manual intervention)
+	// Tie detected: multiple primaries with same PrimaryTerm requires manual intervention
 	if tieDetected {
 		return nil
 	}

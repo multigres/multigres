@@ -72,12 +72,18 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 		return nil, nil
 	}
 
+	// Invariant: initialized PRIMARY poolers must have PrimaryTerm>0
+	// PrimaryTerm is set during promotion and only cleared during demotion
+	if poolerAnalysis.PrimaryTerm == 0 {
+		return nil, nil
+	}
+
 	// Skip if no other primaries detected
 	if len(poolerAnalysis.OtherPrimariesInShard) == 0 {
 		return nil, nil
 	}
 
-	// Skip if no most advanced primary identified (tie or all PrimaryTerm=0)
+	// Skip if no most advanced primary identified (tie in PrimaryTerm)
 	if poolerAnalysis.MostAdvancedPrimary == nil {
 		return nil, nil
 	}
