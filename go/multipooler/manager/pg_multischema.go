@@ -22,7 +22,6 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // ============================================================================
@@ -329,70 +328,34 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 	return nil
 }
 
-// insertLeadershipHistory inserts a leadership history record into the leadership_history table.
+// insertHistoryRecord inserts a record into the leadership_history table.
+// This is used for both promotion events and replication config changes.
 // This operation uses the remote-operation-timeout and will fail if it cannot complete within
-// that time. A timeout typically indicates that synchronous replication is not functioning
-// (no standbys are connected to acknowledge the write).
-func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termNumber int64, leaderID, coordinatorID, walPosition, reason string, cohortMembers, acceptedMembers []string) error {
-	pm.logger.InfoContext(ctx, "Inserting leadership history",
-		"term", termNumber,
-		"leader", leaderID,
-		"coordinator", coordinatorID,
-		"reason", reason)
-
+// that time. A timeout typically indicates that synchronous replication is not functioning.
+func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumber int64, eventType, leaderID, coordinatorID, walPosition, operation, reason string, cohortMembers, acceptedMembers []string) error {
 	cohortJSON, err := json.Marshal(cohortMembers)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to marshal cohort_members")
 	}
 
-	acceptedJSON, err := json.Marshal(acceptedMembers)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to marshal accepted_members")
+	var acceptedJSON []byte
+	if len(acceptedMembers) > 0 {
+		acceptedJSON, err = json.Marshal(acceptedMembers)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to marshal accepted_members")
+		}
 	}
 
 	timeout := pm.topoClient.GetRemoteOperationTimeout()
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
-		(term_number, event_type, leader_id, coordinator_id, wal_position, reason, cohort_members, accepted_members)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)`,
-		termNumber, "promotion", leaderID, coordinatorID, walPosition, reason, cohortJSON, acceptedJSON)
+		(term_number, event_type, leader_id, coordinator_id, wal_position, operation, reason, cohort_members, accepted_members)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, $8::jsonb, $9::jsonb)`,
+		termNumber, eventType, leaderID, coordinatorID, walPosition, operation, reason, cohortJSON, acceptedJSON)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to insert leadership history")
+		return mterrors.Wrap(err, "failed to insert history record")
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully inserted leadership history", "term", termNumber)
-	return nil
-}
-
-// insertReplicationConfigHistory inserts a replication configuration change record.
-// This operation uses the remote-operation-timeout and will fail if it cannot complete within
-// that time. A timeout typically indicates that synchronous replication is not functioning.
-func (pm *MultiPoolerManager) insertReplicationConfigHistory(ctx context.Context, termNumber int64, operation, reason string, standbyIDs []*clustermetadatapb.ID) error {
-	// Convert standby IDs to application names
-	standbyNames := make([]string, len(standbyIDs))
-	for i, id := range standbyIDs {
-		standbyNames[i] = generateApplicationName(id)
-	}
-
-	cohortJSON, err := json.Marshal(standbyNames)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to marshal standby list")
-	}
-
-	timeout := pm.topoClient.GetRemoteOperationTimeout()
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
-		(term_number, event_type, operation, reason, cohort_members)
-		VALUES ($1, $2, $3, $4, $5::jsonb)`,
-		termNumber, "replication_config", operation, reason, cohortJSON)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to insert replication config history")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully inserted replication config history",
-		"term", termNumber,
-		"operation", operation)
 	return nil
 }

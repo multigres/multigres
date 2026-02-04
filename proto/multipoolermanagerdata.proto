@@ -555,6 +555,9 @@ message UpdateSynchronousStandbyListRequest {
 
   // Force the operation even if the term doesn't match
   bool force = 5;
+
+  // Coordinator ID that initiated this operation (for audit trail)
+  clustermetadata.ID coordinator_id = 6;
 }
 
 message UpdateSynchronousStandbyListResponse {

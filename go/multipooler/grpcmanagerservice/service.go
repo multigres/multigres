@@ -137,7 +137,8 @@ func (s *managerService) UpdateSynchronousStandbyList(ctx context.Context, req *
 		req.StandbyIds,
 		req.ReloadConfig,
 		req.ConsensusTerm,
-		req.Force)
+		req.Force,
+		req.CoordinatorId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

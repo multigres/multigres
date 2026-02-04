@@ -173,7 +173,16 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	cohortMembers := []string{leaderID} // Only the initial primary during bootstrap
 	acceptedMembers := []string{leaderID}
 
-	if err := pm.insertLeadershipHistory(ctx, req.ConsensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
+	if err := pm.insertHistoryRecord(ctx,
+		req.ConsensusTerm,
+		"promotion",
+		leaderID,
+		coordinatorID,
+		finalLSN,
+		"bootstrap", // operation
+		reason,
+		cohortMembers,
+		acceptedMembers); err != nil {
 		// Log but don't fail - history is for audit, not correctness
 		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
 			"term", req.ConsensusTerm,

@@ -72,6 +72,7 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 		topoClient:  topoStore,
 		config:      &Config{},
 		multipooler: multiPooler,
+		serviceID:   &clustermetadatapb.ID{Cell: "test-cell", Name: "test-pooler"},
 	}
 
 	return pm, mockQueryService
@@ -381,6 +382,7 @@ func TestInsertLeadershipHistory(t *testing.T) {
 		leaderID        string
 		coordinatorID   string
 		walPosition     string
+		operation       string
 		reason          string
 		cohortMembers   []string
 		acceptedMembers []string
@@ -394,7 +396,8 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			leaderID:        "leader-1",
 			coordinatorID:   "coordinator-1",
 			walPosition:     "0/1234567",
-			reason:          "promotion",
+			operation:       "promotion",
+			reason:          "Leadership changed due to manual promotion",
 			cohortMembers:   []string{"member-1", "member-2", "member-3"},
 			acceptedMembers: []string{"member-1", "member-2"},
 			setupMock: func(m *mock.QueryService) {
@@ -408,14 +411,15 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			leaderID:        "leader-2",
 			coordinatorID:   "coordinator-2",
 			walPosition:     "0/2345678",
-			reason:          "failover",
+			operation:       "failover",
+			reason:          "Leadership changed due to failover",
 			cohortMembers:   []string{"member-1", "member-2"},
 			acceptedMembers: []string{"member-1"},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", errors.New("connection refused"))
 			},
 			expectError:   true,
-			errorContains: "failed to insert leadership history",
+			errorContains: "failed to insert history record",
 		},
 		{
 			name:            "insert with empty cohort and accepted members arrays",
@@ -423,7 +427,8 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			leaderID:        "leader-3",
 			coordinatorID:   "coordinator-3",
 			walPosition:     "0/3456789",
-			reason:          "bootstrap",
+			operation:       "bootstrap",
+			reason:          "Initial cluster bootstrap",
 			cohortMembers:   []string{},
 			acceptedMembers: []string{},
 			setupMock: func(m *mock.QueryService) {
@@ -440,8 +445,8 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err := pm.insertLeadershipHistory(ctx, tt.termNumber, tt.leaderID, tt.coordinatorID,
-				tt.walPosition, tt.reason, tt.cohortMembers, tt.acceptedMembers)
+			err := pm.insertHistoryRecord(ctx, tt.termNumber, "promotion", tt.leaderID, tt.coordinatorID,
+				tt.walPosition, tt.operation, tt.reason, tt.cohortMembers, tt.acceptedMembers)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -506,7 +511,7 @@ func TestInsertReplicationConfigHistory(t *testing.T) {
 				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", errors.New("timeout waiting for sync replication"))
 			},
 			expectError:   true,
-			errorContains: "failed to insert replication config history",
+			errorContains: "failed to insert history record",
 		},
 		{
 			name:       "insert with empty standby list",
@@ -528,7 +533,15 @@ func TestInsertReplicationConfigHistory(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err := pm.insertReplicationConfigHistory(ctx, tt.termNumber, tt.operation, tt.reason, tt.standbyIDs)
+
+			// Convert standby IDs to application names
+			standbyNames := make([]string, len(tt.standbyIDs))
+			for i, id := range tt.standbyIDs {
+				standbyNames[i] = generateApplicationName(id)
+			}
+
+			leaderID := generateApplicationName(pm.serviceID)
+			err := pm.insertHistoryRecord(ctx, tt.termNumber, "replication_config", leaderID, "", "", tt.operation, tt.reason, standbyNames, nil)
 
 			if tt.expectError {
 				assert.Error(t, err)
