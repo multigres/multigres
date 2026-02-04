@@ -36,12 +36,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiPoolerService_ExecuteQuery_FullMethodName         = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
-	MultiPoolerService_StreamExecute_FullMethodName        = "/multipoolerservice.MultiPoolerService/StreamExecute"
-	MultiPoolerService_PortalStreamExecute_FullMethodName  = "/multipoolerservice.MultiPoolerService/PortalStreamExecute"
-	MultiPoolerService_Describe_FullMethodName             = "/multipoolerservice.MultiPoolerService/Describe"
-	MultiPoolerService_GetAuthCredentials_FullMethodName   = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
-	MultiPoolerService_BidirectionalExecute_FullMethodName = "/multipoolerservice.MultiPoolerService/BidirectionalExecute"
+	MultiPoolerService_ExecuteQuery_FullMethodName        = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
+	MultiPoolerService_StreamExecute_FullMethodName       = "/multipoolerservice.MultiPoolerService/StreamExecute"
+	MultiPoolerService_PortalStreamExecute_FullMethodName = "/multipoolerservice.MultiPoolerService/PortalStreamExecute"
+	MultiPoolerService_Describe_FullMethodName            = "/multipoolerservice.MultiPoolerService/Describe"
+	MultiPoolerService_GetAuthCredentials_FullMethodName  = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
+	MultiPoolerService_CopyBidiExecute_FullMethodName     = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
 )
 
 // MultiPoolerServiceClient is the client API for MultiPoolerService service.
@@ -69,10 +69,10 @@ type MultiPoolerServiceClient interface {
 	// an up-to-date cache of all password hashes and by real-time updates from multipooler
 	// when any credentials change.
 	GetAuthCredentials(ctx context.Context, in *GetAuthCredentialsRequest, opts ...grpc.CallOption) (*GetAuthCredentialsResponse, error)
-	// BidirectionalExecute handles bidirectional streaming operations (e.g., COPY commands).
+	// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
-	BidirectionalExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BidirectionalExecuteRequest, BidirectionalExecuteResponse], error)
+	CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error)
 }
 
 type multiPoolerServiceClient struct {
@@ -151,18 +151,18 @@ func (c *multiPoolerServiceClient) GetAuthCredentials(ctx context.Context, in *G
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) BidirectionalExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[BidirectionalExecuteRequest, BidirectionalExecuteResponse], error) {
+func (c *multiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[2], MultiPoolerService_BidirectionalExecute_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[2], MultiPoolerService_CopyBidiExecute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[BidirectionalExecuteRequest, BidirectionalExecuteResponse]{ClientStream: stream}
+	x := &grpc.GenericClientStream[CopyBidiExecuteRequest, CopyBidiExecuteResponse]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_BidirectionalExecuteClient = grpc.BidiStreamingClient[BidirectionalExecuteRequest, BidirectionalExecuteResponse]
+type MultiPoolerService_CopyBidiExecuteClient = grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
 
 // MultiPoolerServiceServer is the server API for MultiPoolerService service.
 // All implementations must embed UnimplementedMultiPoolerServiceServer
@@ -189,10 +189,10 @@ type MultiPoolerServiceServer interface {
 	// an up-to-date cache of all password hashes and by real-time updates from multipooler
 	// when any credentials change.
 	GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error)
-	// BidirectionalExecute handles bidirectional streaming operations (e.g., COPY commands).
+	// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
-	BidirectionalExecute(grpc.BidiStreamingServer[BidirectionalExecuteRequest, BidirectionalExecuteResponse]) error
+	CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
 
@@ -218,8 +218,8 @@ func (UnimplementedMultiPoolerServiceServer) Describe(context.Context, *Describe
 func (UnimplementedMultiPoolerServiceServer) GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAuthCredentials not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) BidirectionalExecute(grpc.BidiStreamingServer[BidirectionalExecuteRequest, BidirectionalExecuteResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method BidirectionalExecute not implemented")
+func (UnimplementedMultiPoolerServiceServer) CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method CopyBidiExecute not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
 func (UnimplementedMultiPoolerServiceServer) testEmbeddedByValue()                            {}
@@ -318,12 +318,12 @@ func _MultiPoolerService_GetAuthCredentials_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerService_BidirectionalExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MultiPoolerServiceServer).BidirectionalExecute(&grpc.GenericServerStream[BidirectionalExecuteRequest, BidirectionalExecuteResponse]{ServerStream: stream})
+func _MultiPoolerService_CopyBidiExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MultiPoolerServiceServer).CopyBidiExecute(&grpc.GenericServerStream[CopyBidiExecuteRequest, CopyBidiExecuteResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_BidirectionalExecuteServer = grpc.BidiStreamingServer[BidirectionalExecuteRequest, BidirectionalExecuteResponse]
+type MultiPoolerService_CopyBidiExecuteServer = grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
 
 // MultiPoolerService_ServiceDesc is the grpc.ServiceDesc for MultiPoolerService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -357,8 +357,8 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 		{
-			StreamName:    "BidirectionalExecute",
-			Handler:       _MultiPoolerService_BidirectionalExecute_Handler,
+			StreamName:    "CopyBidiExecute",
+			Handler:       _MultiPoolerService_CopyBidiExecute_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

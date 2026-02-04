@@ -34,7 +34,7 @@ type mockBidiStream struct {
 	// Configurable behavior
 	sendErr      error
 	recvErr      error
-	recvResponse *multipoolerservice.BidirectionalExecuteResponse
+	recvResponse *multipoolerservice.CopyBidiExecuteResponse
 
 	// Track calls for verification
 	closeSendCalled atomic.Bool
@@ -42,12 +42,12 @@ type mockBidiStream struct {
 	sendCalled      atomic.Bool
 }
 
-func (m *mockBidiStream) Send(req *multipoolerservice.BidirectionalExecuteRequest) error {
+func (m *mockBidiStream) Send(req *multipoolerservice.CopyBidiExecuteRequest) error {
 	m.sendCalled.Store(true)
 	return m.sendErr
 }
 
-func (m *mockBidiStream) Recv() (*multipoolerservice.BidirectionalExecuteResponse, error) {
+func (m *mockBidiStream) Recv() (*multipoolerservice.CopyBidiExecuteResponse, error) {
 	m.recvCalled.Store(true)
 	if m.recvErr != nil {
 		return nil, m.recvErr
@@ -68,16 +68,16 @@ func (m *mockBidiStream) SendMsg(msg any) error        { return nil }
 func (m *mockBidiStream) RecvMsg(msg any) error        { return nil }
 
 // Ensure mockBidiStream implements the interface
-var _ grpc.BidiStreamingClient[multipoolerservice.BidirectionalExecuteRequest, multipoolerservice.BidirectionalExecuteResponse] = (*mockBidiStream)(nil)
+var _ grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse] = (*mockBidiStream)(nil)
 
 // mockMultiPoolerServiceClient is a mock implementation of MultiPoolerServiceClient.
 type mockMultiPoolerServiceClient struct {
-	// BidirectionalExecute behavior
+	// CopyBidiExecute behavior
 	bidiStream    *mockBidiStream
 	bidiStreamErr error
 }
 
-func (m *mockMultiPoolerServiceClient) BidirectionalExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.BidirectionalExecuteRequest, multipoolerservice.BidirectionalExecuteResponse], error) {
+func (m *mockMultiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
 	if m.bidiStreamErr != nil {
 		return nil, m.bidiStreamErr
 	}
@@ -114,13 +114,13 @@ func newTestGRPCQueryService(client multipoolerservice.MultiPoolerServiceClient)
 		client:      client,
 		logger:      slog.Default(),
 		poolerID:    "test-pooler",
-		copyStreams: make(map[uint64]multipoolerservice.MultiPoolerService_BidirectionalExecuteClient),
+		copyStreams: make(map[uint64]multipoolerservice.MultiPoolerService_CopyBidiExecuteClient),
 	}
 }
 
-// TestCopyReady_BidirectionalExecuteError tests that when BidirectionalExecute fails to create a stream,
+// TestCopyReady_CopyBidiExecuteError tests that when CopyBidiExecute fails to create a stream,
 // no cleanup is needed (stream was never created).
-func TestCopyReady_BidirectionalExecuteError(t *testing.T) {
+func TestCopyReady_CopyBidiExecuteError(t *testing.T) {
 	mockClient := &mockMultiPoolerServiceClient{
 		bidiStreamErr: errors.New("failed to create stream"),
 	}
@@ -201,8 +201,8 @@ func TestCopyReady_RecvReadyError(t *testing.T) {
 // the stream is properly cleaned up via defer.
 func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 	mockStream := &mockBidiStream{
-		recvResponse: &multipoolerservice.BidirectionalExecuteResponse{
-			Phase: multipoolerservice.BidirectionalExecuteResponse_ERROR,
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase: multipoolerservice.CopyBidiExecuteResponse_ERROR,
 			Error: "some backend error",
 		},
 	}
@@ -232,8 +232,8 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 // the stream is properly cleaned up via defer.
 func TestCopyReady_UnexpectedPhaseResponse(t *testing.T) {
 	mockStream := &mockBidiStream{
-		recvResponse: &multipoolerservice.BidirectionalExecuteResponse{
-			Phase: multipoolerservice.BidirectionalExecuteResponse_RESULT, // Wrong phase, expected READY
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase: multipoolerservice.CopyBidiExecuteResponse_RESULT, // Wrong phase, expected READY
 		},
 	}
 	mockClient := &mockMultiPoolerServiceClient{
@@ -261,8 +261,8 @@ func TestCopyReady_UnexpectedPhaseResponse(t *testing.T) {
 // and NOT cleaned up by the defer.
 func TestCopyReady_Success(t *testing.T) {
 	mockStream := &mockBidiStream{
-		recvResponse: &multipoolerservice.BidirectionalExecuteResponse{
-			Phase:                multipoolerservice.BidirectionalExecuteResponse_READY,
+		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
+			Phase:                multipoolerservice.CopyBidiExecuteResponse_READY,
 			ReservedConnectionId: 12345,
 			Format:               0,
 			ColumnFormats:        []int32{0, 0, 0},

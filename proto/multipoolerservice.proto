@@ -52,10 +52,10 @@ service MultiPoolerService {
   // when any credentials change.
   rpc GetAuthCredentials(GetAuthCredentialsRequest) returns (GetAuthCredentialsResponse);
 
-  // BidirectionalExecute handles bidirectional streaming operations (e.g., COPY commands).
+  // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
   // The gateway sends the initial command and then streams data/messages.
   // The pooler responds with protocol-specific messages and final result.
-  rpc BidirectionalExecute(stream BidirectionalExecuteRequest) returns (stream BidirectionalExecuteResponse);
+  rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -175,9 +175,9 @@ message GetAuthCredentialsResponse {
   string scram_hash = 1;
 }
 
-// BidirectionalExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
+// CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
 // Used for commands that require bidirectional streaming (e.g., COPY FROM STDIN, COPY TO STDOUT).
-message BidirectionalExecuteRequest {
+message CopyBidiExecuteRequest {
   // Phase indicates which phase of the operation this message represents
   enum Phase {
     INITIATE = 0;  // Initial command
@@ -208,9 +208,9 @@ message BidirectionalExecuteRequest {
   string error_message = 7;
 }
 
-// BidirectionalExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.
+// CopyBidiExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.
 // Used for responses to commands that require bidirectional streaming.
-message BidirectionalExecuteResponse {
+message CopyBidiExecuteResponse {
   // Phase indicates which phase of the response this represents
   enum Phase {
     READY = 0;    // Command initiated successfully, ready for data streaming

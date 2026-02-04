@@ -42,24 +42,24 @@ const (
 )
 
 // Phase indicates which phase of the operation this message represents
-type BidirectionalExecuteRequest_Phase int32
+type CopyBidiExecuteRequest_Phase int32
 
 const (
-	BidirectionalExecuteRequest_INITIATE BidirectionalExecuteRequest_Phase = 0 // Initial command
-	BidirectionalExecuteRequest_DATA     BidirectionalExecuteRequest_Phase = 1 // Data chunk (for COPY FROM STDIN)
-	BidirectionalExecuteRequest_DONE     BidirectionalExecuteRequest_Phase = 2 // Finalize operation (all data sent for COPY FROM, or ready to receive for COPY TO)
-	BidirectionalExecuteRequest_FAIL     BidirectionalExecuteRequest_Phase = 3 // Abort operation
+	CopyBidiExecuteRequest_INITIATE CopyBidiExecuteRequest_Phase = 0 // Initial command
+	CopyBidiExecuteRequest_DATA     CopyBidiExecuteRequest_Phase = 1 // Data chunk (for COPY FROM STDIN)
+	CopyBidiExecuteRequest_DONE     CopyBidiExecuteRequest_Phase = 2 // Finalize operation (all data sent for COPY FROM, or ready to receive for COPY TO)
+	CopyBidiExecuteRequest_FAIL     CopyBidiExecuteRequest_Phase = 3 // Abort operation
 )
 
-// Enum value maps for BidirectionalExecuteRequest_Phase.
+// Enum value maps for CopyBidiExecuteRequest_Phase.
 var (
-	BidirectionalExecuteRequest_Phase_name = map[int32]string{
+	CopyBidiExecuteRequest_Phase_name = map[int32]string{
 		0: "INITIATE",
 		1: "DATA",
 		2: "DONE",
 		3: "FAIL",
 	}
-	BidirectionalExecuteRequest_Phase_value = map[string]int32{
+	CopyBidiExecuteRequest_Phase_value = map[string]int32{
 		"INITIATE": 0,
 		"DATA":     1,
 		"DONE":     2,
@@ -67,54 +67,54 @@ var (
 	}
 )
 
-func (x BidirectionalExecuteRequest_Phase) Enum() *BidirectionalExecuteRequest_Phase {
-	p := new(BidirectionalExecuteRequest_Phase)
+func (x CopyBidiExecuteRequest_Phase) Enum() *CopyBidiExecuteRequest_Phase {
+	p := new(CopyBidiExecuteRequest_Phase)
 	*p = x
 	return p
 }
 
-func (x BidirectionalExecuteRequest_Phase) String() string {
+func (x CopyBidiExecuteRequest_Phase) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (BidirectionalExecuteRequest_Phase) Descriptor() protoreflect.EnumDescriptor {
+func (CopyBidiExecuteRequest_Phase) Descriptor() protoreflect.EnumDescriptor {
 	return file_multipoolerservice_proto_enumTypes[0].Descriptor()
 }
 
-func (BidirectionalExecuteRequest_Phase) Type() protoreflect.EnumType {
+func (CopyBidiExecuteRequest_Phase) Type() protoreflect.EnumType {
 	return &file_multipoolerservice_proto_enumTypes[0]
 }
 
-func (x BidirectionalExecuteRequest_Phase) Number() protoreflect.EnumNumber {
+func (x CopyBidiExecuteRequest_Phase) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use BidirectionalExecuteRequest_Phase.Descriptor instead.
-func (BidirectionalExecuteRequest_Phase) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use CopyBidiExecuteRequest_Phase.Descriptor instead.
+func (CopyBidiExecuteRequest_Phase) EnumDescriptor() ([]byte, []int) {
 	return file_multipoolerservice_proto_rawDescGZIP(), []int{10, 0}
 }
 
 // Phase indicates which phase of the response this represents
-type BidirectionalExecuteResponse_Phase int32
+type CopyBidiExecuteResponse_Phase int32
 
 const (
-	BidirectionalExecuteResponse_READY BidirectionalExecuteResponse_Phase = 0 // Command initiated successfully, ready for data streaming
+	CopyBidiExecuteResponse_READY CopyBidiExecuteResponse_Phase = 0 // Command initiated successfully, ready for data streaming
 	// For COPY FROM STDIN: PostgreSQL sent CopyInResponse
 	// For COPY TO STDOUT: PostgreSQL sent CopyOutResponse
-	BidirectionalExecuteResponse_DATA   BidirectionalExecuteResponse_Phase = 1 // Data chunk (for COPY TO STDOUT)
-	BidirectionalExecuteResponse_RESULT BidirectionalExecuteResponse_Phase = 2 // Final result (CommandComplete)
-	BidirectionalExecuteResponse_ERROR  BidirectionalExecuteResponse_Phase = 3 // Error occurred
+	CopyBidiExecuteResponse_DATA   CopyBidiExecuteResponse_Phase = 1 // Data chunk (for COPY TO STDOUT)
+	CopyBidiExecuteResponse_RESULT CopyBidiExecuteResponse_Phase = 2 // Final result (CommandComplete)
+	CopyBidiExecuteResponse_ERROR  CopyBidiExecuteResponse_Phase = 3 // Error occurred
 )
 
-// Enum value maps for BidirectionalExecuteResponse_Phase.
+// Enum value maps for CopyBidiExecuteResponse_Phase.
 var (
-	BidirectionalExecuteResponse_Phase_name = map[int32]string{
+	CopyBidiExecuteResponse_Phase_name = map[int32]string{
 		0: "READY",
 		1: "DATA",
 		2: "RESULT",
 		3: "ERROR",
 	}
-	BidirectionalExecuteResponse_Phase_value = map[string]int32{
+	CopyBidiExecuteResponse_Phase_value = map[string]int32{
 		"READY":  0,
 		"DATA":   1,
 		"RESULT": 2,
@@ -122,30 +122,30 @@ var (
 	}
 )
 
-func (x BidirectionalExecuteResponse_Phase) Enum() *BidirectionalExecuteResponse_Phase {
-	p := new(BidirectionalExecuteResponse_Phase)
+func (x CopyBidiExecuteResponse_Phase) Enum() *CopyBidiExecuteResponse_Phase {
+	p := new(CopyBidiExecuteResponse_Phase)
 	*p = x
 	return p
 }
 
-func (x BidirectionalExecuteResponse_Phase) String() string {
+func (x CopyBidiExecuteResponse_Phase) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (BidirectionalExecuteResponse_Phase) Descriptor() protoreflect.EnumDescriptor {
+func (CopyBidiExecuteResponse_Phase) Descriptor() protoreflect.EnumDescriptor {
 	return file_multipoolerservice_proto_enumTypes[1].Descriptor()
 }
 
-func (BidirectionalExecuteResponse_Phase) Type() protoreflect.EnumType {
+func (CopyBidiExecuteResponse_Phase) Type() protoreflect.EnumType {
 	return &file_multipoolerservice_proto_enumTypes[1]
 }
 
-func (x BidirectionalExecuteResponse_Phase) Number() protoreflect.EnumNumber {
+func (x CopyBidiExecuteResponse_Phase) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use BidirectionalExecuteResponse_Phase.Descriptor instead.
-func (BidirectionalExecuteResponse_Phase) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use CopyBidiExecuteResponse_Phase.Descriptor instead.
+func (CopyBidiExecuteResponse_Phase) EnumDescriptor() ([]byte, []int) {
 	return file_multipoolerservice_proto_rawDescGZIP(), []int{11, 0}
 }
 
@@ -774,12 +774,12 @@ func (x *GetAuthCredentialsResponse) GetScramHash() string {
 	return ""
 }
 
-// BidirectionalExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
+// CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
 // Used for commands that require bidirectional streaming (e.g., COPY FROM STDIN, COPY TO STDOUT).
-type BidirectionalExecuteRequest struct {
+type CopyBidiExecuteRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// phase indicates the current phase
-	Phase BidirectionalExecuteRequest_Phase `protobuf:"varint,1,opt,name=phase,proto3,enum=multipoolerservice.BidirectionalExecuteRequest_Phase" json:"phase,omitempty"`
+	Phase CopyBidiExecuteRequest_Phase `protobuf:"varint,1,opt,name=phase,proto3,enum=multipoolerservice.CopyBidiExecuteRequest_Phase" json:"phase,omitempty"`
 	// query is the SQL command to execute (only for INITIATE phase)
 	Query string `protobuf:"bytes,2,opt,name=query,proto3" json:"query,omitempty"`
 	// target specifies the routing destination (only for INITIATE phase)
@@ -796,20 +796,20 @@ type BidirectionalExecuteRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BidirectionalExecuteRequest) Reset() {
-	*x = BidirectionalExecuteRequest{}
+func (x *CopyBidiExecuteRequest) Reset() {
+	*x = CopyBidiExecuteRequest{}
 	mi := &file_multipoolerservice_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BidirectionalExecuteRequest) String() string {
+func (x *CopyBidiExecuteRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BidirectionalExecuteRequest) ProtoMessage() {}
+func (*CopyBidiExecuteRequest) ProtoMessage() {}
 
-func (x *BidirectionalExecuteRequest) ProtoReflect() protoreflect.Message {
+func (x *CopyBidiExecuteRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerservice_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -821,66 +821,66 @@ func (x *BidirectionalExecuteRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BidirectionalExecuteRequest.ProtoReflect.Descriptor instead.
-func (*BidirectionalExecuteRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CopyBidiExecuteRequest.ProtoReflect.Descriptor instead.
+func (*CopyBidiExecuteRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolerservice_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *BidirectionalExecuteRequest) GetPhase() BidirectionalExecuteRequest_Phase {
+func (x *CopyBidiExecuteRequest) GetPhase() CopyBidiExecuteRequest_Phase {
 	if x != nil {
 		return x.Phase
 	}
-	return BidirectionalExecuteRequest_INITIATE
+	return CopyBidiExecuteRequest_INITIATE
 }
 
-func (x *BidirectionalExecuteRequest) GetQuery() string {
+func (x *CopyBidiExecuteRequest) GetQuery() string {
 	if x != nil {
 		return x.Query
 	}
 	return ""
 }
 
-func (x *BidirectionalExecuteRequest) GetTarget() *query.Target {
+func (x *CopyBidiExecuteRequest) GetTarget() *query.Target {
 	if x != nil {
 		return x.Target
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteRequest) GetCallerId() *mtrpc.CallerID {
+func (x *CopyBidiExecuteRequest) GetCallerId() *mtrpc.CallerID {
 	if x != nil {
 		return x.CallerId
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteRequest) GetOptions() *query.ExecuteOptions {
+func (x *CopyBidiExecuteRequest) GetOptions() *query.ExecuteOptions {
 	if x != nil {
 		return x.Options
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteRequest) GetData() []byte {
+func (x *CopyBidiExecuteRequest) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteRequest) GetErrorMessage() string {
+func (x *CopyBidiExecuteRequest) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
 	}
 	return ""
 }
 
-// BidirectionalExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.
+// CopyBidiExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.
 // Used for responses to commands that require bidirectional streaming.
-type BidirectionalExecuteResponse struct {
+type CopyBidiExecuteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// phase indicates the current phase
-	Phase BidirectionalExecuteResponse_Phase `protobuf:"varint,1,opt,name=phase,proto3,enum=multipoolerservice.BidirectionalExecuteResponse_Phase" json:"phase,omitempty"`
+	Phase CopyBidiExecuteResponse_Phase `protobuf:"varint,1,opt,name=phase,proto3,enum=multipoolerservice.CopyBidiExecuteResponse_Phase" json:"phase,omitempty"`
 	// reserved_connection_id is the ID of the reserved connection (for READY phase)
 	ReservedConnectionId uint64 `protobuf:"varint,2,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
 	// pooler_id identifies which multipooler instance owns the reserved connection (for READY phase)
@@ -901,20 +901,20 @@ type BidirectionalExecuteResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BidirectionalExecuteResponse) Reset() {
-	*x = BidirectionalExecuteResponse{}
+func (x *CopyBidiExecuteResponse) Reset() {
+	*x = CopyBidiExecuteResponse{}
 	mi := &file_multipoolerservice_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BidirectionalExecuteResponse) String() string {
+func (x *CopyBidiExecuteResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BidirectionalExecuteResponse) ProtoMessage() {}
+func (*CopyBidiExecuteResponse) ProtoMessage() {}
 
-func (x *BidirectionalExecuteResponse) ProtoReflect() protoreflect.Message {
+func (x *CopyBidiExecuteResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_multipoolerservice_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -926,61 +926,61 @@ func (x *BidirectionalExecuteResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BidirectionalExecuteResponse.ProtoReflect.Descriptor instead.
-func (*BidirectionalExecuteResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use CopyBidiExecuteResponse.ProtoReflect.Descriptor instead.
+func (*CopyBidiExecuteResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolerservice_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *BidirectionalExecuteResponse) GetPhase() BidirectionalExecuteResponse_Phase {
+func (x *CopyBidiExecuteResponse) GetPhase() CopyBidiExecuteResponse_Phase {
 	if x != nil {
 		return x.Phase
 	}
-	return BidirectionalExecuteResponse_READY
+	return CopyBidiExecuteResponse_READY
 }
 
-func (x *BidirectionalExecuteResponse) GetReservedConnectionId() uint64 {
+func (x *CopyBidiExecuteResponse) GetReservedConnectionId() uint64 {
 	if x != nil {
 		return x.ReservedConnectionId
 	}
 	return 0
 }
 
-func (x *BidirectionalExecuteResponse) GetPoolerId() *clustermetadata.ID {
+func (x *CopyBidiExecuteResponse) GetPoolerId() *clustermetadata.ID {
 	if x != nil {
 		return x.PoolerId
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteResponse) GetFormat() int32 {
+func (x *CopyBidiExecuteResponse) GetFormat() int32 {
 	if x != nil {
 		return x.Format
 	}
 	return 0
 }
 
-func (x *BidirectionalExecuteResponse) GetColumnFormats() []int32 {
+func (x *CopyBidiExecuteResponse) GetColumnFormats() []int32 {
 	if x != nil {
 		return x.ColumnFormats
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteResponse) GetData() []byte {
+func (x *CopyBidiExecuteResponse) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteResponse) GetResult() *query.QueryResult {
+func (x *CopyBidiExecuteResponse) GetResult() *query.QueryResult {
 	if x != nil {
 		return x.Result
 	}
 	return nil
 }
 
-func (x *BidirectionalExecuteResponse) GetError() string {
+func (x *CopyBidiExecuteResponse) GetError() string {
 	if x != nil {
 		return x.Error
 	}
@@ -1030,9 +1030,9 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tR\busername\";\n" +
 	"\x1aGetAuthCredentialsResponse\x12\x1d\n" +
 	"\n" +
-	"scram_hash\x18\x01 \x01(\tR\tscramHash\"\xf4\x02\n" +
-	"\x1bBidirectionalExecuteRequest\x12K\n" +
-	"\x05phase\x18\x01 \x01(\x0e25.multipoolerservice.BidirectionalExecuteRequest.PhaseR\x05phase\x12\x14\n" +
+	"scram_hash\x18\x01 \x01(\tR\tscramHash\"\xea\x02\n" +
+	"\x16CopyBidiExecuteRequest\x12F\n" +
+	"\x05phase\x18\x01 \x01(\x0e20.multipoolerservice.CopyBidiExecuteRequest.PhaseR\x05phase\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x03 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x04 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
@@ -1043,9 +1043,9 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\bINITIATE\x10\x00\x12\b\n" +
 	"\x04DATA\x10\x01\x12\b\n" +
 	"\x04DONE\x10\x02\x12\b\n" +
-	"\x04FAIL\x10\x03\"\x9e\x03\n" +
-	"\x1cBidirectionalExecuteResponse\x12L\n" +
-	"\x05phase\x18\x01 \x01(\x0e26.multipoolerservice.BidirectionalExecuteResponse.PhaseR\x05phase\x124\n" +
+	"\x04FAIL\x10\x03\"\x94\x03\n" +
+	"\x17CopyBidiExecuteResponse\x12G\n" +
+	"\x05phase\x18\x01 \x01(\x0e21.multipoolerservice.CopyBidiExecuteResponse.PhaseR\x05phase\x124\n" +
 	"\x16reserved_connection_id\x18\x02 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12\x16\n" +
 	"\x06format\x18\x04 \x01(\x05R\x06format\x12%\n" +
@@ -1058,14 +1058,14 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x04DATA\x10\x01\x12\n" +
 	"\n" +
 	"\x06RESULT\x10\x02\x12\t\n" +
-	"\x05ERROR\x10\x032\xa4\x05\n" +
+	"\x05ERROR\x10\x032\x95\x05\n" +
 	"\x12MultiPoolerService\x12a\n" +
 	"\fExecuteQuery\x12'.multipoolerservice.ExecuteQueryRequest\x1a(.multipoolerservice.ExecuteQueryResponse\x12f\n" +
 	"\rStreamExecute\x12(.multipoolerservice.StreamExecuteRequest\x1a).multipoolerservice.StreamExecuteResponse0\x01\x12x\n" +
 	"\x13PortalStreamExecute\x12..multipoolerservice.PortalStreamExecuteRequest\x1a/.multipoolerservice.PortalStreamExecuteResponse0\x01\x12U\n" +
 	"\bDescribe\x12#.multipoolerservice.DescribeRequest\x1a$.multipoolerservice.DescribeResponse\x12s\n" +
-	"\x12GetAuthCredentials\x12-.multipoolerservice.GetAuthCredentialsRequest\x1a..multipoolerservice.GetAuthCredentialsResponse\x12}\n" +
-	"\x14BidirectionalExecute\x12/.multipoolerservice.BidirectionalExecuteRequest\x1a0.multipoolerservice.BidirectionalExecuteResponse(\x010\x01B9Z7github.com/multigres/multigres/go/pb/multipoolerserviceb\x06proto3"
+	"\x12GetAuthCredentials\x12-.multipoolerservice.GetAuthCredentialsRequest\x1a..multipoolerservice.GetAuthCredentialsResponse\x12n\n" +
+	"\x0fCopyBidiExecute\x12*.multipoolerservice.CopyBidiExecuteRequest\x1a+.multipoolerservice.CopyBidiExecuteResponse(\x010\x01B9Z7github.com/multigres/multigres/go/pb/multipoolerserviceb\x06proto3"
 
 var (
 	file_multipoolerservice_proto_rawDescOnce sync.Once
@@ -1082,28 +1082,28 @@ func file_multipoolerservice_proto_rawDescGZIP() []byte {
 var file_multipoolerservice_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_multipoolerservice_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_multipoolerservice_proto_goTypes = []any{
-	(BidirectionalExecuteRequest_Phase)(0),  // 0: multipoolerservice.BidirectionalExecuteRequest.Phase
-	(BidirectionalExecuteResponse_Phase)(0), // 1: multipoolerservice.BidirectionalExecuteResponse.Phase
-	(*ExecuteQueryRequest)(nil),             // 2: multipoolerservice.ExecuteQueryRequest
-	(*ExecuteQueryResponse)(nil),            // 3: multipoolerservice.ExecuteQueryResponse
-	(*StreamExecuteRequest)(nil),            // 4: multipoolerservice.StreamExecuteRequest
-	(*StreamExecuteResponse)(nil),           // 5: multipoolerservice.StreamExecuteResponse
-	(*PortalStreamExecuteRequest)(nil),      // 6: multipoolerservice.PortalStreamExecuteRequest
-	(*PortalStreamExecuteResponse)(nil),     // 7: multipoolerservice.PortalStreamExecuteResponse
-	(*DescribeRequest)(nil),                 // 8: multipoolerservice.DescribeRequest
-	(*DescribeResponse)(nil),                // 9: multipoolerservice.DescribeResponse
-	(*GetAuthCredentialsRequest)(nil),       // 10: multipoolerservice.GetAuthCredentialsRequest
-	(*GetAuthCredentialsResponse)(nil),      // 11: multipoolerservice.GetAuthCredentialsResponse
-	(*BidirectionalExecuteRequest)(nil),     // 12: multipoolerservice.BidirectionalExecuteRequest
-	(*BidirectionalExecuteResponse)(nil),    // 13: multipoolerservice.BidirectionalExecuteResponse
-	(*query.Target)(nil),                    // 14: query.Target
-	(*mtrpc.CallerID)(nil),                  // 15: mtrpc.CallerID
-	(*query.ExecuteOptions)(nil),            // 16: query.ExecuteOptions
-	(*query.QueryResult)(nil),               // 17: query.QueryResult
-	(*query.PreparedStatement)(nil),         // 18: query.PreparedStatement
-	(*query.Portal)(nil),                    // 19: query.Portal
-	(*clustermetadata.ID)(nil),              // 20: clustermetadata.ID
-	(*query.StatementDescription)(nil),      // 21: query.StatementDescription
+	(CopyBidiExecuteRequest_Phase)(0),   // 0: multipoolerservice.CopyBidiExecuteRequest.Phase
+	(CopyBidiExecuteResponse_Phase)(0),  // 1: multipoolerservice.CopyBidiExecuteResponse.Phase
+	(*ExecuteQueryRequest)(nil),         // 2: multipoolerservice.ExecuteQueryRequest
+	(*ExecuteQueryResponse)(nil),        // 3: multipoolerservice.ExecuteQueryResponse
+	(*StreamExecuteRequest)(nil),        // 4: multipoolerservice.StreamExecuteRequest
+	(*StreamExecuteResponse)(nil),       // 5: multipoolerservice.StreamExecuteResponse
+	(*PortalStreamExecuteRequest)(nil),  // 6: multipoolerservice.PortalStreamExecuteRequest
+	(*PortalStreamExecuteResponse)(nil), // 7: multipoolerservice.PortalStreamExecuteResponse
+	(*DescribeRequest)(nil),             // 8: multipoolerservice.DescribeRequest
+	(*DescribeResponse)(nil),            // 9: multipoolerservice.DescribeResponse
+	(*GetAuthCredentialsRequest)(nil),   // 10: multipoolerservice.GetAuthCredentialsRequest
+	(*GetAuthCredentialsResponse)(nil),  // 11: multipoolerservice.GetAuthCredentialsResponse
+	(*CopyBidiExecuteRequest)(nil),      // 12: multipoolerservice.CopyBidiExecuteRequest
+	(*CopyBidiExecuteResponse)(nil),     // 13: multipoolerservice.CopyBidiExecuteResponse
+	(*query.Target)(nil),                // 14: query.Target
+	(*mtrpc.CallerID)(nil),              // 15: mtrpc.CallerID
+	(*query.ExecuteOptions)(nil),        // 16: query.ExecuteOptions
+	(*query.QueryResult)(nil),           // 17: query.QueryResult
+	(*query.PreparedStatement)(nil),     // 18: query.PreparedStatement
+	(*query.Portal)(nil),                // 19: query.Portal
+	(*clustermetadata.ID)(nil),          // 20: clustermetadata.ID
+	(*query.StatementDescription)(nil),  // 21: query.StatementDescription
 }
 var file_multipoolerservice_proto_depIdxs = []int32{
 	14, // 0: multipoolerservice.ExecuteQueryRequest.target:type_name -> query.Target
@@ -1127,25 +1127,25 @@ var file_multipoolerservice_proto_depIdxs = []int32{
 	15, // 18: multipoolerservice.DescribeRequest.caller_id:type_name -> mtrpc.CallerID
 	16, // 19: multipoolerservice.DescribeRequest.options:type_name -> query.ExecuteOptions
 	21, // 20: multipoolerservice.DescribeResponse.description:type_name -> query.StatementDescription
-	0,  // 21: multipoolerservice.BidirectionalExecuteRequest.phase:type_name -> multipoolerservice.BidirectionalExecuteRequest.Phase
-	14, // 22: multipoolerservice.BidirectionalExecuteRequest.target:type_name -> query.Target
-	15, // 23: multipoolerservice.BidirectionalExecuteRequest.caller_id:type_name -> mtrpc.CallerID
-	16, // 24: multipoolerservice.BidirectionalExecuteRequest.options:type_name -> query.ExecuteOptions
-	1,  // 25: multipoolerservice.BidirectionalExecuteResponse.phase:type_name -> multipoolerservice.BidirectionalExecuteResponse.Phase
-	20, // 26: multipoolerservice.BidirectionalExecuteResponse.pooler_id:type_name -> clustermetadata.ID
-	17, // 27: multipoolerservice.BidirectionalExecuteResponse.result:type_name -> query.QueryResult
+	0,  // 21: multipoolerservice.CopyBidiExecuteRequest.phase:type_name -> multipoolerservice.CopyBidiExecuteRequest.Phase
+	14, // 22: multipoolerservice.CopyBidiExecuteRequest.target:type_name -> query.Target
+	15, // 23: multipoolerservice.CopyBidiExecuteRequest.caller_id:type_name -> mtrpc.CallerID
+	16, // 24: multipoolerservice.CopyBidiExecuteRequest.options:type_name -> query.ExecuteOptions
+	1,  // 25: multipoolerservice.CopyBidiExecuteResponse.phase:type_name -> multipoolerservice.CopyBidiExecuteResponse.Phase
+	20, // 26: multipoolerservice.CopyBidiExecuteResponse.pooler_id:type_name -> clustermetadata.ID
+	17, // 27: multipoolerservice.CopyBidiExecuteResponse.result:type_name -> query.QueryResult
 	2,  // 28: multipoolerservice.MultiPoolerService.ExecuteQuery:input_type -> multipoolerservice.ExecuteQueryRequest
 	4,  // 29: multipoolerservice.MultiPoolerService.StreamExecute:input_type -> multipoolerservice.StreamExecuteRequest
 	6,  // 30: multipoolerservice.MultiPoolerService.PortalStreamExecute:input_type -> multipoolerservice.PortalStreamExecuteRequest
 	8,  // 31: multipoolerservice.MultiPoolerService.Describe:input_type -> multipoolerservice.DescribeRequest
 	10, // 32: multipoolerservice.MultiPoolerService.GetAuthCredentials:input_type -> multipoolerservice.GetAuthCredentialsRequest
-	12, // 33: multipoolerservice.MultiPoolerService.BidirectionalExecute:input_type -> multipoolerservice.BidirectionalExecuteRequest
+	12, // 33: multipoolerservice.MultiPoolerService.CopyBidiExecute:input_type -> multipoolerservice.CopyBidiExecuteRequest
 	3,  // 34: multipoolerservice.MultiPoolerService.ExecuteQuery:output_type -> multipoolerservice.ExecuteQueryResponse
 	5,  // 35: multipoolerservice.MultiPoolerService.StreamExecute:output_type -> multipoolerservice.StreamExecuteResponse
 	7,  // 36: multipoolerservice.MultiPoolerService.PortalStreamExecute:output_type -> multipoolerservice.PortalStreamExecuteResponse
 	9,  // 37: multipoolerservice.MultiPoolerService.Describe:output_type -> multipoolerservice.DescribeResponse
 	11, // 38: multipoolerservice.MultiPoolerService.GetAuthCredentials:output_type -> multipoolerservice.GetAuthCredentialsResponse
-	13, // 39: multipoolerservice.MultiPoolerService.BidirectionalExecute:output_type -> multipoolerservice.BidirectionalExecuteResponse
+	13, // 39: multipoolerservice.MultiPoolerService.CopyBidiExecute:output_type -> multipoolerservice.CopyBidiExecuteResponse
 	34, // [34:40] is the sub-list for method output_type
 	28, // [28:34] is the sub-list for method input_type
 	28, // [28:28] is the sub-list for extension type_name

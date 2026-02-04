@@ -201,10 +201,10 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 	return nil
 }
 
-// BidirectionalExecute handles bidirectional streaming operations (e.g., COPY commands).
+// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 // The gateway sends: INITIATE → DATA (repeated) → DONE/FAIL
 // The pooler responds: READY → DATA (for COPY TO) → RESULT/ERROR
-func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerService_BidirectionalExecuteServer) error {
+func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer) error {
 	ctx := stream.Context()
 
 	// Receive INITIATE message
@@ -213,7 +213,7 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 		return status.Errorf(codes.InvalidArgument, "failed to receive INITIATE: %v", err)
 	}
 
-	if req.Phase != multipoolerpb.BidirectionalExecuteRequest_INITIATE {
+	if req.Phase != multipoolerpb.CopyBidiExecuteRequest_INITIATE {
 		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
 	}
 
@@ -236,8 +236,8 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 	}
 
 	// Send READY response with reserved connection info
-	readyResp := &multipoolerpb.BidirectionalExecuteResponse{
-		Phase:                multipoolerpb.BidirectionalExecuteResponse_READY,
+	readyResp := &multipoolerpb.CopyBidiExecuteResponse{
+		Phase:                multipoolerpb.CopyBidiExecuteResponse_READY,
 		ReservedConnectionId: reservedState.ReservedConnectionId,
 		PoolerId:             reservedState.PoolerID,
 		Format:               int32(format),
@@ -275,14 +275,14 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 		}
 
 		switch req.Phase {
-		case multipoolerpb.BidirectionalExecuteRequest_DATA:
+		case multipoolerpb.CopyBidiExecuteRequest_DATA:
 			// Phase 2a: DATA - Write data chunk to PostgreSQL
 			if err := exec.CopySendData(ctx, req.Target, req.Data, copyOptions); err != nil {
 				_ = exec.CopyAbort(ctx, req.Target, "failed to write data", copyOptions)
 				return status.Errorf(codes.Internal, "failed to handle COPY data: %v", err)
 			}
 
-		case multipoolerpb.BidirectionalExecuteRequest_DONE:
+		case multipoolerpb.CopyBidiExecuteRequest_DONE:
 			// Phase 2b: DONE - Finalize COPY operation
 			result, err := exec.CopyFinalize(ctx, req.Target, req.Data, copyOptions)
 			if err != nil {
@@ -291,8 +291,8 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 				_ = exec.CopyAbort(ctx, req.Target, fmt.Sprintf("COPY failed: %v", err), copyOptions)
 
 				// Send ERROR response
-				errorResp := &multipoolerpb.BidirectionalExecuteResponse{
-					Phase: multipoolerpb.BidirectionalExecuteResponse_ERROR,
+				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
+					Phase: multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error: err.Error(),
 				}
 				_ = stream.Send(errorResp)
@@ -300,8 +300,8 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 			}
 
 			// Send RESULT response with final result
-			resultResp := &multipoolerpb.BidirectionalExecuteResponse{
-				Phase:  multipoolerpb.BidirectionalExecuteResponse_RESULT,
+			resultResp := &multipoolerpb.CopyBidiExecuteResponse{
+				Phase:  multipoolerpb.CopyBidiExecuteResponse_RESULT,
 				Result: result.ToProto(),
 			}
 			if err := stream.Send(resultResp); err != nil {
@@ -311,7 +311,7 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 			// Operation completed successfully
 			return nil
 
-		case multipoolerpb.BidirectionalExecuteRequest_FAIL:
+		case multipoolerpb.CopyBidiExecuteRequest_FAIL:
 			// Phase 2c: FAIL - Abort COPY operation
 			errorMsg := req.ErrorMessage
 			if errorMsg == "" {
@@ -322,8 +322,8 @@ func (s *poolerService) BidirectionalExecute(stream multipoolerpb.MultiPoolerSer
 			}
 
 			// Send ERROR response
-			errorResp := &multipoolerpb.BidirectionalExecuteResponse{
-				Phase: multipoolerpb.BidirectionalExecuteResponse_ERROR,
+			errorResp := &multipoolerpb.CopyBidiExecuteResponse{
+				Phase: multipoolerpb.CopyBidiExecuteResponse_ERROR,
 				Error: errorMsg,
 			}
 			_ = stream.Send(errorResp)

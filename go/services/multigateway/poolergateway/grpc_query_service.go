@@ -49,7 +49,7 @@ type grpcQueryService struct {
 	copyStreamsMu sync.Mutex
 
 	// copyStreams maps reserved connection IDs to active bidirectional streams for COPY operations
-	copyStreams map[uint64]multipoolerservice.MultiPoolerService_BidirectionalExecuteClient
+	copyStreams map[uint64]multipoolerservice.MultiPoolerService_CopyBidiExecuteClient
 }
 
 // newGRPCQueryService creates a new QueryService that uses gRPC to communicate
@@ -64,7 +64,7 @@ func newGRPCQueryService(
 		client:      multipoolerservice.NewMultiPoolerServiceClient(conn),
 		logger:      logger,
 		poolerID:    poolerID,
-		copyStreams: make(map[uint64]multipoolerservice.MultiPoolerService_BidirectionalExecuteClient),
+		copyStreams: make(map[uint64]multipoolerservice.MultiPoolerService_CopyBidiExecuteClient),
 	}
 }
 
@@ -290,7 +290,7 @@ func (g *grpcQueryService) CopyReady(
 		"query", copyQuery)
 
 	// Start the bidirectional stream
-	stream, err := g.client.BidirectionalExecute(ctx)
+	stream, err := g.client.CopyBidiExecute(ctx)
 	if err != nil {
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
 	}
@@ -306,8 +306,8 @@ func (g *grpcQueryService) CopyReady(
 	}()
 
 	// Send INITIATE message
-	initiateReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase:   multipoolerservice.BidirectionalExecuteRequest_INITIATE,
+	initiateReq := &multipoolerservice.CopyBidiExecuteRequest{
+		Phase:   multipoolerservice.CopyBidiExecuteRequest_INITIATE,
 		Query:   copyQuery,
 		Target:  target,
 		Options: options,
@@ -326,12 +326,12 @@ func (g *grpcQueryService) CopyReady(
 	}
 
 	// Check for ERROR response
-	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
+	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("COPY initiation failed: %s", resp.Error)
 	}
 
 	// Validate READY response
-	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_READY {
+	if resp.Phase != multipoolerservice.CopyBidiExecuteResponse_READY {
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("expected READY, got %v", resp.Phase)
 	}
 
@@ -381,8 +381,8 @@ func (g *grpcQueryService) CopySendData(
 		return fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
 	}
 
-	dataReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase: multipoolerservice.BidirectionalExecuteRequest_DATA,
+	dataReq := &multipoolerservice.CopyBidiExecuteRequest{
+		Phase: multipoolerservice.CopyBidiExecuteRequest_DATA,
 		Data:  data,
 	}
 
@@ -422,8 +422,8 @@ func (g *grpcQueryService) CopyFinalize(
 	}
 
 	// Send DONE message with final data
-	doneReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase: multipoolerservice.BidirectionalExecuteRequest_DONE,
+	doneReq := &multipoolerservice.CopyBidiExecuteRequest{
+		Phase: multipoolerservice.CopyBidiExecuteRequest_DONE,
 		Data:  finalData,
 	}
 
@@ -448,12 +448,12 @@ func (g *grpcQueryService) CopyFinalize(
 	}
 
 	// Check for ERROR response
-	if resp.Phase == multipoolerservice.BidirectionalExecuteResponse_ERROR {
+	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
 		return nil, fmt.Errorf("COPY finalization failed: %s", resp.Error)
 	}
 
 	// Validate RESULT response
-	if resp.Phase != multipoolerservice.BidirectionalExecuteResponse_RESULT {
+	if resp.Phase != multipoolerservice.CopyBidiExecuteResponse_RESULT {
 		return nil, fmt.Errorf("expected RESULT, got %v", resp.Phase)
 	}
 
@@ -494,8 +494,8 @@ func (g *grpcQueryService) CopyAbort(
 	}
 
 	// Send FAIL message
-	failReq := &multipoolerservice.BidirectionalExecuteRequest{
-		Phase:        multipoolerservice.BidirectionalExecuteRequest_FAIL,
+	failReq := &multipoolerservice.CopyBidiExecuteRequest{
+		Phase:        multipoolerservice.CopyBidiExecuteRequest_FAIL,
 		ErrorMessage: errorMsg,
 	}
 
