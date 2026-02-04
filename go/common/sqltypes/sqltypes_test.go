@@ -259,3 +259,185 @@ func TestMakeRow(t *testing.T) {
 	assert.Equal(t, "", string(row.Values[1]))
 	assert.Equal(t, "hello", string(row.Values[2]))
 }
+
+func TestNoticeToProtoAndBack(t *testing.T) {
+	tests := []struct {
+		name   string
+		notice *Notice
+	}{
+		{
+			name: "all fields populated",
+			notice: &Notice{
+				Severity:         "WARNING",
+				Code:             "01000",
+				Message:          "This is a test notice",
+				Detail:           "Additional detail about the notice",
+				Hint:             "Consider doing something",
+				Position:         42,
+				InternalPosition: 10,
+				InternalQuery:    "SELECT internal_func()",
+				Where:            "PL/pgSQL function test_func() line 5",
+				Schema:           "public",
+				Table:            "users",
+				Column:           "email",
+				DataType:         "character varying",
+				Constraint:       "users_email_key",
+			},
+		},
+		{
+			name: "only required fields",
+			notice: &Notice{
+				Severity: "NOTICE",
+				Code:     "00000",
+				Message:  "Simple notice",
+				Detail:   "",
+				Hint:     "",
+			},
+		},
+		{
+			name: "empty strings for optional fields",
+			notice: &Notice{
+				Severity: "INFO",
+				Code:     "00000",
+				Message:  "Notice with empty optional fields",
+				Detail:   "",
+				Hint:     "",
+			},
+		},
+		{
+			name: "unicode characters in message",
+			notice: &Notice{
+				Severity: "WARNING",
+				Code:     "01000",
+				Message:  "Unicode test: 日本語 🎉 émoji café",
+				Detail:   "详细信息 with unicode",
+				Hint:     "Подсказка на русском",
+			},
+		},
+		{
+			name: "special characters",
+			notice: &Notice{
+				Severity: "ERROR",
+				Code:     "42P01",
+				Message:  "relation \"users\" does not exist",
+				Detail:   "Line 1: SELECT * FROM \"users\"\n        ^",
+				Hint:     "Check if table name is quoted correctly",
+			},
+		},
+		{
+			name: "empty message",
+			notice: &Notice{
+				Severity: "NOTICE",
+				Code:     "00000",
+				Message:  "",
+				Detail:   "",
+				Hint:     "",
+			},
+		},
+		{
+			name: "context fields only",
+			notice: &Notice{
+				Severity:         "NOTICE",
+				Code:             "00000",
+				Message:          "Notice with context",
+				Position:         100,
+				InternalPosition: 50,
+				InternalQuery:    "SELECT * FROM internal_table",
+				Where:            "SQL function \"my_func\"",
+			},
+		},
+		{
+			name: "position fields only",
+			notice: &Notice{
+				Severity: "WARNING",
+				Code:     "01000",
+				Message:  "Position test",
+				Position: 1,
+			},
+		},
+		{
+			name: "where field with newlines",
+			notice: &Notice{
+				Severity: "NOTICE",
+				Code:     "00000",
+				Message:  "Call stack test",
+				Where:    "PL/pgSQL function outer_func() line 3\nPL/pgSQL function inner_func() line 1",
+			},
+		},
+		{
+			name: "schema object fields only",
+			notice: &Notice{
+				Severity:   "ERROR",
+				Code:       "23505",
+				Message:    "duplicate key value violates unique constraint",
+				Schema:     "myschema",
+				Table:      "mytable",
+				Column:     "mycolumn",
+				DataType:   "integer",
+				Constraint: "mytable_pkey",
+			},
+		},
+		{
+			name: "partial schema object fields",
+			notice: &Notice{
+				Severity: "WARNING",
+				Code:     "01000",
+				Message:  "Partial schema info",
+				Schema:   "public",
+				Table:    "orders",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Convert to proto
+			protoNotice := NoticeToProto(tc.notice)
+			require.NotNil(t, protoNotice)
+
+			// Verify proto has correct values
+			assert.Equal(t, tc.notice.Severity, protoNotice.Severity)
+			assert.Equal(t, tc.notice.Code, protoNotice.Code)
+			assert.Equal(t, tc.notice.Message, protoNotice.Message)
+			assert.Equal(t, tc.notice.Detail, protoNotice.Detail)
+			assert.Equal(t, tc.notice.Hint, protoNotice.Hint)
+			assert.Equal(t, tc.notice.Position, protoNotice.Position)
+			assert.Equal(t, tc.notice.InternalPosition, protoNotice.InternalPosition)
+			assert.Equal(t, tc.notice.InternalQuery, protoNotice.InternalQuery)
+			assert.Equal(t, tc.notice.Where, protoNotice.Where)
+			assert.Equal(t, tc.notice.Schema, protoNotice.SchemaName)
+			assert.Equal(t, tc.notice.Table, protoNotice.TableName)
+			assert.Equal(t, tc.notice.Column, protoNotice.ColumnName)
+			assert.Equal(t, tc.notice.DataType, protoNotice.DataTypeName)
+			assert.Equal(t, tc.notice.Constraint, protoNotice.ConstraintName)
+
+			// Convert back
+			recovered := NoticeFromProto(protoNotice)
+			require.NotNil(t, recovered)
+
+			// Verify roundtrip preserves all fields
+			assert.Equal(t, tc.notice.Severity, recovered.Severity)
+			assert.Equal(t, tc.notice.Code, recovered.Code)
+			assert.Equal(t, tc.notice.Message, recovered.Message)
+			assert.Equal(t, tc.notice.Detail, recovered.Detail)
+			assert.Equal(t, tc.notice.Hint, recovered.Hint)
+			assert.Equal(t, tc.notice.Position, recovered.Position)
+			assert.Equal(t, tc.notice.InternalPosition, recovered.InternalPosition)
+			assert.Equal(t, tc.notice.InternalQuery, recovered.InternalQuery)
+			assert.Equal(t, tc.notice.Where, recovered.Where)
+			assert.Equal(t, tc.notice.Schema, recovered.Schema)
+			assert.Equal(t, tc.notice.Table, recovered.Table)
+			assert.Equal(t, tc.notice.Column, recovered.Column)
+			assert.Equal(t, tc.notice.DataType, recovered.DataType)
+			assert.Equal(t, tc.notice.Constraint, recovered.Constraint)
+		})
+	}
+}
+
+func TestNoticeFromProtoNil(t *testing.T) {
+	assert.Nil(t, NoticeFromProto(nil))
+}
+
+func TestNoticeToProtoNil(t *testing.T) {
+	assert.Nil(t, NoticeToProto(nil))
+}

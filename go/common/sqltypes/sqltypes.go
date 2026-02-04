@@ -34,6 +34,24 @@ type Row struct {
 	Values []Value
 }
 
+// Notice represents a PostgreSQL notice response (non-fatal messages).
+type Notice struct {
+	Severity         string
+	Code             string
+	Message          string
+	Detail           string
+	Hint             string
+	Position         int32
+	InternalPosition int32
+	InternalQuery    string
+	Where            string
+	Schema           string
+	Table            string
+	Column           string
+	DataType         string
+	Constraint       string
+}
+
 // Result represents a query result with nullable values.
 type Result struct {
 	// Fields describes the columns in the result set.
@@ -48,6 +66,9 @@ type Result struct {
 	// CommandTag is the PostgreSQL command tag for this result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
 	CommandTag string
+
+	// Notices contains any PostgreSQL notices received during query execution.
+	Notices []*Notice
 }
 
 // ToProto converts Result to proto format for gRPC serialization.
@@ -59,11 +80,16 @@ func (r *Result) ToProto() *query.QueryResult {
 	for i, row := range r.Rows {
 		protoRows[i] = row.ToProto()
 	}
+	protoNotices := make([]*query.Notice, len(r.Notices))
+	for i, notice := range r.Notices {
+		protoNotices[i] = NoticeToProto(notice)
+	}
 	return &query.QueryResult{
 		Fields:       r.Fields,
 		RowsAffected: r.RowsAffected,
 		Rows:         protoRows,
 		CommandTag:   r.CommandTag,
+		Notices:      protoNotices,
 	}
 }
 
@@ -76,11 +102,62 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	for i, row := range pr.Rows {
 		rows[i] = RowFromProto(row)
 	}
+	notices := make([]*Notice, len(pr.Notices))
+	for i, notice := range pr.Notices {
+		notices[i] = NoticeFromProto(notice)
+	}
 	return &Result{
 		Fields:       pr.Fields,
 		RowsAffected: pr.RowsAffected,
 		Rows:         rows,
 		CommandTag:   pr.CommandTag,
+		Notices:      notices,
+	}
+}
+
+// NoticeToProto converts sqltypes Notice to proto format for gRPC serialization.
+func NoticeToProto(n *Notice) *query.Notice {
+	if n == nil {
+		return nil
+	}
+	return &query.Notice{
+		Severity:         n.Severity,
+		Code:             n.Code,
+		Message:          n.Message,
+		Detail:           n.Detail,
+		Hint:             n.Hint,
+		Position:         n.Position,
+		InternalPosition: n.InternalPosition,
+		InternalQuery:    n.InternalQuery,
+		Where:            n.Where,
+		SchemaName:       n.Schema,
+		TableName:        n.Table,
+		ColumnName:       n.Column,
+		DataTypeName:     n.DataType,
+		ConstraintName:   n.Constraint,
+	}
+}
+
+// NoticeFromProto converts proto Notice to sqltypes Notice.
+func NoticeFromProto(pn *query.Notice) *Notice {
+	if pn == nil {
+		return nil
+	}
+	return &Notice{
+		Severity:         pn.Severity,
+		Code:             pn.Code,
+		Message:          pn.Message,
+		Detail:           pn.Detail,
+		Hint:             pn.Hint,
+		Position:         pn.Position,
+		InternalPosition: pn.InternalPosition,
+		InternalQuery:    pn.InternalQuery,
+		Where:            pn.Where,
+		Schema:           pn.SchemaName,
+		Table:            pn.TableName,
+		Column:           pn.ColumnName,
+		DataType:         pn.DataTypeName,
+		Constraint:       pn.ConstraintName,
 	}
 }
 

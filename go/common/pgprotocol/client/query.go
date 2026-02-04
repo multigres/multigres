@@ -17,6 +17,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -195,6 +196,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
+	var notices []*sqltypes.Notice
 
 	// Track the first error encountered. We continue processing messages to drain
 	// the connection, then return this error after ReadyForQuery.
@@ -208,14 +210,16 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			return
 		}
 		result := &sqltypes.Result{
-			Fields: currentFields,
-			Rows:   batchedRows,
+			Fields:  currentFields,
+			Rows:    batchedRows,
+			Notices: notices,
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
+		notices = nil
 	}
 
 	for {
@@ -263,6 +267,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
+					Notices:      notices,
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -271,6 +276,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			currentFields = nil
 			batchedRows = nil
 			batchedSize = 0
+			notices = nil
 
 		case protocol.MsgEmptyQueryResponse:
 			// Empty query, call callback with empty result.
@@ -290,7 +296,8 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices for now.
+			// Parse and accumulate notices to be included in the Result.
+			notices = append(notices, c.parseNotice(body))
 
 		case protocol.MsgParameterStatus:
 			// Handle parameter status updates. Capture error but continue draining.
@@ -494,6 +501,83 @@ func (c *Conn) parseError(body []byte) error {
 		Message:  message,
 		Detail:   detail,
 		Hint:     hint,
+	}
+}
+
+// parseNotice parses a NoticeResponse message into a sqltypes.Notice.
+func (c *Conn) parseNotice(body []byte) *sqltypes.Notice {
+	reader := NewMessageReader(body)
+
+	var severity, code, message, detail, hint string
+	var internalQuery, where string
+	var schema, table, column, dataType, constraint string
+	var position, internalPosition int32
+
+	for reader.Remaining() > 0 {
+		fieldType, err := reader.ReadByte()
+		if err != nil {
+			break
+		}
+		if fieldType == 0 {
+			break // End of fields.
+		}
+
+		value, err := reader.ReadString()
+		if err != nil {
+			break
+		}
+
+		switch fieldType {
+		case protocol.FieldSeverity:
+			severity = value
+		case protocol.FieldCode:
+			code = value
+		case protocol.FieldMessage:
+			message = value
+		case protocol.FieldDetail:
+			detail = value
+		case protocol.FieldHint:
+			hint = value
+		case protocol.FieldPosition:
+			if pos, err := strconv.ParseInt(value, 10, 32); err == nil {
+				position = int32(pos)
+			}
+		case protocol.FieldInternalPosition:
+			if pos, err := strconv.ParseInt(value, 10, 32); err == nil {
+				internalPosition = int32(pos)
+			}
+		case protocol.FieldInternalQuery:
+			internalQuery = value
+		case protocol.FieldWhere:
+			where = value
+		case protocol.FieldSchema:
+			schema = value
+		case protocol.FieldTable:
+			table = value
+		case protocol.FieldColumn:
+			column = value
+		case protocol.FieldDataType:
+			dataType = value
+		case protocol.FieldConstraint:
+			constraint = value
+		}
+	}
+
+	return &sqltypes.Notice{
+		Severity:         severity,
+		Code:             code,
+		Message:          message,
+		Detail:           detail,
+		Hint:             hint,
+		Position:         position,
+		InternalPosition: internalPosition,
+		InternalQuery:    internalQuery,
+		Where:            where,
+		Schema:           schema,
+		Table:            table,
+		Column:           column,
+		DataType:         dataType,
+		Constraint:       constraint,
 	}
 }
 

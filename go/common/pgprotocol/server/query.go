@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -352,17 +353,44 @@ func (c *Conn) writeErrorResponse(severity, sqlState, message, detail, hint stri
 
 // writeNoticeResponse writes an 'N' (NoticeResponse) message.
 // Format is identical to ErrorResponse but with different severity levels.
-func (c *Conn) writeNoticeResponse(severity, sqlState, message, detail, hint string) error {
+func (c *Conn) writeNoticeResponse(notice *sqltypes.Notice) error {
 	fields := make(map[byte]string)
-	fields[protocol.FieldSeverity] = severity
-	fields[protocol.FieldSeverityV] = severity
-	fields[protocol.FieldCode] = sqlState
-	fields[protocol.FieldMessage] = message
-	if detail != "" {
-		fields[protocol.FieldDetail] = detail
+	fields[protocol.FieldSeverity] = notice.Severity
+	fields[protocol.FieldSeverityV] = notice.Severity
+	fields[protocol.FieldCode] = notice.Code
+	fields[protocol.FieldMessage] = notice.Message
+	if notice.Detail != "" {
+		fields[protocol.FieldDetail] = notice.Detail
 	}
-	if hint != "" {
-		fields[protocol.FieldHint] = hint
+	if notice.Hint != "" {
+		fields[protocol.FieldHint] = notice.Hint
+	}
+	if notice.Position != 0 {
+		fields[protocol.FieldPosition] = strconv.Itoa(int(notice.Position))
+	}
+	if notice.InternalPosition != 0 {
+		fields[protocol.FieldInternalPosition] = strconv.Itoa(int(notice.InternalPosition))
+	}
+	if notice.InternalQuery != "" {
+		fields[protocol.FieldInternalQuery] = notice.InternalQuery
+	}
+	if notice.Where != "" {
+		fields[protocol.FieldWhere] = notice.Where
+	}
+	if notice.Schema != "" {
+		fields[protocol.FieldSchema] = notice.Schema
+	}
+	if notice.Table != "" {
+		fields[protocol.FieldTable] = notice.Table
+	}
+	if notice.Column != "" {
+		fields[protocol.FieldColumn] = notice.Column
+	}
+	if notice.DataType != "" {
+		fields[protocol.FieldDataType] = notice.DataType
+	}
+	if notice.Constraint != "" {
+		fields[protocol.FieldConstraint] = notice.Constraint
 	}
 
 	return c.writeErrorOrNotice(protocol.MsgNoticeResponse, fields)
