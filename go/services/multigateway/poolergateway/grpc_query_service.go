@@ -295,6 +295,16 @@ func (g *grpcQueryService) CopyReady(
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to start bidirectional execute stream: %w", err)
 	}
 
+	// Ensure stream is closed if we fail before adding it to copyStreams
+	success := false
+	defer func() {
+		if !success {
+			_ = stream.CloseSend()
+			// Drain any pending response to allow server-side cleanup
+			_, _ = stream.Recv()
+		}
+	}()
+
 	// Send INITIATE message
 	initiateReq := &multipoolerservice.BidirectionalExecuteRequest{
 		Phase:   multipoolerservice.BidirectionalExecuteRequest_INITIATE,
@@ -339,6 +349,7 @@ func (g *grpcQueryService) CopyReady(
 	// Store the stream keyed by reserved connection ID
 	g.copyStreamsMu.Lock()
 	g.copyStreams[resp.ReservedConnectionId] = stream
+	success = true // Commit point: stream is now managed by copyStreams
 	g.copyStreamsMu.Unlock()
 
 	g.logger.DebugContext(ctx, "received READY response",

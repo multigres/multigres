@@ -64,13 +64,19 @@ func (c *CopyStatement) StreamExecute(
 		return fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
+	// Ensure cleanup on any exit path after successful initiate
+	completed := false
+	defer func() {
+		if !completed {
+			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
+		}
+	}()
+
 	// Send CopyInResponse to client
 	if err := conn.WriteCopyInResponse(format, columnFormats); err != nil {
-		_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 		return fmt.Errorf("failed to write CopyInResponse: %w", err)
 	}
 	if err := conn.Flush(); err != nil {
-		_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 		return fmt.Errorf("failed to flush CopyInResponse: %w", err)
 	}
 
@@ -78,13 +84,11 @@ func (c *CopyStatement) StreamExecute(
 	for {
 		msgType, err := conn.ReadMessageType()
 		if err != nil {
-			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("failed to read message: %w", err)
 		}
 
 		length, err := conn.ReadMessageLength()
 		if err != nil {
-			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("failed to read message length: %w", err)
 		}
 
@@ -92,33 +96,31 @@ func (c *CopyStatement) StreamExecute(
 		case protocol.MsgCopyData:
 			data, err := conn.ReadCopyDataMessage(length)
 			if err != nil {
-				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 				return err
 			}
 			if err := exec.CopySendData(ctx, conn, c.TableGroup, shard, state, data); err != nil {
-				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 				return fmt.Errorf("failed to send COPY data: %w", err)
 			}
 
 		case protocol.MsgCopyDone:
 			if err := conn.ReadCopyDoneMessage(length); err != nil {
-				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 				return err
 			}
 			// Phase 3: DONE - Finalize (no buffered data in streaming mode)
-			return exec.CopyFinalize(ctx, conn, c.TableGroup, shard, state, nil, callback)
+			if err := exec.CopyFinalize(ctx, conn, c.TableGroup, shard, state, nil, callback); err != nil {
+				return err
+			}
+			completed = true // Mark after successful completion
+			return nil
 
 		case protocol.MsgCopyFail:
 			errMsg, err := conn.ReadCopyFailMessage(length)
 			if err != nil {
-				_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 				return err
 			}
-			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("COPY failed: %s", errMsg)
 
 		default:
-			_ = exec.CopyAbort(ctx, conn, c.TableGroup, shard, state)
 			return fmt.Errorf("unexpected message type during COPY: %c", msgType)
 		}
 	}
