@@ -241,6 +241,13 @@ func (c *Conn) flush() error {
 	return nil
 }
 
+// Flush flushes any buffered writes to the client.
+// This is exposed for external callers (like gateway handler) that need to
+// ensure messages are sent immediately (e.g., CopyInResponse).
+func (c *Conn) Flush() error {
+	return c.flush()
+}
+
 // endWriterBuffering ends write buffering and returns the writer to the pool.
 // This should be called after each query to release the buffer back to the pool.
 func (c *Conn) endWriterBuffering() {
@@ -291,7 +298,7 @@ func (c *Conn) serve() error {
 		}
 
 		// Read the message type (1 byte).
-		msgType, err := c.readMessageType()
+		msgType, err := c.ReadMessageType()
 		if err != nil {
 			// EOF or connection error - close gracefully.
 			if errors.Is(err, io.EOF) {
@@ -448,7 +455,7 @@ func (c *Conn) handleParse() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	bodyLen, err := c.readMessageLength()
+	bodyLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Parse message length: %w", err)
 	}
@@ -515,7 +522,7 @@ func (c *Conn) handleBind() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	bodyLen, err := c.readMessageLength()
+	bodyLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Bind message length: %w", err)
 	}
@@ -612,7 +619,7 @@ func (c *Conn) handleExecute() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	bodyLen, err := c.readMessageLength()
+	bodyLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Execute message length: %w", err)
 	}
@@ -694,7 +701,7 @@ func (c *Conn) handleDescribe() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	msgLen, err := c.readMessageLength()
+	msgLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Describe message length: %w", err)
 	}
@@ -758,7 +765,7 @@ func (c *Conn) handleClose() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	msgLen, err := c.readMessageLength()
+	msgLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Close message length: %w", err)
 	}
@@ -808,7 +815,7 @@ func (c *Conn) handleSync() error {
 	defer c.endWriterBuffering()
 
 	// Read (and discard) message length.
-	if _, err := c.readMessageLength(); err != nil {
+	if _, err := c.ReadMessageLength(); err != nil {
 		return fmt.Errorf("failed to read Sync message length: %w", err)
 	}
 

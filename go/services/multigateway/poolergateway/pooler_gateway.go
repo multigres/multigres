@@ -388,3 +388,75 @@ func (pg *PoolerGateway) Stats() map[string]any {
 		"poolers_discovered": pg.discovery.PoolerCount(),
 	}
 }
+
+// CopyReady implements queryservice.QueryService.
+// It initiates a COPY FROM STDIN operation and returns format information.
+func (pg *PoolerGateway) CopyReady(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+) (int16, []int16, queryservice.ReservedState, error) {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return 0, nil, queryservice.ReservedState{}, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopyReady(ctx, target, copyQuery, options)
+}
+
+// CopySendData implements queryservice.QueryService.
+// It sends a chunk of data for an active COPY operation.
+func (pg *PoolerGateway) CopySendData(
+	ctx context.Context,
+	target *query.Target,
+	data []byte,
+	options *query.ExecuteOptions,
+) error {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopySendData(ctx, target, data, options)
+}
+
+// CopyFinalize implements queryservice.QueryService.
+// It completes a COPY operation, sending final data and returning the result.
+func (pg *PoolerGateway) CopyFinalize(
+	ctx context.Context,
+	target *query.Target,
+	finalData []byte,
+	options *query.ExecuteOptions,
+) (*sqltypes.Result, error) {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopyFinalize(ctx, target, finalData, options)
+}
+
+// CopyAbort implements queryservice.QueryService.
+// It aborts a COPY operation.
+func (pg *PoolerGateway) CopyAbort(
+	ctx context.Context,
+	target *query.Target,
+	errorMsg string,
+	options *query.ExecuteOptions,
+) error {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopyAbort(ctx, target, errorMsg, options)
+}
