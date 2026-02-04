@@ -2826,7 +2826,9 @@ type UpdateSynchronousStandbyListRequest struct {
 	// Consensus term (used by MultiOrch for term validation)
 	ConsensusTerm int64 `protobuf:"varint,4,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Force the operation even if the term doesn't match
-	Force         bool `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
+	Force bool `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
+	// Coordinator ID that initiated this operation (for audit trail)
+	CoordinatorId *clustermetadata.ID `protobuf:"bytes,6,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2894,6 +2896,13 @@ func (x *UpdateSynchronousStandbyListRequest) GetForce() bool {
 		return x.Force
 	}
 	return false
+}
+
+func (x *UpdateSynchronousStandbyListRequest) GetCoordinatorId() *clustermetadata.ID {
+	if x != nil {
+		return x.CoordinatorId
+	}
+	return nil
 }
 
 type UpdateSynchronousStandbyListResponse struct {
@@ -4195,14 +4204,15 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\fStateRequest\"J\n" +
 	"\rStateResponse\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\x8b\x02\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xc7\x02\n" +
 	"#UpdateSynchronousStandbyListRequest\x12L\n" +
 	"\toperation\x18\x01 \x01(\x0e2..multipoolermanagerdata.StandbyUpdateOperationR\toperation\x124\n" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
 	"standbyIds\x12#\n" +
 	"\rreload_config\x18\x03 \x01(\bR\freloadConfig\x12%\n" +
 	"\x0econsensus_term\x18\x04 \x01(\x03R\rconsensusTerm\x12\x14\n" +
-	"\x05force\x18\x05 \x01(\bR\x05force\"&\n" +
+	"\x05force\x18\x05 \x01(\bR\x05force\x12:\n" +
+	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"&\n" +
 	"$UpdateSynchronousStandbyListResponse\"\xb2\x02\n" +
 	"\rConsensusTerm\x12\x1f\n" +
 	"\vterm_number\x18\x01 \x01(\x03R\n" +
@@ -4425,22 +4435,23 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	72, // 34: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
 	2,  // 35: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
 	72, // 36: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	72, // 37: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
-	74, // 38: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
-	72, // 39: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	75, // 40: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
-	61, // 41: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	61, // 42: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
-	4,  // 43: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	73, // 44: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
-	76, // 45: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	75, // 46: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	71, // 47: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	72, // 37: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.coordinator_id:type_name -> clustermetadata.ID
+	72, // 38: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
+	74, // 39: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
+	72, // 40: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
+	75, // 41: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
+	61, // 42: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	61, // 43: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
+	4,  // 44: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	73, // 45: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
+	76, // 46: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	75, // 47: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
+	71, // 48: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
+	49, // [49:49] is the sub-list for method output_type
+	49, // [49:49] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

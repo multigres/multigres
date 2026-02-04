@@ -391,11 +391,19 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	if pm.consensusState != nil {
 		term, err := pm.consensusState.GetInconsistentTerm()
 		if err == nil && term != nil {
-			if err := pm.insertReplicationConfigHistory(ctx,
+			// Convert standby IDs to application names for history
+			standbyNames := make([]string, len(standbyIDs))
+			for i, id := range standbyIDs {
+				standbyNames[i] = generateApplicationName(id)
+			}
+			if err := pm.insertHistoryRecord(ctx,
 				term.GetPrimaryTerm(),
+				"replication_config",
+				"", "", "", // leaderID, coordinatorID, walPosition
 				"configure",
 				"ConfigureSynchronousReplication called",
-				standbyIDs); err != nil {
+				standbyNames,
+				nil); err != nil { // acceptedMembers
 				return mterrors.Wrap(err, "failed to record replication config history")
 			}
 		}
@@ -431,7 +439,7 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 // UpdateSynchronousStandbyList updates PostgreSQL synchronous_standby_names by adding,
 // removing, or replacing members. It is idempotent and only valid when synchronous
 // replication is already configured.
-func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool) error {
+func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, operation multipoolermanagerdatapb.StandbyUpdateOperation, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, consensusTerm int64, force bool, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
@@ -536,11 +544,29 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	}
 
 	// Insert history before applying GUCs
-	if err := pm.insertReplicationConfigHistory(ctx,
+	// Convert standby IDs to application names for history
+	standbyNames := make([]string, len(updatedStandbys))
+	for i, id := range updatedStandbys {
+		standbyNames[i] = generateApplicationName(id)
+	}
+
+	// Get leader ID and coordinator ID for history
+	leaderID := generateApplicationName(pm.serviceID)
+	var coordinatorIDStr string
+	if coordinatorID != nil {
+		coordinatorIDStr = generateApplicationName(coordinatorID)
+	}
+
+	if err := pm.insertHistoryRecord(ctx,
 		consensusTerm,
+		"replication_config",
+		leaderID,
+		coordinatorIDStr,
+		"", // walPosition (not applicable for replication config changes)
 		operationName,
 		"UpdateSynchronousStandbyList: "+operationName,
-		updatedStandbys); err != nil {
+		standbyNames,
+		nil); err != nil { // acceptedMembers
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
@@ -1238,7 +1264,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if coordinatorID == "" {
 		coordinatorID = "unknown"
 	}
-	if err := pm.insertLeadershipHistory(ctx, consensusTerm, leaderID, coordinatorID, finalLSN, reason, cohortMembers, acceptedMembers); err != nil {
+	if err := pm.insertHistoryRecord(ctx, consensusTerm, "promotion", leaderID, coordinatorID, finalLSN, "", reason, cohortMembers, acceptedMembers); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to insert leadership history - promotion failed",
 			"term", consensusTerm,
 			"error", err)
