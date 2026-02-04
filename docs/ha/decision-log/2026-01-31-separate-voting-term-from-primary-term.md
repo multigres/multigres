@@ -12,7 +12,10 @@ We need a reliable way to determine the primary in a healthy multi-replica clust
 
 The current heuristic fails in an edge case where a node accepts a newer term while still unwinding its previous primary role. That can make the system treat it as primary for a term it has not actually established, or treat a stale primary claim as current.
 
-This does not break failover today because in discovery we choose the most advanced candidate based on WAL position (LSN), so the new appointment is anchored to the freshest replicated state. But it does break other operations, like DemoteStalePrimary: if two multipoolers claim to be primary, we currently lack a reliable way to decide which one is the true, most advanced primary, because term acceptance and primary authority are conflated.
+This does not break failover today because in discovery we choose the most advanced candidate based on WAL position (LSN), so the new
+appointment is anchored to the freshest replicated state. But it does break other operations, like DemoteStalePrimary: if two multipoolers
+claim to be primary, we currently lack a reliable way to decide which one is the true, most advanced primary, because term acceptance and
+primary authority are conflated.
 
 ## Decision
 
