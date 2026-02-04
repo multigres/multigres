@@ -303,10 +303,10 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			},
 		},
 		{
-			name: "Demote",
+			name: "EmergencyDemote",
 			method: func() error {
-				req := &multipoolermanagerdata.DemoteRequest{}
-				_, err := svc.Demote(ctx, req)
+				req := &multipoolermanagerdata.EmergencyDemoteRequest{}
+				_, err := svc.EmergencyDemote(ctx, req)
 				return err
 			},
 		},

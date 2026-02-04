@@ -39,6 +39,20 @@ message WALPosition {
   google.protobuf.Timestamp timestamp = 4;
 }
 
+// Action type for BeginTerm operations
+// Indicates what action to execute in addition to term acceptance
+enum BeginTermAction {
+  // Default/unknown action
+  BEGIN_TERM_ACTION_UNSPECIFIED = 0;
+
+  // No additional action - only accept the term
+  BEGIN_TERM_ACTION_NO_ACTION = 1;
+
+  // Revoke the current term by demoting primary or pausing standby replication
+  // This is used during failover to ensure the old primary stops accepting writes
+  BEGIN_TERM_ACTION_REVOKE = 2;
+}
+
 // BeginTerm is sent by coordinators during leader appointments
 message BeginTermRequest {
   // Term of the candidate
@@ -52,6 +66,10 @@ message BeginTermRequest {
 
   // Version of the durability policy
   int64 policy_version = 4;
+
+  // Action type for this BeginTerm operation
+  // Indicates what scenario triggered this term change
+  BeginTermAction action = 5;
 }
 
 message BeginTermResponse {
@@ -103,6 +121,13 @@ message StatusResponse {
 
   // Timeline information for divergence detection
   TimelineInfo timeline_info = 10;
+
+  // The term for which this multipooler was promoted to primary.
+  // Set during promotion (InitializeEmptyPrimary or Promote).
+  // Preserved when consensus term increases (new elections).
+  // Cleared to 0 when demoted (DemoteStalePrimary) or restored from backup.
+  // 0 if never primary. For current primaries, must be non-zero.
+  int64 primary_term = 11;
 }
 
 // GetLeadershipView returns leadership information from the heartbeat table

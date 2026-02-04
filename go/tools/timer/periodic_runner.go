@@ -159,6 +159,30 @@ func (r *PeriodicRunner) Running() bool {
 	return r.state != stopped
 }
 
+// UpdateInterval changes the interval for future executions.
+// If the runner is currently running, the next scheduled execution will be cancelled
+// and rescheduled with the new interval. If not running, only updates the interval field.
+// Returns true if the interval was changed, false if it was already set to newInterval or runner is stopped.
+func (r *PeriodicRunner) UpdateInterval(newInterval time.Duration) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.interval == newInterval {
+		return false
+	}
+
+	r.interval = newInterval
+
+	// If running, reschedule with new interval
+	if r.state == running && r.timer != nil {
+		r.timer.Stop()
+		r.timer = nil
+		r.scheduleNext()
+	}
+
+	return true
+}
+
 // scheduleNext schedules the next callback execution.
 // Must be called while holding r.mu.
 func (r *PeriodicRunner) scheduleNext() {

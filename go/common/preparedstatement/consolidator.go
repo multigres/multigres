@@ -19,9 +19,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/parser"
-	"github.com/multigres/multigres/go/parser/ast"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
 

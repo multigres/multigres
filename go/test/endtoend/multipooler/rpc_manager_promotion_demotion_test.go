@@ -36,10 +36,10 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// TestDemoteAndPromote tests the full Demote and Promote cycle
-// This ensures that demoting a primary and promoting a standby work together correctly,
+// TestEmergencyDemoteAndPromote tests the full EmergencyDemote and Promote cycle
+// This ensures that emergency demoting a primary and promoting a standby work together correctly,
 // and that we can restore the original state at the end
-func TestDemoteAndPromote(t *testing.T) {
+func TestEmergencyDemoteAndPromote(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -69,10 +69,10 @@ func TestDemoteAndPromote(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
 	_ = consensuspb.NewMultiPoolerConsensusClient(standbyConn) // Available if needed in future tests
 
-	t.Run("FullCycle_DemoteAndPromote", func(t *testing.T) {
+	t.Run("FullCycle_EmergencyDemoteAndPromote", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
-		t.Log("=== Testing full Demote/Promote cycle ===")
+		t.Log("=== Testing full EmergencyDemote/Promote cycle ===")
 
 		// Get current terms - tests use Force=true so actual term values don't matter,
 		// but we use them for consistency in responses
@@ -91,12 +91,12 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Logf("LSN before demotion: %s", lsnBeforeDemotion)
 
 		// Perform demotion with Force=true (testing demote functionality, not term validation)
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: primaryTerm,
 			DrainTimeout:  nil,
 			Force:         true,
 		}
-		demoteResp, err := primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		demoteResp, err := primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed")
 		require.NotNil(t, demoteResp)
 
@@ -104,6 +104,9 @@ func TestDemoteAndPromote(t *testing.T) {
 		assert.NotEmpty(t, demoteResp.LsnPosition)
 		t.Logf("Demotion complete. LSN: %s, connections terminated: %d",
 			demoteResp.LsnPosition, demoteResp.ConnectionsTerminated)
+
+		// Restore demoted primary to working state (emergency demotion stops postgres)
+		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
 
 		// Now configure the demoted server to replicate from the standby (which will be promoted)
 		t.Log("Configuring demoted primary to replicate from standby...")
@@ -186,15 +189,18 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Restoring original state...")
 
 		// Demote the new primary (original standby) with Force=true
-		demoteReq2 := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq2 := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
 			Force:         true,
 		}
-		demoteResp2, err := standbyManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq2)
+		demoteResp2, err := standbyManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq2)
 		require.NoError(t, err, "Demote should succeed on new primary")
 		assert.False(t, demoteResp2.WasAlreadyDemoted)
 		t.Logf("New primary demoted. LSN: %s", demoteResp2.LsnPosition)
+
+		// Restore demoted standby to working state (emergency demotion stops postgres)
+		restoreAfterEmergencyDemotion(t, setup, setup.StandbyPgctld, setup.StandbyMultipooler, setup.StandbyMultipooler.Name)
 
 		// Verify standby.signal exists after second demotion
 		t.Log("Verifying standby.signal exists after second demotion...")
@@ -244,24 +250,27 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Original state restored - primary is primary, standby is standby")
 	})
 
-	t.Run("Idempotency_Demote", func(t *testing.T) {
+	t.Run("Idempotency_EmergencyDemote", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
-		t.Log("Testing that Demote cannot be called twice after completion...")
+		t.Log("Testing that EmergencyDemote cannot be called twice after completion...")
 		// TODO: This test needs to be hardened to actually
 		// test that a promote that fail halfhway through
 		// can be retried and successfully completes
 		// in an idempotent way.
 
 		// First demotion with Force=true (testing demote behavior, not term validation)
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
 			Force:         true,
 		}
-		demoteResp1, err := primaryManagerClient.Demote(utils.WithTimeout(t, 20*time.Second), demoteReq)
+		demoteResp1, err := primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 20*time.Second), demoteReq)
 		require.NoError(t, err, "First demote should succeed")
 		assert.False(t, demoteResp1.WasAlreadyDemoted)
+
+		// Restore demoted primary to working state (emergency demotion stops postgres)
+		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
 
 		// Configure demoted primary to replicate from standby
 		primary := &clustermetadatapb.MultiPooler{
@@ -284,11 +293,11 @@ func TestDemoteAndPromote(t *testing.T) {
 		require.NoError(t, err)
 
 		// Second demotion should fail with guard rail error (server is now REPLICA in topology)
-		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
-		require.Error(t, err, "Second demote should fail - cannot demote a REPLICA")
+		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		require.Error(t, err, "Second emergency demote should fail - cannot demote a REPLICA")
 		assert.Contains(t, err.Error(), "pooler type is REPLICA")
 
-		t.Log("Demote guard rail verified - cannot demote a REPLICA")
+		t.Log("EmergencyDemote guard rail verified - cannot demote a REPLICA")
 	})
 
 	t.Run("Idempotency_Promote", func(t *testing.T) {
@@ -297,13 +306,16 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Testing Promote idempotency...")
 
 		// First demote the primary so we can test promote idempotency
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
 			Force:         true,
 		}
-		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed")
+
+		// Restore demoted primary to working state (emergency demotion stops postgres)
+		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
 
 		// Configure demoted primary to replicate from standby
 		primary := &clustermetadatapb.MultiPooler{
@@ -355,10 +367,10 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Promote idempotency verified - second call succeeds and reports WasAlreadyPrimary=true")
 	})
 
-	t.Run("TermValidation_Demote", func(t *testing.T) {
+	t.Run("TermValidation_EmergencyDemote", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
-		t.Log("Testing Demote term validation...")
+		t.Log("Testing EmergencyDemote term validation...")
 
 		// Get current term to test relative term validation
 		ctx := utils.WithShortDeadline(t)
@@ -372,21 +384,24 @@ func TestDemoteAndPromote(t *testing.T) {
 			t.Skipf("Skipping test: current term %d is too low for stale term validation (need at least 3)", currentTerm)
 		}
 
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: staleTerm, // Less than current term
 			DrainTimeout:  nil,
 			Force:         false,
 		}
-		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
-		require.Error(t, err, "Demote with stale term should fail")
+		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		require.Error(t, err, "EmergencyDemote with stale term should fail")
 		assert.Contains(t, err.Error(), "term")
 
 		// Try with force flag (should succeed even with stale term)
 		demoteReq.Force = true
-		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
-		require.NoError(t, err, "Demote with force should succeed")
+		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		require.NoError(t, err, "EmergencyDemote with force should succeed")
 
-		t.Log("Demote term validation verified")
+		// Restore demoted primary to working state (emergency demotion stops postgres)
+		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
+
+		t.Log("EmergencyDemote term validation verified")
 	})
 
 	t.Run("TermValidation_Promote", func(t *testing.T) {
@@ -401,13 +416,16 @@ func TestDemoteAndPromote(t *testing.T) {
 
 		// First demote the primary so we can test promote term validation
 		// Use Force=true since we're testing promote validation, not demote
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
 			Force:         true,
 		}
-		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err, "Demote should succeed")
+
+		// Restore demoted primary to working state (emergency demotion stops postgres)
+		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
 
 		// Configure demoted primary to replicate from standby
 		primary := &clustermetadatapb.MultiPooler{
@@ -465,13 +483,16 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Testing Promote LSN validation...")
 
 		// Demote primary first - use Force=true since we're testing LSN validation, not term
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
 			Force:         true,
 		}
-		_, err = primaryManagerClient.Demote(utils.WithTimeout(t, 10*time.Second), demoteReq)
+		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
 		require.NoError(t, err)
+
+		// Restore demoted primary to working state (emergency demotion stops postgres)
+		restoreAfterEmergencyDemotion(t, setup, setup.PrimaryPgctld, setup.PrimaryMultipooler, setup.PrimaryMultipooler.Name)
 
 		// Configure the demoted server to replicate from the standby
 		t.Log("Configuring demoted primary to replicate from standby...")
@@ -527,22 +548,22 @@ func TestDemoteAndPromote(t *testing.T) {
 		t.Log("Promote LSN validation verified")
 	})
 
-	t.Run("ErrorCases_DemoteOnStandby", func(t *testing.T) {
+	t.Run("ErrorCases_EmergencyDemoteOnStandby", func(t *testing.T) {
 		setupPoolerTest(t, setup)
 
-		t.Log("Testing Demote on standby (should fail)...")
+		t.Log("Testing EmergencyDemote on standby (should fail)...")
 
 		// Use Force=true since we're testing error behavior for demote on standby,
 		// not term validation. The demote should fail because standby is REPLICA type.
-		demoteReq := &multipoolermanagerdatapb.DemoteRequest{
+		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
 			Force:         true,
 		}
-		_, err = standbyManagerClient.Demote(context.Background(), demoteReq)
-		require.Error(t, err, "Demote should fail on standby")
+		_, err = standbyManagerClient.EmergencyDemote(context.Background(), demoteReq)
+		require.Error(t, err, "EmergencyDemote should fail on standby")
 		assert.Contains(t, err.Error(), "pooler type is REPLICA, must be PRIMARY")
 
-		t.Log("Confirmed: Demote correctly rejected on standby")
+		t.Log("Confirmed: EmergencyDemote correctly rejected on standby")
 	})
 }

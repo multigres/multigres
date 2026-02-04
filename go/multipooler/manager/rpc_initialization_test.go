@@ -326,21 +326,127 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 	assert.False(t, state.backupsAvailable)
 }
 
+// TestDetermineRemedialAction tests the decision logic that maps discovered state to remedial actions.
+// This is a table-driven test covering all decision paths in the monitor loop.
+func TestDetermineRemedialAction(t *testing.T) {
+	tests := []struct {
+		name           string
+		state          postgresState
+		poolerType     clustermetadatapb.PoolerType
+		expectedAction remedialAction
+	}{
+		{
+			name:           "pgctld_unavailable",
+			state:          postgresState{pgctldAvailable: false},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionNone,
+		},
+		{
+			name: "postgres_running_type_matches_primary",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionNone,
+		},
+		{
+			name: "postgres_running_promote_to_primary",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionAdjustTypeToPrimary,
+		},
+		{
+			name: "postgres_running_demote_to_replica",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionAdjustTypeToReplica,
+		},
+		{
+			name: "postgres_running_type_matches_replica",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: true,
+				isPrimary:       false,
+			},
+			poolerType:     clustermetadatapb.PoolerType_REPLICA,
+			expectedAction: remedialActionNone,
+		},
+		{
+			name: "postgres_stopped_start",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: false,
+				dirInitialized:  true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionStartPostgres,
+		},
+		{
+			name: "postgres_stopped_restore",
+			state: postgresState{
+				pgctldAvailable:  true,
+				postgresRunning:  false,
+				dirInitialized:   false,
+				backupsAvailable: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
+		{
+			name: "postgres_stopped_wait_for_backup",
+			state: postgresState{
+				pgctldAvailable:  true,
+				postgresRunning:  false,
+				dirInitialized:   false,
+				backupsAvailable: false,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionNone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm := &MultiPoolerManager{
+				multipooler: &clustermetadatapb.MultiPooler{
+					Type: tt.poolerType,
+				},
+			}
+
+			got := pm.determineRemedialAction(tt.state)
+			require.Equal(t, tt.expectedAction, got)
+		})
+	}
+}
+
 func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	ctx := context.Background()
 
 	pm := &MultiPoolerManager{
-		logger: slog.Default(),
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
 	}
 
-	state := postgresState{
-		pgctldAvailable: false,
-	}
+	// Acquire lock before calling takeRemedialAction
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
 
 	// Should log error and take no action
-	pm.takeRemedialAction(ctx, state)
+	pm.takeRemedialAction(lockCtx, remedialActionNone)
 
-	assert.Equal(t, "pgctld_unavailable", pm.pgMonitorLastLoggedReason)
+	// Note: takeRemedialAction with remedialActionNone doesn't log
+	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
 }
 
 func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
@@ -354,16 +460,16 @@ func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
 		},
 	}
 
-	state := postgresState{
-		pgctldAvailable: true,
-		dirInitialized:  true,
-		postgresRunning: true,
-	}
+	// Acquire lock before calling takeRemedialAction
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
 
-	// Should log info and take no action
-	pm.takeRemedialAction(ctx, state)
+	// Should log info and take no action (no type mismatch)
+	pm.takeRemedialAction(lockCtx, remedialActionNone)
 
-	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
+	// Note: takeRemedialAction with remedialActionNone doesn't log
+	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
 }
 
 func TestTakeRemedialAction_StartPostgres(t *testing.T) {
@@ -374,16 +480,16 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
+		actionLock:   NewActionLock(),
 	}
 
-	state := postgresState{
-		pgctldAvailable: true,
-		dirInitialized:  true,
-		postgresRunning: false,
-	}
+	// Acquire lock before calling takeRemedialAction
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
 
 	// Should attempt to start postgres
-	pm.takeRemedialAction(ctx, state)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
 
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
@@ -399,18 +505,18 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	pm := &MultiPoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
-	}
-
-	state := postgresState{
-		pgctldAvailable: true,
-		dirInitialized:  true,
-		postgresRunning: false,
+		actionLock:   NewActionLock(),
 	}
 
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
+	// Acquire lock before calling takeRemedialAction
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
 	// Should handle error gracefully
-	pm.takeRemedialAction(ctx, state)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
 
 	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
 	// Reason stays the same since we're retrying
@@ -420,56 +526,61 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	ctx := context.Background()
 
 	pm := &MultiPoolerManager{
-		logger: slog.Default(),
+		logger:     slog.Default(),
+		actionLock: NewActionLock(),
 	}
 
-	state := postgresState{
-		pgctldAvailable:  true,
-		dirInitialized:   false,
-		postgresRunning:  false,
-		backupsAvailable: false,
-	}
+	// Acquire lock before calling takeRemedialAction
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
 
-	// Should log info and wait
-	pm.takeRemedialAction(ctx, state)
+	// With no backups and uninitialized dir, action is None - doesn't do anything
+	pm.takeRemedialAction(lockCtx, remedialActionNone)
 
-	assert.Equal(t, "waiting_for_backup", pm.pgMonitorLastLoggedReason)
+	// takeRemedialAction with None action doesn't modify last logged reason
+	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
 }
 
 func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	ctx := context.Background()
 
+	mockPgctld := &mockPgctldClient{}
+
 	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: NewActionLock(),
+		logger:       slog.Default(),
+		actionLock:   NewActionLock(),
+		pgctldClient: mockPgctld,
 		multipooler: &clustermetadatapb.MultiPooler{
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
 	}
 
-	state := postgresState{
-		pgctldAvailable: true,
-		dirInitialized:  true,
-		postgresRunning: true,
-	}
+	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
-	pm.pgMonitorLastLoggedReason = "postgres_running"
+	// Acquire lock before calling takeRemedialAction
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
 
-	// Call multiple times with same reason
-	pm.takeRemedialAction(ctx, state)
-	pm.takeRemedialAction(ctx, state)
-	pm.takeRemedialAction(ctx, state)
+	// Call multiple times with same action - reason should stay the same (log deduplication)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	// Reason should stay the same (log deduplication working)
-	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	// Change state
-	state.pgctldAvailable = false
-	pm.takeRemedialAction(ctx, state)
+	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres)
+	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	// Reason should change
-	assert.Equal(t, "pgctld_unavailable", pm.pgMonitorLastLoggedReason)
+	// Change action type - reason should change
+	pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup)
+	assert.Equal(t, "restoring_from_backup", pm.pgMonitorLastLoggedReason)
 }
+
+// Note: Type adjustment action execution (AdjustTypeToPrimary, AdjustTypeToReplica) is tested in
+// integration tests because it requires topoClient and full infrastructure.
+// The decision logic for type adjustment is tested in TestDetermineRemedialAction above.
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	ctx := context.Background()
@@ -599,6 +710,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 		readyChan:    readyChan,
 		pgctldClient: mockPgctld,
 		state:        ManagerStateStarting,
+		actionLock:   NewActionLock(),
 	}
 
 	// Call iteration when not ready - should return early without calling pgctld
@@ -663,6 +775,7 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 		readyChan:    readyChan,
 		pgctldClient: mockPgctld,
 		state:        ManagerStateReady,
+		actionLock:   NewActionLock(),
 	}
 
 	// Call iteration - should discover stopped state and attempt to start
@@ -692,6 +805,7 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 		readyChan:    readyChan,
 		pgctldClient: mockPgctld,
 		state:        ManagerStateReady,
+		actionLock:   NewActionLock(),
 	}
 
 	// Call iteration multiple times to simulate retry behavior

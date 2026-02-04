@@ -300,6 +300,11 @@ func (m *Manager) Close() {
 	m.logger.Info("connection pool manager closed")
 }
 
+// InternalUser returns the configured internal user for system queries.
+func (m *Manager) InternalUser() string {
+	return m.config.InternalUser()
+}
+
 // --- Admin Pool Operations ---
 
 // GetAdminConn acquires an admin connection from the shared pool.

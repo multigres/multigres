@@ -20,6 +20,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -468,6 +470,55 @@ func TestManager_SettingsCacheIntegration(t *testing.T) {
 
 	// Settings should be the same pointer (from cache).
 	assert.Same(t, settings1, settings2)
+}
+
+// --- InternalUser tests ---
+
+func TestManager_InternalUser_Default(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+
+	// Manager should return the default internal user from config
+	assert.Equal(t, "postgres", manager.InternalUser())
+}
+
+func TestManager_InternalUser_CustomValue(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	// Register flags
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	// Parse a custom value
+	err := fs.Parse([]string{"--connpool-internal-user", "replication-user"})
+	require.NoError(t, err)
+
+	// Bind to viper (this is what happens in the real application)
+	v := viper.New()
+	err = v.BindPFlags(fs)
+	require.NoError(t, err)
+
+	manager := config.NewManager(slog.Default())
+
+	// Manager should delegate to config and return the configured value
+	// The viperutil binding picks up the flag value correctly
+	assert.Equal(t, "replication-user", manager.InternalUser(),
+		"Manager should return the custom internal user set via flag")
+}
+
+func TestManager_InternalUser_DelegatestoConfig(t *testing.T) {
+	// Create a config with default values
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	// Create manager from config
+	manager := config.NewManager(slog.Default())
+
+	// Verify Manager.InternalUser() delegates to Config.InternalUser()
+	assert.Equal(t, config.InternalUser(), manager.InternalUser(),
+		"Manager.InternalUser() should return the same value as Config.InternalUser()")
 }
 
 // BenchmarkManager_GetUserPool_HotPath benchmarks the lock-free hot path

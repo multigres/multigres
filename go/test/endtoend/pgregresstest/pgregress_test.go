@@ -15,6 +15,7 @@
 package pgregresstest
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -32,11 +33,11 @@ import (
 // 4. Runs PostgreSQL regression tests (boolean, char) through multigateway using make installcheck-tests
 // 5. Reports results (logs failures but doesn't fail the test)
 //
-// The test is skipped in short mode and when build dependencies are not available.
+// The test is skipped by default. Set RUN_PGREGRESS=1 to run it.
 func TestPostgreSQLRegression(t *testing.T) {
-	// Skip in short mode
-	if testing.Short() {
-		t.Skip("skipping long-running PostgreSQL regression tests in short mode")
+	// Skip unless explicitly enabled via environment variable
+	if os.Getenv("RUN_PGREGRESS") != "1" {
+		t.Skip("skipping pg_regress tests (set RUN_PGREGRESS=1 to run)")
 	}
 
 	// Skip if PostgreSQL binaries not available
@@ -94,6 +95,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 				t.Fatalf("Test harness failed to execute: %v", err)
 			}
 			t.Fatal("Test harness returned nil results")
+			return
 		}
 
 		// Always log results (even on success)

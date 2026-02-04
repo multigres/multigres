@@ -565,6 +565,18 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	}
 	status.SyncReplicationConfig = syncConfig
 
+	// Include primary term from consensus state.
+	if pm.consensusState == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "consensus state not initialized")
+	}
+	term, err := pm.consensusState.GetInconsistentTerm()
+	if err != nil {
+		return nil, err
+	}
+	if term != nil {
+		status.PrimaryTerm = term.GetPrimaryTerm()
+	}
+
 	return status, nil
 }
 
@@ -778,12 +790,12 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	}, nil
 }
 
-// Demote demotes the current primary server
+// EmergencyDemote demotes the current primary server
 // This can be called for any of the following use cases:
 // - By orchestrator when fixing a broken shard.
 // - When performing a Planned demotion.
 // - When receiving a SIGTERM and the pooler needs to shutdown.
-func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (*multipoolermanagerdatapb.DemoteResponse, error) {
+func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -795,12 +807,10 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Pause monitoring during this operation to prevent interference
-	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer resumeMonitor(ctx)
+	// Permanently disable monitoring to prevent accidental postgres restart after emergency demotion
+	// TODO: This is not a long-term solution. The disableMonitor() approach will likely be
+	// replaced with proper state management in follow-up work to PR #550.
+	pm.disableMonitorInternal()
 
 	// Validate the term but DON'T update yet. We only update the term AFTER
 	// successful demotion to avoid a race where a failed demote (e.g., postgres
@@ -811,7 +821,7 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	}
 
 	// Perform the actual demotion
-	resp, err := pm.demoteLocked(ctx, consensusTerm, drainTimeout)
+	resp, err := pm.emergencyDemoteLocked(ctx, consensusTerm, drainTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -829,10 +839,16 @@ func (pm *MultiPoolerManager) Demote(ctx context.Context, consensusTerm int64, d
 	return resp, nil
 }
 
-// demoteLocked performs the core demotion logic.
+// emergencyDemoteLocked performs the core demotion logic.
 // REQUIRES: action lock must already be held by the caller.
-// This is used by BeginTerm and Demote to demote inline without re-acquiring the lock.
-func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.DemoteResponse, error) {
+// This is used for emergency demote operations.
+// We won't try to perform a graceful switchover in this case.
+// We will drain this pooler and stop postgres.
+// This should only be called during ungraceful shutdown.
+// MultiOrch will try to contact all nodes in the cohort.
+// In the case that the dead primary received the RPC, it should just
+// shut down itself.
+func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consensusTerm int64, drainTimeout time.Duration) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
 	// Verify action lock is held
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return nil, err
@@ -853,7 +869,7 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 
 	// If everything is already complete, return early (fully idempotent)
 	if state.isServingReadOnly && state.isReplicaInTopology && state.isReadOnly {
-		return &multipoolermanagerdatapb.DemoteResponse{
+		return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 			WasAlreadyDemoted:     true,
 			ConsensusTerm:         consensusTerm,
 			LsnPosition:           state.finalLSN,
@@ -893,21 +909,12 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 		return nil, err
 	}
 
-	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
-		return nil, err
-	}
-
-	// Reset Synchronous Replication Configuration
-	// Now that the server is read-only, it's safe to clear sync replication settings
-	// This ensures we don't have a window where writes could be accepted with incorrect replication config
-	if err := pm.resetSynchronousReplication(ctx); err != nil {
-		// Log but don't fail - this is cleanup
-		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication configuration", "error", err)
-	}
-
-	// Update Topology
-
-	if err := pm.updateTopologyAfterDemotion(ctx, state); err != nil {
+	// Emergency demotion: stop PostgreSQL without restart
+	// In this emergency path, the SHUTDOWN_CHECKPOINT from this demoted primary may not
+	// propagate to other nodes (they could have already been recruited by multiorch to form
+	// a new cohort). This will result in timeline divergence. The expected flow is that this
+	// node will need to be rewired with pg_rewind before it can rejoin the cluster.
+	if err := pm.stopPostgresForEmergencyDemote(ctx, state); err != nil {
 		return nil, err
 	}
 
@@ -916,7 +923,7 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 		"consensus_term", consensusTerm,
 		"connections_terminated", connectionsTerminated)
 
-	return &multipoolermanagerdatapb.DemoteResponse{
+	return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 		WasAlreadyDemoted:     false,
 		ConsensusTerm:         consensusTerm,
 		LsnPosition:           finalLSN,
@@ -1034,6 +1041,12 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
+	// Clear primary_term since this node is no longer primary for any term.
+	// Note: consensusState can't be nil here because validateTerm passed.
+	if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear primary term")
+	}
+
 	// Get final LSN
 	finalLSN := ""
 	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
@@ -1143,6 +1156,19 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to get final LSN", "error", err)
 		return nil, err
+	}
+
+	// ORDERING: Set primary_term BEFORE writing to history table.
+	// This ordering is intentional to avoid an inconsistent state:
+	// - If we set primary_term then history write fails: promotion fails, but primary_term is set.
+	//   This only means this primary doesn't have any committed transactions yet. On retry,
+	//   setting primary_term is idempotent and history write will succeed. This is safe.
+	// - On the contrary, if we write history then primary_term fails: history transaction is COMMITTED AND REPLICATED,
+	//   but the node doesn't know it's primary for this term. This creates inconsistent state with
+	//   a committed transaction that can't be easily rolled back.
+	// Therefore, we persist primary_term first, then commit the transaction.
+	if err := pm.consensusState.SetPrimaryTerm(ctx, consensusTerm, force); err != nil {
+		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
 
 	// Write leadership history record - this validates that sync replication is working.

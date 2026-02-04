@@ -26,12 +26,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -213,6 +216,11 @@ func NewIsolated(t *testing.T, opts ...SetupOption) (*ShardSetup, func()) {
 func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	t.Helper()
 
+	// Get context from testing.T and create root span
+	ctx := t.Context()
+	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/New")
+	defer span.End()
+
 	// Default configuration
 	config := &SetupConfig{
 		MultipoolerCount: 2, // primary + standby
@@ -228,6 +236,17 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	for _, opt := range opts {
 		opt(config)
 	}
+
+	// Add configuration attributes to span
+	span.SetAttributes(
+		attribute.Int("multipooler.count", config.MultipoolerCount),
+		attribute.Int("multiorch.count", config.MultiOrchCount),
+		attribute.String("database", config.Database),
+		attribute.String("shard", config.Shard),
+		attribute.String("cell", config.CellName),
+		attribute.Bool("enable.multigateway", config.EnableMultigateway),
+		attribute.Bool("skip.initialization", config.SkipInitialization),
+	)
 
 	if config.MultipoolerCount < 1 {
 		t.Fatalf("MultipoolerCount must be at least 1, got %d", config.MultipoolerCount)
@@ -254,7 +273,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	if err := os.MkdirAll(etcdDataDir, 0o755); err != nil {
 		t.Fatalf("failed to create etcd data directory: %v", err)
 	}
-	etcdClientAddr, etcdCmd, err := startEtcd(t, etcdDataDir)
+	etcdClientAddr, etcdCmd, err := startEtcd(ctx, t, etcdDataDir)
 	if err != nil {
 		t.Fatalf("failed to start etcd: %v", err)
 	}
@@ -319,7 +338,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	}
 
 	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
-	startMultipoolerInstances(t, multipoolerInstances)
+	startMultipoolerInstances(ctx, t, multipoolerInstances)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -336,7 +355,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
 
 		// Start multigateway (waits for Status RPC ready)
-		if err := mgw.Start(t); err != nil {
+		if err := mgw.Start(ctx, t); err != nil {
 			t.Fatalf("failed to start multigateway: %v", err)
 		}
 		t.Logf("Started multigateway")
@@ -350,7 +369,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	}
 
 	// Use multiorch to bootstrap the shard organically
-	initializeWithMultiOrch(t, setup, config)
+	initializeWithMultiOrch(ctx, t, setup, config)
 
 	// Verify multigateway can execute queries (if enabled)
 	if config.EnableMultigateway {
@@ -383,13 +402,13 @@ func (s *ShardSetup) createMultiOrchInstances(t *testing.T, config *SetupConfig)
 
 // StartMultiOrchs starts all multiorch instances.
 // Use this for tests that need multiorch running from the get-go.
-func (s *ShardSetup) StartMultiOrchs(t *testing.T) {
+func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
 	t.Helper()
 	for name, mo := range s.MultiOrchInstances {
 		if mo.IsRunning() {
 			continue
 		}
-		if err := mo.Start(t); err != nil {
+		if err := mo.Start(ctx, t); err != nil {
 			t.Fatalf("StartMultiOrchs: failed to start multiorch %s: %v", name, err)
 		}
 		t.Cleanup(mo.CleanupFunc(t))
@@ -400,8 +419,11 @@ func (s *ShardSetup) StartMultiOrchs(t *testing.T) {
 // initializeWithMultiOrch uses multiorch to bootstrap the shard organically.
 // It starts a single multiorch (temporary if none configured), waits for it to
 // initialize the shard, then stops it (clean state = multiorch not running).
-func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfig) {
+func initializeWithMultiOrch(ctx context.Context, t *testing.T, setup *ShardSetup, config *SetupConfig) {
 	t.Helper()
+
+	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/initializeWithMultiOrch")
+	defer span.End()
 
 	var mo *ProcessInstance
 	var moName string
@@ -426,21 +448,31 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 		t.Logf("Created temporary multiorch for initialization")
 	}
 
+	span.SetAttributes(
+		attribute.Bool("is_temporary_multiorch", isTemporary),
+		attribute.String("multiorch.name", moName),
+	)
+
 	// Start multiorch
-	if err := mo.Start(t); err != nil {
+	if err := mo.Start(ctx, t); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "multiorch start failed")
 		t.Fatalf("failed to start multiorch %s: %v", moName, err)
 	}
 	t.Logf("Started multiorch '%s' for shard bootstrap", moName)
 
 	// Wait for multiorch to bootstrap the shard (elect a primary)
-	primaryName, err := waitForShardBootstrap(t, setup)
+	primaryName, err := waitForShardBootstrap(ctx, t, setup)
 	if err != nil {
 		// This before we return the cleanup function, so let's dump the logs if we
 		// fail to bootstrap the shard
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "bootstrap failed")
 		setup.DumpServiceLogs()
 		t.Fatalf("failed to bootstrap shard: %v", err)
 	}
 	setup.PrimaryName = primaryName
+	span.SetAttributes(attribute.String("primary.name", primaryName))
 	t.Logf("Primary elected: %s", primaryName)
 
 	// Stop multiorch (clean state = multiorch not running)
@@ -464,20 +496,31 @@ func initializeWithMultiOrch(t *testing.T, setup *ShardSetup, config *SetupConfi
 
 // waitForShardBootstrap waits for multiorch to bootstrap the shard by electing a primary
 // and initializing all standbys. Returns the name of the elected primary or an error.
-func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
+func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup) (string, error) {
 	t.Helper()
 
-	ctx := utils.WithTimeout(t, 60*time.Second)
+	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
+	defer span.End()
+
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	checkCount := 0
 	for {
 		select {
 		case <-ctx.Done():
+			span.SetStatus(codes.Error, "timeout after 60s")
 			return "", errors.New("timeout waiting for shard bootstrap after 60s")
 		case <-ticker.C:
-			primaryName, allInitialized := checkBootstrapStatus(t, setup)
+			checkCount++
+			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
 			if primaryName != "" && allInitialized {
+				span.SetAttributes(
+					attribute.String("primary.name", primaryName),
+				)
 				t.Logf("waitForShardBootstrap: primary=%s, all nodes initialized", primaryName)
 				return primaryName, nil
 			}
@@ -490,20 +533,27 @@ func waitForShardBootstrap(t *testing.T, setup *ShardSetup) (string, error) {
 // Additionally checks that:
 // - PRIMARY has sync replication configured with the expected number of standbys
 // - REPLICA has primary_conn_info configured
-func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
+func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) (string, bool) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/checkBootstrapStatus")
+	defer span.End()
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	var primaryName string
 	var initializedCount int
 	expectedReplicaCount := len(setup.Multipoolers) - 1
 
+	// Build human-readable status for each pooler
+	poolerStatuses := make([]string, 0, len(setup.Multipoolers))
+
 	for name, inst := range setup.Multipoolers {
 		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
 		if err != nil {
 			t.Logf("checkBootstrapStatus: failed to connect to %s: %v", name, err)
+			poolerStatuses = append(poolerStatuses, name+": connection_failed")
 			continue
 		}
 
@@ -511,6 +561,7 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 		_, err = QueryStringValue(ctx, client.Pooler, "SELECT 1")
 		if err != nil {
 			client.Close()
+			poolerStatuses = append(poolerStatuses, name+": not_queryable")
 			continue
 		}
 
@@ -518,6 +569,7 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 		statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil || statusResp.Status == nil {
 			client.Close()
+			poolerStatuses = append(poolerStatuses, name+": queryable, status_rpc_failed")
 			continue
 		}
 
@@ -536,9 +588,14 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 				}
 				t.Logf("checkBootstrapStatus: %s is PRIMARY but sync replication not ready (standbys=%d, expected=%d)",
 					name, standbyCount, expectedReplicaCount)
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (standbys=%d/%d)",
+					name, standbyCount, expectedReplicaCount))
 			} else {
 				primaryName = name
+				standbyCount := len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
 				isFullyInitialized = true
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured (standbys=%d/%d)",
+					name, standbyCount, expectedReplicaCount))
 			}
 
 		case clustermetadatapb.PoolerType_REPLICA:
@@ -557,9 +614,13 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 
 			if !hasHost {
 				t.Logf("checkBootstrapStatus: %s is REPLICA but primary_conn_info not configured", name)
+				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_waiting")
 			} else {
 				isFullyInitialized = true
+				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_configured")
 			}
+		default:
+			poolerStatuses = append(poolerStatuses, name+": queryable, type=UNKNOWN")
 			// UNKNOWN type means not fully initialized yet - don't count
 		}
 
@@ -571,6 +632,12 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 	}
 
 	allInitialized := initializedCount == len(setup.Multipoolers)
+
+	// Set summary attributes and detailed pooler statuses
+	span.SetAttributes(
+		attribute.StringSlice("pooler.statuses", poolerStatuses),
+	)
+
 	t.Logf("checkBootstrapStatus: primary=%s, initialized=%d/%d", primaryName, initializedCount, len(setup.Multipoolers))
 	return primaryName, allInitialized
 }
@@ -581,27 +648,49 @@ func checkBootstrapStatus(t *testing.T, setup *ShardSetup) (string, bool) {
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
-func startMultipoolerInstances(t *testing.T, instances []*MultipoolerInstance) {
+func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*MultipoolerInstance) {
 	t.Helper()
+
+	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startMultipoolerInstances")
+	defer span.End()
+
+	span.SetAttributes(attribute.Int("instance.count", len(instances)))
 
 	for _, inst := range instances {
 		pgctld := inst.Pgctld
 		multipooler := inst.Multipooler
 
+		// Create child span for each instance
+		instCtx, instSpan := telemetry.Tracer().Start(ctx, "shardsetup/startInstance")
+		instSpan.SetAttributes(
+			attribute.String("instance.name", inst.Name),
+			attribute.Int("pgctld.grpc_port", pgctld.GrpcPort),
+			attribute.Int("pg.port", pgctld.PgPort),
+			attribute.Int("multipooler.grpc_port", multipooler.GrpcPort),
+		)
+
 		// Start pgctld (postgres will be initialized later, or by multiorch for bootstrap)
-		if err := pgctld.Start(t); err != nil {
+		if err := pgctld.Start(instCtx, t); err != nil {
+			instSpan.RecordError(err)
+			instSpan.SetStatus(codes.Error, "pgctld start failed")
+			instSpan.End()
 			t.Fatalf("failed to start pgctld for %s: %v", inst.Name, err)
 		}
 		t.Logf("Started pgctld for %s (gRPC=%d, PG=%d)", inst.Name, pgctld.GrpcPort, pgctld.PgPort)
 
 		// Start multipooler
-		if err := multipooler.Start(t); err != nil {
+		if err := multipooler.Start(instCtx, t); err != nil {
+			instSpan.RecordError(err)
+			instSpan.SetStatus(codes.Error, "multipooler start failed")
+			instSpan.End()
 			t.Fatalf("failed to start multipooler for %s: %v", inst.Name, err)
 		}
 
 		// Wait for multipooler to be ready
 		WaitForManagerReady(t, multipooler)
 		t.Logf("Multipooler %s is ready (uninitialized)", inst.Name)
+
+		instSpan.End()
 	}
 
 	t.Logf("Started %d processes without initialization (ready for bootstrap)", len(instances))
@@ -625,18 +714,28 @@ func (s *ShardSetup) startPgBackRestServers(t *testing.T) {
 // startEtcd starts etcd without registering t.Cleanup() handlers
 // since cleanup is handled manually by TestMain via Cleanup().
 // Follows the pattern from multipooler/setup_test.go:startEtcdForSharedSetup.
-func startEtcd(t *testing.T, dataDir string) (string, *exec.Cmd, error) {
+func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec.Cmd, error) {
 	t.Helper()
+
+	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startEtcd")
+	defer span.End()
 
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "etcd not found in PATH")
 		return "", nil, fmt.Errorf("etcd not found in PATH: %w", err)
 	}
 
 	// Get ports for etcd (client and peer)
 	clientPort := utils.GetFreePort(t)
 	peerPort := utils.GetFreePort(t)
+
+	span.SetAttributes(
+		attribute.Int("etcd.client_port", clientPort),
+		attribute.Int("etcd.peer_port", peerPort),
+	)
 
 	name := "shardsetup_test"
 	clientAddr := fmt.Sprintf("http://localhost:%v", clientPort)
@@ -658,14 +757,18 @@ func startEtcd(t *testing.T, dataDir string) (string, *exec.Cmd, error) {
 		"MULTIGRES_TESTDATA_DIR="+dataDir,
 	)
 
-	if err := cmd.Start(); err != nil {
+	if err := telemetry.StartCmd(ctx, cmd); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to start etcd")
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := etcdtopo.WaitForReady(ctx, clientAddr); err != nil {
+	if err := etcdtopo.WaitForReady(waitCtx, clientAddr); err != nil {
 		_ = cmd.Process.Kill()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "etcd not ready")
 		return "", nil, err
 	}
 
@@ -897,7 +1000,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	// TODO (@rafa): once we have a way to disable multiorch on a shard, we don't need
 	// this big hammer of stopping / starting on each test.
 	for name, mo := range s.MultiOrchInstances {
-		if err := mo.Start(t); err != nil {
+		if err := mo.Start(ctx, t); err != nil {
 			t.Fatalf("SetupTest: failed to start multiorch %s: %v", name, err)
 		}
 		t.Logf("SetupTest: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
@@ -1085,40 +1188,6 @@ func (s *ShardSetup) pauseReplicationOnStandbys(t *testing.T, ctx context.Contex
 			t.Logf("SetupTest: Paused WAL replay on %s", name)
 		}
 	}
-}
-
-// DemotePrimary demotes the primary by putting it into standby mode.
-// This is used to test failover scenarios and then reset the cluster.
-func (s *ShardSetup) DemotePrimary(t *testing.T) {
-	t.Helper()
-
-	primary := s.GetMultipoolerInstance(s.PrimaryName)
-	if primary == nil {
-		t.Fatal("primary not found")
-		return // unreachable, but needed for linter
-	}
-
-	client, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
-	require.NoError(t, err, "failed to connect to primary")
-	defer client.Close()
-
-	ctx := utils.WithTimeout(t, 20*time.Second)
-
-	// Demote using the Demote RPC with term 1 (clean state starts at term 1)
-	_, err = client.Manager.Demote(ctx, &multipoolermanagerdatapb.DemoteRequest{
-		ConsensusTerm: 1,
-	})
-	require.NoError(t, err, "failed to demote primary")
-
-	// Wait for primary to be in recovery mode
-	require.Eventually(t, func() bool {
-		queryCtx, queryCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer queryCancel()
-		inRecovery, err := QueryStringValue(queryCtx, client.Pooler, "SELECT pg_is_in_recovery()")
-		return err == nil && inRecovery == "t"
-	}, 10*time.Second, 100*time.Millisecond, "primary should be in recovery mode after demotion")
-
-	t.Log("Primary demoted successfully")
 }
 
 // NewClient returns a new MultipoolerClient for the specified multipooler instance.

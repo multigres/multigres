@@ -387,6 +387,12 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
 		pm.loadConsensusTermFromDisk()
 		term = pm.consensusState.term.TermNumber
+
+		// Clear primary_term from backup since this is a standby restore
+		// The backup may contain a non-zero primary_term if it was taken from a primary
+		if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
+			return mterrors.Wrap(err, "failed to clear primary_term after restore")
+		}
 	}
 
 	if term == 0 {

@@ -55,6 +55,9 @@ type Config struct {
 	adminUser     viperutil.Value[string]
 	adminPassword viperutil.Value[string]
 
+	// Internal user for multipooler system queries (heartbeat, replication tracking)
+	internalUser viperutil.Value[string]
+
 	// --- Pool sizing configuration ---
 
 	// Admin pool configuration (shared across all users)
@@ -152,6 +155,11 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			FlagName: "connpool-admin-password",
 			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD"},
 		}),
+		internalUser: viperutil.Configure(reg, "connpool.internal.user", viperutil.Options[string]{
+			Default:  "postgres",
+			FlagName: "connpool-internal-user",
+			EnvVars:  []string{"CONNPOOL_INTERNAL_USER"},
+		}),
 
 		// Admin pool (shared across all users)
 		adminCapacity: viperutil.Configure(reg, "connpool.admin.capacity", viperutil.Options[int64]{
@@ -224,6 +232,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Admin credential flags
 	fs.String("connpool-admin-user", c.adminUser.Default(), "Admin pool user (PostgreSQL superuser for control operations)")
 	fs.String("connpool-admin-password", c.adminPassword.Default(), "Admin pool password (can also be set via CONNPOOL_ADMIN_PASSWORD env var)")
+	fs.String("connpool-internal-user", c.internalUser.Default(), "Internal user for multipooler system queries (heartbeat, replication tracking)")
 
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
@@ -253,6 +262,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	viperutil.BindFlags(fs,
 		c.adminUser,
 		c.adminPassword,
+		c.internalUser,
 		c.adminCapacity,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
@@ -279,6 +289,11 @@ func (c *Config) AdminUser() string {
 // AdminPassword returns the configured admin pool password.
 func (c *Config) AdminPassword() string {
 	return c.adminPassword.Get()
+}
+
+// InternalUser returns the configured internal user for system queries.
+func (c *Config) InternalUser() string {
+	return c.internalUser.Get()
 }
 
 // AdminCapacity returns the configured admin pool capacity.
