@@ -94,7 +94,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.leadership_history", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_leadership_history_term", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_leadership_history_term_event", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.tablegroup", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.tablegroup_table", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.shard", mock.MakeQueryResult(nil, nil))
@@ -165,7 +165,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.durability_policy", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS idx_durability_policy_active", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.leadership_history", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnceWithError("CREATE INDEX IF NOT EXISTS idx_leadership_history_term", errors.New("index creation failed"))
+				m.AddQueryPatternOnceWithError("CREATE INDEX IF NOT EXISTS idx_leadership_history_term_event", errors.New("index creation failed"))
 			},
 			expectError:   true,
 			errorContains: "failed to create leadership_history index",
@@ -442,6 +442,93 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			ctx := context.Background()
 			err := pm.insertLeadershipHistory(ctx, tt.termNumber, tt.leaderID, tt.coordinatorID,
 				tt.walPosition, tt.reason, tt.cohortMembers, tt.acceptedMembers)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestInsertReplicationConfigHistory(t *testing.T) {
+	tests := []struct {
+		name          string
+		termNumber    int64
+		operation     string
+		reason        string
+		standbyIDs    []*clustermetadatapb.ID
+		setupMock     func(m *mock.QueryService)
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:       "successful insert with configure operation",
+			termNumber: 1,
+			operation:  "configure",
+			reason:     "ConfigureSynchronousReplication called",
+			standbyIDs: []*clustermetadatapb.ID{
+				{Cell: "us-west", Name: "replica-1"},
+				{Cell: "us-west", Name: "replica-2"},
+			},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
+		},
+		{
+			name:       "successful insert with add operation",
+			termNumber: 2,
+			operation:  "add",
+			reason:     "UpdateSynchronousStandbyList: add",
+			standbyIDs: []*clustermetadatapb.ID{
+				{Cell: "us-west", Name: "replica-3"},
+			},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
+		},
+		{
+			name:       "insert fails with database error",
+			termNumber: 3,
+			operation:  "remove",
+			reason:     "UpdateSynchronousStandbyList: remove",
+			standbyIDs: []*clustermetadatapb.ID{
+				{Cell: "us-west", Name: "replica-1"},
+			},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", errors.New("timeout waiting for sync replication"))
+			},
+			expectError:   true,
+			errorContains: "failed to insert replication config history",
+		},
+		{
+			name:       "insert with empty standby list",
+			termNumber: 4,
+			operation:  "configure",
+			reason:     "ConfigureSynchronousReplication called",
+			standbyIDs: []*clustermetadatapb.ID{},
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("INSERT INTO multigres.leadership_history", mock.MakeQueryResult(nil, nil))
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+			tt.setupMock(mockQueryService)
+
+			ctx := context.Background()
+			err := pm.insertReplicationConfigHistory(ctx, tt.termNumber, tt.operation, tt.reason, tt.standbyIDs)
 
 			if tt.expectError {
 				assert.Error(t, err)

@@ -387,6 +387,20 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		return err
 	}
 
+	// Insert history before making changes
+	if pm.consensusState != nil {
+		term, err := pm.consensusState.GetInconsistentTerm()
+		if err == nil && term != nil {
+			if err := pm.insertReplicationConfigHistory(ctx,
+				term.GetPrimaryTerm(),
+				"configure",
+				"ConfigureSynchronousReplication called",
+				standbyIDs); err != nil {
+				return mterrors.Wrap(err, "failed to record replication config history")
+			}
+		}
+	}
+
 	// Set synchronous_commit level
 	if err := pm.setSynchronousCommit(ctx, synchronousCommit); err != nil {
 		return err
@@ -489,14 +503,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 			"unsupported operation: "+operation.String())
 	}
 
-	pm.logger.InfoContext(ctx, "UpdateSynchronousStandbyList completed successfully",
-		"operation", operation,
-		"old_value", currentValue,
-		"new_value", updatedStandbys,
-		"reload_config", reloadConfig,
-		"consensus_term", consensusTerm,
-		"force", force)
-
 	// Validate that the final list is not empty
 	if len(updatedStandbys) == 0 {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -514,6 +520,28 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// Check if there are any changes (idempotent)
 	if currentValue == newValue {
 		return nil
+	}
+
+	// Map operation enum to string
+	var operationName string
+	switch operation {
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+		operationName = "add"
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+		operationName = "remove"
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
+		operationName = "replace"
+	default:
+		operationName = "unknown"
+	}
+
+	// Insert history before applying GUCs
+	if err := pm.insertReplicationConfigHistory(ctx,
+		consensusTerm,
+		operationName,
+		"UpdateSynchronousStandbyList: "+operationName,
+		updatedStandbys); err != nil {
+		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
 	// Apply the setting
