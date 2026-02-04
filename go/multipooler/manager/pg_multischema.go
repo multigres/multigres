@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // ============================================================================
@@ -185,12 +186,14 @@ func (pm *MultiPoolerManager) createLeadershipHistoryTable(ctx context.Context) 
 	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.leadership_history (
 		id BIGSERIAL PRIMARY KEY,
 		term_number BIGINT NOT NULL,
-		leader_id TEXT NOT NULL,
-		coordinator_id TEXT NOT NULL,
-		wal_position TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		leader_id TEXT,
+		coordinator_id TEXT,
+		wal_position TEXT,
+		accepted_members JSONB,
 		reason TEXT NOT NULL,
 		cohort_members JSONB NOT NULL,
-		accepted_members JSONB NOT NULL,
+		operation TEXT,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create leadership_history table")
@@ -198,8 +201,8 @@ func (pm *MultiPoolerManager) createLeadershipHistoryTable(ctx context.Context) 
 
 	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_leadership_history_term
-		ON multigres.leadership_history(term_number DESC)`); err != nil {
+	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_leadership_history_term_event
+		ON multigres.leadership_history(term_number DESC, event_type)`); err != nil {
 		return mterrors.Wrap(err, "failed to create leadership_history index")
 	}
 
@@ -351,13 +354,45 @@ func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termN
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
-		(term_number, leader_id, coordinator_id, wal_position, reason, cohort_members, accepted_members)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)`,
-		termNumber, leaderID, coordinatorID, walPosition, reason, cohortJSON, acceptedJSON)
+		(term_number, event_type, leader_id, coordinator_id, wal_position, reason, cohort_members, accepted_members)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)`,
+		termNumber, "promotion", leaderID, coordinatorID, walPosition, reason, cohortJSON, acceptedJSON)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to insert leadership history")
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully inserted leadership history", "term", termNumber)
+	return nil
+}
+
+// insertReplicationConfigHistory inserts a replication configuration change record.
+// This operation uses the remote-operation-timeout and will fail if it cannot complete within
+// that time. A timeout typically indicates that synchronous replication is not functioning.
+func (pm *MultiPoolerManager) insertReplicationConfigHistory(ctx context.Context, termNumber int64, operation, reason string, standbyIDs []*clustermetadatapb.ID) error {
+	// Convert standby IDs to application names
+	standbyNames := make([]string, len(standbyIDs))
+	for i, id := range standbyIDs {
+		standbyNames[i] = generateApplicationName(id)
+	}
+
+	cohortJSON, err := json.Marshal(standbyNames)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to marshal standby list")
+	}
+
+	timeout := pm.topoClient.GetRemoteOperationTimeout()
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
+		(term_number, event_type, operation, reason, cohort_members)
+		VALUES ($1, $2, $3, $4, $5::jsonb)`,
+		termNumber, "replication_config", operation, reason, cohortJSON)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to insert replication config history")
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully inserted replication config history",
+		"term", termNumber,
+		"operation", operation)
 	return nil
 }
