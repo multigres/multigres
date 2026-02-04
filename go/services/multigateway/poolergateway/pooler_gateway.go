@@ -122,6 +122,21 @@ func (pg *PoolerGateway) StreamExecute(
 	return conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
 }
 
+func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *query.Target) (queryservice.QueryService, error) {
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService(), nil
+}
+
 // ExecuteQuery implements queryservice.QueryService.
 // It routes the query to the appropriate multipooler instance based on the target.
 // This should be used sparingly only when we know the result set is small,
@@ -198,23 +213,6 @@ func (pg *PoolerGateway) Describe(
 
 	// Delegate to the pooler's QueryService
 	return conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
-}
-
-// getQueryServiceForTarget is a helper that gets a QueryService for the given target.
-// This is used by methods that need to get a QueryService and handle errors consistently.
-func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *query.Target) (queryservice.QueryService, error) {
-	conn, err := pg.loadBalancer.GetConnection(target)
-	if err != nil {
-		return nil, err
-	}
-
-	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
-		"pooler_id", conn.ID())
-
-	return conn.QueryService(), nil
 }
 
 // Close implements queryservice.QueryService.
