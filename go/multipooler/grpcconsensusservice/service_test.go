@@ -113,7 +113,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("BeginTerm with REVOKE action without database connection should reject", func(t *testing.T) {
+	t.Run("BeginTerm with REVOKE action without database connection accepts term but revoke fails", func(t *testing.T) {
 		req := &consensusdata.BeginTermRequest{
 			Term: 5,
 			CandidateId: &clustermetadata.ID{
@@ -127,13 +127,15 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 
 		resp, err := svc.BeginTerm(ctx, req)
 
-		// TODO: This behavior is temporary. Once we separate voting term from primary term,
-		// unhealthy nodes should accept the term (for voting) even if they can't execute revoke.
-		// Current behavior: reject term when postgres is down with REVOKE action
-		// Future behavior: accept term (voting term) but keep old primary term
-		assert.NoError(t, err)
+		// With PrimaryTerm tracking: voting term is accepted even when postgres is unhealthy,
+		// but the revoke action fails. This allows distinguishing voting term from primary term.
+		// The node accepts the new voting term but keeps its old primary term, making it
+		// unambiguous which node is the true primary.
+		assert.Error(t, err, "Revoke action should fail when postgres is unhealthy")
+		assert.Contains(t, err.Error(), "term accepted but revoke action failed")
 		assert.NotNil(t, resp)
-		assert.False(t, resp.Accepted, "Term should be rejected when postgres is unhealthy with REVOKE action")
+		assert.True(t, resp.Accepted, "Voting term should be accepted even when revoke fails")
+		assert.Equal(t, int64(5), resp.Term, "Response should contain the accepted term")
 	})
 }
 
@@ -467,8 +469,8 @@ func TestConsensusService_AllMethods(t *testing.T) {
 				_, err := svc.BeginTerm(ctx, req)
 				return err
 			},
-			// No database connection, revoke action short-circuits and rejects the call
-			shouldSucceed: true,
+			// No database connection: term is accepted but revoke action fails, so error is returned
+			shouldSucceed: false,
 		},
 		{
 			name: "Status",

@@ -1047,6 +1047,11 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to clear primary term")
 	}
 
+	// Update consensus term to match the correct primary's term after successful demotion
+	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
+		return nil, mterrors.Wrap(err, "failed to update consensus term")
+	}
+
 	// Get final LSN
 	finalLSN := ""
 	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {

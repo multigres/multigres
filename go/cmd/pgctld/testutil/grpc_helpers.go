@@ -32,32 +32,35 @@ import (
 // MockPgCtldService implements a mock version of the PgCtld gRPC service for testing
 type MockPgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	mu           sync.Mutex
-	StartCalls   []*pb.StartRequest
-	StopCalls    []*pb.StopRequest
-	RestartCalls []*pb.RestartRequest
-	ReloadCalls  []*pb.ReloadConfigRequest
-	StatusCalls  []*pb.StatusRequest
-	VersionCalls []*pb.VersionRequest
-	InitDirCalls []*pb.InitDataDirRequest
+	mu            sync.Mutex
+	StartCalls    []*pb.StartRequest
+	StopCalls     []*pb.StopRequest
+	RestartCalls  []*pb.RestartRequest
+	ReloadCalls   []*pb.ReloadConfigRequest
+	StatusCalls   []*pb.StatusRequest
+	VersionCalls  []*pb.VersionRequest
+	InitDirCalls  []*pb.InitDataDirRequest
+	PgRewindCalls []*pb.PgRewindRequest
 
 	// Response configurations
-	StartResponse   *pb.StartResponse
-	StopResponse    *pb.StopResponse
-	RestartResponse *pb.RestartResponse
-	ReloadResponse  *pb.ReloadConfigResponse
-	StatusResponse  *pb.StatusResponse
-	VersionResponse *pb.VersionResponse
-	InitDirResponse *pb.InitDataDirResponse
+	StartResponse    *pb.StartResponse
+	StopResponse     *pb.StopResponse
+	RestartResponse  *pb.RestartResponse
+	ReloadResponse   *pb.ReloadConfigResponse
+	StatusResponse   *pb.StatusResponse
+	VersionResponse  *pb.VersionResponse
+	InitDirResponse  *pb.InitDataDirResponse
+	PgRewindResponse *pb.PgRewindResponse
 
 	// Error configurations
-	StartError   error
-	StopError    error
-	RestartError error
-	ReloadError  error
-	StatusError  error
-	VersionError error
-	InitDirError error
+	StartError    error
+	StopError     error
+	RestartError  error
+	ReloadError   error
+	StatusError   error
+	VersionError  error
+	InitDirError  error
+	PgRewindError error
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -158,6 +161,29 @@ func (m *MockPgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDir
 		return m.InitDirResponse, nil
 	}
 	return &pb.InitDataDirResponse{Message: "Mock data directory initialized"}, nil
+}
+
+func (m *MockPgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (*pb.PgRewindResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.PgRewindCalls = append(m.PgRewindCalls, req)
+	if m.PgRewindError != nil {
+		return nil, m.PgRewindError
+	}
+	if m.PgRewindResponse != nil {
+		return m.PgRewindResponse, nil
+	}
+	// Default response: no divergence for dry-run, success for actual rewind
+	if req.DryRun {
+		return &pb.PgRewindResponse{
+			Message: "Mock pg_rewind dry-run completed",
+			Output:  "", // Empty output means no divergence
+		}, nil
+	}
+	return &pb.PgRewindResponse{
+		Message: "Mock pg_rewind completed successfully",
+		Output:  "Done!",
+	}, nil
 }
 
 // TestGRPCServer provides utilities for testing gRPC services
@@ -300,6 +326,44 @@ func StartMockPgctldServer(t *testing.T) (string, func()) {
 	// Create gRPC server with mock service
 	grpcServer := grpc.NewServer()
 	mockService := &MockPgCtldService{}
+	pb.RegisterPgCtldServer(grpcServer, mockService)
+
+	// Start serving in background
+	go func() {
+		_ = grpcServer.Serve(lis)
+	}()
+
+	addr := lis.Addr().String()
+	t.Logf("Mock pgctld server started at %s", addr)
+
+	cleanup := func() {
+		grpcServer.Stop()
+		lis.Close()
+	}
+
+	return addr, cleanup
+}
+
+// StartMockPgctldServerWithCustomMock starts a mock pgctld server with custom setup
+// Returns the server address and a cleanup function
+func StartMockPgctldServerWithCustomMock(t *testing.T, setupFunc func(*MockPgCtldService)) (string, func()) {
+	t.Helper()
+
+	// Create a listener on a random port
+	lis, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+
+	// Create gRPC server with mock service
+	grpcServer := grpc.NewServer()
+	mockService := &MockPgCtldService{}
+
+	// Apply custom setup
+	if setupFunc != nil {
+		setupFunc(mockService)
+	}
+
 	pb.RegisterPgCtldServer(grpcServer, mockService)
 
 	// Start serving in background
