@@ -367,6 +367,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
+	var notices []*sqltypes.Notice
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -375,14 +376,16 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			return
 		}
 		result := &sqltypes.Result{
-			Fields: currentFields,
-			Rows:   batchedRows,
+			Fields:  currentFields,
+			Rows:    batchedRows,
+			Notices: notices,
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
+		notices = nil
 	}
 
 	for {
@@ -431,6 +434,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
+					Notices:      notices,
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -439,6 +443,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			currentFields = nil
 			batchedRows = nil
 			batchedSize = 0
+			notices = nil
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
@@ -462,7 +467,8 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse and accumulate notices to be included in the Result.
+			notices = append(notices, c.parseNotice(body))
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -586,7 +592,8 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -633,7 +640,8 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -670,7 +678,8 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -735,7 +744,8 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -763,6 +773,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
+	var notices []*sqltypes.Notice
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -772,14 +783,16 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			return
 		}
 		result := &sqltypes.Result{
-			Fields: currentFields,
-			Rows:   batchedRows,
+			Fields:  currentFields,
+			Rows:    batchedRows,
+			Notices: notices,
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
+		notices = nil
 	}
 
 	for {
@@ -835,6 +848,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
+					Notices:      notices,
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -844,6 +858,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			currentFields = nil
 			batchedRows = nil
 			batchedSize = 0
+			notices = nil
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
@@ -874,7 +889,8 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse and accumulate notices to be included in the Result.
+			notices = append(notices, c.parseNotice(body))
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -937,7 +953,8 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -987,6 +1004,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
+	var notices []*sqltypes.Notice
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -996,14 +1014,16 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			return
 		}
 		result := &sqltypes.Result{
-			Fields: currentFields,
-			Rows:   batchedRows,
+			Fields:  currentFields,
+			Rows:    batchedRows,
+			Notices: notices,
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
+		notices = nil
 	}
 
 	for {
@@ -1062,6 +1082,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
+					Notices:      notices,
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -1070,6 +1091,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			currentFields = nil
 			batchedRows = nil
 			batchedSize = 0
+			notices = nil
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
@@ -1095,7 +1117,8 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse and accumulate notices to be included in the Result.
+			notices = append(notices, c.parseNotice(body))
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {

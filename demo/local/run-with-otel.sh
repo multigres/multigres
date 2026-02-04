@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2025 Supabase, Inc.
+# Copyright 2026 Supabase, Inc.
 # Wrapper script to run commands with OTEL environment variables
 
 set -euo pipefail

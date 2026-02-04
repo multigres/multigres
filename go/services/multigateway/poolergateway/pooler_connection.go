@@ -20,18 +20,15 @@ package poolergateway
 // Tests should cover: connection lifecycle, query delegation, error handling
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"sync"
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	"google.golang.org/grpc"
@@ -138,6 +135,13 @@ func (pc *PoolerConnection) ServiceClient() multipoolerpb.MultiPoolerServiceClie
 	return pc.serviceClient
 }
 
+// QueryService returns the QueryService for executing queries on this pooler.
+// This is the primary interface for query execution and should be used by callers
+// who need to route queries to this specific pooler instance.
+func (pc *PoolerConnection) QueryService() queryservice.QueryService {
+	return pc.queryService
+}
+
 // UpdateMetadata updates the pooler metadata without recreating the gRPC connection.
 // This is used when pooler properties change (e.g., type changes from REPLICA to PRIMARY during promotion).
 func (pc *PoolerConnection) UpdateMetadata(pooler *clustermetadatapb.MultiPooler) {
@@ -152,51 +156,6 @@ func (pc *PoolerConnection) UpdateMetadata(pooler *clustermetadatapb.MultiPooler
 		"type", poolerType)
 }
 
-// StreamExecute executes a query and streams results back via callback.
-func (pc *PoolerConnection) StreamExecute(
-	ctx context.Context,
-	target *query.Target,
-	sql string,
-	options *query.ExecuteOptions,
-	callback func(context.Context, *sqltypes.Result) error,
-) error {
-	return pc.queryService.StreamExecute(ctx, target, sql, options, callback)
-}
-
-// ExecuteQuery executes a query and returns the result.
-// This should be used sparingly only when we know the result set is small.
-func (pc *PoolerConnection) ExecuteQuery(
-	ctx context.Context,
-	target *query.Target,
-	sql string,
-	options *query.ExecuteOptions,
-) (*sqltypes.Result, error) {
-	return pc.queryService.ExecuteQuery(ctx, target, sql, options)
-}
-
-// PortalStreamExecute executes a portal and streams results back via callback.
-func (pc *PoolerConnection) PortalStreamExecute(
-	ctx context.Context,
-	target *query.Target,
-	preparedStatement *query.PreparedStatement,
-	portal *query.Portal,
-	options *query.ExecuteOptions,
-	callback func(context.Context, *sqltypes.Result) error,
-) (queryservice.ReservedState, error) {
-	return pc.queryService.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
-}
-
-// Describe returns metadata about a prepared statement or portal.
-func (pc *PoolerConnection) Describe(
-	ctx context.Context,
-	target *query.Target,
-	preparedStatement *query.PreparedStatement,
-	portal *query.Portal,
-	options *query.ExecuteOptions,
-) (*query.StatementDescription, error) {
-	return pc.queryService.Describe(ctx, target, preparedStatement, portal, options)
-}
-
 // Close closes the gRPC connection to the pooler.
 func (pc *PoolerConnection) Close() error {
 	poolerID := pc.ID()
@@ -207,6 +166,3 @@ func (pc *PoolerConnection) Close() error {
 	}
 	return nil
 }
-
-// Ensure PoolerConnection implements QueryService
-var _ queryservice.QueryService = (*PoolerConnection)(nil)

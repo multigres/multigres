@@ -62,8 +62,8 @@ func TestManager_Open(t *testing.T) {
 	// Verify manager is open and admin pool is created.
 	require.NotNil(t, manager.adminPool)
 	require.NotNil(t, manager.settingsCache)
-	require.NotNil(t, manager.userPools)
-	assert.False(t, manager.closed)
+	assert.Equal(t, 0, manager.UserPoolCount())
+	assert.False(t, manager.IsClosed())
 }
 
 func TestManager_Close(t *testing.T) {
@@ -81,14 +81,14 @@ func TestManager_Close(t *testing.T) {
 	conn.Recycle()
 
 	// Verify user pool exists.
-	assert.Len(t, manager.userPools, 1)
+	assert.Equal(t, 1, manager.UserPoolCount())
 
 	// Close the manager.
 	manager.Close()
 
 	// Verify closed state.
-	assert.True(t, manager.closed)
-	assert.Nil(t, manager.userPools)
+	assert.True(t, manager.IsClosed())
+	assert.Equal(t, 0, manager.UserPoolCount())
 	assert.Nil(t, manager.adminPool)
 }
 
@@ -103,7 +103,7 @@ func TestManager_Close_Idempotent(t *testing.T) {
 	manager.Close()
 	manager.Close()
 
-	assert.True(t, manager.closed)
+	assert.True(t, manager.IsClosed())
 }
 
 func TestManager_GetAdminConn(t *testing.T) {
@@ -148,10 +148,7 @@ func TestManager_GetRegularConn(t *testing.T) {
 	conn.Recycle()
 
 	// Verify user pool was created.
-	manager.mu.Lock()
-	_, ok := manager.userPools["testuser"]
-	manager.mu.Unlock()
-	assert.True(t, ok)
+	assert.True(t, manager.HasUserPool("testuser"))
 }
 
 func TestManager_GetRegularConn_EmptyUser(t *testing.T) {
@@ -369,10 +366,7 @@ func TestManager_UserPoolReuse(t *testing.T) {
 	conn3.Recycle()
 
 	// Only one user pool should exist.
-	manager.mu.Lock()
-	numPools := len(manager.userPools)
-	manager.mu.Unlock()
-	assert.Equal(t, 1, numPools)
+	assert.Equal(t, 1, manager.UserPoolCount())
 }
 
 func TestManager_ConcurrentUserPoolCreation(t *testing.T) {
@@ -410,10 +404,7 @@ func TestManager_ConcurrentUserPoolCreation(t *testing.T) {
 	}
 
 	// Only one user pool should exist.
-	manager.mu.Lock()
-	numPools := len(manager.userPools)
-	manager.mu.Unlock()
-	assert.Equal(t, 1, numPools)
+	assert.Equal(t, 1, manager.UserPoolCount())
 }
 
 func TestManager_ConcurrentDifferentUsers(t *testing.T) {
@@ -447,10 +438,7 @@ func TestManager_ConcurrentDifferentUsers(t *testing.T) {
 	wg.Wait()
 
 	// All user pools should exist.
-	manager.mu.Lock()
-	numPools := len(manager.userPools)
-	manager.mu.Unlock()
-	assert.Equal(t, numUsers, numPools)
+	assert.Equal(t, numUsers, manager.UserPoolCount())
 }
 
 func TestManager_SettingsCacheIntegration(t *testing.T) {
@@ -531,4 +519,81 @@ func TestManager_InternalUser_DelegatestoConfig(t *testing.T) {
 	// Verify Manager.InternalUser() delegates to Config.InternalUser()
 	assert.Equal(t, config.InternalUser(), manager.InternalUser(),
 		"Manager.InternalUser() should return the same value as Config.InternalUser()")
+}
+
+// BenchmarkManager_GetUserPool_HotPath benchmarks the lock-free hot path
+// for getting an existing user's pool. This is the most common operation
+// and should be very fast (atomic load + map lookup).
+func BenchmarkManager_GetUserPool_HotPath(b *testing.B) {
+	server := fakepgserver.New(b)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+
+	ctx := context.Background()
+	manager.Open(ctx, &ConnectionConfig{
+		Host:     "127.0.0.1",
+		Port:     server.ClientConfig().Port,
+		Database: "testdb",
+	})
+	defer manager.Close()
+
+	// Create the user pool first (cold path)
+	conn, err := manager.GetRegularConn(ctx, "benchuser")
+	if err != nil {
+		b.Fatalf("failed to create user pool: %v", err)
+	}
+	conn.Recycle()
+
+	// Benchmark the hot path (existing user)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			// This should only do: atomic load + map lookup
+			if !manager.HasUserPool("benchuser") {
+				b.Fatal("user pool should exist")
+			}
+		}
+	})
+}
+
+// BenchmarkManager_GetRegularConn_ExistingUser benchmarks getting a connection
+// for an existing user. This includes the hot path pool lookup plus connection
+// acquisition from the pool.
+func BenchmarkManager_GetRegularConn_ExistingUser(b *testing.B) {
+	server := fakepgserver.New(b)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+	manager := config.NewManager(slog.Default())
+
+	ctx := context.Background()
+	manager.Open(ctx, &ConnectionConfig{
+		Host:     "127.0.0.1",
+		Port:     server.ClientConfig().Port,
+		Database: "testdb",
+	})
+	defer manager.Close()
+
+	// Create the user pool first
+	conn, err := manager.GetRegularConn(ctx, "benchuser")
+	if err != nil {
+		b.Fatalf("failed to create user pool: %v", err)
+	}
+	conn.Recycle()
+
+	// Benchmark getting connections for existing user
+	b.ResetTimer()
+	for b.Loop() {
+		conn, err := manager.GetRegularConn(ctx, "benchuser")
+		if err != nil {
+			b.Fatalf("failed to get connection: %v", err)
+		}
+		conn.Recycle()
+	}
 }

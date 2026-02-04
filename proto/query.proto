@@ -40,6 +40,10 @@ message QueryResult {
   // When set, the protocol layer will send CommandComplete and reset state for the next result set.
   // Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "CREATE TABLE"
   string command_tag = 4;
+
+  // notices contains any PostgreSQL notices received during query execution.
+  // These are non-fatal messages like warnings or informational notices.
+  repeated Notice notices = 5;
 }
 
 // Field represents metadata about a column in the result set.
@@ -79,6 +83,53 @@ message Row {
   // values contains all non-null values concatenated together.
   // Use lengths to split this into individual column values.
   bytes values = 2;
+}
+
+// Notice represents a PostgreSQL notice response (non-fatal messages).
+// These include warnings, informational messages, and other diagnostics
+// that don't cause the query to fail.
+message Notice {
+  // severity is the notice severity level (e.g., "NOTICE", "WARNING", "INFO")
+  string severity = 1;
+
+  // code is the SQLSTATE error code
+  string code = 2;
+
+  // message is the primary human-readable notice message
+  string message = 3;
+
+  // detail provides additional detail about the notice (optional)
+  string detail = 4;
+
+  // hint provides a hint about how to address the notice (optional)
+  string hint = 5;
+
+  // position is the cursor position in the original query string (1-indexed, 0 if not available)
+  int32 position = 6;
+
+  // internal_position is the cursor position in the internal query (1-indexed, 0 if not available)
+  int32 internal_position = 7;
+
+  // internal_query is the text of the internally-generated query (optional)
+  string internal_query = 8;
+
+  // where is the context in which the notice occurred, e.g., PL/pgSQL call stack (optional)
+  string where = 9;
+
+  // schema_name is the name of the schema associated with the notice (optional)
+  string schema_name = 10;
+
+  // table_name is the name of the table associated with the notice (optional)
+  string table_name = 11;
+
+  // column_name is the name of the column associated with the notice (optional)
+  string column_name = 12;
+
+  // data_type_name is the name of the data type associated with the notice (optional)
+  string data_type_name = 13;
+
+  // constraint_name is the name of the constraint associated with the notice (optional)
+  string constraint_name = 14;
 }
 
 // StatementDescription describes a prepared statement or portal.

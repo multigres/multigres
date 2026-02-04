@@ -82,8 +82,8 @@ func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetada
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard)
 
-	// Return the connection as a QueryService
-	return conn, nil
+	// Return the connection's QueryService
+	return conn.QueryService(), nil
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -119,7 +119,7 @@ func (pg *PoolerGateway) StreamExecute(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.StreamExecute(ctx, target, sql, options, callback)
+	return conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
 }
 
 // ExecuteQuery implements queryservice.QueryService.
@@ -142,7 +142,7 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.ExecuteQuery(ctx, target, sql, options)
+	return conn.QueryService().ExecuteQuery(ctx, target, sql, options)
 }
 
 // PortalStreamExecute implements queryservice.QueryService.
@@ -170,7 +170,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+	return conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 }
 
 // Describe implements queryservice.QueryService.
@@ -197,7 +197,24 @@ func (pg *PoolerGateway) Describe(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.Describe(ctx, target, preparedStatement, portal, options)
+	return conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
+}
+
+// getQueryServiceForTarget is a helper that gets a QueryService for the given target.
+// This is used by methods that need to get a QueryService and handle errors consistently.
+func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *query.Target) (queryservice.QueryService, error) {
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService(), nil
 }
 
 // Close implements queryservice.QueryService.
@@ -247,4 +264,76 @@ func (pg *PoolerGateway) Stats() map[string]any {
 	return map[string]any{
 		"active_connections": pg.loadBalancer.ConnectionCount(),
 	}
+}
+
+// CopyReady implements queryservice.QueryService.
+// It initiates a COPY FROM STDIN operation and returns format information.
+func (pg *PoolerGateway) CopyReady(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+) (int16, []int16, queryservice.ReservedState, error) {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return 0, nil, queryservice.ReservedState{}, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopyReady(ctx, target, copyQuery, options)
+}
+
+// CopySendData implements queryservice.QueryService.
+// It sends a chunk of data for an active COPY operation.
+func (pg *PoolerGateway) CopySendData(
+	ctx context.Context,
+	target *query.Target,
+	data []byte,
+	options *query.ExecuteOptions,
+) error {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopySendData(ctx, target, data, options)
+}
+
+// CopyFinalize implements queryservice.QueryService.
+// It completes a COPY operation, sending final data and returning the result.
+func (pg *PoolerGateway) CopyFinalize(
+	ctx context.Context,
+	target *query.Target,
+	finalData []byte,
+	options *query.ExecuteOptions,
+) (*sqltypes.Result, error) {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopyFinalize(ctx, target, finalData, options)
+}
+
+// CopyAbort implements queryservice.QueryService.
+// It aborts a COPY operation.
+func (pg *PoolerGateway) CopyAbort(
+	ctx context.Context,
+	target *query.Target,
+	errorMsg string,
+	options *query.ExecuteOptions,
+) error {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.CopyAbort(ctx, target, errorMsg, options)
 }

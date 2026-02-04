@@ -371,7 +371,7 @@ func (c *Conn) sendAuthenticationSASLFinal(data string) error {
 // readSASLInitialResponse reads SASLInitialResponse from the client.
 // Returns the SASL data (client-first-message for SCRAM).
 func (c *Conn) readSASLInitialResponse() (string, error) {
-	msgType, err := c.readMessageType()
+	msgType, err := c.ReadMessageType()
 	if err != nil {
 		return "", fmt.Errorf("failed to read message type: %w", err)
 	}
@@ -379,7 +379,7 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 		return "", fmt.Errorf("expected SASLInitialResponse ('p'), got '%c'", msgType)
 	}
 
-	length, err := c.readMessageLength()
+	length, err := c.ReadMessageLength()
 	if err != nil {
 		return "", fmt.Errorf("failed to read message length: %w", err)
 	}
@@ -427,7 +427,7 @@ func (c *Conn) readSASLInitialResponse() (string, error) {
 // readSASLResponse reads SASLResponse from the client.
 // Returns the SASL data (client-final-message for SCRAM).
 func (c *Conn) readSASLResponse() (string, error) {
-	msgType, err := c.readMessageType()
+	msgType, err := c.ReadMessageType()
 	if err != nil {
 		return "", fmt.Errorf("failed to read message type: %w", err)
 	}
@@ -435,7 +435,7 @@ func (c *Conn) readSASLResponse() (string, error) {
 		return "", fmt.Errorf("expected SASLResponse ('p'), got '%c'", msgType)
 	}
 
-	length, err := c.readMessageLength()
+	length, err := c.ReadMessageLength()
 	if err != nil {
 		return "", fmt.Errorf("failed to read message length: %w", err)
 	}

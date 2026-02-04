@@ -98,6 +98,56 @@ type IExecute interface {
 		portalInfo *preparedstatement.PortalInfo,
 		preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 	) (*query.StatementDescription, error)
+
+	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---
+	// These methods follow the same pattern as StreamExecute: they take tableGroup/shard
+	// and manage reserved connection state internally via state.ShardStates.
+
+	// CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
+	// Stores reserved connection info in state.ShardStates for the given tableGroup/shard.
+	// Returns: format, columnFormats, error
+	CopyInitiate(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		queryStr string,
+		state *handler.MultiGatewayConnectionState,
+		callback func(ctx context.Context, result *sqltypes.Result) error,
+	) (format int16, columnFormats []int16, err error)
+
+	// CopySendData sends a chunk of COPY data via bidirectional stream.
+	// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
+	CopySendData(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
+		data []byte,
+	) error
+
+	// CopyFinalize sends the final chunk and CopyDone via bidirectional stream.
+	// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
+	CopyFinalize(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
+		finalData []byte,
+		callback func(ctx context.Context, result *sqltypes.Result) error,
+	) error
+
+	// CopyAbort aborts the COPY operation via bidirectional stream.
+	// Looks up reserved connection from state.ShardStates based on tableGroup/shard.
+	CopyAbort(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		state *handler.MultiGatewayConnectionState,
+	) error
 }
 
 // Primitive is the building block of the query execution plan.

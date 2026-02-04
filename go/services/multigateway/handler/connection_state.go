@@ -129,6 +129,24 @@ func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Targ
 	m.ShardStates = append(m.ShardStates, ss)
 }
 
+// ClearReservedConnection removes a reserved connection for a given target.
+// This should be called when a reserved connection is released (e.g., after COPY completes).
+func (m *MultiGatewayConnectionState) ClearReservedConnection(target *query.Target) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			// Remove by swapping with last element and truncating
+			lastIdx := len(m.ShardStates) - 1
+			if i != lastIdx {
+				m.ShardStates[i] = m.ShardStates[lastIdx]
+			}
+			m.ShardStates = m.ShardStates[:lastIdx]
+			return
+		}
+	}
+}
+
 // SetSessionVariable sets a session variable (from SET command).
 // The variable name and value are stored to be propagated to multipooler.
 func (m *MultiGatewayConnectionState) SetSessionVariable(name, value string) {

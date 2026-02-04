@@ -31,7 +31,6 @@ func (p *Planner) planVariableSetStmt(
 	stmt *ast.VariableSetStmt,
 	conn *server.Conn,
 ) (*engine.Plan, error) {
-	// SET LOCAL is transaction-scoped, not tracked in Phase 1
 	// Just pass through to PostgreSQL
 	if stmt.IsLocal {
 		p.logger.Debug("SET LOCAL detected, passing through",
