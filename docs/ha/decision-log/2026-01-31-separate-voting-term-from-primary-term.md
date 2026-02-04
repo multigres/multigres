@@ -22,6 +22,7 @@ Track two distinct term numbers per node:
 - **Primary term**: the term for which the node actually became primary and is executing primary decisions
 
 The "are you primary?" response must include both:
+
 - whether it is currently a primary
 - the specific primary term it is primary for
 
@@ -36,9 +37,11 @@ If a node has accepted term 6 but is still primary for term 5, it must report pr
 ## Scope
 
 **In scope:**
+
 - Add primary term storage and reporting so primary determination is correct under transitions
 
 **Not in scope yet:**
+
 - Full transaction term tracking and propagation correctness based on term numbered transactions. We will continue using timestamp-based ordering for now until synchronous replication carries term metadata (planned via two-phase sync)
 
 ## Implementation Notes
