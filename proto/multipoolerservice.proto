@@ -56,6 +56,15 @@ service MultiPoolerService {
   // The gateway sends the initial command and then streams data/messages.
   // The pooler responds with protocol-specific messages and final result.
   rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
+
+  // ReserveStreamExecute creates a reserved connection and executes a query.
+  // Optionally executes BEGIN before the query to start a transaction atomically.
+  // Returns the reserved connection ID for subsequent queries in the transaction.
+  rpc ReserveStreamExecute(ReserveStreamExecuteRequest) returns (stream ReserveStreamExecuteResponse);
+
+  // ReleaseReservedConnection releases a reserved connection back to the pool.
+  // Executes COMMIT or ROLLBACK before releasing based on the action specified.
+  rpc ReleaseReservedConnection(ReleaseReservedConnectionRequest) returns (ReleaseReservedConnectionResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -246,4 +255,72 @@ message CopyBidiExecuteResponse {
 
   // error contains the error message (for ERROR phase)
   string error = 7;
+}
+
+// ReserveAction specifies what action to take when creating a reserved connection.
+enum ReserveAction {
+  RESERVE_ACTION_UNSPECIFIED = 0;
+  // Execute BEGIN before the query to start a transaction
+  RESERVE_ACTION_BEGIN = 1;
+}
+
+// ReleaseAction specifies what action to take when releasing a reserved connection.
+enum ReleaseAction {
+  RELEASE_ACTION_UNSPECIFIED = 0;
+  // Execute COMMIT before releasing the connection
+  RELEASE_ACTION_COMMIT = 1;
+  // Execute ROLLBACK before releasing the connection
+  RELEASE_ACTION_ROLLBACK = 2;
+}
+
+// ReserveStreamExecuteRequest represents a request to create a reserved connection and execute a query.
+message ReserveStreamExecuteRequest {
+  // query is the SQL query to execute
+  string query = 1;
+
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 2;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 3;
+
+  // options contains execution options including session state
+  query.ExecuteOptions options = 4;
+
+  // action specifies what to do before executing the query (e.g., BEGIN for transactions)
+  ReserveAction action = 5;
+}
+
+// ReserveStreamExecuteResponse represents a response in the stream of query results.
+message ReserveStreamExecuteResponse {
+  // result contains the query result data (rows, fields, etc.)
+  query.QueryResult result = 1;
+
+  // reserved_connection_id is the ID of the reserved connection
+  // This is returned in the first response and should be used for subsequent queries
+  uint64 reserved_connection_id = 2;
+
+  // pooler_id identifies which multipooler instance owns the reserved connection
+  clustermetadata.ID pooler_id = 3;
+}
+
+// ReleaseReservedConnectionRequest represents a request to release a reserved connection.
+message ReleaseReservedConnectionRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection to release
+  query.ExecuteOptions options = 3;
+
+  // action specifies what to do before releasing (COMMIT or ROLLBACK)
+  ReleaseAction action = 4;
+}
+
+// ReleaseReservedConnectionResponse represents the response from releasing a reserved connection.
+message ReleaseReservedConnectionResponse {
+  // result contains the result of the COMMIT or ROLLBACK command
+  query.QueryResult result = 1;
 }
