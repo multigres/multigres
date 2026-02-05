@@ -81,12 +81,20 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 	st := h.getConnectionState(conn)
 
-	for _, astStmt := range asts {
-		// Route the query through the executor which will eventually call multipooler
-		err = h.executor.StreamExecute(ctx, conn, st, queryStr, astStmt, callback)
-		if err != nil {
-			return err
-		}
+	// For multi-statement batches, use implicit transaction handling.
+	// This handles cases where transactions start/end mid-batch and ensures
+	// proper auto-rollback for implicit transaction segments on failure.
+	if len(asts) > 1 {
+		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
+			"statement_count", len(asts),
+			"already_in_transaction", st.IsInTransaction())
+		return h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, callback)
+	}
+
+	// Single statement - execute normally
+	err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], callback)
+	if err != nil {
+		return err
 	}
 	return nil
 }
