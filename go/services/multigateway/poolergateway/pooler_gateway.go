@@ -460,3 +460,41 @@ func (pg *PoolerGateway) CopyAbort(
 	// Delegate to the pooler's QueryService
 	return qs.CopyAbort(ctx, target, errorMsg, options)
 }
+
+// ReserveStreamExecute implements queryservice.QueryService.
+// It creates a reserved connection and executes the query.
+func (pg *PoolerGateway) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (queryservice.ReservedState, error) {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return queryservice.ReservedState{}, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+}
+
+// ConcludeTransaction implements queryservice.QueryService.
+// It concludes a transaction with COMMIT or ROLLBACK.
+func (pg *PoolerGateway) ConcludeTransaction(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	conclusion multipoolerpb.TransactionConclusion,
+) (*sqltypes.Result, queryservice.ReservedState, error) {
+	// Get a pooler matching the target
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return nil, queryservice.ReservedState{}, err
+	}
+
+	// Delegate to the pooler's QueryService
+	return qs.ConcludeTransaction(ctx, target, options, conclusion)
+}

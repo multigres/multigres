@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -178,4 +179,51 @@ type QueryService interface {
 		errorMsg string,
 		options *query.ExecuteOptions,
 	) error
+
+	// ReserveStreamExecute creates a reserved connection and executes a query.
+	// Based on ReservationOptions.Reason, it may execute setup commands:
+	//   - RESERVATION_REASON_TRANSACTION: Execute BEGIN before the query
+	//   - RESERVATION_REASON_TEMP_TABLE: Just reserve, no BEGIN
+	//   - RESERVATION_REASON_PORTAL: Incorrect usage, use PortalStreamExecute instead.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   sql: The SQL query to execute
+	//   options: Execute options including user and session settings
+	//   reservationOptions: Specifies why the connection is being reserved
+	//   callback: Function called for each result chunk
+	//
+	// Returns ReservedState containing the reserved connection ID for subsequent queries.
+	ReserveStreamExecute(
+		ctx context.Context,
+		target *query.Target,
+		sql string,
+		options *query.ExecuteOptions,
+		reservationOptions *multipoolerpb.ReservationOptions,
+		callback func(context.Context, *sqltypes.Result) error,
+	) (ReservedState, error)
+
+	// ConcludeTransaction concludes a transaction on a reserved connection.
+	// Executes COMMIT or ROLLBACK based on the conclusion parameter.
+	//
+	// The connection may remain reserved after the transaction concludes if there
+	// are other reasons to keep it reserved (e.g., temporary tables). The returned
+	// ReservedState indicates whether the connection is still reserved:
+	//   - Empty ReservedState (ReservedConnectionId == 0): Connection released
+	//   - Non-empty ReservedState: Connection still reserved, keep tracking it
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   options: Execute options including reserved connection ID
+	//   conclusion: COMMIT or ROLLBACK
+	//
+	// Returns the result of the COMMIT/ROLLBACK command and the post-transaction reserved state.
+	ConcludeTransaction(
+		ctx context.Context,
+		target *query.Target,
+		options *query.ExecuteOptions,
+		conclusion multipoolerpb.TransactionConclusion,
+	) (*sqltypes.Result, ReservedState, error)
 }

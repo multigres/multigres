@@ -531,5 +531,124 @@ func (g *grpcQueryService) CopyAbort(
 	return nil
 }
 
+// ReserveStreamExecute creates a reserved connection and executes a query.
+// Based on reservationOptions.Reason, may execute BEGIN before the query.
+func (g *grpcQueryService) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	reservationOptions *multipoolerservice.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (queryservice.ReservedState, error) {
+	reason := "unspecified"
+	if reservationOptions != nil {
+		reason = reservationOptions.Reason.String()
+	}
+
+	g.logger.DebugContext(ctx, "reserve stream execute",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"reason", reason,
+		"query", sql)
+
+	// Create the request
+	req := &multipoolerservice.ReserveStreamExecuteRequest{
+		Query:              sql,
+		Target:             target,
+		Options:            options,
+		ReservationOptions: reservationOptions,
+	}
+
+	// Call the gRPC ReserveStreamExecute
+	stream, err := g.client.ReserveStreamExecute(ctx, req)
+	if err != nil {
+		return queryservice.ReservedState{}, fmt.Errorf("failed to start reserve stream execute: %w", err)
+	}
+
+	var reservedState queryservice.ReservedState
+
+	// Stream results back via callback
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			g.logger.DebugContext(ctx, "reserve stream completed", "pooler_id", g.poolerID)
+			return reservedState, nil
+		}
+		if err != nil {
+			return reservedState, fmt.Errorf("reserve stream receive error: %w", err)
+		}
+
+		// Extract reserved state from response
+		if response.ReservedConnectionId != 0 && reservedState.ReservedConnectionId == 0 {
+			reservedState.ReservedConnectionId = response.ReservedConnectionId
+			reservedState.PoolerID = response.PoolerId
+			g.logger.DebugContext(ctx, "received reserved connection",
+				"reserved_connection_id", response.ReservedConnectionId)
+		}
+
+		// Extract result from response
+		if response.Result == nil {
+			continue
+		}
+
+		result := sqltypes.ResultFromProto(response.Result)
+		if err := callback(ctx, result); err != nil {
+			return reservedState, err
+		}
+	}
+}
+
+// ConcludeTransaction concludes a transaction on a reserved connection.
+// Returns the result and the post-transaction reserved state.
+func (g *grpcQueryService) ConcludeTransaction(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	conclusion multipoolerservice.TransactionConclusion,
+) (*sqltypes.Result, queryservice.ReservedState, error) {
+	g.logger.DebugContext(ctx, "conclude transaction",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"conclusion", conclusion.String(),
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	// Create the request
+	req := &multipoolerservice.ConcludeTransactionRequest{
+		Target:     target,
+		Options:    options,
+		Conclusion: conclusion,
+	}
+
+	// Call the gRPC ConcludeTransaction
+	response, err := g.client.ConcludeTransaction(ctx, req)
+	if err != nil {
+		return nil, queryservice.ReservedState{}, fmt.Errorf("conclude transaction failed: %w", err)
+	}
+
+	result := sqltypes.ResultFromProto(response.Result)
+
+	// Build the reserved state from response
+	reservedState := queryservice.ReservedState{
+		ReservedConnectionId: response.ReservedConnectionId,
+		PoolerID:             response.PoolerId,
+	}
+
+	if reservedState.ReservedConnectionId == 0 {
+		g.logger.DebugContext(ctx, "transaction concluded, connection released",
+			"pooler_id", g.poolerID,
+			"command_tag", result.CommandTag)
+	} else {
+		g.logger.DebugContext(ctx, "transaction concluded, connection still reserved",
+			"pooler_id", g.poolerID,
+			"command_tag", result.CommandTag,
+			"reserved_conn_id", reservedState.ReservedConnectionId)
+	}
+
+	return result, reservedState, nil
+}
+
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)

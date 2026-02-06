@@ -24,11 +24,13 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -677,6 +679,153 @@ func int32ToInt16Slice(in []int32) []int16 {
 		out[i] = int16(v)
 	}
 	return out
+}
+
+// ReserveStreamExecute creates a reserved connection and executes a query.
+// Based on reservationOptions.Reason, it may execute setup commands (e.g., BEGIN for transactions).
+func (e *Executor) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (queryservice.ReservedState, error) {
+	user := e.getUserFromOptions(options)
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
+	}
+
+	// Determine if we need to execute BEGIN based on reservation reason
+	reason := multipoolerpb.ReservationReason_RESERVATION_REASON_UNSPECIFIED
+	if reservationOptions != nil {
+		reason = reservationOptions.Reason
+	}
+	beginTx := protoutil.RequiresBegin(reason)
+
+	e.logger.DebugContext(ctx, "reserve stream execute",
+		"user", user,
+		"reason", reason.String(),
+		"begin_tx", beginTx,
+		"query", sql)
+
+	// Create a reserved connection
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
+	if err != nil {
+		return queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection: %w", err)
+	}
+
+	// If this is a transaction reservation, execute BEGIN first
+	if beginTx {
+		_, err := reservedConn.Query(ctx, "BEGIN")
+		if err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return queryservice.ReservedState{}, fmt.Errorf("failed to execute BEGIN: %w", err)
+		}
+		// Send BEGIN result to callback
+		if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return queryservice.ReservedState{}, err
+		}
+	}
+
+	// Execute the actual query
+	results, err := reservedConn.Query(ctx, sql)
+	if err != nil {
+		if beginTx {
+			// Rollback on error
+			_, _ = reservedConn.Query(ctx, "ROLLBACK")
+		}
+		reservedConn.Release(reserved.ReleaseError)
+		return queryservice.ReservedState{}, fmt.Errorf("query execution failed: %w", err)
+	}
+
+	// Send results to callback
+	for _, result := range results {
+		if err := callback(ctx, result); err != nil {
+			if beginTx {
+				_, _ = reservedConn.Query(ctx, "ROLLBACK")
+			}
+			reservedConn.Release(reserved.ReleaseError)
+			return queryservice.ReservedState{}, err
+		}
+	}
+
+	reservedState := queryservice.ReservedState{
+		ReservedConnectionId: uint64(reservedConn.ConnID),
+	}
+
+	e.logger.DebugContext(ctx, "reserve stream execute completed",
+		"reserved_conn_id", reservedState.ReservedConnectionId)
+
+	return reservedState, nil
+}
+
+// ConcludeTransaction concludes a transaction on a reserved connection.
+// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+func (e *Executor) ConcludeTransaction(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	conclusion multipoolerpb.TransactionConclusion,
+) (*sqltypes.Result, queryservice.ReservedState, error) {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, queryservice.ReservedState{}, errors.New("reserved_connection_id is required")
+	}
+
+	user := e.getUserFromOptions(options)
+
+	e.logger.DebugContext(ctx, "conclude transaction",
+		"user", user,
+		"reserved_conn_id", options.ReservedConnectionId,
+		"conclusion", conclusion.String())
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok {
+		return nil, queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
+	}
+
+	// Execute COMMIT or ROLLBACK
+	var sql string
+	var releaseReason reserved.ReleaseReason
+	switch conclusion {
+	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT:
+		sql = "COMMIT"
+		releaseReason = reserved.ReleaseCommit
+	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
+		sql = "ROLLBACK"
+		releaseReason = reserved.ReleaseRollback
+	default:
+		return nil, queryservice.ReservedState{}, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
+	}
+
+	results, err := reservedConn.Query(ctx, sql)
+	if err != nil {
+		reservedConn.Release(reserved.ReleaseError)
+		return nil, queryservice.ReservedState{}, fmt.Errorf("failed to execute %s: %w", sql, err)
+	}
+
+	var result *sqltypes.Result
+	if len(results) > 0 {
+		result = results[0]
+	} else {
+		result = &sqltypes.Result{CommandTag: sql}
+	}
+
+	// TODO: Check if there are other reasons to keep the connection reserved (e.g., temp tables).
+	// For now, always release the connection after concluding the transaction.
+	// In the future, we'll check reservedConn.Properties and return non-empty ReservedState
+	// if the connection should remain reserved.
+	reservedConn.Release(releaseReason)
+
+	e.logger.DebugContext(ctx, "transaction concluded, connection released",
+		"reserved_conn_id", options.ReservedConnectionId,
+		"command_tag", result.CommandTag)
+
+	// Return empty ReservedState to indicate connection was released
+	return result, queryservice.ReservedState{}, nil
 }
 
 // Ensure Executor implements queryservice.QueryService

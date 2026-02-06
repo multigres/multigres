@@ -36,14 +36,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiPoolerService_ExecuteQuery_FullMethodName              = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
-	MultiPoolerService_StreamExecute_FullMethodName             = "/multipoolerservice.MultiPoolerService/StreamExecute"
-	MultiPoolerService_PortalStreamExecute_FullMethodName       = "/multipoolerservice.MultiPoolerService/PortalStreamExecute"
-	MultiPoolerService_Describe_FullMethodName                  = "/multipoolerservice.MultiPoolerService/Describe"
-	MultiPoolerService_GetAuthCredentials_FullMethodName        = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
-	MultiPoolerService_CopyBidiExecute_FullMethodName           = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
-	MultiPoolerService_ReserveStreamExecute_FullMethodName      = "/multipoolerservice.MultiPoolerService/ReserveStreamExecute"
-	MultiPoolerService_ReleaseReservedConnection_FullMethodName = "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"
+	MultiPoolerService_ExecuteQuery_FullMethodName         = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
+	MultiPoolerService_StreamExecute_FullMethodName        = "/multipoolerservice.MultiPoolerService/StreamExecute"
+	MultiPoolerService_PortalStreamExecute_FullMethodName  = "/multipoolerservice.MultiPoolerService/PortalStreamExecute"
+	MultiPoolerService_Describe_FullMethodName             = "/multipoolerservice.MultiPoolerService/Describe"
+	MultiPoolerService_GetAuthCredentials_FullMethodName   = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
+	MultiPoolerService_CopyBidiExecute_FullMethodName      = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
+	MultiPoolerService_ReserveStreamExecute_FullMethodName = "/multipoolerservice.MultiPoolerService/ReserveStreamExecute"
+	MultiPoolerService_ConcludeTransaction_FullMethodName  = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
 )
 
 // MultiPoolerServiceClient is the client API for MultiPoolerService service.
@@ -76,12 +76,13 @@ type MultiPoolerServiceClient interface {
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error)
 	// ReserveStreamExecute creates a reserved connection and executes a query.
-	// Optionally executes BEGIN before the query to start a transaction atomically.
-	// Returns the reserved connection ID for subsequent queries in the transaction.
+	// Based on ReservationOptions.reason, may execute BEGIN before the query (for transactions).
+	// Returns the reserved connection ID for subsequent queries.
 	ReserveStreamExecute(ctx context.Context, in *ReserveStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReserveStreamExecuteResponse], error)
-	// ReleaseReservedConnection releases a reserved connection back to the pool.
-	// Executes COMMIT or ROLLBACK before releasing based on the action specified.
-	ReleaseReservedConnection(ctx context.Context, in *ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*ReleaseReservedConnectionResponse, error)
+	// ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
+	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+	// Returns the reserved state - if non-empty, the connection is still reserved.
+	ConcludeTransaction(ctx context.Context, in *ConcludeTransactionRequest, opts ...grpc.CallOption) (*ConcludeTransactionResponse, error)
 }
 
 type multiPoolerServiceClient struct {
@@ -192,10 +193,10 @@ func (c *multiPoolerServiceClient) ReserveStreamExecute(ctx context.Context, in 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_ReserveStreamExecuteClient = grpc.ServerStreamingClient[ReserveStreamExecuteResponse]
 
-func (c *multiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*ReleaseReservedConnectionResponse, error) {
+func (c *multiPoolerServiceClient) ConcludeTransaction(ctx context.Context, in *ConcludeTransactionRequest, opts ...grpc.CallOption) (*ConcludeTransactionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ReleaseReservedConnectionResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_ReleaseReservedConnection_FullMethodName, in, out, cOpts...)
+	out := new(ConcludeTransactionResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerService_ConcludeTransaction_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -232,12 +233,13 @@ type MultiPoolerServiceServer interface {
 	// The pooler responds with protocol-specific messages and final result.
 	CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error
 	// ReserveStreamExecute creates a reserved connection and executes a query.
-	// Optionally executes BEGIN before the query to start a transaction atomically.
-	// Returns the reserved connection ID for subsequent queries in the transaction.
+	// Based on ReservationOptions.reason, may execute BEGIN before the query (for transactions).
+	// Returns the reserved connection ID for subsequent queries.
 	ReserveStreamExecute(*ReserveStreamExecuteRequest, grpc.ServerStreamingServer[ReserveStreamExecuteResponse]) error
-	// ReleaseReservedConnection releases a reserved connection back to the pool.
-	// Executes COMMIT or ROLLBACK before releasing based on the action specified.
-	ReleaseReservedConnection(context.Context, *ReleaseReservedConnectionRequest) (*ReleaseReservedConnectionResponse, error)
+	// ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
+	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+	// Returns the reserved state - if non-empty, the connection is still reserved.
+	ConcludeTransaction(context.Context, *ConcludeTransactionRequest) (*ConcludeTransactionResponse, error)
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
 
@@ -269,8 +271,8 @@ func (UnimplementedMultiPoolerServiceServer) CopyBidiExecute(grpc.BidiStreamingS
 func (UnimplementedMultiPoolerServiceServer) ReserveStreamExecute(*ReserveStreamExecuteRequest, grpc.ServerStreamingServer[ReserveStreamExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ReserveStreamExecute not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) ReleaseReservedConnection(context.Context, *ReleaseReservedConnectionRequest) (*ReleaseReservedConnectionResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ReleaseReservedConnection not implemented")
+func (UnimplementedMultiPoolerServiceServer) ConcludeTransaction(context.Context, *ConcludeTransactionRequest) (*ConcludeTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConcludeTransaction not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
 func (UnimplementedMultiPoolerServiceServer) testEmbeddedByValue()                            {}
@@ -387,20 +389,20 @@ func _MultiPoolerService_ReserveStreamExecute_Handler(srv interface{}, stream gr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MultiPoolerService_ReserveStreamExecuteServer = grpc.ServerStreamingServer[ReserveStreamExecuteResponse]
 
-func _MultiPoolerService_ReleaseReservedConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReleaseReservedConnectionRequest)
+func _MultiPoolerService_ConcludeTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConcludeTransactionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).ReleaseReservedConnection(ctx, in)
+		return srv.(MultiPoolerServiceServer).ConcludeTransaction(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerService_ReleaseReservedConnection_FullMethodName,
+		FullMethod: MultiPoolerService_ConcludeTransaction_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).ReleaseReservedConnection(ctx, req.(*ReleaseReservedConnectionRequest))
+		return srv.(MultiPoolerServiceServer).ConcludeTransaction(ctx, req.(*ConcludeTransactionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -425,8 +427,8 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiPoolerService_GetAuthCredentials_Handler,
 		},
 		{
-			MethodName: "ReleaseReservedConnection",
-			Handler:    _MultiPoolerService_ReleaseReservedConnection_Handler,
+			MethodName: "ConcludeTransaction",
+			Handler:    _MultiPoolerService_ConcludeTransaction_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
