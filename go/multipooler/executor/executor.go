@@ -278,10 +278,10 @@ func (e *Executor) portalExecuteWithReserved(
 	if !completed {
 		reservedConn.ReserveForPortal(portal.Name)
 	} else {
-		// Portal completed, release this portal's reservation
+		// Portal completed, release this portal's reservation.
+		// ReleasePortal returns true only when all reservation reasons are gone.
 		shouldRelease := reservedConn.ReleasePortal(portal.Name)
-		// If no more portal reservations and not in a transaction, release the connection
-		if shouldRelease && !reservedConn.IsInTransaction() {
+		if shouldRelease {
 			reservedConn.Release(reserved.ReleasePortalComplete)
 		}
 	}
@@ -720,6 +720,7 @@ func (e *Executor) ReserveStreamExecute(
 			reservedConn.Release(reserved.ReleaseError)
 			return queryservice.ReservedState{}, fmt.Errorf("failed to execute BEGIN: %w", err)
 		}
+		reservedConn.AddReservationReason(protoutil.ReasonTransaction)
 		// Send BEGIN result to callback
 		if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
@@ -811,18 +812,22 @@ func (e *Executor) ConcludeTransaction(
 		result = &sqltypes.Result{CommandTag: sql}
 	}
 
-	// TODO: Check if there are other reasons to keep the connection reserved (e.g., temp tables).
-	// For now, always release the connection after concluding the transaction.
-	// In the future, we'll check reservedConn.Properties and return non-zero remainingReasons
-	// if the connection should remain reserved.
-	reservedConn.Release(releaseReason)
+	// Remove the transaction reason. If other reasons remain (e.g., temp tables, portals),
+	// the connection stays reserved.
+	shouldRelease := reservedConn.RemoveReservationReason(protoutil.ReasonTransaction)
+	remainingReasons := reservedConn.RemainingReasons()
 
-	e.logger.DebugContext(ctx, "transaction concluded, connection released",
+	if shouldRelease {
+		reservedConn.Release(releaseReason)
+	}
+
+	e.logger.DebugContext(ctx, "transaction concluded",
 		"reserved_conn_id", options.ReservedConnectionId,
-		"command_tag", result.CommandTag)
+		"command_tag", result.CommandTag,
+		"released", shouldRelease,
+		"remaining_reasons", protoutil.ReasonsString(remainingReasons))
 
-	// Return 0 remainingReasons to indicate connection was released
-	return result, 0, nil
+	return result, remainingReasons, nil
 }
 
 // Ensure Executor implements queryservice.QueryService

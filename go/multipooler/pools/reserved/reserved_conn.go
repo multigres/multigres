@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
@@ -93,7 +94,7 @@ func (c *Conn) Begin(ctx context.Context) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	c.reservedProps = NewReservationProperties(ReservationTransaction)
+	c.AddReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
 
@@ -108,7 +109,7 @@ func (c *Conn) Commit(ctx context.Context) error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	c.reservedProps = nil
+	c.RemoveReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
 
@@ -124,7 +125,7 @@ func (c *Conn) Rollback(ctx context.Context) error {
 		return fmt.Errorf("failed to rollback transaction: %w", err)
 	}
 
-	c.reservedProps = nil
+	c.RemoveReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
 
@@ -138,35 +139,34 @@ func (c *Conn) IsInTransaction() bool {
 // ReserveForPortal marks the connection as reserved for a portal.
 // This is used when Execute returns suspended (portal not fully consumed).
 // Multiple portals can be reserved on the same connection.
+// Preserves any existing reservation reasons (e.g., transaction).
 func (c *Conn) ReserveForPortal(portalName string) {
-	if c.reservedProps == nil || !c.reservedProps.IsForPortal() {
-		c.reservedProps = NewReservationProperties(ReservationPortal)
-	}
+	c.AddReservationReason(protoutil.ReasonPortal)
 	c.reservedProps.AddPortal(portalName)
 }
 
 // ReleasePortal removes a specific portal from the reservation.
-// If no portals remain and the connection was reserved only for portals,
-// the reservation is cleared entirely.
-// Returns true if the connection should be released (no more reservations).
+// If no portals remain, the portal reason is removed from the bitmask.
+// Returns true if all reservation reasons are gone (connection should be released).
 func (c *Conn) ReleasePortal(portalName string) bool {
-	if c.reservedProps == nil || !c.reservedProps.IsForPortal() {
+	if c.reservedProps == nil {
 		return false
 	}
 	c.reservedProps.RemovePortal(portalName)
 	if !c.reservedProps.HasPortals() {
-		c.reservedProps = nil
-		return true
+		return c.RemoveReservationReason(protoutil.ReasonPortal)
 	}
 	return false
 }
 
 // ReleaseAllPortals clears all portal reservations.
-// Does not affect transaction reservations.
+// Removes the portal reason from the bitmask but preserves other reasons.
 func (c *Conn) ReleaseAllPortals() {
-	if c.reservedProps != nil && c.reservedProps.IsForPortal() {
-		c.reservedProps = nil
+	if c.reservedProps == nil {
+		return
 	}
+	c.reservedProps.Portals = nil
+	c.RemoveReservationReason(protoutil.ReasonPortal)
 }
 
 // IsReservedForPortal returns true if reserved for any portal.
@@ -182,6 +182,41 @@ func (c *Conn) HasPortal(portalName string) bool {
 // ReservedProps returns the reservation properties.
 func (c *Conn) ReservedProps() *ReservationProperties {
 	return c.reservedProps
+}
+
+// --- Reason management ---
+
+// AddReservationReason adds a reason to the reservation bitmask.
+// Creates reservedProps if needed (sets StartTime to now).
+func (c *Conn) AddReservationReason(reason uint32) {
+	if c.reservedProps == nil {
+		c.reservedProps = NewReservationProperties(reason)
+	} else {
+		c.reservedProps.AddReason(reason)
+	}
+}
+
+// RemoveReservationReason removes a reason from the reservation bitmask.
+// If all reasons are removed and no portals remain, clears reservedProps.
+// Returns true if all reservation reasons are gone (connection should be released).
+func (c *Conn) RemoveReservationReason(reason uint32) bool {
+	if c.reservedProps == nil {
+		return true
+	}
+	c.reservedProps.RemoveReason(reason)
+	if c.reservedProps.IsEmpty() && !c.reservedProps.HasPortals() {
+		c.reservedProps = nil
+		return true
+	}
+	return false
+}
+
+// RemainingReasons returns the current reasons bitmask, or 0 if not reserved.
+func (c *Conn) RemainingReasons() uint32 {
+	if c.reservedProps == nil {
+		return 0
+	}
+	return c.reservedProps.Reasons
 }
 
 // --- Timeout ---
