@@ -206,7 +206,7 @@ func NewIsolated(t *testing.T, opts ...SetupOption) (*ShardSetup, func()) {
 		if t.Failed() {
 			setup.DumpServiceLogs()
 		}
-		setup.Cleanup()
+		setup.Cleanup(t.Failed())
 	}
 	return setup, cleanup
 }
