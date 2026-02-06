@@ -1,6 +1,6 @@
 ---
 name: "Local Cluster Manager"
-description: "Manage local multigres cluster components (multipooler, pgctld, multiorch, multigateway) - start/stop services, view logs, connect with psql"
+description: "Manage local multigres cluster components (multipooler, pgctld, multiorch, multigateway) - start/stop services, view logs, connect with psql, test S3 backups locally"
 ---
 
 # Local Cluster Manager
@@ -17,6 +17,8 @@ Invoke this skill when the user asks to:
 - Check status of cluster components
 - Check multipooler topology status (PRIMARY/REPLICA roles)
 - Check if PostgreSQL instances are in recovery mode
+- Test S3 backups (initialize cluster with S3, create/list/restore backups)
+- Configure or troubleshoot S3 backup settings
 
 ## Performance Optimization
 
@@ -92,6 +94,114 @@ psql -h <pooler-dir>/pg_sockets -p <pg-port> -U postgres -d postgres -c "SELECT 
 
 Returns `t` (true) if in recovery/standby mode, `f` (false) if primary.
 
+## S3 Backup Testing
+
+Test S3 backups using AWS S3. When the user wants to test S3 backups:
+
+**Configuration Caching**: When S3 configuration values are first provided, cache them in memory for the duration of the conversation. Reuse these cached values for all subsequent S3 operations. Only re-prompt if:
+
+- The user explicitly asks to change the configuration
+- A command fails due to invalid/expired credentials
+- The values have never been provided in this conversation
+
+1. **Prompt for S3 configuration** using AskUserQuestion (only if not already cached):
+   - Path to AWS credentials file (e.g., `./.staging-aws` or `~/.aws/credentials`)
+   - S3 backup URL (e.g., `s3://bucket-name/backups/`)
+   - AWS region (e.g., `us-east-1`)
+
+2. **Check/source credentials**:
+
+```bash
+# Check if AWS credentials are already set
+env | grep AWS_
+
+# If not, source the credentials file (path from user)
+source <credentials-file-path>
+
+# Verify credentials are now set
+env | grep AWS_
+```
+
+**IMPORTANT**:
+
+- NEVER commit AWS credentials files to git
+- Avoid printing credentials to the terminal
+- Credentials file should contain: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN (if using temporary credentials)
+
+3. **Initialize cluster with S3**:
+
+```bash
+./bin/multigres cluster stop --clean
+rm -rf multigres_local
+./bin/multigres cluster init \
+  --backup-url=<s3-url-from-user> \
+  --region=<region-from-user>
+```
+
+4. **Start cluster** (use standard cluster start command)
+
+5. **Verify S3 configuration**:
+
+```bash
+grep -r "aws_access_key_id\|aws_secret_access_key\|region\|repo1-s3" ./multigres_local/data/pooler_*/pgbackrest.conf
+```
+
+Should see AWS credentials and S3 configuration in all pgbackrest.conf files.
+
+### Backup Commands
+
+**Create backup**:
+
+```bash
+./bin/multigres cluster backup
+```
+
+**List all backups**:
+
+```bash
+./bin/multigres cluster list-backups
+```
+
+**Restore from backup**:
+
+```bash
+./bin/multigres cluster restore --backup-label <label>
+```
+
+### Troubleshooting S3 Issues
+
+**Missing/expired credentials**:
+
+```bash
+# Re-source credentials file
+source <credentials-file-path>
+
+# Verify they're set
+env | grep AWS_ | wc -l  # Should show 3+ environment variables
+
+# Reinitialize cluster to pick up new credentials
+./bin/multigres cluster stop --clean
+rm -rf multigres_local
+./bin/multigres cluster init --backup-url=<s3-url> --region=<region>
+```
+
+**Check pgbackrest logs for errors**:
+
+```bash
+# View recent errors
+tail -100 ./multigres_local/data/pooler_*/pg_data/log/pgbackrest-*.log
+
+# Follow logs in real-time
+tail -f ./multigres_local/data/pooler_*/pg_data/log/pgbackrest-*.log
+```
+
+**Verify S3 bucket access**:
+
+```bash
+# Use AWS CLI to test bucket access (if installed)
+aws s3 ls <s3-bucket-path> --region <region>
+```
+
 ## Individual Component Operations
 
 ### Configuration
@@ -163,7 +273,7 @@ Where:
 Example:
 
 ```bash
-psql -h /Users/rafael/sandboxes/multigres/multigres_local/data/pooler_xf42rpl6/pg_sockets -p 25432 -U postgres -d postgres
+psql -h ./multigres_local/data/pooler_xf42rpl6/pg_sockets -p 25432 -U postgres -d postgres
 ```
 
 **Connect to multigateway** (via TCP):

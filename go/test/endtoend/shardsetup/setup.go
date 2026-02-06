@@ -57,6 +57,9 @@ type SetupConfig struct {
 	SkipInitialization                  bool   // Start processes but don't initialize postgres (for bootstrap tests)
 	PrimaryFailoverGracePeriodBase      string // Grace period base before primary failover (default: "0s" for tests)
 	PrimaryFailoverGracePeriodMaxJitter string // Max jitter for grace period (default: "0s" for tests)
+	S3BackupBucket                      string // S3 bucket name (empty = use filesystem)
+	S3BackupRegion                      string // S3 region
+	S3BackupEndpoint                    string // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -124,6 +127,19 @@ func WithPrimaryFailoverGracePeriod(base, maxJitter string) SetupOption {
 	return func(c *SetupConfig) {
 		c.PrimaryFailoverGracePeriodBase = base
 		c.PrimaryFailoverGracePeriodMaxJitter = maxJitter
+	}
+}
+
+// WithS3Backup configures S3-compatible backup storage instead of filesystem.
+// The endpoint parameter should be the s3mock endpoint for testing or empty for AWS S3.
+// Environment variables must be set:
+//   - AWS_ACCESS_KEY_ID
+//   - AWS_SECRET_ACCESS_KEY
+func WithS3Backup(bucket, region, endpoint string) SetupOption {
+	return func(c *SetupConfig) {
+		c.S3BackupBucket = bucket
+		c.S3BackupRegion = region
+		c.S3BackupEndpoint = endpoint
 	}
 }
 
@@ -300,7 +316,30 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	t.Logf("Created topology cell '%s' at etcd %s", config.CellName, etcdClientAddr)
 
 	// Create the database entry in topology with backup_location
-	backupLocation := filepath.Join(tempDir, "backup-repo")
+	var backupLocation *clustermetadatapb.BackupLocation
+
+	if config.S3BackupBucket != "" {
+		// S3/MinIO backend
+		opts := []utils.S3Option{utils.WithS3EnvCredentials()}
+		if config.S3BackupEndpoint != "" {
+			opts = append(opts, utils.WithS3Endpoint(config.S3BackupEndpoint))
+		}
+		backupLocation = utils.S3BackupLocation(config.S3BackupBucket, config.S3BackupRegion, opts...)
+		if config.S3BackupEndpoint != "" {
+			t.Logf("Created database '%s' in topology with S3 backup: bucket=%s, region=%s, endpoint=%s",
+				config.Database, config.S3BackupBucket, config.S3BackupRegion, config.S3BackupEndpoint)
+		} else {
+			t.Logf("Created database '%s' in topology with S3 backup: bucket=%s, region=%s",
+				config.Database, config.S3BackupBucket, config.S3BackupRegion)
+		}
+	} else {
+		// Filesystem backend (current behavior)
+		backupDir := filepath.Join(tempDir, "backup-repo")
+		backupLocation = utils.FilesystemBackupLocation(backupDir)
+		t.Logf("Created database '%s' in topology with filesystem backup: path=%s",
+			config.Database, backupDir)
+	}
+
 	err = ts.CreateDatabase(context.Background(), config.Database, &clustermetadatapb.Database{
 		Name:             config.Database,
 		BackupLocation:   backupLocation,
@@ -309,7 +348,6 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	if err != nil {
 		t.Fatalf("failed to create database in topology: %v", err)
 	}
-	t.Logf("Created database '%s' in topology with backup_location=%s", config.Database, backupLocation)
 
 	setup := &ShardSetup{
 		TempDir:            tempDir,

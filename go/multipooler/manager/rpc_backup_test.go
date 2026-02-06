@@ -28,9 +28,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/timer"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -70,39 +72,39 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		PoolerDir:  poolerDir,
 	}
 
-	// Create a topology store with backup location (base path) if provided
+	// Create a topology store with backup location if provided
 	var topoClient topoclient.Store
+	var backupConfig *backup.Config
 	if backupLocation != "" {
 		ctx := context.Background()
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		err := ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
 			Name:             database,
-			BackupLocation:   backupLocation, // Base path in topology
+			BackupLocation:   utils.FilesystemBackupLocation(backupLocation),
 			DurabilityPolicy: "ANY_2",
 		})
 		if err == nil {
 			topoClient = ts
 		}
-	}
 
-	// Compute full backup location: base path + database/tablegroup/shard
-	fullBackupLocation := ""
-	if backupLocation != "" {
-		fullBackupLocation = filepath.Join(backupLocation, database, tableGroup, shard)
+		// Create backup config
+		backupConfig, _ = backup.NewConfig(
+			utils.FilesystemBackupLocation(backupLocation),
+		)
 	}
 
 	monitorRunner := timer.NewPeriodicRunner(context.TODO(), 10*time.Second)
 
 	pm := &MultiPoolerManager{
-		config:         &Config{},
-		serviceID:      &clustermetadatapb.ID{Name: "test-service"},
-		topoClient:     topoClient,
-		multipooler:    multipoolerProto,
-		state:          ManagerStateReady,
-		backupLocation: fullBackupLocation,
-		actionLock:     NewActionLock(),
-		logger:         slog.Default(),
-		pgMonitor:      monitorRunner,
+		config:       &Config{},
+		serviceID:    multipoolerID,
+		topoClient:   topoClient,
+		multipooler:  multipoolerProto,
+		state:        ManagerStateReady,
+		backupConfig: backupConfig,
+		actionLock:   NewActionLock(),
+		logger:       slog.Default(),
+		pgMonitor:    monitorRunner,
 	}
 	return pm
 }
@@ -1037,7 +1039,7 @@ func TestInitPgBackRest(t *testing.T) {
 				// Verify file permissions
 				info, err := os.Stat(configPath)
 				require.NoError(t, err)
-				assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "config file should have 0644 permissions")
+				assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "config file should have 0600 permissions")
 
 				// Verify directory permissions
 				dirInfo, err := os.Stat(pgbackrestPath)
@@ -1439,4 +1441,151 @@ func TestInitPgBackRest_ForBackupTrueIncludesPg2OnStandby(t *testing.T) {
 	// Clean up the temp file
 	err = os.Remove(tempConfigPath)
 	require.NoError(t, err)
+}
+
+func TestInitPgBackRest_InlinesCredentials(t *testing.T) {
+	// Test that credentials are inlined in pgbackrest.conf when UseEnvCredentials is enabled
+	ctx := context.Background()
+
+	// Create a cluster root with a pooler directory inside it
+	clusterRoot := t.TempDir()
+	poolerDir := filepath.Join(clusterRoot, "zone1-pooler1")
+	err := os.MkdirAll(poolerDir, 0o755)
+	require.NoError(t, err)
+
+	// Set environment variables for AWS credentials
+	t.Setenv("AWS_ACCESS_KEY_ID", "ASIATESTACCESSKEY")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "testsecretkey")
+	t.Setenv("AWS_SESSION_TOKEN", "testsessiontoken")
+
+	// Create a manager with S3 backup using env credentials
+	database := "test-database"
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	err = ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+		Name: database,
+		BackupLocation: utils.S3BackupLocation("test-bucket", "us-east-1",
+			utils.WithS3EnvCredentials()),
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+
+	backupConfig, err := backup.NewConfig(
+		utils.S3BackupLocation("test-bucket", "us-east-1",
+			utils.WithS3EnvCredentials()),
+	)
+	require.NoError(t, err)
+
+	multipoolerProto := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
+		PoolerDir:  poolerDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	pm := &MultiPoolerManager{
+		config:       &Config{},
+		serviceID:    multipoolerProto.Id,
+		topoClient:   ts,
+		multipooler:  multipoolerProto,
+		state:        ManagerStateReady,
+		backupConfig: backupConfig,
+		actionLock:   NewActionLock(),
+		logger:       slog.Default(),
+		pgMonitor:    timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
+	}
+
+	// Call initPgBackRest with NotForBackup mode
+	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	// Verify NO separate credentials file was created
+	credentialsFilePath := filepath.Join(clusterRoot, "pgbackrest-credentials.conf")
+	assert.NoFileExists(t, credentialsFilePath, "separate credentials file should not be created")
+
+	// Verify the main config contains inline credentials
+	configContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(configContent)
+
+	// Verify credentials ARE in the main config (inlined)
+	assert.Contains(t, configStr, "repo1-s3-key=ASIATESTACCESSKEY", "main config should contain inline access key")
+	assert.Contains(t, configStr, "repo1-s3-key-secret=testsecretkey", "main config should contain inline secret key")
+	assert.Contains(t, configStr, "repo1-s3-token=testsessiontoken", "main config should contain inline session token")
+
+	// Verify no !include directive
+	assert.NotContains(t, configStr, "!include", "main config should not have !include directive")
+
+	// Verify config file has correct permissions (0600)
+	info, err := os.Stat(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "config file should have 0600 permissions")
+}
+
+func TestInitPgBackRest_NoCredentialsFileForFilesystemBackup(t *testing.T) {
+	// Test that credentials file is NOT created for filesystem backups
+	ctx := context.Background()
+
+	clusterRoot := t.TempDir()
+	poolerDir := filepath.Join(clusterRoot, "zone1-pooler1")
+	err := os.MkdirAll(poolerDir, 0o755)
+	require.NoError(t, err)
+
+	// Create a manager with filesystem backup (no env credentials)
+	database := "test-database"
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	err = ts.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+		Name:             database,
+		BackupLocation:   utils.FilesystemBackupLocation("/tmp/backups"),
+		DurabilityPolicy: "ANY_2",
+	})
+	require.NoError(t, err)
+
+	backupConfig, err := backup.NewConfig(
+		utils.FilesystemBackupLocation("/tmp/backups"),
+	)
+	require.NoError(t, err)
+
+	multipoolerProto := &clustermetadatapb.MultiPooler{
+		Id: &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "test-service",
+		},
+		PoolerDir:  poolerDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	pm := &MultiPoolerManager{
+		config:       &Config{},
+		serviceID:    multipoolerProto.Id,
+		topoClient:   ts,
+		multipooler:  multipoolerProto,
+		state:        ManagerStateReady,
+		backupConfig: backupConfig,
+		actionLock:   NewActionLock(),
+		logger:       slog.Default(),
+		pgMonitor:    timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
+	}
+
+	// Call initPgBackRest
+	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, configPath)
+
+	// Verify credentials file was NOT created
+	credentialsFilePath := filepath.Join(clusterRoot, "pgbackrest-credentials.conf")
+	_, err = os.Stat(credentialsFilePath)
+	assert.True(t, os.IsNotExist(err), "credentials file should not be created for filesystem backups")
+
+	// Verify the main config does NOT include a credentials file
+	configContent, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(configContent)
+	assert.NotContains(t, configStr, "!include", "main config should not include any credentials file for filesystem backups")
 }
