@@ -52,6 +52,17 @@ func expectStandbyStartupQueries(m *mock.QueryService) {
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 }
 
+// expectWALPositionStandbyQueries mocks queries for WAL position on a standby
+func expectWALPositionStandbyQueries(m *mock.QueryService, receiveLsn, replayLsn string) {
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// Mock queryReplicationStatus query - matches the actual query in pg_replication.go:176-183
+	m.AddQueryPatternOnce("pg_last_wal_replay_lsn",
+		mock.MakeQueryResult(
+			[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+			[][]any{{replayLsn, receiveLsn, false, "not paused", nil, "", "streaming"}},
+		))
+}
+
 func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -156,11 +167,13 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// Phase 1: Health check before term acceptance (TEMPORARY - will be removed when we separate voting term from primary term)
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// Phase 2 executeRevoke: health check
+				// Phase 2: Populate WAL position (after term acceptance)
+				expectWALPositionStandbyQueries(m, "0/2000000", "0/2000000")
+				// Phase 3 executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// Phase 2 executeRevoke: determine role (standby)
+				// Phase 3 executeRevoke: determine role (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// Phase 2 executeRevoke: pauseReplication
+				// Phase 3 executeRevoke: pauseReplication
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
@@ -214,11 +227,13 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// Phase 1: Health check before term acceptance (TEMPORARY)
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// executeRevoke: health check
+				// Phase 2: Populate WAL position
+				expectWALPositionStandbyQueries(m, "0/3000000", "0/3000000")
+				// Phase 3 executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// executeRevoke: determine role (standby)
+				// Phase 3 executeRevoke: determine role (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// executeRevoke: pauseReplication
+				// Phase 3 executeRevoke: pauseReplication
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
@@ -270,13 +285,15 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// Phase 1: Health check before term acceptance (TEMPORARY)
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// executeRevoke: health check
+				// Phase 2: Populate WAL position (standby since already demoted)
+				expectWALPositionStandbyQueries(m, "0/4000000", "0/4000000")
+				// Phase 3 executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby/demoted)
+				// Phase 3 executeRevoke: isInRecovery check - returns true (in recovery = standby/demoted)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// Phase 3 executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// Phase 3 executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
@@ -299,13 +316,15 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// Phase 1: Health check before term acceptance (TEMPORARY)
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// executeRevoke: health check
+				// Phase 2: Populate WAL position
+				expectWALPositionStandbyQueries(m, "0/5000000", "0/5000000")
+				// Phase 3 executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby)
+				// Phase 3 executeRevoke: isInRecovery check - returns true (in recovery = standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// Phase 3 executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// Phase 3 executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedError:                       false,
@@ -329,13 +348,15 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// Phase 1: Health check before term acceptance (TEMPORARY)
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// executeRevoke: health check
+				// Phase 2: Populate WAL position
+				expectWALPositionStandbyQueries(m, "0/6000000", "0/6000000")
+				// Phase 3 executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (standby)
+				// Phase 3 executeRevoke: isInRecovery check - returns true (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// Phase 3 executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// Phase 3 executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
