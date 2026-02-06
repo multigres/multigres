@@ -55,7 +55,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -146,7 +146,7 @@ func TestConsensusService_Status(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -230,7 +230,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -309,7 +309,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -390,7 +390,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology

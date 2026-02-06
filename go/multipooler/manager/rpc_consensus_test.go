@@ -59,7 +59,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
 
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create the database in topology with backup location
@@ -1233,9 +1233,9 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			t.Cleanup(func() { ts.Close() })
 
 			// Start mock pgctld server
-			pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServerWithCustomMock(t, func(m *testutil.MockPgCtldService) {
-				tt.setupPgRewindMock(m)
-			})
+			mockPgctld := &testutil.MockPgCtldService{}
+			tt.setupPgRewindMock(mockPgctld)
+			pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
 			t.Cleanup(cleanupPgctld)
 
 			// Create the database in topology

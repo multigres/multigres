@@ -399,7 +399,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
 
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create the database in topology with backup location
@@ -1148,7 +1148,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create the database in topology with backup location
@@ -1257,7 +1257,7 @@ func TestReplicationStatus(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		// Create the database in topology with backup location
@@ -1332,7 +1332,7 @@ func TestReplicationStatus(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		// Create the database in topology with backup location
@@ -1416,7 +1416,7 @@ func TestReplicationStatus(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		// Create the database in topology with backup location
@@ -1494,7 +1494,7 @@ func TestReplicationStatus(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		// Create the database in topology with backup location
@@ -1583,7 +1583,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		database := "testdb"
@@ -1645,7 +1645,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		database := "testdb"
@@ -1706,7 +1706,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		database := "testdb"
@@ -1761,7 +1761,7 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		database := "testdb"
@@ -1826,7 +1826,7 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		database := "testdb"
@@ -1948,7 +1948,7 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		database := "testdb"
@@ -2009,7 +2009,7 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 		defer ts.Close()
 
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 		t.Cleanup(cleanupPgctld)
 
 		database := "testdb"
