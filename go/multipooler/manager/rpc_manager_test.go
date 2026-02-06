@@ -1814,8 +1814,13 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		// Verify monitoring is initially running
 		require.True(t, pm.pgMonitor.Running(), "Monitor should be running initially")
 
+		// Acquire action lock before calling stopPostgresForEmergencyDemote
+		lockCtx, err := pm.actionLock.Acquire(ctx, "StopPostgresForEmergencyDemote")
+		require.NoError(t, err)
+		defer pm.actionLock.Release(lockCtx)
+
 		// Call stopPostgresForEmergencyDemote - should succeed
-		err = pm.stopPostgresForEmergencyDemote(ctx, state)
+		err = pm.stopPostgresForEmergencyDemote(lockCtx, state)
 		require.NoError(t, err, "Should successfully stop postgres for emergency demotion")
 
 		// Verify monitoring remains enabled after emergency demotion to allow node to detect changes and rejoin
