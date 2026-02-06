@@ -189,10 +189,11 @@ func RunTestMain(m *testing.M) int {
 // SharedSetupManager manages a shared ShardSetup across tests.
 // Use this when you want to share setup between tests using sync.Once pattern.
 type SharedSetupManager struct {
-	setup     *ShardSetup
-	setupFunc SetupFunc
-	setupDone bool
-	setupErr  error
+	setup       *ShardSetup
+	setupFunc   SetupFunc
+	setupDone   bool
+	setupErr    error
+	testsFailed bool
 }
 
 // NewSharedSetupManager creates a new SharedSetupManager.
@@ -221,15 +222,19 @@ func (m *SharedSetupManager) Get(t *testing.T) *ShardSetup {
 
 // Cleanup cleans up the shared setup.
 // Call this from TestMain after tests complete.
+// Only deletes temp directory if tests passed (DumpLogs was not called).
 func (m *SharedSetupManager) Cleanup() {
 	if m.setup != nil {
-		m.setup.Cleanup()
+		m.setup.Cleanup(m.testsFailed)
 	}
 }
 
-// DumpLogs dumps service logs if tests failed.
-// Call this from TestMain before cleanup.
+// DumpLogs marks tests as failed and prints log location.
+// Call this from TestMain on test failure (before cleanup).
+// Logs will be kept on disk and their location printed.
+// Set TEST_PRINT_LOGS env var to also print log contents to stdout.
 func (m *SharedSetupManager) DumpLogs() {
+	m.testsFailed = true
 	if m.setup != nil {
 		m.setup.DumpServiceLogs()
 	}

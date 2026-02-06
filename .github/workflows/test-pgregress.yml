@@ -51,6 +51,7 @@ jobs:
       - name: Run PostgreSQL regression tests
         env:
           RUN_PGREGRESS: "1"
+          TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... | tee pgregress-test-results.jsonl | go tool tparse -follow
 
       - name: Test Report

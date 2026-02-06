@@ -347,6 +347,154 @@ panic: test timed out after 10m0s
 
 ---
 
+## Debugging Integration Test Failures
+
+When integration tests fail, logs are automatically preserved in a temp directory. Follow this systematic approach to debug failures:
+
+### Step 1: Find the Log Location
+
+After a test failure, look for this message in the test output:
+
+```text
+==== TEST LOGS PRESERVED ====
+Logs available at: /tmp/shardsetup_test_XXXXXXXXXX
+Set TEST_PRINT_LOGS=1 to print log contents
+===========================
+```
+
+The temp directory contains all component logs from the failed test.
+
+### Step 2: Understand the Directory Structure
+
+Integration test log directories follow this structure:
+
+```text
+/tmp/shardsetup_test_XXXXXXXXXX/
+├── multigateway.log              # Multigateway service logs
+├── temp-multiorch/               # Temporary multiorch used during bootstrap
+│   └── multiorch.log
+├── pooler-1/                     # First multipooler instance (pooler-1, pooler-2, etc.)
+│   ├── multipooler.log           # Multipooler service logs
+│   ├── pgctld.log                # PostgreSQL control daemon logs
+│   └── data/
+│       ├── pg_data/
+│       │   └── postgresql.log    # PostgreSQL server logs
+│       ├── pg_sockets/           # Unix sockets for PostgreSQL connections
+│       └── pgbackrest/
+│           └── logs/             # Backup/restore logs
+│               ├── multigres-backup.log
+│               ├── multigres-restore.log
+│               └── all-server.log
+├── pooler-2/                     # Second multipooler instance
+│   └── (same structure as pooler-1)
+├── pooler-3/                     # Third multipooler instance
+│   └── (same structure as pooler-1)
+├── etcd_data/                    # etcd data directory
+├── backup-repo/                  # pgBackRest backup repository
+└── certs/                        # TLS certificates for pgBackRest
+```
+
+### Step 3: Identify the Failing Component
+
+Read the test failure message to identify which component is involved:
+
+**Example failure patterns:**
+
+- **Connection/query errors** → Check multipooler logs and PostgreSQL logs
+- **Replication issues** → Check all pooler's PostgreSQL logs and multipooler logs
+- **Consensus/failover issues** → Check multipooler logs (consensus protocol) and temp-multiorch logs
+- **Backup/restore errors** → Check pgbackrest logs in `pooler-*/data/pgbackrest/logs/`
+- **Gateway routing issues** → Check multigateway.log
+- **Bootstrap failures** → Check temp-multiorch/multiorch.log and all pooler logs
+
+### Step 4: Examine Relevant Logs
+
+**Use this decision tree:**
+
+1. **What component is the test about?**
+   - Multipooler → Start with `pooler-*/multipooler.log`
+   - PostgreSQL → Start with `pooler-*/data/pg_data/postgresql.log`
+   - Replication → Check PostgreSQL logs on all poolers
+   - Multigateway → Check `multigateway.log`
+   - Bootstrap/orchestration → Check `temp-multiorch/multiorch.log`
+
+2. **Look for ERROR or FATAL level messages** in the relevant logs
+
+3. **Check timestamps** - Look at logs around the time of the test failure
+
+4. **Follow the chain** - If one component reports an error from another, check that component's logs next
+
+### Step 5: Common Debugging Commands
+
+```bash
+# View all log files in the preserved directory
+find /tmp/shardsetup_test_XXXXXXXXXX -name "*.log" -type f
+
+# Search for errors across all logs
+grep -r "ERROR\|FATAL" /tmp/shardsetup_test_XXXXXXXXXX/
+
+# View logs for a specific pooler
+cat /tmp/shardsetup_test_XXXXXXXXXX/pooler-1/multipooler.log
+cat /tmp/shardsetup_test_XXXXXXXXXX/pooler-1/data/pg_data/postgresql.log
+
+# View multigateway logs
+cat /tmp/shardsetup_test_XXXXXXXXXX/multigateway.log
+
+# View backup/restore logs
+ls /tmp/shardsetup_test_XXXXXXXXXX/pooler-1/data/pgbackrest/logs/
+```
+
+### Step 6: Print Full Logs in CI
+
+To see full log contents printed directly in test output (useful for CI):
+
+```bash
+TEST_PRINT_LOGS=1 /mt-dev integration shardsetup TestName
+```
+
+This will print all log files to stdout after the test fails, making them visible in CI logs without needing to download artifacts.
+
+### Example Debugging Workflow
+
+**Scenario:** `TestReplicationWorks` fails with "replication not configured"
+
+1. **Find logs:** Test output shows `/tmp/shardsetup_test_1342939839`
+
+2. **Identify components:** Replication involves multipooler and PostgreSQL on all nodes
+
+3. **Check pooler logs:**
+
+   ```bash
+   # Check multipooler logs for all poolers
+   grep -i "replication\|primary_conninfo" /tmp/shardsetup_test_1342939839/pooler-*/multipooler.log
+
+   # Check PostgreSQL logs
+   grep -i "replication\|standby" /tmp/shardsetup_test_1342939839/pooler-*/data/pg_data/postgresql.log
+   ```
+
+4. **Look for specific issues:**
+   - Is `primary_conninfo` being set?
+   - Are there connection errors from standby to primary?
+   - Is WAL streaming active?
+   - Check for permission or authentication errors
+
+5. **Check multiorch logs** if bootstrap or failover is involved:
+   ```bash
+   cat /tmp/shardsetup_test_1342939839/temp-multiorch/multiorch.log
+   ```
+
+### Important Notes
+
+- **Logs are only preserved on test failure** - successful tests clean up automatically
+- **Logs are cleaned on test success** - if you need logs from passing tests, set a breakpoint or add `t.Fatal()` at the end
+- **Each test run gets a unique temp directory** - look for the most recent timestamp
+- **Service logs are JSON formatted** - use `jq` for pretty printing:
+  ```bash
+  cat pooler-1/multipooler.log | jq '.'
+  ```
+
+---
+
 ## Tips
 
 - **Unit tests** are fast (~seconds) - run them frequently while developing
@@ -359,7 +507,7 @@ panic: test timed out after 10m0s
 - If build fails, check that you've committed all generated files
 - Coverage reports help identify untested code: `-coverprofile=coverage.out`
 - Most integration test failures indicate real bugs, not flaky tests
-- Check component logs when integration tests fail (future: use mt-local-cluster skill)
+- **When integration tests fail, see "Debugging Integration Test Failures" section above for systematic debugging approach**
 
 ---
 
