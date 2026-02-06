@@ -99,6 +99,7 @@ Returns `t` (true) if in recovery/standby mode, `f` (false) if primary.
 Test S3 backups using AWS S3. When the user wants to test S3 backups:
 
 **Configuration Caching**: When S3 configuration values are first provided, cache them in memory for the duration of the conversation. Reuse these cached values for all subsequent S3 operations. Only re-prompt if:
+
 - The user explicitly asks to change the configuration
 - A command fails due to invalid/expired credentials
 - The values have never been provided in this conversation
@@ -122,6 +123,7 @@ env | grep AWS_
 ```
 
 **IMPORTANT**:
+
 - NEVER commit AWS credentials files to git
 - Avoid printing credentials to the terminal
 - Credentials file should contain: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN (if using temporary credentials)
