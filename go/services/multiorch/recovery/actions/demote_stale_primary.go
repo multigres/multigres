@@ -161,10 +161,10 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 }
 
 // findCorrectPrimary finds the correct primary in the shard and returns it along with its term.
-// The correct primary is the one with the higher consensus term.
+// The correct primary is the one with the highest PrimaryTerm.
 func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.ShardKey, stalePrimaryIDStr string) (*multiorchdatapb.PoolerHealthState, int64, error) {
 	var correctPrimary *multiorchdatapb.PoolerHealthState
-	var maxTerm int64
+	var maxPrimaryTerm int64
 
 	// Iterate through all poolers to find the correct primary
 	a.poolerStore.Range(func(key string, pooler *multiorchdatapb.PoolerHealthState) bool {
@@ -193,9 +193,14 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		}
 
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			// Get its term
-			if pooler.ConsensusStatus != nil && pooler.ConsensusStatus.CurrentTerm > maxTerm {
-				maxTerm = pooler.ConsensusStatus.CurrentTerm
+			// Get its PrimaryTerm (not consensus term)
+			var primaryTerm int64
+			if pooler.ConsensusTerm != nil {
+				primaryTerm = pooler.ConsensusTerm.PrimaryTerm
+			}
+
+			if primaryTerm > maxPrimaryTerm {
+				maxPrimaryTerm = primaryTerm
 				correctPrimary = pooler
 			}
 		}
@@ -207,5 +212,11 @@ func (a *DemoteStalePrimaryAction) findCorrectPrimary(shardKey commontypes.Shard
 		return nil, 0, fmt.Errorf("no correct primary found in shard %s", shardKey.String())
 	}
 
-	return correctPrimary, maxTerm, nil
+	// Return consensus term for the RPC parameter
+	consensusTerm := int64(0)
+	if correctPrimary.ConsensusStatus != nil {
+		consensusTerm = correctPrimary.ConsensusStatus.CurrentTerm
+	}
+
+	return correctPrimary, consensusTerm, nil
 }

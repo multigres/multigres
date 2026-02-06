@@ -21,6 +21,14 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
+// PrimaryInfo represents information about a primary pooler in the shard.
+// Used for stale primary detection to identify which primary is most advanced.
+type PrimaryInfo struct {
+	ID            *clustermetadatapb.ID // Pooler ID
+	ConsensusTerm int64                 // Current consensus term (for logging/context)
+	PrimaryTerm   int64                 // Term when this node was promoted to primary
+}
+
 // ReplicationAnalysis represents the analyzed state of a single pooler
 // and its replication topology. This is the in-memory equivalent of
 // VTOrc's replication_analysis table.
@@ -68,9 +76,10 @@ type ReplicationAnalysis struct {
 	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
 
 	// Stale primary detection: populated for PRIMARY nodes only
-	OtherPrimaryInShard *clustermetadatapb.ID // ID of another PRIMARY in same shard (if detected)
-	OtherPrimaryTerm    int64                 // Consensus term of the other primary
-	ConsensusTerm       int64                 // This node's consensus term (from health check)
+	PrimaryTerm           int64          // This pooler's primary term (term when promoted)
+	OtherPrimariesInShard []*PrimaryInfo // All other primaries detected in the shard
+	HighestTermPrimary    *PrimaryInfo   // Primary with highest PrimaryTerm (rewind source)
+	ConsensusTerm         int64          // This node's consensus term (from health check)
 
 	// Primary health details (for distinguishing pooler-down vs postgres-down)
 	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
