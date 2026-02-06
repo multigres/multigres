@@ -44,7 +44,8 @@ warn() {
   echo -e "${YELLOW}[WARN]${NC} $*"
 }
 
-# Cleanup function
+# Cleanup function (invoked via trap on line 70)
+# shellcheck disable=SC2329
 cleanup() {
   log "Cleaning up test environment..."
 

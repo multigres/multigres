@@ -124,15 +124,18 @@ This happens transparently when starting s3mock - no user action needed.
    - `mkdir -p multigres_local/state`
 
 3. **Start s3mock in background**
+
    ```bash
    bin/s3mock multigres-test > multigres_local/logs/s3mock.log 2>&1 &
    ```
+
    - Capture PID: `echo $!`
    - S3mock always runs on port 9000: `https://127.0.0.1:9000`
    - Wait briefly for startup (1-2 seconds) to ensure port is ready
 
-5. **Save state to file**
+4. **Save state to file**
    - Write `multigres_local/state/s3mock.json`:
+
    ```json
    {
      "pid": 12345,
@@ -145,30 +148,35 @@ This happens transparently when starting s3mock - no user action needed.
    }
    ```
 
-6. **Export credentials**
+5. **Export credentials**
+
    ```bash
    export AWS_ACCESS_KEY_ID=test
    export AWS_SECRET_ACCESS_KEY=test
    ```
+
    - These are dummy credentials (s3mock ignores them)
    - Required for multigres credential verification
 
-7. **Initialize cluster with S3 configuration**
+6. **Initialize cluster with S3 configuration**
+
    ```bash
    bin/multigres cluster init \
      --backup-url=s3://multigres-test/backups/ \
      --region=us-east-1
    ```
+
    - S3mock always runs on port 9000
    - Region can be any value (s3mock doesn't enforce it)
    - S3mock endpoint is automatically detected by the cluster
 
-8. **Start the cluster**
+7. **Start the cluster**
+
    ```bash
    bin/multigres cluster start
    ```
 
-9. **Show success message**
+8. **Show success message**
    - Display: "Cluster started with S3 backup support"
    - Show endpoint: `https://127.0.0.1:9000` (fixed port)
    - Show bucket: `multigres-test`
@@ -177,12 +185,14 @@ This happens transparently when starting s3mock - no user action needed.
 ### Independent S3Mock Operations
 
 **Start s3mock:** "start s3mock"
+
 - Builds s3mock if needed
 - Starts s3mock with bucket 'multigres-test'
 - Saves state to `multigres_local/state/s3mock.json`
 - Shows endpoint and credentials
 
 **Stop s3mock:** "stop s3mock"
+
 - Reads PID from `multigres_local/state/s3mock.json`
 - Sends SIGTERM: `kill <pid>`
 - Waits for graceful shutdown (5 second timeout)
@@ -190,6 +200,7 @@ This happens transparently when starting s3mock - no user action needed.
 - Logs are preserved for debugging
 
 **Check status:** "s3mock status" / "check s3mock"
+
 - If state file doesn't exist: "s3mock not running"
 - If state file exists but PID dead: "s3mock not running (stale state cleaned up)" + remove state file
 - If running, show:
@@ -200,10 +211,12 @@ This happens transparently when starting s3mock - no user action needed.
   - Started: 2026-02-05T10:30:00Z
 
 **View logs:** "s3mock logs" / "tail s3mock"
+
 - If s3mock not running: show full log with `cat multigres_local/logs/s3mock.log`
 - If s3mock running: tail log with `tail -f multigres_local/logs/s3mock.log`
 
 **Restart s3mock:** "restart s3mock"
+
 - Stop s3mock if running
 - Start s3mock
 - Update state file with new PID and endpoint
@@ -211,6 +224,7 @@ This happens transparently when starting s3mock - no user action needed.
 ### Auto-Stop Behavior
 
 **When running `cluster stop`:**
+
 1. Check if `multigres_local/state/s3mock.json` exists
 2. If exists, automatically stop s3mock:
    - Read PID from state file
@@ -219,6 +233,7 @@ This happens transparently when starting s3mock - no user action needed.
 3. Continue with normal cluster stop
 
 **When running `cluster stop --clean`:**
+
 1. Stop s3mock as above
 2. Also remove logs: `rm -f multigres_local/logs/s3mock.log`
 3. Continue with normal cluster cleanup
@@ -228,6 +243,7 @@ This happens transparently when starting s3mock - no user action needed.
 **State file location:** `multigres_local/state/s3mock.json`
 
 **Automatic credential export:**
+
 - Before running any `multigres cluster` command, check if `multigres_local/state/s3mock.json` exists
 - If exists, automatically export credentials from state file:
   ```bash
@@ -237,6 +253,7 @@ This happens transparently when starting s3mock - no user action needed.
 - This happens transparently - user doesn't need to think about credentials
 
 **Stale state handling:**
+
 - If state file exists but PID is not running: `ps -p <pid> > /dev/null 2>&1`
 - Clean up stale state file automatically
 - Report to user: "s3mock not running (stale state cleaned up)"
@@ -244,26 +261,31 @@ This happens transparently when starting s3mock - no user action needed.
 ### Error Handling
 
 **S3mock binary missing during build:**
+
 - Source path doesn't exist: "Error: s3mock source not found at go/tools/s3mock/cmd/s3mock/main.go"
 - Build fails: Show build error and suggest checking Go installation
 
 **S3mock fails to start:**
+
 - Parse error from `multigres_local/logs/s3mock.log`
 - Show clear message: "Failed to start s3mock: [error details]"
 - Clean up any partial state
 
 **S3mock crashes during operation:**
+
 - Backup/restore operations will fail with connection errors from pgbackrest
 - User can check: `multigres_local/logs/s3mock.log`
 - Skill status check will detect (PID dead but state exists)
 - User can restart: "restart s3mock"
 
 **Cluster already initialized:**
+
 - If `multigres_local/multigres.yaml` exists when user says "start cluster with s3mock"
 - Warn: "Cluster already exists. To reinitialize with s3mock, run 'cluster stop --clean' first"
 - Option: "Or run 'start s3mock' separately to start s3mock for existing cluster"
 
 **Port conflicts:**
+
 - S3mock always uses port 9000
 - If port 9000 is already in use, s3mock will fail to start
 - Check for conflicts: `lsof -i :9000` or `netstat -an | grep 9000`
@@ -277,6 +299,7 @@ This happens transparently when starting s3mock - no user action needed.
 User: "start cluster with s3mock"
 
 Skill:
+
 - Builds s3mock binary
 - Starts s3mock on <https://127.0.0.1:9000>
 - Exports AWS_ACCESS_KEY_ID=test and AWS_SECRET_ACCESS_KEY=test
@@ -289,6 +312,7 @@ Skill:
 User: "cluster stop"
 
 Skill:
+
 - Stops all cluster components
 - Detects s3mock is running (via state file)
 - Automatically stops s3mock
@@ -299,6 +323,7 @@ Skill:
 User: "s3mock status"
 
 Skill shows:
+
 ```text
 s3mock status:
   Running: ✓ (PID: 12345)
@@ -313,6 +338,7 @@ s3mock status:
 User: "start s3mock"
 
 Skill:
+
 - Starts s3mock independently
 - Shows endpoint and bucket
 - Notes: "s3mock started. To use with cluster, reinitialize with: cluster stop --clean && start cluster with s3mock"
@@ -322,6 +348,7 @@ Skill:
 User: "s3mock logs"
 
 Skill:
+
 - If running: `tail -f multigres_local/logs/s3mock.log`
 - If stopped: `cat multigres_local/logs/s3mock.log`
 
