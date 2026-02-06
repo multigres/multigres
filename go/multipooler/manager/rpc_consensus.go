@@ -153,6 +153,36 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 		PoolerId: pm.serviceID.GetName(),
 	}
 
+	// Populate WAL position for candidate selection
+	// Use a tight timeout to prevent blocking if postgres is slow
+	walCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+
+	isPrimary, err := pm.isPrimary(walCtx)
+	if err == nil {
+		walPos := &consensusdatapb.WALPosition{
+			Timestamp:   timestamppb.Now(),
+			PrimaryTerm: 0, // Reserved for future use
+		}
+
+		if isPrimary {
+			// Primary: use current write position
+			lsn, err := pm.getPrimaryLSN(walCtx)
+			if err == nil {
+				walPos.CurrentLsn = lsn
+			}
+		} else {
+			// Standby: use last receive position (includes unreplayed WAL)
+			status, err := pm.queryReplicationStatus(walCtx)
+			if err == nil {
+				walPos.LastReceiveLsn = status.LastReceiveLsn
+				walPos.LastReplayLsn = status.LastReplayLsn
+			}
+		}
+
+		response.WalPosition = walPos
+	}
+
 	// ========================================================================
 	// Action Execution
 	// ========================================================================

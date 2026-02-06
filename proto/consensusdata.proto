@@ -37,6 +37,10 @@ message WALPosition {
 
   // Timestamp when this position was recorded
   google.protobuf.Timestamp timestamp = 4;
+
+  // Reserved for future use: the term for which this node was promoted to primary.
+  // Set to 0 for now.
+  int64 primary_term = 5;
 }
 
 // Action type for BeginTerm operations
@@ -86,6 +90,9 @@ message BeginTermResponse {
   // before demotion. Standbys should replicate up to this point before switching
   // to a new primary. Empty if node was not a primary or didn't demote.
   string demote_lsn = 4;
+
+  // WAL position for candidate selection
+  WALPosition wal_position = 5;
 }
 
 // Status returns the current status of a node
