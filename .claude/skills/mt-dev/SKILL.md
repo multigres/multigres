@@ -355,7 +355,7 @@ When integration tests fail, logs are automatically preserved in a temp director
 
 After a test failure, look for this message in the test output:
 
-```
+```text
 ==== TEST LOGS PRESERVED ====
 Logs available at: /tmp/shardsetup_test_XXXXXXXXXX
 Set TEST_PRINT_LOGS=1 to print log contents
@@ -368,7 +368,7 @@ The temp directory contains all component logs from the failed test.
 
 Integration test log directories follow this structure:
 
-```
+```text
 /tmp/shardsetup_test_XXXXXXXXXX/
 ├── multigateway.log              # Multigateway service logs
 ├── temp-multiorch/               # Temporary multiorch used during bootstrap
