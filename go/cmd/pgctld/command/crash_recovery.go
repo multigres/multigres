@@ -21,21 +21,24 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // needsCrashRecovery checks if PostgreSQL requires crash recovery.
-// Returns (needsRecovery bool, clusterState string, error)
-func needsCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir string) (bool, string, error) {
+// Returns (needsRecovery bool, clusterState enum, error)
+func needsCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir string) (bool, pb.DatabaseClusterState, error) {
 	cmd := exec.CommandContext(ctx, "pg_controldata", poolerDir+"/pg_data")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, "", fmt.Errorf("pg_controldata failed: %w (output: %s)", err, string(output))
+		return false, pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_UNKNOWN, fmt.Errorf("pg_controldata failed: %w (output: %s)", err, string(output))
 	}
 
 	outputStr := string(output)
 
 	// Extract the database cluster state line
-	clusterState := extractClusterState(outputStr)
+	clusterStateStr := extractClusterState(outputStr)
+	clusterState := stringToClusterState(clusterStateStr)
 
 	// For PostgreSQL 17+, check database cluster state
 	// States that indicate need for crash recovery:
@@ -44,16 +47,16 @@ func needsCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir stri
 	// - "in crash recovery" - already in crash recovery
 	// Clean states: "shut down", "shut down in recovery"
 
-	needsRecovery := strings.Contains(clusterState, "in production") ||
-		strings.Contains(clusterState, "shutting down") ||
-		strings.Contains(clusterState, "in crash recovery")
+	needsRecovery := clusterState == pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_IN_PRODUCTION ||
+		clusterState == pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_SHUTTING_DOWN ||
+		clusterState == pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_IN_CRASH_RECOVERY
 
 	if needsRecovery {
 		logger.InfoContext(ctx, "Database cluster state indicates crash recovery needed",
-			"cluster_state", clusterState)
+			"cluster_state", clusterState.String())
 	} else {
 		logger.InfoContext(ctx, "Database cluster state is clean",
-			"cluster_state", clusterState)
+			"cluster_state", clusterState.String())
 	}
 
 	return needsRecovery, clusterState, nil
@@ -73,14 +76,35 @@ func extractClusterState(output string) string {
 	return "unknown"
 }
 
+// stringToClusterState converts a pg_controldata state string to the enum
+func stringToClusterState(state string) pb.DatabaseClusterState {
+	switch state {
+	case "shut down":
+		return pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_SHUT_DOWN
+	case "shut down in recovery":
+		return pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_SHUT_DOWN_IN_RECOVERY
+	case "in production":
+		return pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_IN_PRODUCTION
+	case "shutting down":
+		return pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_SHUTTING_DOWN
+	case "in crash recovery":
+		return pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_IN_CRASH_RECOVERY
+	default:
+		return pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_UNKNOWN
+	}
+}
+
 // runCrashRecovery performs crash recovery in single-user mode.
 // This runs postgres --single to complete crash recovery, then exits cleanly.
 func runCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir string) error {
 	logger.InfoContext(ctx, "Starting single-user crash recovery")
 
+	crashCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	// Run postgres in single-user mode to perform crash recovery
 	// postgres --single starts in single-user mode, performs recovery, and exits on EOF
-	cmd := exec.CommandContext(ctx, "postgres", "--single", "-D", poolerDir+"/pg_data", "postgres")
+	cmd := exec.CommandContext(crashCtx, "postgres", "--single", "-D", poolerDir+"/pg_data", "postgres")
 
 	// Create stdin pipe - postgres --single reads from stdin until EOF
 	stdin, err := cmd.StdinPipe()

@@ -443,7 +443,7 @@ func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecovery
 
 	if !needsRecovery {
 		s.logger.InfoContext(ctx, "Database is already clean, no crash recovery needed",
-			"state", stateBefore)
+			"state", stateBefore.String())
 		return &pb.CrashRecoveryResponse{
 			RecoveryPerformed: false,
 			StateBefore:       stateBefore,
@@ -453,7 +453,7 @@ func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecovery
 	}
 
 	s.logger.InfoContext(ctx, "Database requires crash recovery, running single-user recovery",
-		"state_before", stateBefore)
+		"state_before", stateBefore.String())
 
 	// Run crash recovery
 	if err := runCrashRecovery(ctx, s.logger, s.poolerDir); err != nil {
@@ -467,8 +467,8 @@ func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecovery
 	}
 
 	s.logger.InfoContext(ctx, "Crash recovery completed successfully",
-		"state_before", stateBefore,
-		"state_after", stateAfter)
+		"state_before", stateBefore.String(),
+		"state_after", stateAfter.String())
 
 	return &pb.CrashRecoveryResponse{
 		RecoveryPerformed: true,

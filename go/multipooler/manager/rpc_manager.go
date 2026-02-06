@@ -24,7 +24,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/multipooler/executor"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -907,7 +906,7 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	r := retry.New(100*time.Millisecond, 1*time.Second)
+	r := retry.New(10*time.Millisecond, 200*time.Millisecond)
 	var lastErr error
 	for attempt, err := range r.Attempts(waitCtx) {
 		if err != nil {
@@ -922,23 +921,14 @@ func (pm *MultiPoolerManager) demoteLocked(ctx context.Context, consensusTerm in
 		}
 
 		// Check if postgres is ready by querying pg_is_in_recovery
-		queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		result, queryErr := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
-		queryCancel()
-
+		inRecovery, queryErr := pm.isInRecovery(ctx)
 		if queryErr == nil {
-			var inRecovery bool
-			scanErr := executor.ScanSingleRow(result, &inRecovery)
-			if scanErr == nil {
-				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections after demotion",
-					"in_recovery", inRecovery,
-					"attempts", attempt)
-				break
-			}
-			lastErr = scanErr
-		} else {
-			lastErr = queryErr
+			pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections after demotion",
+				"in_recovery", inRecovery,
+				"attempts", attempt)
+			break
 		}
+		lastErr = queryErr
 		// Will automatically backoff before next attempt
 	}
 
@@ -1095,7 +1085,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	r := retry.New(100*time.Millisecond, 1*time.Second)
+	r := retry.New(10*time.Millisecond, 200*time.Millisecond)
 	var lastErr error
 	var lastAttempt int
 	connected := false
@@ -1108,24 +1098,15 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		}
 
 		// Check if postgres is ready by querying pg_is_in_recovery
-		queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		result, queryErr := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
-		queryCancel()
-
+		inRecovery, queryErr := pm.isInRecovery(ctx)
 		if queryErr == nil {
-			var inRecovery bool
-			scanErr := executor.ScanSingleRow(result, &inRecovery)
-			if scanErr == nil {
-				pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections",
-					"in_recovery", inRecovery,
-					"attempts", attempt)
-				connected = true
-				break
-			}
-			lastErr = scanErr
-		} else {
-			lastErr = queryErr
+			pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections",
+				"in_recovery", inRecovery,
+				"attempts", attempt)
+			connected = true
+			break
 		}
+		lastErr = queryErr
 		// Will automatically backoff before next attempt
 	}
 
@@ -1529,13 +1510,7 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 	// This allows postgres to stop cleanly without waiting for connections,
 	// but keeps the manager operational for subsequent operations.
 	pm.mu.Lock()
-	if pm.replTracker != nil {
-		pm.replTracker.Close()
-		pm.replTracker = nil
-	}
-	if pm.connPoolMgr != nil {
-		pm.connPoolMgr.Close()
-	}
+	pm.closeConnectionsLocked()
 	pm.mu.Unlock()
 
 	// Stop postgres (no-op if already stopped)
@@ -1564,11 +1539,11 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 
 	if crashRecoveryResp.RecoveryPerformed {
 		pm.logger.InfoContext(ctx, "Crash recovery performed successfully",
-			"state_before", crashRecoveryResp.StateBefore,
-			"state_after", crashRecoveryResp.StateAfter)
+			"state_before", crashRecoveryResp.StateBefore.String(),
+			"state_after", crashRecoveryResp.StateAfter.String())
 	} else {
 		pm.logger.InfoContext(ctx, "No crash recovery needed, database already clean",
-			"state", crashRecoveryResp.StateBefore)
+			"state", crashRecoveryResp.StateBefore.String())
 	}
 
 	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run", "source_host", sourceHost, "source_port", sourcePort)

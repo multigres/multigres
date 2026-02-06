@@ -223,6 +223,17 @@ message PgRewindResponse {
   string output = 2;
 }
 
+// Database cluster state from pg_controldata
+enum DatabaseClusterState {
+  DATABASE_CLUSTER_STATE_UNSPECIFIED = 0;
+  DATABASE_CLUSTER_STATE_UNKNOWN = 1;
+  DATABASE_CLUSTER_STATE_SHUT_DOWN = 2;
+  DATABASE_CLUSTER_STATE_SHUT_DOWN_IN_RECOVERY = 3;
+  DATABASE_CLUSTER_STATE_IN_PRODUCTION = 4;
+  DATABASE_CLUSTER_STATE_SHUTTING_DOWN = 5;
+  DATABASE_CLUSTER_STATE_IN_CRASH_RECOVERY = 6;
+}
+
 // CrashRecovery performs single-user crash recovery if database is in unclean state
 message CrashRecoveryRequest {
   // No parameters needed - operates on the configured data directory
@@ -232,11 +243,11 @@ message CrashRecoveryResponse {
   // Whether recovery was needed and performed
   bool recovery_performed = 1;
 
-  // Database cluster state before recovery (e.g., "in production", "shut down")
-  string state_before = 2;
+  // Database cluster state before recovery
+  DatabaseClusterState state_before = 2;
 
-  // Database cluster state after recovery (should be "shut down")
-  string state_after = 3;
+  // Database cluster state after recovery (should be shut down)
+  DatabaseClusterState state_after = 3;
 
   // Status message
   string message = 4;
