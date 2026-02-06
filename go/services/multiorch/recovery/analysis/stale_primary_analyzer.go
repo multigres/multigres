@@ -83,8 +83,10 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 		return nil, nil
 	}
 
-	// Skip if no most advanced primary identified (tie in PrimaryTerm)
-	if poolerAnalysis.MostAdvancedPrimary == nil {
+	// Skip if no most advanced primary identified (tie in PrimaryTerm).
+	// A tie indicates a consensus bug - PrimaryTerm should be unique per primary.
+	// Skip automatic demotion and require manual intervention to avoid making it worse.
+	if poolerAnalysis.HighestTermPrimary == nil {
 		return nil, nil
 	}
 
@@ -93,7 +95,7 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 	// All others should be demoted.
 
 	thisPoolerIDStr := topoclient.MultiPoolerIDString(poolerAnalysis.PoolerID)
-	mostAdvancedIDStr := topoclient.MultiPoolerIDString(poolerAnalysis.MostAdvancedPrimary.ID)
+	mostAdvancedIDStr := topoclient.MultiPoolerIDString(poolerAnalysis.HighestTermPrimary.ID)
 
 	var stalePrimaryID *clustermetadatapb.ID
 	var stalePrimaryTerm int64
@@ -105,13 +107,13 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 		stalePrimaryID = poolerAnalysis.OtherPrimariesInShard[0].ID
 		stalePrimaryTerm = poolerAnalysis.OtherPrimariesInShard[0].PrimaryTerm
 		mostAdvancedPrimaryName = poolerAnalysis.PoolerID.Name
-		mostAdvancedPrimaryTerm = poolerAnalysis.MostAdvancedPrimary.PrimaryTerm
+		mostAdvancedPrimaryTerm = poolerAnalysis.HighestTermPrimary.PrimaryTerm
 	} else {
 		// This pooler is stale
 		stalePrimaryID = poolerAnalysis.PoolerID
 		stalePrimaryTerm = poolerAnalysis.PrimaryTerm
-		mostAdvancedPrimaryName = poolerAnalysis.MostAdvancedPrimary.ID.Name
-		mostAdvancedPrimaryTerm = poolerAnalysis.MostAdvancedPrimary.PrimaryTerm
+		mostAdvancedPrimaryName = poolerAnalysis.HighestTermPrimary.ID.Name
+		mostAdvancedPrimaryTerm = poolerAnalysis.HighestTermPrimary.PrimaryTerm
 	}
 
 	// Report the stale primary for demotion

@@ -78,7 +78,7 @@ type ReplicationAnalysis struct {
 	// Stale primary detection: populated for PRIMARY nodes only
 	PrimaryTerm           int64          // This pooler's primary term (term when promoted)
 	OtherPrimariesInShard []*PrimaryInfo // All other primaries detected in the shard
-	MostAdvancedPrimary   *PrimaryInfo   // Primary with highest PrimaryTerm (rewind source)
+	HighestTermPrimary    *PrimaryInfo   // Primary with highest PrimaryTerm (rewind source)
 	ConsensusTerm         int64          // This node's consensus term (from health check)
 
 	// Primary health details (for distinguishing pooler-down vs postgres-down)

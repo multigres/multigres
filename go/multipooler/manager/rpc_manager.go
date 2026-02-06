@@ -985,11 +985,13 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	defer pm.actionLock.Release(ctx)
 
 	// Check if already demoted by reading primary_term from disk.
+	// Invariant: primary_term > 0 if and only if postgres is (or was) in primary state.
+	// We set primary_term before promotion and clear it after demotion.
 	// If primary_term is 0, this node was already demoted (either by a previous call
 	// or by another multiorch instance). Return early to avoid redundant work.
 	// TODO (@rafael): This information should come from pooler state, instead of checking this
 	// invariant.
-	term, err := pm.consensusState.GetInconsistentTerm()
+	term, err := pm.consensusState.GetTerm(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to get current term")
 	}

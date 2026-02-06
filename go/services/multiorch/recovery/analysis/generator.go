@@ -495,7 +495,7 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 }
 
 // detectOtherPrimary checks for all other PRIMARYs in the same shard.
-// Populates OtherPrimariesInShard and determines MostAdvancedPrimary based on PrimaryTerm.
+// Populates OtherPrimariesInShard and determines HighestTermPrimary based on PrimaryTerm.
 // This is used to detect stale primaries that came back online after failover.
 func (g *AnalysisGenerator) detectOtherPrimary(
 	analysis *store.ReplicationAnalysis,
@@ -559,17 +559,17 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 		},
 	}
 	allPrimaries = append(allPrimaries, otherPrimaries...)
-	analysis.MostAdvancedPrimary = findMostAdvancedPrimary(allPrimaries)
+	analysis.HighestTermPrimary = findHighestTermPrimary(allPrimaries)
 }
 
-// findMostAdvancedPrimary returns the primary with the highest PrimaryTerm.
+// findHighestTermPrimary returns the primary with the highest PrimaryTerm.
 // Returns nil if there's a tie between primaries with the same highest PrimaryTerm.
 //
 // Invariant: In a properly initialized shard, PrimaryTerm is always >0 for PRIMARY poolers.
 // PrimaryTerm is set during promotion and only cleared during demotion. This function
 // is defensive and returns nil if all primaries have PrimaryTerm=0, but this should
 // never happen in a properly initialized shard.
-func findMostAdvancedPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo {
+func findHighestTermPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo {
 	var mostAdvanced *store.PrimaryInfo
 	maxPrimaryTerm := int64(0)
 	tieDetected := false
@@ -589,7 +589,15 @@ func findMostAdvancedPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo 
 		return nil
 	}
 
-	// Tie detected: multiple primaries with same PrimaryTerm requires manual intervention
+	// Tie detected: multiple primaries with same PrimaryTerm indicates a consensus bug.
+	// PrimaryTerm should be unique per primary and monotonically increasing. If two primaries
+	// claim the same PrimaryTerm, something went wrong in the consensus protocol (bug in
+	// promotion logic, data corruption, or split-brain).
+	//
+	// TODO: Rather than requiring manual intervention, multiorch could automatically resolve
+	// this by starting a new term and reappointing one of the primaries, which would update
+	// its primary_term and make the others stale. For now, we skip automatic demotion to
+	// avoid making the situation worse without understanding the root cause.
 	if tieDetected {
 		return nil
 	}

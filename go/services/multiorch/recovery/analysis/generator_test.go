@@ -1120,16 +1120,16 @@ func TestDetectOtherPrimary(t *testing.T) {
 		assert.Equal(t, int64(11), analysis.OtherPrimariesInShard[0].ConsensusTerm)
 
 		// primary-2 has higher PrimaryTerm, so it's the most advanced
-		require.NotNil(t, analysis.MostAdvancedPrimary)
-		assert.Equal(t, "primary-2", analysis.MostAdvancedPrimary.ID.Name)
-		assert.Equal(t, int64(6), analysis.MostAdvancedPrimary.PrimaryTerm)
+		require.NotNil(t, analysis.HighestTermPrimary)
+		assert.Equal(t, "primary-2", analysis.HighestTermPrimary.ID.Name)
+		assert.Equal(t, int64(6), analysis.HighestTermPrimary.PrimaryTerm)
 	})
 
 	t.Run("multiple other primaries detected", func(t *testing.T) {
 		store := setupMultiplePrimariesStore(t, []primaryConfig{
-			{id: "primary-1", primaryTerm: 5, consensusTerm: 9},
+			{id: "primary-1", primaryTerm: 5, consensusTerm: 11},
 			{id: "primary-2", primaryTerm: 4, consensusTerm: 10},
-			{id: "primary-3", primaryTerm: 6, consensusTerm: 11},
+			{id: "primary-3", primaryTerm: 6, consensusTerm: 9},
 		})
 		generator := NewAnalysisGenerator(store)
 
@@ -1147,10 +1147,11 @@ func TestDetectOtherPrimary(t *testing.T) {
 		assert.Contains(t, otherNames, "primary-2")
 		assert.Contains(t, otherNames, "primary-3")
 
-		// primary-3 has highest PrimaryTerm (6), so it's the most advanced
-		require.NotNil(t, analysis.MostAdvancedPrimary)
-		assert.Equal(t, "primary-3", analysis.MostAdvancedPrimary.ID.Name)
-		assert.Equal(t, int64(6), analysis.MostAdvancedPrimary.PrimaryTerm)
+		// primary-3 has highest PrimaryTerm (6), even though primary-1 has highest ConsensusTerm (11).
+		// This verifies we're comparing on PrimaryTerm, not ConsensusTerm.
+		require.NotNil(t, analysis.HighestTermPrimary)
+		assert.Equal(t, "primary-3", analysis.HighestTermPrimary.ID.Name)
+		assert.Equal(t, int64(6), analysis.HighestTermPrimary.PrimaryTerm)
 	})
 
 	t.Run("this primary is most advanced", func(t *testing.T) {
@@ -1168,9 +1169,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, analysis.OtherPrimariesInShard, 2)
 
 		// This primary has highest PrimaryTerm (7), so it's the most advanced
-		require.NotNil(t, analysis.MostAdvancedPrimary)
-		assert.Equal(t, "primary-1", analysis.MostAdvancedPrimary.ID.Name)
-		assert.Equal(t, int64(7), analysis.MostAdvancedPrimary.PrimaryTerm)
+		require.NotNil(t, analysis.HighestTermPrimary)
+		assert.Equal(t, "primary-1", analysis.HighestTermPrimary.ID.Name)
+		assert.Equal(t, int64(7), analysis.HighestTermPrimary.PrimaryTerm)
 	})
 
 	t.Run("tie in primary_term returns nil", func(t *testing.T) {
@@ -1186,8 +1187,8 @@ func TestDetectOtherPrimary(t *testing.T) {
 		// Should detect one other primary
 		require.Len(t, analysis.OtherPrimariesInShard, 1)
 
-		// Tie detected, so MostAdvancedPrimary should be nil
-		assert.Nil(t, analysis.MostAdvancedPrimary, "tie in PrimaryTerm should result in nil MostAdvancedPrimary")
+		// Tie detected, so HighestTermPrimary should be nil
+		assert.Nil(t, analysis.HighestTermPrimary, "tie in PrimaryTerm should result in nil HighestTermPrimary")
 	})
 
 	t.Run("all primary_terms zero returns nil (defensive - invalid state)", func(t *testing.T) {
@@ -1207,7 +1208,7 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, analysis.OtherPrimariesInShard, 1)
 
 		// All PrimaryTerm=0 is invalid state, defensive check returns nil
-		assert.Nil(t, analysis.MostAdvancedPrimary, "all PrimaryTerm=0 (invalid state) should result in nil MostAdvancedPrimary")
+		assert.Nil(t, analysis.HighestTermPrimary, "all PrimaryTerm=0 (invalid state) should result in nil HighestTermPrimary")
 	})
 
 	t.Run("mix of zero and non-zero primary_terms", func(t *testing.T) {
@@ -1225,9 +1226,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		require.Len(t, analysis.OtherPrimariesInShard, 2)
 
 		// primary-2 has non-zero PrimaryTerm (5), so it's the most advanced
-		require.NotNil(t, analysis.MostAdvancedPrimary)
-		assert.Equal(t, "primary-2", analysis.MostAdvancedPrimary.ID.Name)
-		assert.Equal(t, int64(5), analysis.MostAdvancedPrimary.PrimaryTerm)
+		require.NotNil(t, analysis.HighestTermPrimary)
+		assert.Equal(t, "primary-2", analysis.HighestTermPrimary.ID.Name)
+		assert.Equal(t, int64(5), analysis.HighestTermPrimary.PrimaryTerm)
 	})
 
 	t.Run("no other primaries detected", func(t *testing.T) {
@@ -1243,9 +1244,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		assert.Empty(t, analysis.OtherPrimariesInShard)
 
 		// Single primary is still the most advanced
-		require.NotNil(t, analysis.MostAdvancedPrimary)
-		assert.Equal(t, "primary-1", analysis.MostAdvancedPrimary.ID.Name)
-		assert.Equal(t, int64(5), analysis.MostAdvancedPrimary.PrimaryTerm)
+		require.NotNil(t, analysis.HighestTermPrimary)
+		assert.Equal(t, "primary-1", analysis.HighestTermPrimary.ID.Name)
+		assert.Equal(t, int64(5), analysis.HighestTermPrimary.PrimaryTerm)
 	})
 
 	t.Run("unreachable primary not detected", func(t *testing.T) {
@@ -1262,9 +1263,9 @@ func TestDetectOtherPrimary(t *testing.T) {
 		assert.Empty(t, analysis.OtherPrimariesInShard, "unreachable primaries should not be detected")
 
 		// Only this primary is reachable, so it's the most advanced
-		require.NotNil(t, analysis.MostAdvancedPrimary)
-		assert.Equal(t, "primary-1", analysis.MostAdvancedPrimary.ID.Name)
-		assert.Equal(t, int64(5), analysis.MostAdvancedPrimary.PrimaryTerm)
+		require.NotNil(t, analysis.HighestTermPrimary)
+		assert.Equal(t, "primary-1", analysis.HighestTermPrimary.ID.Name)
+		assert.Equal(t, int64(5), analysis.HighestTermPrimary.PrimaryTerm)
 	})
 }
 

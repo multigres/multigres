@@ -53,7 +53,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   6,
 				},
 			},
-			MostAdvancedPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &store.PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -100,7 +100,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   5,
 				},
 			},
-			MostAdvancedPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &store.PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -121,10 +121,10 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 		assert.Contains(t, problem.Description, "new-primary (most_advanced_primary_term 6)")
 	})
 
-	t.Run("does not demote when primary_terms are equal (prevents double demotion)", func(t *testing.T) {
-		// When primary_terms are equal, neither pooler should demote to avoid both poolers
-		// demoting simultaneously and leaving the shard without a primary.
-		// This unusual state should be resolved through manual intervention.
+	t.Run("does not demote when primary_terms are equal (consensus bug)", func(t *testing.T) {
+		// When primary_terms are equal, this indicates a consensus bug (PrimaryTerm should be
+		// unique per primary). We skip automatic demotion to avoid making the situation worse.
+		// See generator.go findMostAdvancedPrimary() for details and potential future solutions.
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
 		analysis := &store.ReplicationAnalysis{
 			PoolerID: &clustermetadatapb.ID{
@@ -148,7 +148,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   5,
 				},
 			},
-			MostAdvancedPrimary: nil, // Tie detected, so nil
+			HighestTermPrimary: nil, // Tie detected, so nil
 		}
 
 		problem, err := analyzer.Analyze(analysis)
@@ -271,7 +271,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   5,
 				},
 			},
-			MostAdvancedPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &store.PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -316,7 +316,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 					PrimaryTerm:   5,
 				},
 			},
-			MostAdvancedPrimary: &store.PrimaryInfo{
+			HighestTermPrimary: &store.PrimaryInfo{
 				ID: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
