@@ -463,6 +463,7 @@ This will print all log files to stdout after the test fails, making them visibl
 2. **Identify components:** Replication involves multipooler and PostgreSQL on all nodes
 
 3. **Check pooler logs:**
+
    ```bash
    # Check multipooler logs for all poolers
    grep -i "replication\|primary_conninfo" /tmp/shardsetup_test_1342939839/pooler-*/multipooler.log
