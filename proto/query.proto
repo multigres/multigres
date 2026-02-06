@@ -41,9 +41,11 @@ message QueryResult {
   // Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "CREATE TABLE"
   string command_tag = 4;
 
-  // notices contains any PostgreSQL notices received during query execution.
-  // These are non-fatal messages like warnings or informational notices.
-  repeated Notice notices = 5;
+  // notices contains any PostgreSQL diagnostic messages received during query execution.
+  // These are typically non-fatal messages like warnings or informational notices,
+  // but may also include error diagnostics for logging/auditing purposes.
+  // The message_type field ('E' or 'N') indicates whether each is an error or notice.
+  repeated PgDiagnostic notices = 5;
 }
 
 // Field represents metadata about a column in the result set.
@@ -85,23 +87,34 @@ message Row {
   bytes values = 2;
 }
 
-// Notice represents a PostgreSQL notice response (non-fatal messages).
-// These include warnings, informational messages, and other diagnostics
-// that don't cause the query to fail.
-message Notice {
-  // severity is the notice severity level (e.g., "NOTICE", "WARNING", "INFO")
+// PgDiagnostic represents a PostgreSQL diagnostic message (error or notice).
+// PostgreSQL uses the same wire format for both ErrorResponse ('E') and NoticeResponse ('N'),
+// differentiated by the message_type field. This unified structure captures all 14 fields
+// defined in the PostgreSQL protocol for diagnostic messages.
+//
+// Error severities: ERROR, FATAL, PANIC
+// Notice severities: WARNING, NOTICE, DEBUG, INFO, LOG
+//
+// Reference: https://www.postgresql.org/docs/current/protocol-error-fields.html
+message PgDiagnostic {
+  // message_type is the PostgreSQL protocol message type byte.
+  // 'E' (0x45 = 69) for ErrorResponse, 'N' (0x4E = 78) for NoticeResponse.
+  // This determines whether the diagnostic is an error or notice.
+  int32 message_type = 15;
+
+  // severity is the severity level (e.g., "ERROR", "FATAL", "WARNING", "NOTICE", "INFO")
   string severity = 1;
 
-  // code is the SQLSTATE error code
+  // code is the SQLSTATE error code (e.g., "42P01", "22P02")
   string code = 2;
 
-  // message is the primary human-readable notice message
+  // message is the primary human-readable diagnostic message
   string message = 3;
 
-  // detail provides additional detail about the notice (optional)
+  // detail provides additional detail about the diagnostic (optional)
   string detail = 4;
 
-  // hint provides a hint about how to address the notice (optional)
+  // hint provides a hint about how to address the issue (optional)
   string hint = 5;
 
   // position is the cursor position in the original query string (1-indexed, 0 if not available)
@@ -113,22 +126,22 @@ message Notice {
   // internal_query is the text of the internally-generated query (optional)
   string internal_query = 8;
 
-  // where is the context in which the notice occurred, e.g., PL/pgSQL call stack (optional)
+  // where is the context in which the diagnostic occurred, e.g., PL/pgSQL call stack (optional)
   string where = 9;
 
-  // schema_name is the name of the schema associated with the notice (optional)
+  // schema_name is the name of the schema associated with the diagnostic (optional)
   string schema_name = 10;
 
-  // table_name is the name of the table associated with the notice (optional)
+  // table_name is the name of the table associated with the diagnostic (optional)
   string table_name = 11;
 
-  // column_name is the name of the column associated with the notice (optional)
+  // column_name is the name of the column associated with the diagnostic (optional)
   string column_name = 12;
 
-  // data_type_name is the name of the data type associated with the notice (optional)
+  // data_type_name is the name of the data type associated with the diagnostic (optional)
   string data_type_name = 13;
 
-  // constraint_name is the name of the constraint associated with the notice (optional)
+  // constraint_name is the name of the constraint associated with the diagnostic (optional)
   string constraint_name = 14;
 }
 

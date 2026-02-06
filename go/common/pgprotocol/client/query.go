@@ -17,6 +17,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"go.opentelemetry.io/otel/codes"
@@ -196,7 +197,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
-	var notices []*sqltypes.Notice
+	var notices []*sqltypes.PgDiagnostic
 
 	// Track the first error encountered. We continue processing messages to drain
 	// the connection, then return this error after ReadyForQuery.
@@ -461,11 +462,19 @@ func parseRowsAffected(tag string) uint64 {
 	return 0
 }
 
-// parseError parses an ErrorResponse message into an error.
-func (c *Conn) parseError(body []byte) error {
+// parseDiagnosticFields parses all 14 PostgreSQL diagnostic fields from the wire format.
+// This is a shared helper used by both parseError() and parseNotice() since PostgreSQL
+// uses the same field format for ErrorResponse ('E') and NoticeResponse ('N') messages.
+// The msgType parameter should be protocol.MsgErrorResponse or protocol.MsgNoticeResponse.
+//
+// If the parsed diagnostic fails validation (missing required fields), a warning is logged
+// but the diagnostic is still returned. This allows lenient handling of malformed messages.
+func parseDiagnosticFields(msgType byte, body []byte) *sqltypes.PgDiagnostic {
 	reader := NewMessageReader(body)
 
-	var severity, code, message, detail, hint string
+	diag := &sqltypes.PgDiagnostic{
+		MessageType: msgType,
+	}
 
 	for reader.Remaining() > 0 {
 		fieldType, err := reader.ReadByte()
@@ -483,122 +492,70 @@ func (c *Conn) parseError(body []byte) error {
 
 		switch fieldType {
 		case protocol.FieldSeverity:
-			severity = value
+			diag.Severity = value
+		case protocol.FieldSeverityV:
+			// FieldSeverityV ('V') is the non-localized severity.
+			// Only use it if FieldSeverity ('S') wasn't already set.
+			if diag.Severity == "" {
+				diag.Severity = value
+			}
 		case protocol.FieldCode:
-			code = value
+			diag.Code = value
 		case protocol.FieldMessage:
-			message = value
+			diag.Message = value
 		case protocol.FieldDetail:
-			detail = value
+			diag.Detail = value
 		case protocol.FieldHint:
-			hint = value
-		}
-	}
-
-	return &Error{
-		Severity: severity,
-		Code:     code,
-		Message:  message,
-		Detail:   detail,
-		Hint:     hint,
-	}
-}
-
-// parseNotice parses a NoticeResponse message into a sqltypes.Notice.
-func (c *Conn) parseNotice(body []byte) *sqltypes.Notice {
-	reader := NewMessageReader(body)
-
-	var severity, code, message, detail, hint string
-	var internalQuery, where string
-	var schema, table, column, dataType, constraint string
-	var position, internalPosition int32
-
-	for reader.Remaining() > 0 {
-		fieldType, err := reader.ReadByte()
-		if err != nil {
-			break
-		}
-		if fieldType == 0 {
-			break // End of fields.
-		}
-
-		value, err := reader.ReadString()
-		if err != nil {
-			break
-		}
-
-		switch fieldType {
-		case protocol.FieldSeverity:
-			severity = value
-		case protocol.FieldCode:
-			code = value
-		case protocol.FieldMessage:
-			message = value
-		case protocol.FieldDetail:
-			detail = value
-		case protocol.FieldHint:
-			hint = value
+			diag.Hint = value
 		case protocol.FieldPosition:
 			if pos, err := strconv.ParseInt(value, 10, 32); err == nil {
-				position = int32(pos)
+				diag.Position = int32(pos)
 			}
 		case protocol.FieldInternalPosition:
 			if pos, err := strconv.ParseInt(value, 10, 32); err == nil {
-				internalPosition = int32(pos)
+				diag.InternalPosition = int32(pos)
 			}
 		case protocol.FieldInternalQuery:
-			internalQuery = value
+			diag.InternalQuery = value
 		case protocol.FieldWhere:
-			where = value
+			diag.Where = value
 		case protocol.FieldSchema:
-			schema = value
+			diag.Schema = value
 		case protocol.FieldTable:
-			table = value
+			diag.Table = value
 		case protocol.FieldColumn:
-			column = value
+			diag.Column = value
 		case protocol.FieldDataType:
-			dataType = value
+			diag.DataType = value
 		case protocol.FieldConstraint:
-			constraint = value
+			diag.Constraint = value
 		}
 	}
 
-	return &sqltypes.Notice{
-		Severity:         severity,
-		Code:             code,
-		Message:          message,
-		Detail:           detail,
-		Hint:             hint,
-		Position:         position,
-		InternalPosition: internalPosition,
-		InternalQuery:    internalQuery,
-		Where:            where,
-		Schema:           schema,
-		Table:            table,
-		Column:           column,
-		DataType:         dataType,
-		Constraint:       constraint,
+	// Validate the parsed diagnostic. Log a warning if validation fails,
+	// but still return the diagnostic to allow lenient handling.
+	if err := diag.Validate(); err != nil {
+		slog.Warn("parsed PostgreSQL diagnostic with missing required fields",
+			"error", err,
+			// Convert single byte to string directly (msgType is 'E' or 'N')
+			"message_type", string([]byte{msgType}),
+			"severity", diag.Severity,
+			"code", diag.Code,
+		)
 	}
+
+	return diag
 }
 
-// Error represents a PostgreSQL error response.
-type Error struct {
-	Severity string
-	Code     string
-	Message  string
-	Detail   string
-	Hint     string
+// parseError parses an ErrorResponse message into a *sqltypes.PgDiagnostic.
+// Since sqltypes.PgDiagnostic implements the error interface, it can be returned
+// directly as an error. This eliminates the need for a separate wrapper type.
+// It captures all 14 PostgreSQL error fields defined in the protocol.
+func (c *Conn) parseError(body []byte) error {
+	return parseDiagnosticFields(protocol.MsgErrorResponse, body)
 }
 
-// Error implements the error interface.
-func (e *Error) Error() string {
-	if e.Detail != "" {
-		return fmt.Sprintf("%s: %s (SQLSTATE %s)\nDETAIL: %s", e.Severity, e.Message, e.Code, e.Detail)
-	}
-	return fmt.Sprintf("%s: %s (SQLSTATE %s)", e.Severity, e.Message, e.Code)
-}
-
-// IsSQLState checks if the error has the given SQLSTATE code.
-func (e *Error) IsSQLState(code string) bool {
-	return e.Code == code
+// parseNotice parses a NoticeResponse message into a sqltypes.PgDiagnostic.
+func (c *Conn) parseNotice(body []byte) *sqltypes.PgDiagnostic {
+	return parseDiagnosticFields(protocol.MsgNoticeResponse, body)
 }

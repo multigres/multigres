@@ -14,6 +14,41 @@
 
 // Package client provides a PostgreSQL wire protocol client implementation.
 // This is used for MultiPooler -> PostgreSQL communication.
+//
+// # Connection Lifecycle
+//
+// Use [Connect] to establish a connection to PostgreSQL, then execute queries
+// with [Conn.Query] or [Conn.QueryStreaming]. The extended query protocol is
+// available via [Conn.Prepare], [Conn.DescribeStatement], and [Conn.Execute].
+//
+// # PostgreSQL Diagnostic Errors
+//
+// [PgDiagnosticError] is returned when PostgreSQL sends an ErrorResponse message.
+// It wraps [sqltypes.PgDiagnostic] and captures all 14 PostgreSQL error fields:
+//
+//   - Severity, Code (SQLSTATE), Message (required fields)
+//   - Detail, Hint (optional explanatory text)
+//   - Position (cursor position for syntax errors)
+//   - InternalPosition, InternalQuery (for internal queries)
+//   - Where (PL/pgSQL call stack)
+//   - Schema, Table, Column, DataType, Constraint (object identifiers)
+//
+// The error (*sqltypes.PgDiagnostic) can be converted to [mterrors.PgError]
+// to propagate through gRPC while preserving all diagnostic fields:
+//
+//	var diag *sqltypes.PgDiagnostic
+//	if errors.As(err, &diag) {
+//	    mtErr := mterrors.NewPgError(diag)
+//	    // mtErr preserves all PostgreSQL error fields through gRPC
+//	}
+//
+// Use the SQLSTATE() method to check for specific error codes:
+//
+//	if diag.SQLSTATE() == "42P01" {
+//	    // Handle undefined table error
+//	}
+//
+// See: https://www.postgresql.org/docs/current/protocol-error-fields.html
 package client
 
 import (

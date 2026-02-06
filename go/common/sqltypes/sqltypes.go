@@ -12,12 +12,87 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package sqltypes provides internal types for query results that preserve
-// NULL vs empty string distinction. These types are used throughout the
-// codebase, while the proto types are only used for gRPC serialization.
+// Package sqltypes provides internal types for query results and PostgreSQL diagnostics.
+//
+// # Query Result Types
+//
+// The package provides types that preserve NULL vs empty string distinction:
+//   - [Value]: Represents a nullable column value (nil = NULL, []byte{} = empty string)
+//   - [Row]: Contains a slice of Values representing a database row
+//   - [Result]: Complete query result with fields, rows, command tag, and diagnostics
+//
+// These types are used throughout the codebase, while the proto types
+// (in go/pb/query) are only used for gRPC serialization.
+//
+// # PostgreSQL Diagnostic System
+//
+// [PgDiagnostic] is the unified type for PostgreSQL error and notice messages.
+// PostgreSQL uses identical wire format for ErrorResponse ('E') and NoticeResponse ('N'),
+// so a single type handles both. PgDiagnostic implements the error interface directly,
+// so it can be returned as an error without needing a wrapper type.
+// The diagnostic flow through Multigres is:
+//
+//	PostgreSQL ErrorResponse/NoticeResponse
+//	        ↓
+//	*PgDiagnostic (parse all 14 fields, implements error)
+//	        ↓
+//	mterrors.PgError (wraps PgDiagnostic for system-level handling)
+//	        ↓
+//	gRPC: RPCError.pg_diagnostic (proto serialization)
+//	        ↓
+//	mterrors.PgError (reconstructed from gRPC)
+//	        ↓
+//	server.writePgDiagnosticResponse (write all 14 fields)
+//	        ↓
+//	Client sees native PostgreSQL error format
+//
+// # MessageType vs Severity
+//
+// MessageType and Severity serve different purposes:
+//
+//   - MessageType (byte): Protocol-level message type from PostgreSQL wire protocol.
+//     'E' (0x45) = ErrorResponse, 'N' (0x4E) = NoticeResponse.
+//     Use [PgDiagnostic.IsError] and [PgDiagnostic.IsNotice] to check.
+//
+//   - Severity (string): Application-level severity from the Severity field.
+//     Errors: "ERROR", "FATAL", "PANIC"
+//     Notices: "WARNING", "NOTICE", "DEBUG", "INFO", "LOG"
+//     Use [PgDiagnostic.IsFatal] to check for fatal severities.
+//
+// The MessageType determines how to handle the message (error vs notice),
+// while Severity provides additional context about the message's importance.
+//
+// # PostgreSQL Protocol Fields
+//
+// PgDiagnostic captures all 14 PostgreSQL diagnostic fields:
+//
+//	Field             Code  Description
+//	─────────────────────────────────────────────────────────
+//	Severity          S     ERROR, FATAL, PANIC, WARNING, etc.
+//	Code              C     SQLSTATE error code (e.g., "42P01")
+//	Message           M     Primary human-readable message
+//	Detail            D     Optional detailed explanation
+//	Hint              H     Optional suggestion for fixing
+//	Position          P     Cursor position in original query
+//	InternalPosition  p     Position in internal query
+//	InternalQuery     q     Text of internal query
+//	Where             W     Call stack for PL/pgSQL errors
+//	Schema            s     Schema name (constraint errors)
+//	Table             t     Table name (constraint errors)
+//	Column            c     Column name (constraint errors)
+//	DataType          d     Data type name
+//	Constraint        n     Constraint name
+//
+// See: https://www.postgresql.org/docs/current/protocol-error-fields.html
 package sqltypes
 
-import "github.com/multigres/multigres/go/pb/query"
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/multigres/multigres/go/pb/query"
+)
 
 // Value represents a nullable column value.
 // nil means NULL, []byte{} means empty string.
@@ -34,8 +109,13 @@ type Row struct {
 	Values []Value
 }
 
-// Notice represents a PostgreSQL notice response (non-fatal messages).
-type Notice struct {
+// PgDiagnostic represents a PostgreSQL diagnostic message (error or notice).
+// PostgreSQL uses the same wire format for both ErrorResponse ('E') and NoticeResponse ('N'),
+// differentiated by the MessageType field.
+type PgDiagnostic struct {
+	// MessageType is the PostgreSQL protocol message type byte.
+	// 'E' (0x45 = 69) for ErrorResponse, 'N' (0x4E = 78) for NoticeResponse.
+	MessageType      byte
 	Severity         string
 	Code             string
 	Message          string
@@ -50,6 +130,140 @@ type Notice struct {
 	Column           string
 	DataType         string
 	Constraint       string
+}
+
+// IsError returns true if this diagnostic represents an error (MessageType == 'E').
+func (d *PgDiagnostic) IsError() bool {
+	return d.MessageType == 'E'
+}
+
+// IsNotice returns true if this diagnostic represents a notice (MessageType == 'N').
+func (d *PgDiagnostic) IsNotice() bool {
+	return d.MessageType == 'N'
+}
+
+// SQLSTATE returns the PostgreSQL SQLSTATE error code.
+// This is an alias for the Code field, provided for clarity.
+//
+// SQLSTATE codes are 5-character strings where:
+//   - First 2 characters = class (e.g., "42" = syntax/access error)
+//   - Last 3 characters = specific condition
+//
+// Example: "42P01" means undefined table (class 42 = syntax error or access rule violation).
+//
+// See: https://www.postgresql.org/docs/current/errcodes-appendix.html
+func (d *PgDiagnostic) SQLSTATE() string {
+	return d.Code
+}
+
+// SQLSTATEClass returns the first 2 characters of the SQLSTATE code,
+// which identifies the error class.
+//
+// Common classes:
+//   - "00" = Successful completion
+//   - "22" = Data exception
+//   - "23" = Integrity constraint violation
+//   - "42" = Syntax error or access rule violation
+//   - "XX" = Internal error
+//
+// Returns empty string if Code is empty or less than 2 characters.
+//
+// Example:
+//
+//	diag := &PgDiagnostic{Code: "42P01"}
+//	diag.SQLSTATEClass() // returns "42"
+func (d *PgDiagnostic) SQLSTATEClass() string {
+	if len(d.Code) < 2 {
+		return ""
+	}
+	return d.Code[:2]
+}
+
+// IsClass returns true if the SQLSTATE code belongs to the specified class.
+// The class is the first 2 characters of the SQLSTATE code.
+//
+// Example:
+//
+//	diag := &PgDiagnostic{Code: "42P01"} // undefined table
+//	diag.IsClass("42") // returns true (syntax/access error class)
+//	diag.IsClass("23") // returns false
+func (d *PgDiagnostic) IsClass(class string) bool {
+	return d.SQLSTATEClass() == class
+}
+
+// IsFatal returns true if the severity indicates a fatal condition.
+// Fatal conditions include FATAL and PANIC severities.
+//
+// Per PostgreSQL protocol:
+//   - FATAL: The session is terminated
+//   - PANIC: All database sessions are terminated (server restart required)
+//
+// ERROR severity is not considered fatal - the session can continue.
+func (d *PgDiagnostic) IsFatal() bool {
+	return d.Severity == "FATAL" || d.Severity == "PANIC"
+}
+
+// Error implements the error interface.
+// Returns PostgreSQL-native format: "SEVERITY: message".
+// This matches the primary error line format that PostgreSQL displays.
+// Use [PgDiagnostic.FullError] to include the SQLSTATE code for debugging.
+func (d *PgDiagnostic) Error() string {
+	if d == nil {
+		return "ERROR: unknown error"
+	}
+	return d.Severity + ": " + d.Message
+}
+
+// FullError returns the error with SQLSTATE code for debugging purposes.
+// Format: "SEVERITY: message (SQLSTATE code)"
+func (d *PgDiagnostic) FullError() string {
+	if d == nil {
+		return "ERROR: unknown error (SQLSTATE 00000)"
+	}
+	return d.Severity + ": " + d.Message + " (SQLSTATE " + d.Code + ")"
+}
+
+// Validate checks that required PostgreSQL diagnostic fields are present.
+// This is a lenient validation - it returns an error describing what's missing
+// but callers should typically log a warning rather than fail.
+//
+// Required fields per PostgreSQL protocol:
+//   - MessageType must be 'E' (ErrorResponse) or 'N' (NoticeResponse)
+//   - Severity must not be empty
+//   - Code (SQLSTATE) must not be empty
+//   - Message must not be empty
+func (d *PgDiagnostic) Validate() error {
+	if d == nil {
+		return errors.New("diagnostic is nil")
+	}
+
+	var issues []string
+
+	if d.MessageType != 'E' && d.MessageType != 'N' {
+		if d.MessageType == 0 {
+			issues = append(issues, "MessageType is unset (0x00): must be 'E' or 'N'")
+		} else {
+			issues = append(issues, fmt.Sprintf("invalid MessageType '%c' (0x%02x): must be 'E' or 'N'", d.MessageType, d.MessageType))
+		}
+	}
+
+	if d.Severity == "" {
+		issues = append(issues, "Severity is empty")
+	}
+
+	if d.Code == "" {
+		issues = append(issues, "Code (SQLSTATE) is empty")
+	}
+
+	if d.Message == "" {
+		issues = append(issues, "Message is empty")
+	}
+
+	if len(issues) > 0 {
+		return fmt.Errorf("invalid PgDiagnostic: %s", strings.Join(issues, "; "))
+	}
+
+	return nil
 }
 
 // Result represents a query result with nullable values.
@@ -67,8 +281,9 @@ type Result struct {
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
 	CommandTag string
 
-	// Notices contains any PostgreSQL notices received during query execution.
-	Notices []*Notice
+	// Notices contains any PostgreSQL diagnostic messages received during query execution.
+	// These are typically non-fatal messages like warnings or informational notices.
+	Notices []*PgDiagnostic
 }
 
 // ToProto converts Result to proto format for gRPC serialization.
@@ -80,9 +295,9 @@ func (r *Result) ToProto() *query.QueryResult {
 	for i, row := range r.Rows {
 		protoRows[i] = row.ToProto()
 	}
-	protoNotices := make([]*query.Notice, len(r.Notices))
+	protoNotices := make([]*query.PgDiagnostic, len(r.Notices))
 	for i, notice := range r.Notices {
-		protoNotices[i] = NoticeToProto(notice)
+		protoNotices[i] = PgDiagnosticToProto(notice)
 	}
 	return &query.QueryResult{
 		Fields:       r.Fields,
@@ -102,9 +317,9 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	for i, row := range pr.Rows {
 		rows[i] = RowFromProto(row)
 	}
-	notices := make([]*Notice, len(pr.Notices))
+	notices := make([]*PgDiagnostic, len(pr.Notices))
 	for i, notice := range pr.Notices {
-		notices[i] = NoticeFromProto(notice)
+		notices[i] = PgDiagnosticFromProto(notice)
 	}
 	return &Result{
 		Fields:       pr.Fields,
@@ -115,49 +330,51 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	}
 }
 
-// NoticeToProto converts sqltypes Notice to proto format for gRPC serialization.
-func NoticeToProto(n *Notice) *query.Notice {
-	if n == nil {
+// PgDiagnosticToProto converts sqltypes PgDiagnostic to proto format for gRPC serialization.
+func PgDiagnosticToProto(d *PgDiagnostic) *query.PgDiagnostic {
+	if d == nil {
 		return nil
 	}
-	return &query.Notice{
-		Severity:         n.Severity,
-		Code:             n.Code,
-		Message:          n.Message,
-		Detail:           n.Detail,
-		Hint:             n.Hint,
-		Position:         n.Position,
-		InternalPosition: n.InternalPosition,
-		InternalQuery:    n.InternalQuery,
-		Where:            n.Where,
-		SchemaName:       n.Schema,
-		TableName:        n.Table,
-		ColumnName:       n.Column,
-		DataTypeName:     n.DataType,
-		ConstraintName:   n.Constraint,
+	return &query.PgDiagnostic{
+		MessageType:      int32(d.MessageType),
+		Severity:         d.Severity,
+		Code:             d.Code,
+		Message:          d.Message,
+		Detail:           d.Detail,
+		Hint:             d.Hint,
+		Position:         d.Position,
+		InternalPosition: d.InternalPosition,
+		InternalQuery:    d.InternalQuery,
+		Where:            d.Where,
+		SchemaName:       d.Schema,
+		TableName:        d.Table,
+		ColumnName:       d.Column,
+		DataTypeName:     d.DataType,
+		ConstraintName:   d.Constraint,
 	}
 }
 
-// NoticeFromProto converts proto Notice to sqltypes Notice.
-func NoticeFromProto(pn *query.Notice) *Notice {
-	if pn == nil {
+// PgDiagnosticFromProto converts proto PgDiagnostic to sqltypes PgDiagnostic.
+func PgDiagnosticFromProto(pd *query.PgDiagnostic) *PgDiagnostic {
+	if pd == nil {
 		return nil
 	}
-	return &Notice{
-		Severity:         pn.Severity,
-		Code:             pn.Code,
-		Message:          pn.Message,
-		Detail:           pn.Detail,
-		Hint:             pn.Hint,
-		Position:         pn.Position,
-		InternalPosition: pn.InternalPosition,
-		InternalQuery:    pn.InternalQuery,
-		Where:            pn.Where,
-		Schema:           pn.SchemaName,
-		Table:            pn.TableName,
-		Column:           pn.ColumnName,
-		DataType:         pn.DataTypeName,
-		Constraint:       pn.ConstraintName,
+	return &PgDiagnostic{
+		MessageType:      byte(pd.MessageType),
+		Severity:         pd.Severity,
+		Code:             pd.Code,
+		Message:          pd.Message,
+		Detail:           pd.Detail,
+		Hint:             pd.Hint,
+		Position:         pd.Position,
+		InternalPosition: pd.InternalPosition,
+		InternalQuery:    pd.InternalQuery,
+		Where:            pd.Where,
+		Schema:           pd.SchemaName,
+		Table:            pd.TableName,
+		Column:           pd.ColumnName,
+		DataType:         pd.DataTypeName,
+		Constraint:       pd.ConstraintName,
 	}
 }
 

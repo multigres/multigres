@@ -20,6 +20,8 @@ syntax = "proto3";
 
 package mtrpc;
 
+import "query.proto";
+
 option go_package = "github.com/multigres/multigres/go/pb/mtrpc";
 
 // CallerID is passed along RPCs to identify the originating client
@@ -188,4 +190,11 @@ enum Code {
 message RPCError {
   string message = 1;
   Code code = 2;
+
+  // pg_diagnostic contains the full PostgreSQL diagnostic information when the error
+  // originated from PostgreSQL. This allows preserving all 14 PostgreSQL error fields
+  // (SQLSTATE, position, hint, detail, etc.) through gRPC serialization, enabling
+  // proper PostgreSQL-format error display to clients.
+  // When present, this should be used to format the error response to the client.
+  optional query.PgDiagnostic pg_diagnostic = 3;
 }

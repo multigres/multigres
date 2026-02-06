@@ -53,9 +53,11 @@ type QueryResult struct {
 	// When set, the protocol layer will send CommandComplete and reset state for the next result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "CREATE TABLE"
 	CommandTag string `protobuf:"bytes,4,opt,name=command_tag,json=commandTag,proto3" json:"command_tag,omitempty"`
-	// notices contains any PostgreSQL notices received during query execution.
-	// These are non-fatal messages like warnings or informational notices.
-	Notices       []*Notice `protobuf:"bytes,5,rep,name=notices,proto3" json:"notices,omitempty"`
+	// notices contains any PostgreSQL diagnostic messages received during query execution.
+	// These are typically non-fatal messages like warnings or informational notices,
+	// but may also include error diagnostics for logging/auditing purposes.
+	// The message_type field ('E' or 'N') indicates whether each is an error or notice.
+	Notices       []*PgDiagnostic `protobuf:"bytes,5,rep,name=notices,proto3" json:"notices,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -118,7 +120,7 @@ func (x *QueryResult) GetCommandTag() string {
 	return ""
 }
 
-func (x *QueryResult) GetNotices() []*Notice {
+func (x *QueryResult) GetNotices() []*PgDiagnostic {
 	if x != nil {
 		return x.Notices
 	}
@@ -292,20 +294,30 @@ func (x *Row) GetValues() []byte {
 	return nil
 }
 
-// Notice represents a PostgreSQL notice response (non-fatal messages).
-// These include warnings, informational messages, and other diagnostics
-// that don't cause the query to fail.
-type Notice struct {
+// PgDiagnostic represents a PostgreSQL diagnostic message (error or notice).
+// PostgreSQL uses the same wire format for both ErrorResponse ('E') and NoticeResponse ('N'),
+// differentiated by the message_type field. This unified structure captures all 14 fields
+// defined in the PostgreSQL protocol for diagnostic messages.
+//
+// Error severities: ERROR, FATAL, PANIC
+// Notice severities: WARNING, NOTICE, DEBUG, INFO, LOG
+//
+// Reference: https://www.postgresql.org/docs/current/protocol-error-fields.html
+type PgDiagnostic struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// severity is the notice severity level (e.g., "NOTICE", "WARNING", "INFO")
+	// message_type is the PostgreSQL protocol message type byte.
+	// 'E' (0x45 = 69) for ErrorResponse, 'N' (0x4E = 78) for NoticeResponse.
+	// This determines whether the diagnostic is an error or notice.
+	MessageType int32 `protobuf:"varint,15,opt,name=message_type,json=messageType,proto3" json:"message_type,omitempty"`
+	// severity is the severity level (e.g., "ERROR", "FATAL", "WARNING", "NOTICE", "INFO")
 	Severity string `protobuf:"bytes,1,opt,name=severity,proto3" json:"severity,omitempty"`
-	// code is the SQLSTATE error code
+	// code is the SQLSTATE error code (e.g., "42P01", "22P02")
 	Code string `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
-	// message is the primary human-readable notice message
+	// message is the primary human-readable diagnostic message
 	Message string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	// detail provides additional detail about the notice (optional)
+	// detail provides additional detail about the diagnostic (optional)
 	Detail string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
-	// hint provides a hint about how to address the notice (optional)
+	// hint provides a hint about how to address the issue (optional)
 	Hint string `protobuf:"bytes,5,opt,name=hint,proto3" json:"hint,omitempty"`
 	// position is the cursor position in the original query string (1-indexed, 0 if not available)
 	Position int32 `protobuf:"varint,6,opt,name=position,proto3" json:"position,omitempty"`
@@ -313,36 +325,36 @@ type Notice struct {
 	InternalPosition int32 `protobuf:"varint,7,opt,name=internal_position,json=internalPosition,proto3" json:"internal_position,omitempty"`
 	// internal_query is the text of the internally-generated query (optional)
 	InternalQuery string `protobuf:"bytes,8,opt,name=internal_query,json=internalQuery,proto3" json:"internal_query,omitempty"`
-	// where is the context in which the notice occurred, e.g., PL/pgSQL call stack (optional)
+	// where is the context in which the diagnostic occurred, e.g., PL/pgSQL call stack (optional)
 	Where string `protobuf:"bytes,9,opt,name=where,proto3" json:"where,omitempty"`
-	// schema_name is the name of the schema associated with the notice (optional)
+	// schema_name is the name of the schema associated with the diagnostic (optional)
 	SchemaName string `protobuf:"bytes,10,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
-	// table_name is the name of the table associated with the notice (optional)
+	// table_name is the name of the table associated with the diagnostic (optional)
 	TableName string `protobuf:"bytes,11,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
-	// column_name is the name of the column associated with the notice (optional)
+	// column_name is the name of the column associated with the diagnostic (optional)
 	ColumnName string `protobuf:"bytes,12,opt,name=column_name,json=columnName,proto3" json:"column_name,omitempty"`
-	// data_type_name is the name of the data type associated with the notice (optional)
+	// data_type_name is the name of the data type associated with the diagnostic (optional)
 	DataTypeName string `protobuf:"bytes,13,opt,name=data_type_name,json=dataTypeName,proto3" json:"data_type_name,omitempty"`
-	// constraint_name is the name of the constraint associated with the notice (optional)
+	// constraint_name is the name of the constraint associated with the diagnostic (optional)
 	ConstraintName string `protobuf:"bytes,14,opt,name=constraint_name,json=constraintName,proto3" json:"constraint_name,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *Notice) Reset() {
-	*x = Notice{}
+func (x *PgDiagnostic) Reset() {
+	*x = PgDiagnostic{}
 	mi := &file_query_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Notice) String() string {
+func (x *PgDiagnostic) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Notice) ProtoMessage() {}
+func (*PgDiagnostic) ProtoMessage() {}
 
-func (x *Notice) ProtoReflect() protoreflect.Message {
+func (x *PgDiagnostic) ProtoReflect() protoreflect.Message {
 	mi := &file_query_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -354,103 +366,110 @@ func (x *Notice) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Notice.ProtoReflect.Descriptor instead.
-func (*Notice) Descriptor() ([]byte, []int) {
+// Deprecated: Use PgDiagnostic.ProtoReflect.Descriptor instead.
+func (*PgDiagnostic) Descriptor() ([]byte, []int) {
 	return file_query_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *Notice) GetSeverity() string {
+func (x *PgDiagnostic) GetMessageType() int32 {
+	if x != nil {
+		return x.MessageType
+	}
+	return 0
+}
+
+func (x *PgDiagnostic) GetSeverity() string {
 	if x != nil {
 		return x.Severity
 	}
 	return ""
 }
 
-func (x *Notice) GetCode() string {
+func (x *PgDiagnostic) GetCode() string {
 	if x != nil {
 		return x.Code
 	}
 	return ""
 }
 
-func (x *Notice) GetMessage() string {
+func (x *PgDiagnostic) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-func (x *Notice) GetDetail() string {
+func (x *PgDiagnostic) GetDetail() string {
 	if x != nil {
 		return x.Detail
 	}
 	return ""
 }
 
-func (x *Notice) GetHint() string {
+func (x *PgDiagnostic) GetHint() string {
 	if x != nil {
 		return x.Hint
 	}
 	return ""
 }
 
-func (x *Notice) GetPosition() int32 {
+func (x *PgDiagnostic) GetPosition() int32 {
 	if x != nil {
 		return x.Position
 	}
 	return 0
 }
 
-func (x *Notice) GetInternalPosition() int32 {
+func (x *PgDiagnostic) GetInternalPosition() int32 {
 	if x != nil {
 		return x.InternalPosition
 	}
 	return 0
 }
 
-func (x *Notice) GetInternalQuery() string {
+func (x *PgDiagnostic) GetInternalQuery() string {
 	if x != nil {
 		return x.InternalQuery
 	}
 	return ""
 }
 
-func (x *Notice) GetWhere() string {
+func (x *PgDiagnostic) GetWhere() string {
 	if x != nil {
 		return x.Where
 	}
 	return ""
 }
 
-func (x *Notice) GetSchemaName() string {
+func (x *PgDiagnostic) GetSchemaName() string {
 	if x != nil {
 		return x.SchemaName
 	}
 	return ""
 }
 
-func (x *Notice) GetTableName() string {
+func (x *PgDiagnostic) GetTableName() string {
 	if x != nil {
 		return x.TableName
 	}
 	return ""
 }
 
-func (x *Notice) GetColumnName() string {
+func (x *PgDiagnostic) GetColumnName() string {
 	if x != nil {
 		return x.ColumnName
 	}
 	return ""
 }
 
-func (x *Notice) GetDataTypeName() string {
+func (x *PgDiagnostic) GetDataTypeName() string {
 	if x != nil {
 		return x.DataTypeName
 	}
 	return ""
 }
 
-func (x *Notice) GetConstraintName() string {
+func (x *PgDiagnostic) GetConstraintName() string {
 	if x != nil {
 		return x.ConstraintName
 	}
@@ -885,15 +904,15 @@ var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\xc2\x01\n" +
+	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\xc8\x01\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
 	"\x04rows\x18\x03 \x03(\v2\n" +
 	".query.RowR\x04rows\x12\x1f\n" +
 	"\vcommand_tag\x18\x04 \x01(\tR\n" +
-	"commandTag\x12'\n" +
-	"\anotices\x18\x05 \x03(\v2\r.query.NoticeR\anotices\"\x89\x02\n" +
+	"commandTag\x12-\n" +
+	"\anotices\x18\x05 \x03(\v2\x13.query.PgDiagnosticR\anotices\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
@@ -905,8 +924,9 @@ const file_query_proto_rawDesc = "" +
 	"\x06format\x18\b \x01(\x05R\x06format\"7\n" +
 	"\x03Row\x12\x18\n" +
 	"\alengths\x18\x01 \x03(\x12R\alengths\x12\x16\n" +
-	"\x06values\x18\x02 \x01(\fR\x06values\"\xb4\x03\n" +
-	"\x06Notice\x12\x1a\n" +
+	"\x06values\x18\x02 \x01(\fR\x06values\"\xdd\x03\n" +
+	"\fPgDiagnostic\x12!\n" +
+	"\fmessage_type\x18\x0f \x01(\x05R\vmessageType\x12\x1a\n" +
 	"\bseverity\x18\x01 \x01(\tR\bseverity\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x16\n" +
@@ -976,7 +996,7 @@ var file_query_proto_goTypes = []any{
 	(*QueryResult)(nil),             // 0: query.QueryResult
 	(*Field)(nil),                   // 1: query.Field
 	(*Row)(nil),                     // 2: query.Row
-	(*Notice)(nil),                  // 3: query.Notice
+	(*PgDiagnostic)(nil),            // 3: query.PgDiagnostic
 	(*StatementDescription)(nil),    // 4: query.StatementDescription
 	(*ParameterDescription)(nil),    // 5: query.ParameterDescription
 	(*Target)(nil),                  // 6: query.Target
@@ -989,7 +1009,7 @@ var file_query_proto_goTypes = []any{
 var file_query_proto_depIdxs = []int32{
 	1,  // 0: query.QueryResult.fields:type_name -> query.Field
 	2,  // 1: query.QueryResult.rows:type_name -> query.Row
-	3,  // 2: query.QueryResult.notices:type_name -> query.Notice
+	3,  // 2: query.QueryResult.notices:type_name -> query.PgDiagnostic
 	5,  // 3: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	1,  // 4: query.StatementDescription.fields:type_name -> query.Field
 	11, // 5: query.Target.pooler_type:type_name -> clustermetadata.PoolerType

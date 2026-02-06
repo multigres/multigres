@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -94,6 +95,12 @@ func (g *grpcQueryService) StreamExecute(
 	// Call the gRPC StreamExecute
 	stream, err := g.client.StreamExecute(ctx, req)
 	if err != nil {
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *sqltypes.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return grpcErr
+		}
 		return fmt.Errorf("failed to start stream execute: %w", err)
 	}
 
@@ -106,6 +113,12 @@ func (g *grpcQueryService) StreamExecute(
 			return nil
 		}
 		if err != nil {
+			// Convert gRPC error - if it's a PostgreSQL error, preserve it
+			grpcErr := mterrors.FromGRPC(err)
+			var pgDiag *sqltypes.PgDiagnostic
+			if errors.As(grpcErr, &pgDiag) {
+				return grpcErr
+			}
 			return fmt.Errorf("stream receive error: %w", err)
 		}
 
@@ -186,6 +199,12 @@ func (g *grpcQueryService) PortalStreamExecute(
 	// Call the gRPC PortalStreamExecute
 	stream, err := g.client.PortalStreamExecute(ctx, req)
 	if err != nil {
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *sqltypes.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return queryservice.ReservedState{}, grpcErr
+		}
 		return queryservice.ReservedState{}, fmt.Errorf("failed to start portal stream execute: %w", err)
 	}
 
@@ -200,6 +219,12 @@ func (g *grpcQueryService) PortalStreamExecute(
 			return reservedState, nil
 		}
 		if err != nil {
+			// Convert gRPC error - if it's a PostgreSQL error, preserve it
+			grpcErr := mterrors.FromGRPC(err)
+			var pgDiag *sqltypes.PgDiagnostic
+			if errors.As(grpcErr, &pgDiag) {
+				return reservedState, grpcErr
+			}
 			return reservedState, fmt.Errorf("portal stream receive error: %w", err)
 		}
 
@@ -258,6 +283,12 @@ func (g *grpcQueryService) Describe(
 	// Call the gRPC Describe
 	response, err := g.client.Describe(ctx, req)
 	if err != nil {
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *sqltypes.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return nil, grpcErr
+		}
 		return nil, fmt.Errorf("describe failed: %w", err)
 	}
 

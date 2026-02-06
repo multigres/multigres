@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
 func TestParseRowsAffected(t *testing.T) {
@@ -133,7 +134,7 @@ func TestParseCommandComplete(t *testing.T) {
 }
 
 func TestParseError(t *testing.T) {
-	// Build an ErrorResponse message body.
+	// Build an ErrorResponse message body with basic fields.
 	w := NewMessageWriter()
 	w.WriteByte(protocol.FieldSeverity)
 	w.WriteString("ERROR")
@@ -151,32 +152,184 @@ func TestParseError(t *testing.T) {
 	err := conn.parseError(w.Bytes())
 	require.Error(t, err)
 
-	var pgErr *Error
-	require.True(t, errors.As(err, &pgErr))
-	assert.Equal(t, "ERROR", pgErr.Severity)
-	assert.Equal(t, "42P01", pgErr.Code)
-	assert.Equal(t, "relation \"foo\" does not exist", pgErr.Message)
-	assert.Equal(t, "Some detail", pgErr.Detail)
-	assert.Equal(t, "Check your table name", pgErr.Hint)
-	assert.True(t, pgErr.IsSQLState("42P01"))
+	var diag *sqltypes.PgDiagnostic
+	require.True(t, errors.As(err, &diag))
+	assert.Equal(t, "ERROR", diag.Severity)
+	assert.Equal(t, "42P01", diag.Code)
+	assert.Equal(t, "relation \"foo\" does not exist", diag.Message)
+	assert.Equal(t, "Some detail", diag.Detail)
+	assert.Equal(t, "Check your table name", diag.Hint)
+	assert.Equal(t, "42P01", diag.SQLSTATE())
 }
 
-func TestErrorString(t *testing.T) {
-	err := &Error{
-		Severity: "ERROR",
-		Code:     "42P01",
-		Message:  "relation \"foo\" does not exist",
-	}
-	assert.Equal(t, "ERROR: relation \"foo\" does not exist (SQLSTATE 42P01)", err.Error())
+func TestParseErrorAllFields(t *testing.T) {
+	// Build an ErrorResponse message body with all 14 fields.
+	w := NewMessageWriter()
+	w.WriteByte(protocol.FieldSeverity)
+	w.WriteString("ERROR")
+	w.WriteByte(protocol.FieldCode)
+	w.WriteString("23505")
+	w.WriteByte(protocol.FieldMessage)
+	w.WriteString("duplicate key value violates unique constraint \"users_email_key\"")
+	w.WriteByte(protocol.FieldDetail)
+	w.WriteString("Key (email)=(test@example.com) already exists.")
+	w.WriteByte(protocol.FieldHint)
+	w.WriteString("Try a different email address")
+	w.WriteByte(protocol.FieldPosition)
+	w.WriteString("42")
+	w.WriteByte(protocol.FieldInternalPosition)
+	w.WriteString("15")
+	w.WriteByte(protocol.FieldInternalQuery)
+	w.WriteString("SELECT * FROM internal_table")
+	w.WriteByte(protocol.FieldWhere)
+	w.WriteString("PL/pgSQL function check_email() line 5")
+	w.WriteByte(protocol.FieldSchema)
+	w.WriteString("public")
+	w.WriteByte(protocol.FieldTable)
+	w.WriteString("users")
+	w.WriteByte(protocol.FieldColumn)
+	w.WriteString("email")
+	w.WriteByte(protocol.FieldDataType)
+	w.WriteString("text")
+	w.WriteByte(protocol.FieldConstraint)
+	w.WriteString("users_email_key")
+	w.WriteByte(0) // Terminator
 
-	errWithDetail := &Error{
-		Severity: "ERROR",
-		Code:     "42P01",
-		Message:  "relation \"foo\" does not exist",
-		Detail:   "Some additional detail",
-	}
-	expected := "ERROR: relation \"foo\" does not exist (SQLSTATE 42P01)\nDETAIL: Some additional detail"
-	assert.Equal(t, expected, errWithDetail.Error())
+	conn := &Conn{}
+	err := conn.parseError(w.Bytes())
+	require.Error(t, err)
+
+	var diag *sqltypes.PgDiagnostic
+	require.True(t, errors.As(err, &diag))
+
+	// Verify all 14 fields.
+	require.NotNil(t, diag)
+	assert.Equal(t, "ERROR", diag.Severity)
+	assert.Equal(t, "23505", diag.Code)
+	assert.Equal(t, "duplicate key value violates unique constraint \"users_email_key\"", diag.Message)
+	assert.Equal(t, "Key (email)=(test@example.com) already exists.", diag.Detail)
+	assert.Equal(t, "Try a different email address", diag.Hint)
+	assert.Equal(t, int32(42), diag.Position)
+	assert.Equal(t, int32(15), diag.InternalPosition)
+	assert.Equal(t, "SELECT * FROM internal_table", diag.InternalQuery)
+	assert.Equal(t, "PL/pgSQL function check_email() line 5", diag.Where)
+	assert.Equal(t, "public", diag.Schema)
+	assert.Equal(t, "users", diag.Table)
+	assert.Equal(t, "email", diag.Column)
+	assert.Equal(t, "text", diag.DataType)
+	assert.Equal(t, "users_email_key", diag.Constraint)
+}
+
+func TestPgDiagnosticFields(t *testing.T) {
+	// Build an ErrorResponse message body with all 14 fields.
+	w := NewMessageWriter()
+	w.WriteByte(protocol.FieldSeverity)
+	w.WriteString("ERROR")
+	w.WriteByte(protocol.FieldCode)
+	w.WriteString("22P02")
+	w.WriteByte(protocol.FieldMessage)
+	w.WriteString("invalid input syntax for type boolean")
+	w.WriteByte(protocol.FieldDetail)
+	w.WriteString("Some detail")
+	w.WriteByte(protocol.FieldHint)
+	w.WriteString("Check your input")
+	w.WriteByte(protocol.FieldPosition)
+	w.WriteString("25")
+	w.WriteByte(protocol.FieldInternalPosition)
+	w.WriteString("10")
+	w.WriteByte(protocol.FieldInternalQuery)
+	w.WriteString("SELECT internal()")
+	w.WriteByte(protocol.FieldWhere)
+	w.WriteString("function context")
+	w.WriteByte(protocol.FieldSchema)
+	w.WriteString("public")
+	w.WriteByte(protocol.FieldTable)
+	w.WriteString("mytable")
+	w.WriteByte(protocol.FieldColumn)
+	w.WriteString("mycolumn")
+	w.WriteByte(protocol.FieldDataType)
+	w.WriteString("boolean")
+	w.WriteByte(protocol.FieldConstraint)
+	w.WriteString("myconstraint")
+	w.WriteByte(0) // Terminator
+
+	conn := &Conn{}
+	err := conn.parseError(w.Bytes())
+	require.Error(t, err)
+
+	var diag *sqltypes.PgDiagnostic
+	require.True(t, errors.As(err, &diag))
+
+	// Verify MessageType is set to 'E' (ErrorResponse).
+	assert.Equal(t, byte(protocol.MsgErrorResponse), diag.MessageType)
+	assert.True(t, diag.IsError())
+	assert.False(t, diag.IsNotice())
+
+	// Verify all fields are set correctly.
+	assert.Equal(t, "ERROR", diag.Severity)
+	assert.Equal(t, "22P02", diag.Code)
+	assert.Equal(t, "invalid input syntax for type boolean", diag.Message)
+	assert.Equal(t, "Some detail", diag.Detail)
+	assert.Equal(t, "Check your input", diag.Hint)
+	assert.Equal(t, int32(25), diag.Position)
+	assert.Equal(t, int32(10), diag.InternalPosition)
+	assert.Equal(t, "SELECT internal()", diag.InternalQuery)
+	assert.Equal(t, "function context", diag.Where)
+	assert.Equal(t, "public", diag.Schema)
+	assert.Equal(t, "mytable", diag.Table)
+	assert.Equal(t, "mycolumn", diag.Column)
+	assert.Equal(t, "boolean", diag.DataType)
+	assert.Equal(t, "myconstraint", diag.Constraint)
+}
+
+func TestPgDiagnosticErrorString(t *testing.T) {
+	// Build an error without detail.
+	w := NewMessageWriter()
+	w.WriteByte(protocol.FieldSeverity)
+	w.WriteString("ERROR")
+	w.WriteByte(protocol.FieldCode)
+	w.WriteString("42P01")
+	w.WriteByte(protocol.FieldMessage)
+	w.WriteString("relation \"foo\" does not exist")
+	w.WriteByte(0)
+
+	conn := &Conn{}
+	err := conn.parseError(w.Bytes())
+	require.Error(t, err)
+
+	// Error() returns PostgreSQL-native format without SQLSTATE
+	assert.Equal(t, "ERROR: relation \"foo\" does not exist", err.Error())
+
+	// FullError() includes SQLSTATE for debugging
+	var diag *sqltypes.PgDiagnostic
+	require.True(t, errors.As(err, &diag))
+	assert.Equal(t, "ERROR: relation \"foo\" does not exist (SQLSTATE 42P01)", diag.FullError())
+
+	// Build an error with detail - Error() should still be clean
+	w2 := NewMessageWriter()
+	w2.WriteByte(protocol.FieldSeverity)
+	w2.WriteString("FATAL")
+	w2.WriteByte(protocol.FieldCode)
+	w2.WriteString("28P01")
+	w2.WriteByte(protocol.FieldMessage)
+	w2.WriteString("password authentication failed")
+	w2.WriteByte(protocol.FieldDetail)
+	w2.WriteString("Some additional detail")
+	w2.WriteByte(0)
+
+	err2 := conn.parseError(w2.Bytes())
+	require.Error(t, err2)
+
+	// Error() still returns clean format (no SQLSTATE, no DETAIL)
+	assert.Equal(t, "FATAL: password authentication failed", err2.Error())
+
+	// FullError() includes SQLSTATE
+	var diag2 *sqltypes.PgDiagnostic
+	require.True(t, errors.As(err2, &diag2))
+	assert.Equal(t, "FATAL: password authentication failed (SQLSTATE 28P01)", diag2.FullError())
+
+	// Detail is still accessible directly on the diagnostic
+	assert.Equal(t, "Some additional detail", diag2.Detail)
 }
 
 func TestWriteQueryMessage(t *testing.T) {

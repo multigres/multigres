@@ -320,80 +320,94 @@ func (c *Conn) writeEmptyQueryResponse() error {
 	return nil
 }
 
-// writeErrorResponse writes an 'E' (ErrorResponse) message.
-// Format:
-//   - Type: 'E'
-//   - Length: int32
-//   - Fields: series of field-value pairs (each null-terminated)
-//   - Terminator: byte(0)
+// writeSimpleError writes an 'E' (ErrorResponse) message for non-PostgreSQL errors.
+// It creates a minimal PgDiagnostic and uses the unified writePgDiagnosticResponse.
+// Use this for internal errors that don't originate from PostgreSQL.
 //
-// Common fields:
-//   - 'S': Severity (ERROR, FATAL, PANIC)
-//   - 'V': Severity (non-localized)
-//   - 'C': SQLSTATE code (5 characters)
-//   - 'M': Primary message
-//   - 'D': Detail
-//   - 'H': Hint
-func (c *Conn) writeErrorResponse(severity, sqlState, message, detail, hint string) error {
-	// Build the fields map.
-	fields := make(map[byte]string)
-	fields[protocol.FieldSeverity] = severity
-	fields[protocol.FieldSeverityV] = severity // Non-localized version
-	fields[protocol.FieldCode] = sqlState
-	fields[protocol.FieldMessage] = message
-	if detail != "" {
-		fields[protocol.FieldDetail] = detail
+// For PostgreSQL errors with full diagnostic information, use writeErrorFromDiagnostic instead.
+func (c *Conn) writeSimpleError(sqlState, message string) error {
+	diag := &sqltypes.PgDiagnostic{
+		MessageType: protocol.MsgErrorResponse,
+		Severity:    "ERROR",
+		Code:        sqlState,
+		Message:     message,
 	}
-	if hint != "" {
-		fields[protocol.FieldHint] = hint
-	}
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+}
 
-	return c.writeErrorOrNotice(protocol.MsgErrorResponse, fields)
+// writeSimpleErrorWithDetail writes an 'E' (ErrorResponse) message with detail and hint.
+// It creates a PgDiagnostic with the provided fields and uses the unified writePgDiagnosticResponse.
+// Use this for internal errors that don't originate from PostgreSQL but need additional context.
+//
+// For PostgreSQL errors with full diagnostic information, use writeErrorFromDiagnostic instead.
+func (c *Conn) writeSimpleErrorWithDetail(severity, sqlState, message, detail, hint string) error {
+	diag := &sqltypes.PgDiagnostic{
+		MessageType: protocol.MsgErrorResponse,
+		Severity:    severity,
+		Code:        sqlState,
+		Message:     message,
+		Detail:      detail,
+		Hint:        hint,
+	}
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
 }
 
 // writeNoticeResponse writes an 'N' (NoticeResponse) message.
 // Format is identical to ErrorResponse but with different severity levels.
-func (c *Conn) writeNoticeResponse(notice *sqltypes.Notice) error {
+func (c *Conn) writeNoticeResponse(diag *sqltypes.PgDiagnostic) error {
+	return c.writePgDiagnosticResponse(protocol.MsgNoticeResponse, diag)
+}
+
+// writeErrorFromDiagnostic writes an 'E' (ErrorResponse) message using a PgDiagnostic.
+// This preserves all PostgreSQL error fields for native error format output.
+func (c *Conn) writeErrorFromDiagnostic(diag *sqltypes.PgDiagnostic) error {
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+}
+
+// writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).
+// The msgType should be MsgErrorResponse ('E') or MsgNoticeResponse ('N').
+// This unified function handles all 14 PostgreSQL diagnostic fields.
+func (c *Conn) writePgDiagnosticResponse(msgType byte, diag *sqltypes.PgDiagnostic) error {
 	fields := make(map[byte]string)
-	fields[protocol.FieldSeverity] = notice.Severity
-	fields[protocol.FieldSeverityV] = notice.Severity
-	fields[protocol.FieldCode] = notice.Code
-	fields[protocol.FieldMessage] = notice.Message
-	if notice.Detail != "" {
-		fields[protocol.FieldDetail] = notice.Detail
+	fields[protocol.FieldSeverity] = diag.Severity
+	fields[protocol.FieldSeverityV] = diag.Severity
+	fields[protocol.FieldCode] = diag.Code
+	fields[protocol.FieldMessage] = diag.Message
+	if diag.Detail != "" {
+		fields[protocol.FieldDetail] = diag.Detail
 	}
-	if notice.Hint != "" {
-		fields[protocol.FieldHint] = notice.Hint
+	if diag.Hint != "" {
+		fields[protocol.FieldHint] = diag.Hint
 	}
-	if notice.Position != 0 {
-		fields[protocol.FieldPosition] = strconv.Itoa(int(notice.Position))
+	if diag.Position != 0 {
+		fields[protocol.FieldPosition] = strconv.Itoa(int(diag.Position))
 	}
-	if notice.InternalPosition != 0 {
-		fields[protocol.FieldInternalPosition] = strconv.Itoa(int(notice.InternalPosition))
+	if diag.InternalPosition != 0 {
+		fields[protocol.FieldInternalPosition] = strconv.Itoa(int(diag.InternalPosition))
 	}
-	if notice.InternalQuery != "" {
-		fields[protocol.FieldInternalQuery] = notice.InternalQuery
+	if diag.InternalQuery != "" {
+		fields[protocol.FieldInternalQuery] = diag.InternalQuery
 	}
-	if notice.Where != "" {
-		fields[protocol.FieldWhere] = notice.Where
+	if diag.Where != "" {
+		fields[protocol.FieldWhere] = diag.Where
 	}
-	if notice.Schema != "" {
-		fields[protocol.FieldSchema] = notice.Schema
+	if diag.Schema != "" {
+		fields[protocol.FieldSchema] = diag.Schema
 	}
-	if notice.Table != "" {
-		fields[protocol.FieldTable] = notice.Table
+	if diag.Table != "" {
+		fields[protocol.FieldTable] = diag.Table
 	}
-	if notice.Column != "" {
-		fields[protocol.FieldColumn] = notice.Column
+	if diag.Column != "" {
+		fields[protocol.FieldColumn] = diag.Column
 	}
-	if notice.DataType != "" {
-		fields[protocol.FieldDataType] = notice.DataType
+	if diag.DataType != "" {
+		fields[protocol.FieldDataType] = diag.DataType
 	}
-	if notice.Constraint != "" {
-		fields[protocol.FieldConstraint] = notice.Constraint
+	if diag.Constraint != "" {
+		fields[protocol.FieldConstraint] = diag.Constraint
 	}
 
-	return c.writeErrorOrNotice(protocol.MsgNoticeResponse, fields)
+	return c.writeErrorOrNotice(msgType, fields)
 }
 
 // writeErrorOrNotice writes an error or notice message with the given fields.
@@ -418,7 +432,7 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 	}
 
 	// Write fields in a defined order for consistency.
-	// Order: S, V, C, M, D, H, and others
+	// Order follows PostgreSQL convention: S, V, C, M, D, H, P, p, q, W, s, t, c, d, n, F, L, R
 	fieldOrder := []byte{
 		protocol.FieldSeverity,
 		protocol.FieldSeverityV,
@@ -427,6 +441,8 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 		protocol.FieldDetail,
 		protocol.FieldHint,
 		protocol.FieldPosition,
+		protocol.FieldInternalPosition,
+		protocol.FieldInternalQuery,
 		protocol.FieldWhere,
 		protocol.FieldSchema,
 		protocol.FieldTable,

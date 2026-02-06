@@ -367,7 +367,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
-	var notices []*sqltypes.Notice
+	var notices []*sqltypes.PgDiagnostic
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -773,7 +773,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
-	var notices []*sqltypes.Notice
+	var notices []*sqltypes.PgDiagnostic
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -1004,7 +1004,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
-	var notices []*sqltypes.Notice
+	var notices []*sqltypes.PgDiagnostic
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
