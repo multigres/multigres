@@ -1494,6 +1494,15 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 	// Stop postgres (no-op if already stopped)
 	stopReq := &pgctldpb.StopRequest{Mode: "fast"}
 	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
+		// Treat "already stopped" errors as success to make this truly idempotent.
+		// This handles race conditions where postgres was stopped between our check and stop call.
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not running") ||
+			strings.Contains(errMsg, "no child processes") ||
+			strings.Contains(errMsg, "no such process") {
+			pm.logger.InfoContext(ctx, "Postgres already stopped, continuing", "error", errMsg)
+			return nil
+		}
 		return mterrors.Wrap(err, "failed to stop postgres")
 	}
 
