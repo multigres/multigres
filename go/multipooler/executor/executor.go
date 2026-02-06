@@ -283,6 +283,7 @@ func (e *Executor) portalExecuteWithReserved(
 		shouldRelease := reservedConn.ReleasePortal(portal.Name)
 		if shouldRelease {
 			reservedConn.Release(reserved.ReleasePortalComplete)
+			return queryservice.ReservedState{}, nil
 		}
 	}
 
@@ -715,12 +716,10 @@ func (e *Executor) ReserveStreamExecute(
 
 	// If this is a transaction reservation, execute BEGIN first
 	if beginTx {
-		_, err := reservedConn.Query(ctx, "BEGIN")
-		if err != nil {
+		if err := reservedConn.Begin(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
-			return queryservice.ReservedState{}, fmt.Errorf("failed to execute BEGIN: %w", err)
+			return queryservice.ReservedState{}, err
 		}
-		reservedConn.AddReservationReason(protoutil.ReasonTransaction)
 		// Send BEGIN result to callback
 		if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
@@ -732,8 +731,7 @@ func (e *Executor) ReserveStreamExecute(
 	results, err := reservedConn.Query(ctx, sql)
 	if err != nil {
 		if beginTx {
-			// Rollback on error
-			_, _ = reservedConn.Query(ctx, "ROLLBACK")
+			_ = reservedConn.Rollback(ctx)
 		}
 		reservedConn.Release(reserved.ReleaseError)
 		return queryservice.ReservedState{}, fmt.Errorf("query execution failed: %w", err)
@@ -743,7 +741,7 @@ func (e *Executor) ReserveStreamExecute(
 	for _, result := range results {
 		if err := callback(ctx, result); err != nil {
 			if beginTx {
-				_, _ = reservedConn.Query(ctx, "ROLLBACK")
+				_ = reservedConn.Rollback(ctx)
 			}
 			reservedConn.Release(reserved.ReleaseError)
 			return queryservice.ReservedState{}, err
@@ -785,37 +783,35 @@ func (e *Executor) ConcludeTransaction(
 		return nil, 0, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
 	}
 
-	// Execute COMMIT or ROLLBACK
-	var sql string
+	// Execute COMMIT or ROLLBACK using the reserved connection's methods,
+	// which handle both the SQL execution and reason removal.
+	var commandTag string
 	var releaseReason reserved.ReleaseReason
 	switch conclusion {
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT:
-		sql = "COMMIT"
+		commandTag = "COMMIT"
 		releaseReason = reserved.ReleaseCommit
+		if err := reservedConn.Commit(ctx); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, 0, err
+		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
-		sql = "ROLLBACK"
+		commandTag = "ROLLBACK"
 		releaseReason = reserved.ReleaseRollback
+		if err := reservedConn.Rollback(ctx); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, 0, err
+		}
 	default:
 		return nil, 0, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
 	}
 
-	results, err := reservedConn.Query(ctx, sql)
-	if err != nil {
-		reservedConn.Release(reserved.ReleaseError)
-		return nil, 0, fmt.Errorf("failed to execute %s: %w", sql, err)
-	}
+	result := &sqltypes.Result{CommandTag: commandTag}
 
-	var result *sqltypes.Result
-	if len(results) > 0 {
-		result = results[0]
-	} else {
-		result = &sqltypes.Result{CommandTag: sql}
-	}
-
-	// Remove the transaction reason. If other reasons remain (e.g., temp tables, portals),
-	// the connection stays reserved.
-	shouldRelease := reservedConn.RemoveReservationReason(protoutil.ReasonTransaction)
+	// Commit/Rollback already removed the transaction reason.
+	// If other reasons remain (e.g., temp tables, portals), the connection stays reserved.
 	remainingReasons := reservedConn.RemainingReasons()
+	shouldRelease := remainingReasons == 0
 
 	if shouldRelease {
 		reservedConn.Release(releaseReason)
@@ -823,7 +819,7 @@ func (e *Executor) ConcludeTransaction(
 
 	e.logger.DebugContext(ctx, "transaction concluded",
 		"reserved_conn_id", options.ReservedConnectionId,
-		"command_tag", result.CommandTag,
+		"command_tag", commandTag,
 		"released", shouldRelease,
 		"remaining_reasons", protoutil.ReasonsString(remainingReasons))
 
