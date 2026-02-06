@@ -63,13 +63,19 @@ func expectWALPositionStandbyQueries(m *mock.QueryService, receiveLsn, replayLsn
 		))
 }
 
+// expectWALPositionPrimaryQueries mocks queries for WAL position on a primary
+func expectWALPositionPrimaryQueries(m *mock.QueryService, lsn string) {
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{lsn}}))
+}
+
 func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
 
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create the database in topology with backup location
@@ -165,11 +171,9 @@ func TestBeginTerm(t *testing.T) {
 			},
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			setupMocks: func(m *mock.QueryService) {
-				//  Health check before term acceptance (TEMPORARY - will be removed when we separate voting term from primary term)
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				//  Populate WAL position (after term acceptance)
+				// Populate WAL position (after term acceptance)
 				expectWALPositionStandbyQueries(m, "0/2000000", "0/2000000")
-				//  executeRevoke: health check
+				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: determine role (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -225,11 +229,9 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-A",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Health check before term acceptance (TEMPORARY)
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				//  Populate WAL position
+				// Populate WAL position
 				expectWALPositionStandbyQueries(m, "0/3000000", "0/3000000")
-				//  executeRevoke: health check
+				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: determine role (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -255,8 +257,8 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Health check before term acceptance (TEMPORARY)
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// Populate WAL position (primary)
+				expectWALPositionPrimaryQueries(m, "0/3000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: isInRecovery check - returns false (not in recovery = primary)
@@ -283,8 +285,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Health check before term acceptance (TEMPORARY)
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// Populate WAL position (standby since already demoted)
 				expectWALPositionStandbyQueries(m, "0/4000000", "0/4000000")
 				// executeRevoke: health check
@@ -314,8 +314,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Health check before term acceptance (TEMPORARY)
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// Populate WAL position
 				expectWALPositionStandbyQueries(m, "0/5000000", "0/5000000")
 				// executeRevoke: health check
@@ -346,8 +344,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Health check before term acceptance (TEMPORARY)
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// Populate WAL position
 				expectWALPositionStandbyQueries(m, "0/6000000", "0/6000000")
 				// executeRevoke: health check
@@ -440,14 +436,16 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Phase 1: Health check FAILS - postgres is down
+				// Populate WAL position succeeds - we can query postgres state
+				expectWALPositionStandbyQueries(m, "0/7000000", "0/7000000")
+				// executeRevoke: health check FAILS - postgres is down
 				// DO NOT add SELECT 1 expectation - let it fail
 			},
-			expectedError:                       false,
-			expectedAccepted:                    false, // TODO(FUTURE): Once we separate voting term from primary term, this should be TRUE
-			expectedTerm:                        5,     // Should remain at current term since we rejected
-			expectedAcceptedTermFromCoordinator: "",    // Should not accept new coordinator
-			description:                         "Node with postgres down rejects REVOKE term until we separate voting term from primary term",
+			expectedError:                       true, // Revoke fails because postgres is down
+			expectedAccepted:                    true, // Term IS accepted (acceptance happens before revoke)
+			expectedTerm:                        10,   // Term advances to 10
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Node accepts term but revoke fails when postgres is down",
 		},
 	}
 
