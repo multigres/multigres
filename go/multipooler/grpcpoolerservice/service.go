@@ -18,6 +18,7 @@ package grpcpoolerservice
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/multipooler/pools/admin"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/pb/query"
 )
 
 // poolerService is the gRPC wrapper for MultiPooler
@@ -197,4 +199,139 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 	}
 
 	return nil
+}
+
+// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
+// The gateway sends: INITIATE → DATA (repeated) → DONE/FAIL
+// The pooler responds: READY → DATA (for COPY TO) → RESULT/ERROR
+func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer) error {
+	ctx := stream.Context()
+
+	// Receive INITIATE message
+	req, err := stream.Recv()
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "failed to receive INITIATE: %v", err)
+	}
+
+	if req.Phase != multipoolerpb.CopyBidiExecuteRequest_INITIATE {
+		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
+	}
+
+	// Get the executor from the pooler
+	exec, err := s.pooler.Executor()
+	if err != nil {
+		return status.Errorf(codes.Unavailable, "executor not initialized: %v", err)
+	}
+
+	// Phase 1: INITIATE - Send COPY command and get reserved connection
+	format, columnFormats, reservedState, err := exec.CopyReady(ctx, req.Target, req.Query, req.Options)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to initiate COPY: %v", err)
+	}
+
+	// Convert columnFormats from []int16 to []int32 for protobuf
+	columnFormats32 := make([]int32, len(columnFormats))
+	for i, f := range columnFormats {
+		columnFormats32[i] = int32(f)
+	}
+
+	// Send READY response with reserved connection info
+	readyResp := &multipoolerpb.CopyBidiExecuteResponse{
+		Phase:                multipoolerpb.CopyBidiExecuteResponse_READY,
+		ReservedConnectionId: reservedState.ReservedConnectionId,
+		PoolerId:             reservedState.PoolerID,
+		Format:               int32(format),
+		ColumnFormats:        columnFormats32,
+	}
+	if err := stream.Send(readyResp); err != nil {
+		// Clean up reserved connection on send failure
+		copyOptions := &query.ExecuteOptions{
+			User:                 req.Options.GetUser(),
+			SessionSettings:      req.Options.GetSessionSettings(),
+			ReservedConnectionId: reservedState.ReservedConnectionId,
+		}
+		_ = exec.CopyAbort(ctx, req.Target, "failed to send READY response", copyOptions)
+		return status.Errorf(codes.Internal, "failed to send READY response: %v", err)
+	}
+
+	// Build options with reserved connection ID for subsequent calls
+	copyOptions := &query.ExecuteOptions{
+		User:                 req.Options.GetUser(),
+		SessionSettings:      req.Options.GetSessionSettings(),
+		ReservedConnectionId: reservedState.ReservedConnectionId,
+	}
+
+	// Phase 2: Handle DATA/DONE/FAIL messages
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			// Stream closed or error
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				_ = exec.CopyAbort(ctx, req.Target, "context canceled", copyOptions)
+				return status.Errorf(codes.Canceled, "stream canceled: %v", err)
+			}
+			_ = exec.CopyAbort(ctx, req.Target, "stream receive error", copyOptions)
+			return status.Errorf(codes.Internal, "failed to receive message: %v", err)
+		}
+
+		switch req.Phase {
+		case multipoolerpb.CopyBidiExecuteRequest_DATA:
+			// Phase 2a: DATA - Write data chunk to PostgreSQL
+			if err := exec.CopySendData(ctx, req.Target, req.Data, copyOptions); err != nil {
+				_ = exec.CopyAbort(ctx, req.Target, "failed to write data", copyOptions)
+				return status.Errorf(codes.Internal, "failed to handle COPY data: %v", err)
+			}
+
+		case multipoolerpb.CopyBidiExecuteRequest_DONE:
+			// Phase 2b: DONE - Finalize COPY operation
+			result, err := exec.CopyFinalize(ctx, req.Target, req.Data, copyOptions)
+			if err != nil {
+				// Abort to ensure protocol cleanup
+				// (even though connection might already be closed in Finalize)
+				_ = exec.CopyAbort(ctx, req.Target, fmt.Sprintf("COPY failed: %v", err), copyOptions)
+
+				// Send ERROR response
+				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
+					Phase: multipoolerpb.CopyBidiExecuteResponse_ERROR,
+					Error: err.Error(),
+				}
+				_ = stream.Send(errorResp)
+				return status.Errorf(codes.Internal, "COPY operation failed: %v", err)
+			}
+
+			// Send RESULT response with final result
+			resultResp := &multipoolerpb.CopyBidiExecuteResponse{
+				Phase:  multipoolerpb.CopyBidiExecuteResponse_RESULT,
+				Result: result.ToProto(),
+			}
+			if err := stream.Send(resultResp); err != nil {
+				return status.Errorf(codes.Internal, "failed to send RESULT: %v", err)
+			}
+
+			// Operation completed successfully
+			return nil
+
+		case multipoolerpb.CopyBidiExecuteRequest_FAIL:
+			// Phase 2c: FAIL - Abort COPY operation
+			errorMsg := req.ErrorMessage
+			if errorMsg == "" {
+				errorMsg = "operation aborted by client"
+			}
+			if err := exec.CopyAbort(ctx, req.Target, errorMsg, copyOptions); err != nil {
+				return status.Errorf(codes.Internal, "failed to abort COPY: %v", err)
+			}
+
+			// Send ERROR response
+			errorResp := &multipoolerpb.CopyBidiExecuteResponse{
+				Phase: multipoolerpb.CopyBidiExecuteResponse_ERROR,
+				Error: errorMsg,
+			}
+			_ = stream.Send(errorResp)
+			return status.Errorf(codes.Aborted, "COPY aborted: %s", errorMsg)
+
+		default:
+			_ = exec.CopyAbort(ctx, req.Target, "unexpected phase", copyOptions)
+			return status.Errorf(codes.InvalidArgument, "unexpected phase: %v", req.Phase)
+		}
+	}
 }

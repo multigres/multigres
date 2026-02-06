@@ -15,6 +15,8 @@
 package pgregresstest
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,63 +30,63 @@ import (
 // This test performs the following steps:
 // 1. Checks out PostgreSQL source code (REL_17_6) from GitHub
 // 2. Builds PostgreSQL using ./configure and make
-// 3. Spins up a multigres cluster (2 nodes + multigateway)
-// 4. Runs PostgreSQL regression tests (boolean, char) through multigateway using make installcheck-tests
-// 5. Reports results (logs failures but doesn't fail the test)
+// 3. Prepends the built PostgreSQL bin directory to PATH
+// 4. Spins up a multigres cluster (2 nodes + multigateway) using the built PostgreSQL
+// 5. Runs PostgreSQL regression tests (boolean, char) through multigateway using make installcheck-tests
+// 6. Reports results (logs failures but doesn't fail the test)
 //
-// The test is skipped in short mode and when build dependencies are not available.
+// The test is skipped by default. Set RUN_PGREGRESS=1 to run it.
 func TestPostgreSQLRegression(t *testing.T) {
-	// Skip in short mode
-	if testing.Short() {
-		t.Skip("skipping long-running PostgreSQL regression tests in short mode")
+	// Skip unless explicitly enabled via environment variable
+	if os.Getenv("RUN_PGREGRESS") != "1" {
+		t.Skip("skipping pg_regress tests (set RUN_PGREGRESS=1 to run)")
 	}
 
-	// Skip if PostgreSQL binaries not available
-	if utils.ShouldSkipRealPostgres() {
-		t.Skip("PostgreSQL binaries not found, skipping regression tests")
+	// Check build dependencies first (before doing anything expensive)
+	if err := CheckBuildDependencies(t); err != nil {
+		t.Skipf("Build dependencies not available: %v", err)
 	}
-
-	// Get shared cluster setup (2 nodes + multigateway)
-	setup := getSharedSetup(t)
-	setup.SetupTest(t)
 
 	// Create PostgresBuilder for managing source and build
+	// We need to build PostgreSQL BEFORE setting up the cluster so that pgctld
+	// uses the same PostgreSQL version as the regression test library (regress.so)
 	ctx := utils.WithTimeout(t, 60*time.Minute)
-	builder := NewPostgresBuilder(t, setup.TempDir)
+	builder := NewPostgresBuilder(t, t.TempDir())
 	t.Cleanup(func() {
 		builder.Cleanup()
 	})
 
-	// Track if build succeeded
-	buildSucceeded := false
-
 	// Phase 1: Setup PostgreSQL source
-	t.Run("setup_postgres_source", func(t *testing.T) {
-		// Check build dependencies first
-		if err := CheckBuildDependencies(t); err != nil {
-			t.Skipf("Build dependencies not available: %v", err)
-		}
-
-		// Ensure PostgreSQL source is available (clone if needed)
-		if err := builder.EnsureSource(t, ctx); err != nil {
-			t.Fatalf("Failed to setup PostgreSQL source: %v", err)
-		}
-	})
+	t.Logf("Phase 1: Setting up PostgreSQL source...")
+	if err := builder.EnsureSource(t, ctx); err != nil {
+		t.Fatalf("Failed to setup PostgreSQL source: %v", err)
+	}
 
 	// Phase 2: Build PostgreSQL
-	t.Run("build_postgres", func(t *testing.T) {
-		if err := builder.Build(t, ctx); err != nil {
-			t.Fatalf("Failed to build PostgreSQL: %v", err)
-		}
-		buildSucceeded = true
-	})
+	t.Logf("Phase 2: Building PostgreSQL...")
+	if err := builder.Build(t, ctx); err != nil {
+		t.Fatalf("Failed to build PostgreSQL: %v", err)
+	}
 
-	// Phase 3: Run regression tests - ONLY if build succeeded
+	// Phase 3: Prepend built PostgreSQL bin directory to PATH so that pgctld uses
+	// the same PostgreSQL version as the regression test library (regress.so)
+	t.Logf("Phase 3: Configuring PATH to use built PostgreSQL...")
+	pgBinDir := filepath.Join(builder.InstallDir, "bin")
+	currentPath := os.Getenv("PATH")
+	newPath := pgBinDir + string(os.PathListSeparator) + currentPath
+	if err := os.Setenv("PATH", newPath); err != nil {
+		t.Fatalf("Failed to set PATH: %v", err)
+	}
+	t.Logf("Using built PostgreSQL from %s", pgBinDir)
+
+	// Phase 4: Set up cluster using the built PostgreSQL
+	// This MUST happen after we modify PATH so pgctld uses the correct binaries
+	t.Logf("Phase 4: Setting up multigres cluster...")
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	// Phase 5: Run regression tests
 	t.Run("run_regression_tests", func(t *testing.T) {
-		if !buildSucceeded {
-			t.Skip("Skipping regression tests because PostgreSQL build failed")
-		}
-
 		// Run tests against multigateway
 		results, err := builder.RunRegressionTests(t, ctx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 
@@ -94,6 +96,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 				t.Fatalf("Test harness failed to execute: %v", err)
 			}
 			t.Fatal("Test harness returned nil results")
+			return
 		}
 
 		// Always log results (even on success)

@@ -60,7 +60,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t)
+	setup.StartMultiOrchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	// Get the primary
@@ -199,6 +199,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			Cell:      setup.CellName,
 			Name:      "test-coordinator",
 		},
+		Action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 	}
 	beginTermResp, err := primaryClient.Consensus.BeginTerm(utils.WithTimeout(t, 10*time.Second), beginTermReq)
 	primaryClient.Close()
@@ -698,7 +699,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t)
+	setup.StartMultiOrchs(t.Context(), t)
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary instance should exist")

@@ -341,3 +341,137 @@ func TestPoolTaint(t *testing.T) {
 	// Should have returned to initial + 1 state (the tainted one was replaced)
 	assert.GreaterOrEqual(t, pool.Active(), initialActive)
 }
+
+func TestPoolSetCapacity_NonBlocking(t *testing.T) {
+	pool := newTestPool(10)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Get 5 connections (all borrowed)
+	var conns []*Pooled[*mockConnection]
+	for range 5 {
+		conn, err := pool.Get(ctx)
+		require.NoError(t, err)
+		conns = append(conns, conn)
+	}
+
+	assert.Equal(t, int64(5), pool.InUse())
+	assert.Equal(t, int64(5), pool.Active())
+
+	// Reduce capacity to 2 - should NOT block even though 5 are borrowed
+	err := pool.SetCapacity(ctx, 2)
+	require.NoError(t, err)
+
+	// Capacity should be updated immediately
+	assert.Equal(t, int64(2), pool.Capacity())
+	// Active connections are still 5 (borrowed, not yet recycled)
+	assert.Equal(t, int64(5), pool.Active())
+
+	// Return connections - they should be closed on recycle since we're over capacity
+	for _, conn := range conns {
+		conn.Recycle()
+	}
+
+	// After recycling, active should be at or below capacity
+	// The first 2 might go to waiters or idle, the remaining 3 should be closed
+	assert.LessOrEqual(t, pool.Active(), int64(2))
+	assert.Equal(t, int64(0), pool.InUse())
+}
+
+func TestPoolSetCapacity_ClosesIdleImmediately(t *testing.T) {
+	pool := newTestPool(10)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Get 5 connections at once to force 5 active connections
+	var conns []*Pooled[*mockConnection]
+	for range 5 {
+		conn, err := pool.Get(ctx)
+		require.NoError(t, err)
+		conns = append(conns, conn)
+	}
+
+	assert.Equal(t, int64(5), pool.Active())
+	assert.Equal(t, int64(5), pool.InUse())
+
+	// Return them all to idle
+	for _, conn := range conns {
+		conn.Recycle()
+	}
+
+	assert.Equal(t, int64(5), pool.Active())
+	assert.Equal(t, int64(0), pool.InUse())
+
+	// Reduce capacity to 2 - should immediately close idle connections
+	err := pool.SetCapacity(ctx, 2)
+	require.NoError(t, err)
+
+	// Active should be reduced immediately since connections were idle
+	assert.LessOrEqual(t, pool.Active(), int64(2))
+}
+
+func TestPoolSetCapacity_IncreaseUnblocksWaiters(t *testing.T) {
+	// Start with capacity 1
+	pool := newTestPool(1)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Exhaust the pool by borrowing the only connection
+	conn1, err := pool.Get(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), pool.Active())
+	assert.Equal(t, int64(1), pool.InUse())
+
+	// Start goroutines that will wait for connections
+	const numWaiters = 3
+	results := make(chan *Pooled[*mockConnection], numWaiters)
+	errors := make(chan error, numWaiters)
+
+	for range numWaiters {
+		go func() {
+			// Use a long timeout - we expect to be unblocked by capacity increase
+			waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			conn, err := pool.Get(waitCtx)
+			if err != nil {
+				errors <- err
+				return
+			}
+			results <- conn
+		}()
+	}
+
+	// Give goroutines time to start waiting
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify we have waiters (pool at capacity, requests pending)
+	assert.Equal(t, int64(1), pool.Capacity())
+	assert.Equal(t, int64(1), pool.InUse())
+
+	// Increase capacity - this should proactively create connections for waiters
+	err = pool.SetCapacity(ctx, 4)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(4), pool.Capacity())
+
+	// All waiters should get connections quickly (not waiting for recycle)
+	for range numWaiters {
+		select {
+		case conn := <-results:
+			require.NotNil(t, conn)
+			conn.Recycle()
+		case err := <-errors:
+			t.Fatalf("waiter got error: %v", err)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("timed out waiting for waiter to get connection - capacity increase did not unblock waiters")
+		}
+	}
+
+	// Return the original connection
+	conn1.Recycle()
+}

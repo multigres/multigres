@@ -117,4 +117,65 @@ type QueryService interface {
 	// Close closes the query service and releases resources.
 	// After Close is called, no other methods should be called.
 	Close(ctx context.Context) error
+
+	// CopyReady initiates a COPY FROM STDIN operation and returns format information.
+	// Returns reserved connection state that must be stored and used for subsequent COPY calls
+	// via options.ReservedConnectionId.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   copyQuery: The COPY SQL statement to execute
+	//   options: Execute options including user and session settings
+	CopyReady(
+		ctx context.Context,
+		target *query.Target,
+		copyQuery string,
+		options *query.ExecuteOptions,
+	) (format int16, columnFormats []int16, reservedState ReservedState, err error)
+
+	// CopySendData sends a chunk of data for an active COPY operation.
+	// options.ReservedConnectionId must be set to route to the correct connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   data: The chunk of COPY data to send
+	//   options: Execute options including reserved connection ID
+	CopySendData(
+		ctx context.Context,
+		target *query.Target,
+		data []byte,
+		options *query.ExecuteOptions,
+	) error
+
+	// CopyFinalize completes a COPY operation, sending final data and returning the result.
+	// options.ReservedConnectionId must be set to route to the correct connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   finalData: Any remaining data to send before completing (can be nil)
+	//   options: Execute options including reserved connection ID
+	CopyFinalize(
+		ctx context.Context,
+		target *query.Target,
+		finalData []byte,
+		options *query.ExecuteOptions,
+	) (*sqltypes.Result, error)
+
+	// CopyAbort aborts a COPY operation.
+	// options.ReservedConnectionId must be set to route to the correct connection.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   errorMsg: Error message to send to the server
+	//   options: Execute options including reserved connection ID
+	CopyAbort(
+		ctx context.Context,
+		target *query.Target,
+		errorMsg string,
+		options *query.ExecuteOptions,
+	) error
 }

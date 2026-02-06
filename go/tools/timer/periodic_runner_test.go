@@ -477,3 +477,61 @@ func TestPeriodicRunnerStopsOnParentContextCancellation(t *testing.T) {
 		// Good - no second callback
 	}
 }
+
+func TestPeriodicRunnerUpdateInterval(t *testing.T) {
+	called := make(chan time.Time, 100)
+
+	runner := NewPeriodicRunner(t.Context(), 50*time.Millisecond)
+
+	runner.Start(func(_ context.Context) {
+		select {
+		case called <- time.Now():
+		default:
+		}
+	}, nil)
+
+	// Wait for first callback
+	first := <-called
+
+	// Update to a shorter interval
+	changed := runner.UpdateInterval(10 * time.Millisecond)
+	assert.True(t, changed, "UpdateInterval should return true when changing interval")
+
+	// Wait for second callback - should happen sooner than 50ms
+	second := <-called
+	elapsed := second.Sub(first)
+	assert.Less(t, elapsed, 50*time.Millisecond, "next callback should use new shorter interval")
+
+	// Update to same interval should return false
+	changed = runner.UpdateInterval(10 * time.Millisecond)
+	assert.False(t, changed, "UpdateInterval should return false when interval unchanged")
+
+	runner.Stop()
+}
+
+func TestPeriodicRunnerUpdateIntervalWhenStopped(t *testing.T) {
+	runner := NewPeriodicRunner(t.Context(), 50*time.Millisecond)
+
+	// Update interval when stopped
+	changed := runner.UpdateInterval(10 * time.Millisecond)
+	assert.True(t, changed, "UpdateInterval should work when stopped")
+
+	// Start with the new interval
+	called := make(chan struct{}, 10)
+	runner.Start(func(_ context.Context) {
+		select {
+		case called <- struct{}{}:
+		default:
+		}
+	}, nil)
+
+	// Should execute quickly with the updated interval
+	select {
+	case <-called:
+		// Good - executed within reasonable time
+	case <-time.After(30 * time.Millisecond):
+		t.Fatal("callback should have executed with updated 10ms interval")
+	}
+
+	runner.Stop()
+}

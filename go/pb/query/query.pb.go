@@ -52,7 +52,10 @@ type QueryResult struct {
 	// When streaming results, this should only be set on the final packet of a result set.
 	// When set, the protocol layer will send CommandComplete and reset state for the next result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3", "CREATE TABLE"
-	CommandTag    string `protobuf:"bytes,4,opt,name=command_tag,json=commandTag,proto3" json:"command_tag,omitempty"`
+	CommandTag string `protobuf:"bytes,4,opt,name=command_tag,json=commandTag,proto3" json:"command_tag,omitempty"`
+	// notices contains any PostgreSQL notices received during query execution.
+	// These are non-fatal messages like warnings or informational notices.
+	Notices       []*Notice `protobuf:"bytes,5,rep,name=notices,proto3" json:"notices,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -113,6 +116,13 @@ func (x *QueryResult) GetCommandTag() string {
 		return x.CommandTag
 	}
 	return ""
+}
+
+func (x *QueryResult) GetNotices() []*Notice {
+	if x != nil {
+		return x.Notices
+	}
+	return nil
 }
 
 // Field represents metadata about a column in the result set.
@@ -282,6 +292,171 @@ func (x *Row) GetValues() []byte {
 	return nil
 }
 
+// Notice represents a PostgreSQL notice response (non-fatal messages).
+// These include warnings, informational messages, and other diagnostics
+// that don't cause the query to fail.
+type Notice struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// severity is the notice severity level (e.g., "NOTICE", "WARNING", "INFO")
+	Severity string `protobuf:"bytes,1,opt,name=severity,proto3" json:"severity,omitempty"`
+	// code is the SQLSTATE error code
+	Code string `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
+	// message is the primary human-readable notice message
+	Message string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// detail provides additional detail about the notice (optional)
+	Detail string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	// hint provides a hint about how to address the notice (optional)
+	Hint string `protobuf:"bytes,5,opt,name=hint,proto3" json:"hint,omitempty"`
+	// position is the cursor position in the original query string (1-indexed, 0 if not available)
+	Position int32 `protobuf:"varint,6,opt,name=position,proto3" json:"position,omitempty"`
+	// internal_position is the cursor position in the internal query (1-indexed, 0 if not available)
+	InternalPosition int32 `protobuf:"varint,7,opt,name=internal_position,json=internalPosition,proto3" json:"internal_position,omitempty"`
+	// internal_query is the text of the internally-generated query (optional)
+	InternalQuery string `protobuf:"bytes,8,opt,name=internal_query,json=internalQuery,proto3" json:"internal_query,omitempty"`
+	// where is the context in which the notice occurred, e.g., PL/pgSQL call stack (optional)
+	Where string `protobuf:"bytes,9,opt,name=where,proto3" json:"where,omitempty"`
+	// schema_name is the name of the schema associated with the notice (optional)
+	SchemaName string `protobuf:"bytes,10,opt,name=schema_name,json=schemaName,proto3" json:"schema_name,omitempty"`
+	// table_name is the name of the table associated with the notice (optional)
+	TableName string `protobuf:"bytes,11,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
+	// column_name is the name of the column associated with the notice (optional)
+	ColumnName string `protobuf:"bytes,12,opt,name=column_name,json=columnName,proto3" json:"column_name,omitempty"`
+	// data_type_name is the name of the data type associated with the notice (optional)
+	DataTypeName string `protobuf:"bytes,13,opt,name=data_type_name,json=dataTypeName,proto3" json:"data_type_name,omitempty"`
+	// constraint_name is the name of the constraint associated with the notice (optional)
+	ConstraintName string `protobuf:"bytes,14,opt,name=constraint_name,json=constraintName,proto3" json:"constraint_name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Notice) Reset() {
+	*x = Notice{}
+	mi := &file_query_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Notice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Notice) ProtoMessage() {}
+
+func (x *Notice) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Notice.ProtoReflect.Descriptor instead.
+func (*Notice) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Notice) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *Notice) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *Notice) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *Notice) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *Notice) GetHint() string {
+	if x != nil {
+		return x.Hint
+	}
+	return ""
+}
+
+func (x *Notice) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *Notice) GetInternalPosition() int32 {
+	if x != nil {
+		return x.InternalPosition
+	}
+	return 0
+}
+
+func (x *Notice) GetInternalQuery() string {
+	if x != nil {
+		return x.InternalQuery
+	}
+	return ""
+}
+
+func (x *Notice) GetWhere() string {
+	if x != nil {
+		return x.Where
+	}
+	return ""
+}
+
+func (x *Notice) GetSchemaName() string {
+	if x != nil {
+		return x.SchemaName
+	}
+	return ""
+}
+
+func (x *Notice) GetTableName() string {
+	if x != nil {
+		return x.TableName
+	}
+	return ""
+}
+
+func (x *Notice) GetColumnName() string {
+	if x != nil {
+		return x.ColumnName
+	}
+	return ""
+}
+
+func (x *Notice) GetDataTypeName() string {
+	if x != nil {
+		return x.DataTypeName
+	}
+	return ""
+}
+
+func (x *Notice) GetConstraintName() string {
+	if x != nil {
+		return x.ConstraintName
+	}
+	return ""
+}
+
 // StatementDescription describes a prepared statement or portal.
 // Used for the Describe message ('D') response in the extended query protocol.
 type StatementDescription struct {
@@ -298,7 +473,7 @@ type StatementDescription struct {
 
 func (x *StatementDescription) Reset() {
 	*x = StatementDescription{}
-	mi := &file_query_proto_msgTypes[3]
+	mi := &file_query_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -310,7 +485,7 @@ func (x *StatementDescription) String() string {
 func (*StatementDescription) ProtoMessage() {}
 
 func (x *StatementDescription) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[3]
+	mi := &file_query_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -323,7 +498,7 @@ func (x *StatementDescription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatementDescription.ProtoReflect.Descriptor instead.
 func (*StatementDescription) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{3}
+	return file_query_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StatementDescription) GetParameters() []*ParameterDescription {
@@ -351,7 +526,7 @@ type ParameterDescription struct {
 
 func (x *ParameterDescription) Reset() {
 	*x = ParameterDescription{}
-	mi := &file_query_proto_msgTypes[4]
+	mi := &file_query_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -363,7 +538,7 @@ func (x *ParameterDescription) String() string {
 func (*ParameterDescription) ProtoMessage() {}
 
 func (x *ParameterDescription) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[4]
+	mi := &file_query_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -376,7 +551,7 @@ func (x *ParameterDescription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParameterDescription.ProtoReflect.Descriptor instead.
 func (*ParameterDescription) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{4}
+	return file_query_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ParameterDescription) GetDataTypeOid() uint32 {
@@ -406,7 +581,7 @@ type Target struct {
 
 func (x *Target) Reset() {
 	*x = Target{}
-	mi := &file_query_proto_msgTypes[5]
+	mi := &file_query_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -418,7 +593,7 @@ func (x *Target) String() string {
 func (*Target) ProtoMessage() {}
 
 func (x *Target) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[5]
+	mi := &file_query_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -431,7 +606,7 @@ func (x *Target) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Target.ProtoReflect.Descriptor instead.
 func (*Target) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{5}
+	return file_query_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Target) GetTableGroup() string {
@@ -474,7 +649,7 @@ type PreparedStatement struct {
 
 func (x *PreparedStatement) Reset() {
 	*x = PreparedStatement{}
-	mi := &file_query_proto_msgTypes[6]
+	mi := &file_query_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -486,7 +661,7 @@ func (x *PreparedStatement) String() string {
 func (*PreparedStatement) ProtoMessage() {}
 
 func (x *PreparedStatement) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[6]
+	mi := &file_query_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -499,7 +674,7 @@ func (x *PreparedStatement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreparedStatement.ProtoReflect.Descriptor instead.
 func (*PreparedStatement) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{6}
+	return file_query_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PreparedStatement) GetName() string {
@@ -554,7 +729,7 @@ type Portal struct {
 
 func (x *Portal) Reset() {
 	*x = Portal{}
-	mi := &file_query_proto_msgTypes[7]
+	mi := &file_query_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -566,7 +741,7 @@ func (x *Portal) String() string {
 func (*Portal) ProtoMessage() {}
 
 func (x *Portal) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[7]
+	mi := &file_query_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -579,7 +754,7 @@ func (x *Portal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Portal.ProtoReflect.Descriptor instead.
 func (*Portal) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{7}
+	return file_query_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Portal) GetName() string {
@@ -650,7 +825,7 @@ type ExecuteOptions struct {
 
 func (x *ExecuteOptions) Reset() {
 	*x = ExecuteOptions{}
-	mi := &file_query_proto_msgTypes[8]
+	mi := &file_query_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -662,7 +837,7 @@ func (x *ExecuteOptions) String() string {
 func (*ExecuteOptions) ProtoMessage() {}
 
 func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[8]
+	mi := &file_query_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -675,7 +850,7 @@ func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteOptions.ProtoReflect.Descriptor instead.
 func (*ExecuteOptions) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{8}
+	return file_query_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExecuteOptions) GetSessionSettings() map[string]string {
@@ -710,14 +885,15 @@ var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\x99\x01\n" +
+	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\xc2\x01\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
 	"\x04rows\x18\x03 \x03(\v2\n" +
 	".query.RowR\x04rows\x12\x1f\n" +
 	"\vcommand_tag\x18\x04 \x01(\tR\n" +
-	"commandTag\"\x89\x02\n" +
+	"commandTag\x12'\n" +
+	"\anotices\x18\x05 \x03(\v2\r.query.NoticeR\anotices\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
@@ -729,7 +905,26 @@ const file_query_proto_rawDesc = "" +
 	"\x06format\x18\b \x01(\x05R\x06format\"7\n" +
 	"\x03Row\x12\x18\n" +
 	"\alengths\x18\x01 \x03(\x12R\alengths\x12\x16\n" +
-	"\x06values\x18\x02 \x01(\fR\x06values\"y\n" +
+	"\x06values\x18\x02 \x01(\fR\x06values\"\xb4\x03\n" +
+	"\x06Notice\x12\x1a\n" +
+	"\bseverity\x18\x01 \x01(\tR\bseverity\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x12\n" +
+	"\x04hint\x18\x05 \x01(\tR\x04hint\x12\x1a\n" +
+	"\bposition\x18\x06 \x01(\x05R\bposition\x12+\n" +
+	"\x11internal_position\x18\a \x01(\x05R\x10internalPosition\x12%\n" +
+	"\x0einternal_query\x18\b \x01(\tR\rinternalQuery\x12\x14\n" +
+	"\x05where\x18\t \x01(\tR\x05where\x12\x1f\n" +
+	"\vschema_name\x18\n" +
+	" \x01(\tR\n" +
+	"schemaName\x12\x1d\n" +
+	"\n" +
+	"table_name\x18\v \x01(\tR\ttableName\x12\x1f\n" +
+	"\vcolumn_name\x18\f \x01(\tR\n" +
+	"columnName\x12$\n" +
+	"\x0edata_type_name\x18\r \x01(\tR\fdataTypeName\x12'\n" +
+	"\x0fconstraint_name\x18\x0e \x01(\tR\x0econstraintName\"y\n" +
 	"\x14StatementDescription\x12;\n" +
 	"\n" +
 	"parameters\x18\x01 \x03(\v2\x1b.query.ParameterDescriptionR\n" +
@@ -776,32 +971,34 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_query_proto_goTypes = []any{
 	(*QueryResult)(nil),             // 0: query.QueryResult
 	(*Field)(nil),                   // 1: query.Field
 	(*Row)(nil),                     // 2: query.Row
-	(*StatementDescription)(nil),    // 3: query.StatementDescription
-	(*ParameterDescription)(nil),    // 4: query.ParameterDescription
-	(*Target)(nil),                  // 5: query.Target
-	(*PreparedStatement)(nil),       // 6: query.PreparedStatement
-	(*Portal)(nil),                  // 7: query.Portal
-	(*ExecuteOptions)(nil),          // 8: query.ExecuteOptions
-	nil,                             // 9: query.ExecuteOptions.SessionSettingsEntry
-	(clustermetadata.PoolerType)(0), // 10: clustermetadata.PoolerType
+	(*Notice)(nil),                  // 3: query.Notice
+	(*StatementDescription)(nil),    // 4: query.StatementDescription
+	(*ParameterDescription)(nil),    // 5: query.ParameterDescription
+	(*Target)(nil),                  // 6: query.Target
+	(*PreparedStatement)(nil),       // 7: query.PreparedStatement
+	(*Portal)(nil),                  // 8: query.Portal
+	(*ExecuteOptions)(nil),          // 9: query.ExecuteOptions
+	nil,                             // 10: query.ExecuteOptions.SessionSettingsEntry
+	(clustermetadata.PoolerType)(0), // 11: clustermetadata.PoolerType
 }
 var file_query_proto_depIdxs = []int32{
 	1,  // 0: query.QueryResult.fields:type_name -> query.Field
 	2,  // 1: query.QueryResult.rows:type_name -> query.Row
-	4,  // 2: query.StatementDescription.parameters:type_name -> query.ParameterDescription
-	1,  // 3: query.StatementDescription.fields:type_name -> query.Field
-	10, // 4: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
-	9,  // 5: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	6,  // [6:6] is the sub-list for method output_type
-	6,  // [6:6] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	3,  // 2: query.QueryResult.notices:type_name -> query.Notice
+	5,  // 3: query.StatementDescription.parameters:type_name -> query.ParameterDescription
+	1,  // 4: query.StatementDescription.fields:type_name -> query.Field
+	11, // 5: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	10, // 6: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	7,  // [7:7] is the sub-list for method output_type
+	7,  // [7:7] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -815,7 +1012,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

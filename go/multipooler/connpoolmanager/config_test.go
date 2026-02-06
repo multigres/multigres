@@ -51,18 +51,15 @@ func TestConfig_DefaultValues(t *testing.T) {
 	assert.Equal(t, "", config.adminPassword.Default())
 	assert.Equal(t, int64(5), config.adminCapacity.Default())
 
-	assert.Equal(t, int64(10), config.userRegularCapacity.Default())
-	assert.Equal(t, int64(5), config.userRegularMaxIdle.Default())
+	// Regular pool (capacity managed by rebalancer)
 	assert.Equal(t, 5*time.Minute, config.userRegularIdleTimeout.Default())
 	assert.Equal(t, 1*time.Hour, config.userRegularMaxLifetime.Default())
 
-	assert.Equal(t, int64(5), config.userReservedCapacity.Default())
-	assert.Equal(t, int64(2), config.userReservedMaxIdle.Default())
+	// Reserved pool (capacity managed by rebalancer)
 	assert.Equal(t, 30*time.Second, config.userReservedInactivityTimeout.Default())
 	assert.Equal(t, 5*time.Minute, config.userReservedIdleTimeout.Default())
 	assert.Equal(t, 1*time.Hour, config.userReservedMaxLifetime.Default())
 
-	assert.Equal(t, int64(0), config.maxUsers.Default())
 	assert.Equal(t, int64(1024), config.settingsCacheSize.Default())
 }
 
@@ -85,17 +82,9 @@ func TestConfig_RegisterFlags(t *testing.T) {
 	require.NotNil(t, adminCapFlag)
 	assert.Equal(t, "5", adminCapFlag.DefValue)
 
-	regularCapFlag := cmd.Flags().Lookup("connpool-user-regular-capacity")
-	require.NotNil(t, regularCapFlag)
-	assert.Equal(t, "10", regularCapFlag.DefValue)
-
-	reservedCapFlag := cmd.Flags().Lookup("connpool-user-reserved-capacity")
-	require.NotNil(t, reservedCapFlag)
-	assert.Equal(t, "5", reservedCapFlag.DefValue)
-
-	maxUsersFlag := cmd.Flags().Lookup("connpool-max-users")
-	require.NotNil(t, maxUsersFlag)
-	assert.Equal(t, "0", maxUsersFlag.DefValue)
+	demandWindowFlag := cmd.Flags().Lookup("connpool-demand-window")
+	require.NotNil(t, demandWindowFlag)
+	assert.Equal(t, "30s", demandWindowFlag.DefValue)
 }
 
 func TestConfig_Getters_ReturnDefaults(t *testing.T) {
@@ -114,18 +103,15 @@ func TestConfig_Getters_ReturnDefaults(t *testing.T) {
 	assert.Equal(t, "", config.AdminPassword())
 	assert.Equal(t, int64(5), config.AdminCapacity())
 
-	assert.Equal(t, int64(10), config.UserRegularCapacity())
-	assert.Equal(t, int64(5), config.UserRegularMaxIdle())
+	// Regular pool (capacity managed by rebalancer)
 	assert.Equal(t, 5*time.Minute, config.UserRegularIdleTimeout())
 	assert.Equal(t, 1*time.Hour, config.UserRegularMaxLifetime())
 
-	assert.Equal(t, int64(5), config.UserReservedCapacity())
-	assert.Equal(t, int64(2), config.UserReservedMaxIdle())
+	// Reserved pool (capacity managed by rebalancer)
 	assert.Equal(t, 30*time.Second, config.UserReservedInactivityTimeout())
 	assert.Equal(t, 5*time.Minute, config.UserReservedIdleTimeout())
 	assert.Equal(t, 1*time.Hour, config.UserReservedMaxLifetime())
 
-	assert.Equal(t, int64(0), config.MaxUsers())
 	assert.Equal(t, 1024, config.SettingsCacheSize())
 }
 

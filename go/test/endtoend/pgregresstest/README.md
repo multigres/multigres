@@ -8,9 +8,12 @@ The test performs the following steps:
 
 1. **Checkout PostgreSQL source**: Clones PostgreSQL 17.6 (REL_17_6) from GitHub
 2. **Build with make**: Compiles PostgreSQL using traditional ./configure and make
-3. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway
-4. **Run regression tests**: Executes specific PostgreSQL tests through multigateway using make installcheck-tests
-5. **Report results**: Logs test outcomes (failures are logged but don't fail the test)
+3. **Configure PATH**: Prepends the built PostgreSQL bin directory to PATH
+4. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway using the built PostgreSQL
+5. **Run regression tests**: Executes specific PostgreSQL tests through multigateway using make installcheck-tests
+6. **Report results**: Logs test outcomes (failures are logged but don't fail the test)
+
+**Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol compatibility issues.
 
 ## Requirements
 
@@ -41,12 +44,15 @@ xcode-select --install
 
 ### Basic Usage
 
-```bash
-# Navigate to test directory
-cd go/test/endtoend/pgregresstest
+The test is **disabled by default**. Set `RUN_PGREGRESS=1` to enable it:
 
-# Run all regression tests (includes PostgreSQL clone, build, and test execution)
-go test -v -timeout 60m  # Adjust the timeout based on the number of tests running
+```bash
+# Run regression tests (requires explicit opt-in)
+RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Without the environment variable, tests are skipped
+go test -v ./go/test/endtoend/pgregresstest/...
+# Output: "skipping pg_regress tests (set RUN_PGREGRESS=1 to run)"
 ```
 
 ### First Run vs Cached Runs
@@ -54,24 +60,18 @@ go test -v -timeout 60m  # Adjust the timeout based on the number of tests runni
 **First run** (no cache):
 
 - Clones PostgreSQL source (~200MB)
-- Builds PostgreSQL
+- Builds PostgreSQL from source
+- Sets up cluster using built PostgreSQL
 - Runs regression tests
 
 **Subsequent runs** (cached source):
 
 - Reuses cached source
-- Rebuilds PostgreSQL
+- Rebuilds PostgreSQL (build directory is per-run)
+- Sets up cluster using built PostgreSQL
 - Runs regression tests
 
 **Note**: Running all ~200+ PostgreSQL regression tests takes significantly longer than running a subset. For faster iteration during development, consider running specific tests only (see "Running Specific Tests Only" section).
-
-### Skip in Short Mode
-
-```bash
-# Short mode skips this test
-go test -v -short
-# Output: "skipping long-running PostgreSQL regression tests in short mode"
-```
 
 ### Run Without Caching
 
@@ -80,15 +80,13 @@ To force a fresh clone and build every time (useful for testing cache behavior o
 ```bash
 # Option 1: Remove cache before running
 rm -rf /tmp/multigres_pg_cache
-go test -v -timeout 60m
+RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
 # Option 2: Use a different cache directory each time
-export MULTIGRES_PG_CACHE_DIR="/tmp/multigres_pg_test_$(date +%s)"
-go test -v -timeout 60m
+MULTIGRES_PG_CACHE_DIR="/tmp/multigres_pg_test_$(date +%s)" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
 # Option 3: Use a custom temporary cache location
-export MULTIGRES_PG_CACHE_DIR="$(mktemp -d)"
-go test -v -timeout 60m
+MULTIGRES_PG_CACHE_DIR="$(mktemp -d)" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 # Cache will be in a unique temp directory
 ```
 
@@ -96,8 +94,7 @@ go test -v -timeout 60m
 
 ```bash
 # From repository root
-cd /path/to/multigres
-go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
 
 ## Troubleshooting
@@ -132,6 +129,18 @@ go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 2. Check that PostgreSQL binaries are in PATH
 3. Ensure no firewall blocking localhost connections
 
+### Symbol compatibility errors
+
+**Symptom**: `undefined symbol: pg_encoding_to_char_private` or similar when loading `regress.so`
+
+**Cause**: The regression test library (`regress.so`) was built from a different PostgreSQL version than the running server.
+
+**Solutions**:
+
+1. Ensure the test builds PostgreSQL before setting up the cluster (this is the default behavior)
+2. Clear the cache and rebuild: `rm -rf /tmp/multigres_pg_cache`
+3. Verify PATH is correctly set to use the built PostgreSQL (check test output for "Using built PostgreSQL from")
+
 ### Disk space issues
 
 **Symptom**: `No space left on device`
@@ -153,35 +162,40 @@ go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 │ TestPostgreSQLRegression                                    │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ PostgresBuilder                                         │ │
-│ │ ┌────────────┐  ┌──────────┐  ┌──────────────────────┐ │ │
-│ │ │EnsureSource│─▶│  Build   │─▶│RunRegressionTests    │ │ │
-│ │ └────────────┘  └──────────┘  └──────────────────────┘ │ │
+│ │ ┌────────────┐  ┌──────────┐  ┌──────────────────────┐  │ │
+│ │ │EnsureSource│─▶│  Build   │─▶│  Prepend to PATH     │  │ │
+│ │ └────────────┘  └──────────┘  └──────────────────────┘  │ │
 │ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Multigres Cluster (ShardSetup)                              │
-│ ┌──────────┐  ┌──────────┐  ┌─────────────┐               │
+│ Uses built PostgreSQL binaries from PATH                    │
+│ ┌──────────-┐  ┌─────────-─┐  ┌─────────────┐               │
 │ │multipooler│  │multipooler│  │multigateway │               │
 │ │ (primary) │  │(standby)  │  │ (port 5432) │               │
 │ └─────┬─────┘  └─────┬─────┘  └──────┬──────┘               │
-│       │              │               │                       │
-│       ▼              ▼               ▼                       │
-│ ┌─────────┐    ┌─────────┐    ┌─────────┐                  │
-│ │PostgreSQL│   │PostgreSQL│   │  Proxy   │                 │
-│ └─────────┘    └─────────┘    └─────────┘                  │
+│       │              │               │                      │
+│       ▼              ▼               ▼                      │
+│ ┌────────-─┐   ┌──-───────┐   ┌-─────────┐                  │
+│ │PostgreSQL│   │PostgreSQL│   │  Proxy   │                  │
+│ │ (17.6)   │   │ (17.6)   │   │          │                  │
+│ └────────-─┘   └────────-─┘   └──-───────┘                  │
 └─────────────────────────────────────────────────────────────┘
                             ▲
                             │
                 ┌───────────┴──────────┐
                 │ PostgreSQL Tests     │
+                │ + regress.so (17.6)  │
                 │ (PGHOST=localhost)   │
                 │ (PGPORT=multigateway)│
                 └──────────────────────┘
 ```
 
 <!-- markdownlint-enable MD013 -->
+
+**Version Consistency**: The test builds PostgreSQL 17.6 from source and uses those binaries for both the cluster (via pgctld) and the regression test library (`regress.so`). This ensures symbol compatibility - the regression tests load shared libraries that must match the running PostgreSQL version.
 
 ### File Structure
 

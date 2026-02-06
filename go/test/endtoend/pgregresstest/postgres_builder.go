@@ -244,8 +244,8 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 
 	cmd := exec.CommandContext(ctx, "make",
 		"-C", filepath.Join(pb.BuildDir, "src/test/regress"), // Regress directory
-		"installcheck-tests", // Target for running specific tests against existing server
-		"TESTS=boolean char", // Run only boolean and char tests
+		"installcheck-tests",            // Target for running specific tests against existing server
+		"TESTS=test_setup boolean char", // Run only boolean and char tests
 	)
 
 	// Set environment variables for connection

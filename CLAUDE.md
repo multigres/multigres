@@ -24,15 +24,42 @@ make clean      # Remove build artifacts
 
 ### Running Tests
 
+**IMPORTANT**: Always use the `/mt-dev` skill for running tests. Do NOT run `go test` commands directly.
+
+**Unit tests** (fast, isolated):
+
 ```bash
-go test -v -run TestName ./go/path/to/package/...
-go test -v ./go/multipooler/...  # Run all tests in a package
+/mt-dev unit all                          # All unit tests
+/mt-dev unit ./go/multipooler/...         # Specific package
+/mt-dev unit ./go/multipooler TestConnPool # Specific test
 ```
+
+**Integration tests** (end-to-end, slower):
+
+```bash
+/mt-dev integration all                    # All integration tests
+/mt-dev integration multipooler            # Specific package
+/mt-dev integration multiorch TestFailover # Specific test
+```
+
+**Common flags**:
+
+- `-v` for verbose output
+- `-race` for race detection
+- `-count=10` to check for flaky tests
+- `-cover` for coverage reports
+
+**When developing**:
+
+1. After writing code, run relevant unit tests first (fast feedback)
+2. Then run integration tests (comprehensive validation)
+3. Use the skill for all test execution - it handles building and provides better output
 
 ### Development Workflow
 
 - Run `make proto` after modifying `.proto` files
-- Run `make build` before running integration tests
+- Use `/mt-dev` skill for all test execution (unit and integration)
+- Unit tests run directly; integration tests automatically run `make build` first
 
 ## Architecture
 

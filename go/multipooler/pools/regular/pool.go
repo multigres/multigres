@@ -100,8 +100,26 @@ func (p *Pool) Stats() connpool.PoolStats {
 	return p.pool.Stats()
 }
 
+// SetCapacity changes the pool's maximum capacity.
+// If reducing capacity, may block waiting for borrowed connections to return.
+func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
+	return p.pool.SetCapacity(ctx, newcap)
+}
+
 // InnerPool returns the underlying connpool.Pool.
 // Use with caution - prefer the wrapped methods.
 func (p *Pool) InnerPool() *connpool.Pool[*Conn] {
 	return p.pool
+}
+
+// Requested returns the number of currently requested connections (borrowed + waiters).
+// Used for demand tracking in the rebalancer.
+func (p *Pool) Requested() int64 {
+	return p.pool.Requested()
+}
+
+// PeakRequestedAndReset returns the peak demand since the last reset and resets the peak.
+// This captures burst demand that point-in-time sampling might miss.
+func (p *Pool) PeakRequestedAndReset() int64 {
+	return p.pool.PeakRequestedAndReset()
 }

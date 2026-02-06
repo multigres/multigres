@@ -128,7 +128,9 @@ func TestBeginTerm(t *testing.T) {
 		initialTerm                         *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm                         int64
 		requestCandidate                    *clustermetadatapb.ID
+		action                              consensusdatapb.BeginTermAction
 		setupMocks                          func(*mock.QueryService)
+		expectedError                       bool
 		expectedAccepted                    bool
 		expectedTerm                        int64
 		expectedAcceptedTermFromCoordinator string
@@ -150,10 +152,17 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "candidate-B",
 			},
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			setupMocks: func(m *mock.QueryService) {
+				// Phase 1: Health check before term acceptance (TEMPORARY - will be removed when we separate voting term from primary term)
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
+				// Phase 2 executeRevoke: health check
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// Phase 2 executeRevoke: determine role (standby)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// Phase 2 executeRevoke: pauseReplication
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -176,8 +185,9 @@ func TestBeginTerm(t *testing.T) {
 				Cell:      "zone1",
 				Name:      "candidate-B",
 			},
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// Term not accepted - Phase 2 never runs, no queries expected
 			},
 			expectedAccepted:                    false,
 			expectedTerm:                        5,
@@ -185,7 +195,8 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "Acceptance should be rejected when already accepted different candidate in same term",
 		},
 		{
-			name: "AlreadyAcceptedSameCandidateInSameTerm",
+			name:   "AlreadyAcceptedSameCandidateInSameTerm",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 				AcceptedTermFromCoordinatorId: &clustermetadatapb.ID{
@@ -201,9 +212,15 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-A",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
+				// Phase 1: Health check before term acceptance (TEMPORARY)
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: health check
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: determine role (standby)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// executeRevoke: pauseReplication
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        5,
@@ -211,7 +228,8 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "Acceptance should succeed when already accepted same candidate in same term (idempotent)",
 		},
 		{
-			name: "PrimaryRejectTermWhenDemotionFails",
+			name:   "PrimaryRejectTermWhenDemotionFails",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 			},
@@ -222,43 +240,24 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Phase 1: Health check before term acceptance (TEMPORARY)
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// isInRecovery check - returns false (not in recovery = primary)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 				// demoteLocked fails at checkDemotionState or another early step
 				// Simulate failure by not setting up expected queries for demotion steps
 			},
-			expectedAccepted:                    false,
-			expectedTerm:                        5, // Term should NOT be updated
-			expectedAcceptedTermFromCoordinator: "",
-			description:                         "Primary should reject term when demotion fails",
-		},
-		{
-			name: "PrimaryAcceptsTermAfterSuccessfulDemotion",
-			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
-				TermNumber: 5,
-			},
-			requestTerm: 10,
-			requestCandidate: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "zone1",
-				Name:      "new-candidate",
-			},
-			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby/demoted)
-				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// Since in recovery, check if caught up with replication
-				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
-			},
+			expectedError:                       true,
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
-			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
+			description:                         "Primary should accept term even when demotion fails",
 		},
 		{
-			name: "StandbyAcceptsTermWhenNoWALReceiver",
+			name:   "PrimaryAcceptsTermAfterSuccessfulDemotion",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 			},
@@ -269,11 +268,12 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Phase 1: Health check before term acceptance (TEMPORARY)
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby)
+				// executeRevoke: health check
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// isInRecovery check - returns true (in recovery = standby/demoted)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// WAL receiver query returns error (disconnected standby)
-				m.AddQueryPatternOnceWithError("SELECT last_msg_receipt_time", errors.New("no rows"))
 				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// pauseReplication - pg_reload_conf
@@ -282,10 +282,11 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
-			description:                         "Standby should accept term when no WAL receiver (expected during failover)",
+			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
 		},
 		{
-			name: "StandbyPausesReplicationWhenAcceptingNewTerm",
+			name:   "StandbyAcceptsTermAndPausesReplication",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
 			},
@@ -296,12 +297,42 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Phase 1: Health check before term acceptance (TEMPORARY)
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: health check
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// isInRecovery check - returns true (in recovery = standby)
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+				// pauseReplication - pg_reload_conf
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+			},
+			expectedError:                       false,
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "Standby accepts term with REVOKE action and pauses replication",
+		},
+		{
+			name:   "StandbyPausesReplicationWhenAcceptingNewTerm",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(m *mock.QueryService) {
+				// Phase 1: Health check before term acceptance (TEMPORARY)
+				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// isInRecovery check - returns true (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// WAL receiver check - connected and caught up
-				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// pauseReplication - pg_reload_conf
@@ -312,6 +343,91 @@ func TestBeginTerm(t *testing.T) {
 			expectedAcceptedTermFromCoordinator: "new-candidate",
 			description:                         "Standby should pause replication when accepting new term",
 		},
+		{
+			name: "NoAction_AcceptsTermWithoutRevoke",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION,
+			setupMocks: func(m *mock.QueryService) {
+				// NO_ACTION: No queries should be executed
+			},
+			expectedError:                       false,
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "NO_ACTION accepts term without executing revoke",
+		},
+		{
+			name: "NoAction_AcceptsTermEvenWhenPostgresDown",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION,
+			setupMocks: func(m *mock.QueryService) {
+				// NO_ACTION: No queries, even if postgres is down
+			},
+			expectedError:                       false,
+			expectedAccepted:                    true,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "new-candidate",
+			description:                         "NO_ACTION accepts term even when postgres is unhealthy",
+		},
+		{
+			name: "NoAction_RejectsOutdatedTerm",
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 10,
+			},
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "old-candidate",
+			},
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION,
+			setupMocks: func(m *mock.QueryService) {
+				// NO_ACTION: No queries
+			},
+			expectedError:                       false,
+			expectedAccepted:                    false,
+			expectedTerm:                        10,
+			expectedAcceptedTermFromCoordinator: "",
+			description:                         "NO_ACTION still respects term acceptance rules",
+		},
+		{
+			name:   "PostgresDownRejectsTerm_TemporaryBehavior",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber: 5,
+			},
+			requestTerm: 10,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "new-candidate",
+			},
+			setupMocks: func(m *mock.QueryService) {
+				// Phase 1: Health check FAILS - postgres is down
+				// DO NOT add SELECT 1 expectation - let it fail
+			},
+			expectedError:                       false,
+			expectedAccepted:                    false, // TODO(FUTURE): Once we separate voting term from primary term, this should be TRUE
+			expectedTerm:                        5,     // Should remain at current term since we rejected
+			expectedAcceptedTermFromCoordinator: "",    // Should not accept new coordinator
+			description:                         "Node with postgres down rejects REVOKE term until we separate voting term from primary term",
+		},
 	}
 
 	// Add tests for save failure scenarios
@@ -320,15 +436,20 @@ func TestBeginTerm(t *testing.T) {
 		initialTerm            *multipoolermanagerdatapb.ConsensusTerm
 		requestTerm            int64
 		requestCandidate       *clustermetadatapb.ID
+		action                 consensusdatapb.BeginTermAction
 		setupMocks             func(*mock.QueryService)
 		makeFilesystemReadOnly bool
 		expectedError          bool
+		expectedAccepted       bool
+		expectedRespTerm       int64
+		checkMemoryUnchanged   bool
 		expectedMemoryTerm     int64
 		expectedMemoryLeader   string
 		description            string
 	}{
 		{
-			name: "SaveFailureDuringAcceptance_MemoryUnchanged",
+			name:   "SaveFailureDuringAcceptance_MemoryUnchanged",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber:                    5,
 				AcceptedTermFromCoordinatorId: nil, // No coordinator accepted yet
@@ -341,14 +462,39 @@ func TestBeginTerm(t *testing.T) {
 			},
 			makeFilesystemReadOnly: true,
 			setupMocks: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				recentTime := time.Now().Add(-5 * time.Second).Format("2006-01-02 15:04:05.999999-07")
-				m.AddQueryPatternOnce("SELECT last_msg_receipt_time", mock.MakeQueryResult([]string{"last_msg_receipt_time"}, [][]any{{recentTime}}))
 			},
-			expectedError:        true,
+			expectedError:        false,
+			expectedAccepted:     false,
+			expectedRespTerm:     5,
+			checkMemoryUnchanged: true,
 			expectedMemoryTerm:   5,
 			expectedMemoryLeader: "", // Should remain empty after save failure
 			description:          "Save failure should leave memory unchanged with original term and leader",
+		},
+		{
+			name:   "NoAction_SaveFailureDuringAcceptance_MemoryUnchanged",
+			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_NO_ACTION,
+			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
+				TermNumber:                    5,
+				AcceptedTermFromCoordinatorId: nil,
+			},
+			requestTerm: 5,
+			requestCandidate: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "candidate-B",
+			},
+			makeFilesystemReadOnly: true,
+			setupMocks: func(m *mock.QueryService) {
+				// NO_ACTION: No queries
+			},
+			expectedError:        false,
+			expectedAccepted:     false,
+			expectedRespTerm:     5,
+			checkMemoryUnchanged: true,
+			expectedMemoryTerm:   5,
+			expectedMemoryLeader: "",
+			description:          "NO_ACTION: Save failure should leave memory unchanged",
 		},
 	}
 
@@ -377,17 +523,23 @@ func TestBeginTerm(t *testing.T) {
 				Term:        tt.requestTerm,
 				CandidateId: tt.requestCandidate,
 				ShardId:     "shard-1",
+				Action:      tt.action,
 			}
 
 			resp, err := pm.BeginTerm(ctx, req)
 
 			// Verify response
-			require.NoError(t, err)
-			require.NotNil(t, resp)
-			assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
-			assert.Equal(t, tt.expectedTerm, resp.Term)
+			if tt.expectedError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if resp != nil {
+				assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
+				assert.Equal(t, tt.expectedTerm, resp.Term)
+			}
 
-			// Verify persisted state
+			// Verify persisted state (acceptance should be persisted even if revoke fails)
 			persistedTerm, err := getConsensusTerm(tmpDir)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
@@ -434,6 +586,7 @@ func TestBeginTerm(t *testing.T) {
 				Term:        tt.requestTerm,
 				CandidateId: tt.requestCandidate,
 				ShardId:     "shard-1",
+				Action:      tt.action,
 			}
 
 			resp, err := pm.BeginTerm(ctx, req)
@@ -442,7 +595,14 @@ func TestBeginTerm(t *testing.T) {
 			if tt.expectedError {
 				assert.Error(t, err, tt.description)
 				assert.Nil(t, resp)
+			} else {
+				assert.NoError(t, err, tt.description)
+				assert.NotNil(t, resp)
+				assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
+				assert.Equal(t, tt.expectedRespTerm, resp.Term)
+			}
 
+			if tt.checkMemoryUnchanged {
 				// Acquire action lock to inspect consensus state
 				inspectCtx, err := pm.actionLock.Acquire(ctx, "inspect")
 				require.NoError(t, err)
