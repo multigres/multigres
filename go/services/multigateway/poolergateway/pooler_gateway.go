@@ -488,11 +488,11 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
-) (*sqltypes.Result, queryservice.ReservedState, error) {
+) (*sqltypes.Result, uint32, error) {
 	// Get a pooler matching the target
 	qs, err := pg.getQueryServiceForTarget(ctx, target)
 	if err != nil {
-		return nil, queryservice.ReservedState{}, err
+		return nil, 0, err
 	}
 
 	// Delegate to the pooler's QueryService

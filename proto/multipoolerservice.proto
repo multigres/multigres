@@ -259,22 +259,25 @@ message CopyBidiExecuteResponse {
 }
 
 // ReservationReason indicates why a connection needs to be reserved.
-// This determines what setup actions to take (e.g., BEGIN for transactions).
+// Values are powers of 2 to allow combining multiple reasons via bitwise OR.
+// A connection can be reserved for multiple reasons simultaneously (e.g., transaction + temp table).
+// The connection is only released when all reasons are cleared.
 enum ReservationReason {
   RESERVATION_REASON_UNSPECIFIED = 0;
   // Connection is reserved for a transaction - execute BEGIN before the query
-  RESERVATION_REASON_TRANSACTION = 1;
+  RESERVATION_REASON_TRANSACTION = 1;  // 0b001
   // Connection is reserved due to temporary tables - no BEGIN needed
-  RESERVATION_REASON_TEMP_TABLE = 2;
+  RESERVATION_REASON_TEMP_TABLE = 2;   // 0b010
   // Connection is reserved for portal/cursor operations
-  RESERVATION_REASON_PORTAL = 3;
+  RESERVATION_REASON_PORTAL = 4;       // 0b100
 }
 
 // ReservationOptions specifies options when creating a reserved connection.
 // This is extensible for future options (e.g., isolation level, read-only mode).
 message ReservationOptions {
-  // reason indicates why the connection is being reserved
-  ReservationReason reason = 1;
+  // reasons is a bitmask of ReservationReason values indicating why the connection is being reserved.
+  // Multiple reasons can be ORed together (e.g., TRANSACTION | TEMP_TABLE).
+  uint32 reasons = 1;
 }
 
 // TransactionConclusion specifies how to conclude a transaction.
@@ -339,10 +342,7 @@ message ConcludeTransactionResponse {
   // result contains the result of the COMMIT or ROLLBACK command
   query.QueryResult result = 1;
 
-  // reserved_connection_id is set if the connection is still reserved (e.g., for temp tables).
-  // If zero, the connection has been released back to the pool and ScatterConn should clear its state.
-  uint64 reserved_connection_id = 2;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection (if still reserved)
-  clustermetadata.ID pooler_id = 3;
+  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
+  // is still reserved. Zero means the connection was released and ScatterConn should clear its state.
+  uint32 remaining_reasons = 2;
 }

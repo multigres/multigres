@@ -209,9 +209,9 @@ type QueryService interface {
 	//
 	// The connection may remain reserved after the transaction concludes if there
 	// are other reasons to keep it reserved (e.g., temporary tables). The returned
-	// ReservedState indicates whether the connection is still reserved:
-	//   - Empty ReservedState (ReservedConnectionId == 0): Connection released
-	//   - Non-empty ReservedState: Connection still reserved, keep tracking it
+	// remainingReasons bitmask indicates whether the connection is still reserved:
+	//   - remainingReasons == 0: Connection released, clear tracking
+	//   - remainingReasons != 0: Connection still reserved, keep tracking it
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
@@ -219,11 +219,11 @@ type QueryService interface {
 	//   options: Execute options including reserved connection ID
 	//   conclusion: COMMIT or ROLLBACK
 	//
-	// Returns the result of the COMMIT/ROLLBACK command and the post-transaction reserved state.
+	// Returns the result of the COMMIT/ROLLBACK command and the remaining reservation reasons.
 	ConcludeTransaction(
 		ctx context.Context,
 		target *query.Target,
 		options *query.ExecuteOptions,
 		conclusion multipoolerpb.TransactionConclusion,
-	) (*sqltypes.Result, ReservedState, error)
+	) (result *sqltypes.Result, remainingReasons uint32, err error)
 }

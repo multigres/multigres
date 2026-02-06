@@ -15,46 +15,113 @@
 package protoutil
 
 import (
+	"strings"
+
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// IsTransactionReason returns true if the reservation reason is for a transaction.
-func IsTransactionReason(r multipoolerpb.ReservationReason) bool {
-	return r == multipoolerpb.ReservationReason_RESERVATION_REASON_TRANSACTION
+// Reason constants as uint32 for bitmask operations.
+// These match the ReservationReason enum values.
+const (
+	ReasonTransaction = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_TRANSACTION) // 1
+	ReasonTempTable   = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_TEMP_TABLE)  // 2
+	ReasonPortal      = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_PORTAL)      // 4
+)
+
+// HasReason returns true if the reasons bitmask contains the specified reason.
+func HasReason(reasons uint32, reason uint32) bool {
+	return reasons&reason != 0
 }
 
-// IsTempTableReason returns true if the reservation reason is for temporary tables.
-func IsTempTableReason(r multipoolerpb.ReservationReason) bool {
-	return r == multipoolerpb.ReservationReason_RESERVATION_REASON_TEMP_TABLE
+// HasTransactionReason returns true if the reasons bitmask includes transaction.
+func HasTransactionReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonTransaction)
 }
 
-// IsPortalReason returns true if the reservation reason is for portal/cursor operations.
-func IsPortalReason(r multipoolerpb.ReservationReason) bool {
-	return r == multipoolerpb.ReservationReason_RESERVATION_REASON_PORTAL
+// HasTempTableReason returns true if the reasons bitmask includes temp table.
+func HasTempTableReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonTempTable)
 }
 
-// RequiresBegin returns true if the reservation reason requires executing BEGIN.
-func RequiresBegin(r multipoolerpb.ReservationReason) bool {
-	return r == multipoolerpb.ReservationReason_RESERVATION_REASON_TRANSACTION
+// HasPortalReason returns true if the reasons bitmask includes portal.
+func HasPortalReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonPortal)
+}
+
+// AddReason adds a reason to the bitmask and returns the new value.
+func AddReason(reasons uint32, reason uint32) uint32 {
+	return reasons | reason
+}
+
+// RemoveReason removes a reason from the bitmask and returns the new value.
+func RemoveReason(reasons uint32, reason uint32) uint32 {
+	return reasons &^ reason
+}
+
+// RequiresBegin returns true if the reasons bitmask includes transaction reason.
+// This determines if BEGIN should be executed when reserving.
+func RequiresBegin(reasons uint32) bool {
+	return HasTransactionReason(reasons)
+}
+
+// IsEmpty returns true if no reasons are set (connection can be released).
+func IsEmpty(reasons uint32) bool {
+	return reasons == 0
 }
 
 // NewTransactionReservationOptions creates ReservationOptions for a transaction.
 func NewTransactionReservationOptions() *multipoolerpb.ReservationOptions {
 	return &multipoolerpb.ReservationOptions{
-		Reason: multipoolerpb.ReservationReason_RESERVATION_REASON_TRANSACTION,
+		Reasons: ReasonTransaction,
 	}
 }
 
 // NewTempTableReservationOptions creates ReservationOptions for temporary tables.
 func NewTempTableReservationOptions() *multipoolerpb.ReservationOptions {
 	return &multipoolerpb.ReservationOptions{
-		Reason: multipoolerpb.ReservationReason_RESERVATION_REASON_TEMP_TABLE,
+		Reasons: ReasonTempTable,
 	}
 }
 
 // NewPortalReservationOptions creates ReservationOptions for portal/cursor operations.
 func NewPortalReservationOptions() *multipoolerpb.ReservationOptions {
 	return &multipoolerpb.ReservationOptions{
-		Reason: multipoolerpb.ReservationReason_RESERVATION_REASON_PORTAL,
+		Reasons: ReasonPortal,
 	}
+}
+
+// NewReservationOptions creates ReservationOptions with the given reasons bitmask.
+func NewReservationOptions(reasons uint32) *multipoolerpb.ReservationOptions {
+	return &multipoolerpb.ReservationOptions{
+		Reasons: reasons,
+	}
+}
+
+// GetReasons extracts the reasons bitmask from ReservationOptions, returning 0 if nil.
+func GetReasons(opts *multipoolerpb.ReservationOptions) uint32 {
+	if opts == nil {
+		return 0
+	}
+	return opts.Reasons
+}
+
+// ReasonsString returns a human-readable string of the reasons bitmask.
+func ReasonsString(reasons uint32) string {
+	if reasons == 0 {
+		return "none"
+	}
+	var parts []string
+	if HasTransactionReason(reasons) {
+		parts = append(parts, "transaction")
+	}
+	if HasTempTableReason(reasons) {
+		parts = append(parts, "temp_table")
+	}
+	if HasPortalReason(reasons) {
+		parts = append(parts, "portal")
+	}
+	if len(parts) == 0 {
+		return "unknown"
+	}
+	return strings.Join(parts, "|")
 }

@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -532,7 +533,7 @@ func (g *grpcQueryService) CopyAbort(
 }
 
 // ReserveStreamExecute creates a reserved connection and executes a query.
-// Based on reservationOptions.Reason, may execute BEGIN before the query.
+// Based on reservationOptions.Reasons bitmask, may execute BEGIN before the query.
 func (g *grpcQueryService) ReserveStreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -541,16 +542,13 @@ func (g *grpcQueryService) ReserveStreamExecute(
 	reservationOptions *multipoolerservice.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
-	reason := "unspecified"
-	if reservationOptions != nil {
-		reason = reservationOptions.Reason.String()
-	}
+	reasons := protoutil.GetReasons(reservationOptions)
 
 	g.logger.DebugContext(ctx, "reserve stream execute",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
-		"reason", reason,
+		"reasons", protoutil.ReasonsString(reasons),
 		"query", sql)
 
 	// Create the request
@@ -601,13 +599,13 @@ func (g *grpcQueryService) ReserveStreamExecute(
 }
 
 // ConcludeTransaction concludes a transaction on a reserved connection.
-// Returns the result and the post-transaction reserved state.
+// Returns the result and the remaining reservation reasons (0 if released).
 func (g *grpcQueryService) ConcludeTransaction(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerservice.TransactionConclusion,
-) (*sqltypes.Result, queryservice.ReservedState, error) {
+) (*sqltypes.Result, uint32, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
@@ -625,18 +623,13 @@ func (g *grpcQueryService) ConcludeTransaction(
 	// Call the gRPC ConcludeTransaction
 	response, err := g.client.ConcludeTransaction(ctx, req)
 	if err != nil {
-		return nil, queryservice.ReservedState{}, fmt.Errorf("conclude transaction failed: %w", err)
+		return nil, 0, fmt.Errorf("conclude transaction failed: %w", err)
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
+	remainingReasons := response.RemainingReasons
 
-	// Build the reserved state from response
-	reservedState := queryservice.ReservedState{
-		ReservedConnectionId: response.ReservedConnectionId,
-		PoolerID:             response.PoolerId,
-	}
-
-	if reservedState.ReservedConnectionId == 0 {
+	if remainingReasons == 0 {
 		g.logger.DebugContext(ctx, "transaction concluded, connection released",
 			"pooler_id", g.poolerID,
 			"command_tag", result.CommandTag)
@@ -644,10 +637,10 @@ func (g *grpcQueryService) ConcludeTransaction(
 		g.logger.DebugContext(ctx, "transaction concluded, connection still reserved",
 			"pooler_id", g.poolerID,
 			"command_tag", result.CommandTag,
-			"reserved_conn_id", reservedState.ReservedConnectionId)
+			"remaining_reasons", protoutil.ReasonsString(remainingReasons))
 	}
 
-	return result, reservedState, nil
+	return result, remainingReasons, nil
 }
 
 // Ensure grpcQueryService implements queryservice.QueryService

@@ -375,7 +375,7 @@ func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExe
 }
 
 // ConcludeTransaction concludes a transaction on a reserved connection.
-// Executes COMMIT or ROLLBACK based on the conclusion. Returns reserved state if connection remains reserved.
+// Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
@@ -384,14 +384,13 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	}
 
 	// Conclude the transaction
-	result, reservedState, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
+	result, remainingReasons, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
 	if err != nil {
 		return nil, err
 	}
 
 	return &multipoolerpb.ConcludeTransactionResponse{
-		Result:               result.ToProto(),
-		ReservedConnectionId: reservedState.ReservedConnectionId,
-		PoolerId:             reservedState.PoolerID,
+		Result:           result.ToProto(),
+		RemainingReasons: remainingReasons,
 	}, nil
 }
