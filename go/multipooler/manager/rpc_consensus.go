@@ -71,44 +71,6 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			"unknown BeginTerm action type: %v", req.Action)
 	}
 
-	// TEMPORARY: Check postgres health before accepting term with REVOKE action.
-	//
-	// This is a temporary measure while we fully unwind the coupling between term acceptance
-	// and revoke execution. The current code conflates "voting term" (the term a node has
-	// agreed to participate in) with "primary term" (the term the node is actually primary for).
-	//
-	// Without this check, an unhealthy node would accept a new term but fail to revoke its
-	// old primary status. This breaks operations like DemoteStalePrimary: if two multipoolers
-	// both report themselves as primary (one stale at term N, one fresh at term N+1), we
-	// currently lack a reliable way to determine which is the true primary.
-	//
-	// Proper fix: Track two distinct term numbers:
-	// - Voting term: highest term accepted for consensus participation
-	// - Primary term: specific term for which this node is executing as primary
-	//
-	// With separate terms, a node accepting term 6 while still primary for term 5 would
-	// correctly report primary_term=5, making it unambiguous which node holds current authority.
-	if req.Action == consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE {
-		if _, err := pm.query(ctx, "SELECT 1"); err != nil {
-			pm.logger.WarnContext(ctx, "Postgres unhealthy, rejecting term with REVOKE action",
-				"term", req.Term,
-				"error", err)
-			// Return current term with accepted=false
-			pm.mu.Lock()
-			cs := pm.consensusState
-			pm.mu.Unlock()
-			currentTerm, termErr := cs.GetCurrentTermNumber(ctx)
-			if termErr != nil {
-				currentTerm = 0
-			}
-			return &consensusdatapb.BeginTermResponse{
-				Term:     currentTerm,
-				Accepted: false,
-				PoolerId: pm.serviceID.GetName(),
-			}, nil
-		}
-	}
-
 	// ========================================================================
 	// Term Acceptance (Consensus Rules)
 	// ========================================================================

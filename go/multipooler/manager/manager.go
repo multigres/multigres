@@ -191,7 +191,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 			logger.ErrorContext(ctx, "Failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
 			// Continue without client - operations that need it will fail gracefully
 		} else {
-			pgctldClient = pgctldpb.NewPgCtldClient(conn)
+			rawClient := pgctldpb.NewPgCtldClient(conn)
+			pgctldClient = NewProtectedPgctldClient(rawClient)
 			logger.InfoContext(ctx, "Created pgctld gRPC client", "addr", config.PgctldAddr)
 		}
 	}
