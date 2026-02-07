@@ -128,6 +128,7 @@ func TestPrimaryStatus(t *testing.T) {
 			NumSync:           0,
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
+			Force:             false,
 		}
 		_, err := primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
 		require.NoError(t, err)
@@ -160,7 +161,7 @@ func TestPrimaryStatus(t *testing.T) {
 
 		t.Log("Testing PrimaryStatus with synchronous replication configured...")
 
-		// Configure synchronous replication
+		// Configure synchronous replication with fake standbys - use force=true since they won't connect
 		standbyIDs := []*clustermetadatapb.ID{
 			makeMultipoolerID("test-cell", "standby1"),
 			makeMultipoolerID("test-cell", "standby2"),
@@ -171,6 +172,7 @@ func TestPrimaryStatus(t *testing.T) {
 			NumSync:           2,
 			StandbyIds:        standbyIDs,
 			ReloadConfig:      true,
+			Force:             true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -210,13 +212,14 @@ func TestPrimaryStatus(t *testing.T) {
 
 		t.Log("PrimaryStatus with sync replication verified successfully")
 
-		// Cleanup
+		// Cleanup - use force=true since fake standbys were configured
 		clearReq := &multipoolermanagerdata.ConfigureSynchronousReplicationRequest{
 			SynchronousCommit: multipoolermanagerdata.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 			SynchronousMethod: multipoolermanagerdata.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			NumSync:           0,
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
+			Force:             true, // Required: previous config had fake standbys, so history insert would timeout
 		}
 		_, err = primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
 		require.NoError(t, err)
@@ -342,6 +345,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           0,
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
+			Force:             false,
 		}
 		_, err := primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
 		require.NoError(t, err)
@@ -384,6 +388,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        []*clustermetadatapb.ID{standbyID},
 			ReloadConfig:      true,
+			Force:             false,
 		}
 		_, err = primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -453,6 +458,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        []*clustermetadatapb.ID{standbyID},
 			ReloadConfig:      true,
+			Force:             false,
 		}
 		_, err = primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -538,6 +544,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           2,
 			StandbyIds:        []*clustermetadatapb.ID{connectedID, disconnectedID},
 			ReloadConfig:      true,
+			Force:             false,
 		}
 		_, err = primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)

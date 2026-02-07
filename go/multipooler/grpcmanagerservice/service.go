@@ -123,7 +123,8 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 		req.SynchronousMethod,
 		req.NumSync,
 		req.StandbyIds,
-		req.ReloadConfig)
+		req.ReloadConfig,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -137,7 +138,8 @@ func (s *managerService) UpdateSynchronousStandbyList(ctx context.Context, req *
 		req.StandbyIds,
 		req.ReloadConfig,
 		req.ConsensusTerm,
-		req.Force)
+		req.Force,
+		req.CoordinatorId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

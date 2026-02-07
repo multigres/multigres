@@ -1354,7 +1354,8 @@ func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Con
 		syncReplicationConfig.SynchronousMethod,
 		syncReplicationConfig.NumSync,
 		syncReplicationConfig.StandbyIds,
-		syncReplicationConfig.ReloadConfig)
+		syncReplicationConfig.ReloadConfig,
+		syncReplicationConfig.Force)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to configure synchronous replication", "error", err)
 		return mterrors.Wrap(err, "promotion succeeded but failed to configure synchronous replication")

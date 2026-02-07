@@ -185,12 +185,14 @@ func (pm *MultiPoolerManager) createLeadershipHistoryTable(ctx context.Context) 
 	if err := pm.exec(execCtx, `CREATE TABLE IF NOT EXISTS multigres.leadership_history (
 		id BIGSERIAL PRIMARY KEY,
 		term_number BIGINT NOT NULL,
-		leader_id TEXT NOT NULL,
-		coordinator_id TEXT NOT NULL,
-		wal_position TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		leader_id TEXT,
+		coordinator_id TEXT,
+		wal_position TEXT,
+		accepted_members JSONB,
 		reason TEXT NOT NULL,
 		cohort_members JSONB NOT NULL,
-		accepted_members JSONB NOT NULL,
+		operation TEXT,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`); err != nil {
 		return mterrors.Wrap(err, "failed to create leadership_history table")
@@ -198,8 +200,8 @@ func (pm *MultiPoolerManager) createLeadershipHistoryTable(ctx context.Context) 
 
 	execCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_leadership_history_term
-		ON multigres.leadership_history(term_number DESC)`); err != nil {
+	if err := pm.exec(execCtx, `CREATE INDEX IF NOT EXISTS idx_leadership_history_term_event
+		ON multigres.leadership_history(term_number DESC, event_type)`); err != nil {
 		return mterrors.Wrap(err, "failed to create leadership_history index")
 	}
 
@@ -326,38 +328,51 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 	return nil
 }
 
-// insertLeadershipHistory inserts a leadership history record into the leadership_history table.
+// insertHistoryRecord inserts a record into the leadership_history table.
+// This is used for both promotion events and replication config changes.
 // This operation uses the remote-operation-timeout and will fail if it cannot complete within
-// that time. A timeout typically indicates that synchronous replication is not functioning
-// (no standbys are connected to acknowledge the write).
-func (pm *MultiPoolerManager) insertLeadershipHistory(ctx context.Context, termNumber int64, leaderID, coordinatorID, walPosition, reason string, cohortMembers, acceptedMembers []string) error {
-	pm.logger.InfoContext(ctx, "Inserting leadership history",
-		"term", termNumber,
-		"leader", leaderID,
-		"coordinator", coordinatorID,
-		"reason", reason)
-
+// that time. A timeout typically indicates that synchronous replication is not functioning.
+func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumber int64, eventType, leaderID, coordinatorID, walPosition, operation, reason string, cohortMembers, acceptedMembers []string, force bool) error {
 	cohortJSON, err := json.Marshal(cohortMembers)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to marshal cohort_members")
 	}
 
-	acceptedJSON, err := json.Marshal(acceptedMembers)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to marshal accepted_members")
+	var acceptedJSON []byte
+	if len(acceptedMembers) > 0 {
+		acceptedJSON, err = json.Marshal(acceptedMembers)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to marshal accepted_members")
+		}
 	}
 
-	timeout := pm.topoClient.GetRemoteOperationTimeout()
+	// Use a short timeout for history writes - they should not block on sync replication for long.
+	// This prevents configuration operations from hanging if sync replication is misconfigured.
+	timeout := 20 * time.Millisecond
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	err = pm.execArgs(execCtx, `INSERT INTO multigres.leadership_history
-		(term_number, leader_id, coordinator_id, wal_position, reason, cohort_members, accepted_members)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)`,
-		termNumber, leaderID, coordinatorID, walPosition, reason, cohortJSON, acceptedJSON)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to insert leadership history")
+
+	// When force=true, use SET LOCAL to prevent blocking the database connection on sync replication.
+	// SET LOCAL only affects this transaction and automatically reverts after COMMIT.
+	// Without this, the connection remains blocked even after Go times out, hanging subsequent operations.
+	var query string
+	if force {
+		query = `BEGIN;
+SET LOCAL synchronous_commit = local;
+INSERT INTO multigres.leadership_history
+	(term_number, event_type, leader_id, coordinator_id, wal_position, operation, reason, cohort_members, accepted_members)
+	VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, $8::jsonb, $9::jsonb);
+COMMIT;`
+	} else {
+		query = `INSERT INTO multigres.leadership_history
+	(term_number, event_type, leader_id, coordinator_id, wal_position, operation, reason, cohort_members, accepted_members)
+	VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, $8::jsonb, $9::jsonb)`
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully inserted leadership history", "term", termNumber)
+	err = pm.execArgs(execCtx, query, termNumber, eventType, leaderID, coordinatorID, walPosition, operation, reason, cohortJSON, acceptedJSON)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to insert history record")
+	}
+
 	return nil
 }
