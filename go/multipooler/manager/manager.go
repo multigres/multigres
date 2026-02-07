@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
@@ -132,6 +133,10 @@ type MultiPoolerManager struct {
 	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
 	// See design discussion for full details.
 	queryServingState clustermetadatapb.PoolerServingStatus
+
+	// topoSyncState tracks whether a background retry is needed to sync local state
+	// to topology. Uses atomic int32 with values: topoSyncIdle, topoSyncNeeded, topoSyncSyncing.
+	topoSyncState atomic.Int32
 
 	// The following three variables are for pgbackrest.
 	primaryPoolerID *clustermetadatapb.ID
@@ -936,11 +941,13 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 
 	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update serving status in topology", "error", err)
-		return mterrors.Wrap(err, "failed to transition to SERVING_RDONLY")
+		pm.logger.WarnContext(ctx, "Failed to update serving status in topology, scheduling background retry", "error", err)
+		pm.scheduleTopoSync()
+	} else {
+		pm.topoSyncState.Store(topoSyncIdle)
 	}
 
-	// Stop heartbeat writer
+	// Stop heartbeat writer regardless of topo write outcome
 	if pm.replTracker != nil {
 		pm.logger.InfoContext(ctx, "Stopping heartbeat writer")
 		pm.replTracker.MakeNonPrimary()
@@ -1321,11 +1328,13 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 
 	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
-		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
+		pm.logger.WarnContext(ctx, "Failed to update pooler type in topology, scheduling background retry", "error", err)
+		pm.scheduleTopoSync()
+	} else {
+		pm.topoSyncState.Store(topoSyncIdle)
 	}
 
-	// Update heartbeat tracker to primary mode
+	// Update heartbeat tracker to primary mode regardless of topo write outcome
 	if pm.replTracker != nil {
 		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
 		pm.replTracker.MakePrimary()
