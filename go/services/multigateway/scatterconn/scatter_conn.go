@@ -29,6 +29,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -57,10 +58,11 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 
 // StreamExecute executes a query on the specified tablegroup and streams results.
 // This is the implementation of engine.IExecute.StreamExecute().
-// - Creates Target with tablegroup, shard, and PRIMARY pooler type
-// - Uses PoolerGateway to select matching pooler
-// - Executes query via gRPC to the pooler
-// - Streams actual results back via callback
+//
+// Implements 3-case reservation logic for transactions:
+//   - Case 1: Has reserved connection → use it
+//   - Case 2: In transaction, no reserved conn → call ReserveStreamExecute with BEGIN
+//   - Case 3: Not in transaction → use regular pooled connection
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -76,7 +78,8 @@ func (sc *ScatterConn) StreamExecute(
 		"query", sql,
 		"user", conn.User(),
 		"database", conn.Database(),
-		"connection_id", conn.ConnectionID())
+		"connection_id", conn.ConnectionID(),
+		"in_transaction", state.IsInTransaction())
 
 	// Create target for routing
 	// TODO: Add query analysis to determine if this is a read or write query
@@ -92,30 +95,50 @@ func (sc *ScatterConn) StreamExecute(
 		SessionSettings: state.GetSessionSettings(),
 	}
 
-	var qs queryservice.QueryService = sc.gateway
-	var err error
-
 	ss := state.GetMatchingShardState(target)
-	// If we have a reserved connection, we have to ensure
-	// we are routing the query to the pooler where we got the reserved
-	// connection from. If a reparent happened, then we will get an error
-	// back.
+
+	// Case 1: Already have reserved connection - use it
 	if ss != nil && ss.ReservedConnectionId != 0 {
+		sc.logger.DebugContext(ctx, "using existing reserved connection",
+			"reserved_conn_id", ss.ReservedConnectionId)
+
 		eo.ReservedConnectionId = uint64(ss.ReservedConnectionId)
-		qs, err = sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
-	}
-	if err != nil {
-		return err
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
+		if err != nil {
+			return err
+		}
+
+		if err := qs.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+			return fmt.Errorf("query execution failed: %w", err)
+		}
+		return nil
 	}
 
-	// Execute query via QueryService (PoolerGateway) and stream results
-	// PoolerGateway will use the target to find the right pooler
-	sc.logger.DebugContext(ctx, "executing query via query service",
+	// Case 2: In transaction but no reserved connection - create one with BEGIN
+	if state.IsInTransaction() {
+		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for transaction")
+
+		reservationOpts := protoutil.NewTransactionReservationOptions()
+		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
+		if err != nil {
+			return fmt.Errorf("reserve stream execute failed: %w", err)
+		}
+
+		// Store the reserved connection for subsequent queries
+		state.StoreReservedConnection(target, reservedState)
+
+		sc.logger.DebugContext(ctx, "reserved connection created",
+			"reserved_conn_id", reservedState.ReservedConnectionId)
+		return nil
+	}
+
+	// Case 3: Not in transaction - use regular pooled connection
+	sc.logger.DebugContext(ctx, "executing query via regular pooled connection",
 		"tablegroup", tableGroup,
 		"shard", shard,
 		"pooler_type", target.PoolerType.String())
 
-	if err := qs.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+	if err := sc.gateway.StreamExecute(ctx, target, sql, eo, callback); err != nil {
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 

@@ -105,6 +105,14 @@ func (m *mockMultiPoolerServiceClient) GetAuthCredentials(ctx context.Context, i
 	return nil, nil
 }
 
+func (m *mockMultiPoolerServiceClient) ReserveStreamExecute(ctx context.Context, in *multipoolerservice.ReserveStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.ReserveStreamExecuteResponse], error) {
+	return nil, nil
+}
+
+func (m *mockMultiPoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
+	return nil, nil
+}
+
 // Ensure mockMultiPoolerServiceClient implements the interface
 var _ multipoolerservice.MultiPoolerServiceClient = (*mockMultiPoolerServiceClient)(nil)
 
