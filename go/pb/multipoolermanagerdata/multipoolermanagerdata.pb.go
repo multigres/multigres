@@ -2616,7 +2616,11 @@ type ConfigureSynchronousReplicationRequest struct {
 	// The application names will be generated as {cell}_{name} from these IDs
 	StandbyIds []*clustermetadata.ID `protobuf:"bytes,4,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
 	// Whether to reload configuration immediately
-	ReloadConfig  bool `protobuf:"varint,5,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
+	ReloadConfig bool `protobuf:"varint,5,opt,name=reload_config,json=reloadConfig,proto3" json:"reload_config,omitempty"`
+	// Force configuration even if history record write times out.
+	// When true, treats write timeouts as warnings (useful for tests and emergency operations).
+	// When false, fails if history write blocks on sync replication (normal production behavior).
+	Force         bool `protobuf:"varint,6,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2682,6 +2686,13 @@ func (x *ConfigureSynchronousReplicationRequest) GetStandbyIds() []*clustermetad
 func (x *ConfigureSynchronousReplicationRequest) GetReloadConfig() bool {
 	if x != nil {
 		return x.ReloadConfig
+	}
+	return false
+}
+
+func (x *ConfigureSynchronousReplicationRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
 	}
 	return false
 }
@@ -4192,14 +4203,15 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm\"\x19\n" +
 	"\x17ResetReplicationRequest\"d\n" +
 	"\x18ResetReplicationResponse\x12H\n" +
-	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"\xd7\x02\n" +
+	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"\xed\x02\n" +
 	"&ConfigureSynchronousReplicationRequest\x12]\n" +
 	"\x12synchronous_commit\x18\x01 \x01(\x0e2..multipoolermanagerdata.SynchronousCommitLevelR\x11synchronousCommit\x12X\n" +
 	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
 	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
 	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
 	"standbyIds\x12#\n" +
-	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\")\n" +
+	"\rreload_config\x18\x05 \x01(\bR\freloadConfig\x12\x14\n" +
+	"\x05force\x18\x06 \x01(\bR\x05force\")\n" +
 	"'ConfigureSynchronousReplicationResponse\"\x0e\n" +
 	"\fStateRequest\"J\n" +
 	"\rStateResponse\x12\x14\n" +

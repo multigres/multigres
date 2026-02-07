@@ -521,6 +521,11 @@ message ConfigureSynchronousReplicationRequest {
 
   // Whether to reload configuration immediately
   bool reload_config = 5;
+
+  // Force configuration even if history record write times out.
+  // When true, treats write timeouts as warnings (useful for tests and emergency operations).
+  // When false, fails if history write blocks on sync replication (normal production behavior).
+  bool force = 6;
 }
 
 message ConfigureSynchronousReplicationResponse {

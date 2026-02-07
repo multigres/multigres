@@ -123,7 +123,8 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 		req.SynchronousMethod,
 		req.NumSync,
 		req.StandbyIds,
-		req.ReloadConfig)
+		req.ReloadConfig,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

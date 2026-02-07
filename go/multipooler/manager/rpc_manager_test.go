@@ -292,7 +292,8 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 					multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 					1,
 					[]*clustermetadatapb.ID{serviceID},
-					true,
+					true,  // reloadConfig
+					false, // force
 				)
 			},
 		},
@@ -2172,7 +2173,8 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 		multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 		1,
 		standbyIDs,
-		true, // reloadConfig
+		true,  // reloadConfig
+		false, // force
 	)
 
 	// Verify it failed with the expected error
