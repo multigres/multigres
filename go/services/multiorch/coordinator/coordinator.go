@@ -89,13 +89,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	}
 	proposedTerm := maxTerm + 1
 
-	c.logger.InfoContext(ctx, "Obtained term number",
-		"shard", shardID,
-		"max_term", maxTerm,
-		"proposed_term", proposedTerm)
-
 	// PreVote - validate that leadership change is likely to succeed
-	c.logger.InfoContext(ctx, "Running pre-vote check", "shard", shardID)
 	canProceed, preVoteReason := c.preVote(ctx, cohort, quorumRule, proposedTerm)
 	if !canProceed {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
@@ -107,7 +101,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	// - Revocation: recruited nodes accept new term, preventing old leader from completing requests
 	// - Discovery: identify the most progressed node based on WAL position
 	// - Candidacy: validate recruited nodes satisfy quorum rules for the candidate
-	c.logger.InfoContext(ctx, "Recruiting nodes for new term", "shard", shardID)
 	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule, proposedTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")

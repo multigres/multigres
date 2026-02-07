@@ -16,6 +16,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -50,19 +51,41 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	poolerKey := topoclient.MultiPoolerIDString(poolerID)
 
 	// Configure FakeClient responses for this pooler
+	// Build WAL position based on role (maintain invariant: primary XOR standby)
+	var statusWalPos, beginTermWalPos *consensusdatapb.WALPosition
+	if role == "primary" {
+		statusWalPos = &consensusdatapb.WALPosition{
+			CurrentLsn:  walPosition,
+			PrimaryTerm: 0,
+		}
+		beginTermWalPos = &consensusdatapb.WALPosition{
+			CurrentLsn:  walPosition,
+			PrimaryTerm: 0,
+		}
+	} else {
+		statusWalPos = &consensusdatapb.WALPosition{
+			LastReceiveLsn: walPosition,
+			LastReplayLsn:  walPosition,
+			PrimaryTerm:    0,
+		}
+		beginTermWalPos = &consensusdatapb.WALPosition{
+			LastReceiveLsn: walPosition,
+			LastReplayLsn:  walPosition,
+			PrimaryTerm:    0,
+		}
+	}
+
 	fakeClient.ConsensusStatusResponses[poolerKey] = &consensusdatapb.StatusResponse{
 		CurrentTerm: term,
 		IsHealthy:   healthy,
 		Role:        role,
-		WalPosition: &consensusdatapb.WALPosition{
-			CurrentLsn:     walPosition,
-			LastReceiveLsn: walPosition,
-			LastReplayLsn:  walPosition,
-		},
+		WalPosition: statusWalPos,
 	}
 
 	fakeClient.BeginTermResponses[poolerKey] = &consensusdatapb.BeginTermResponse{
-		Accepted: true,
+		Accepted:    true,
+		PoolerId:    name,
+		WalPosition: beginTermWalPos,
 	}
 
 	fakeClient.StateResponses[poolerKey] = &multipoolermanagerdatapb.StateResponse{
@@ -173,89 +196,311 @@ func TestSelectCandidate(t *testing.T) {
 		Name:      "test-coordinator",
 	}
 
-	t.Run("success - selects node with most advanced WAL", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
+	t.Run("selects node with highest LSN", func(t *testing.T) {
 		c := &Coordinator{
 			coordinatorID: coordID,
 			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/3000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby"),
 		}
 
-		candidate, err := c.selectCandidate(ctx, cohort)
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp1"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/1000000"},
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/3000000"}, // Highest
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp3"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/2000000"},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
 		require.NoError(t, err)
 		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name)
 	})
 
-	t.Run("success - prefers healthy nodes", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
+	t.Run("prefers CurrentLsn for primary over LastReceiveLsn", func(t *testing.T) {
 		c := &Coordinator{
 			coordinatorID: coordID,
 			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/3000000", false, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 		}
 
-		candidate, err := c.selectCandidate(ctx, cohort)
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "primary"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/3000000"}, // Primary
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "standby"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/2000000"}, // Standby
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "primary", candidate.MultiPooler.Id.Name)
+	})
+
+	t.Run("skips nodes with nil WAL position", func(t *testing.T) {
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp1"},
+					},
+				},
+				walPosition: nil, // Nil
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/2000000"}, // Valid
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
 		require.NoError(t, err)
 		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name)
 	})
 
-	t.Run("success - falls back to first node if none healthy", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
+	t.Run("skips nodes with empty WAL position", func(t *testing.T) {
 		c := &Coordinator{
 			coordinatorID: coordID,
 			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/1000000", false, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/2000000", false, "standby"),
 		}
 
-		candidate, err := c.selectCandidate(ctx, cohort)
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp1"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{}, // Empty
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/1000000"}, // Valid
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
 		require.NoError(t, err)
-		require.NotNil(t, candidate)
-		// Should select first available node
-		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name)
 	})
 
-	t.Run("error - no nodes available", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
+	t.Run("skips nodes with invalid LSN format", func(t *testing.T) {
 		c := &Coordinator{
 			coordinatorID: coordID,
 			logger:        logger,
-			rpcClient:     fakeClient,
 		}
 
-		poolerID := &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "mp1",
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "invalid"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "not-an-lsn"},
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "valid"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/2000000"},
+			},
 		}
-		fakeClient.Errors[topoclient.MultiPoolerIDString(poolerID)] = context.DeadlineExceeded
 
-		pooler := &clustermetadatapb.MultiPooler{
-			Id:       poolerID,
-			Hostname: "localhost",
-			PortMap:  map[string]int32{"grpc": 9000},
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "valid", candidate.MultiPooler.Id.Name)
+	})
+
+	t.Run("error - empty recruited list", func(t *testing.T) {
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
 		}
 
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			{MultiPooler: pooler},
-		}
-
-		candidate, err := c.selectCandidate(ctx, cohort)
+		_, err := c.selectCandidate(ctx, []recruitmentResult{})
 		require.Error(t, err)
-		require.Nil(t, candidate)
-		require.Contains(t, err.Error(), "no healthy poolers available")
+		require.Contains(t, err.Error(), "no recruited poolers available")
+	})
+
+	t.Run("error - all nodes have invalid WAL positions", func(t *testing.T) {
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp1"},
+					},
+				},
+				walPosition: nil,
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "mp2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "invalid"},
+			},
+		}
+
+		_, err := c.selectCandidate(ctx, recruited)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no valid candidate found")
+	})
+
+	t.Run("selects primary with highest CurrentLsn among multiple primaries", func(t *testing.T) {
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "primary1"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/5000000"},
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "primary2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/8000000"}, // Highest
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "primary3"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/3000000"},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "primary2", candidate.MultiPooler.Id.Name)
+	})
+
+	t.Run("mixed primaries and standbys - selects highest LSN overall", func(t *testing.T) {
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "primary1"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/5000000"},
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "standby1"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{LastReceiveLsn: "0/9000000"}, // Highest
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "primary2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "0/7000000"},
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "standby1", candidate.MultiPooler.Id.Name,
+			"should select standby with highest LSN even though others are primaries")
+	})
+
+	t.Run("handles multi-segment LSN comparison correctly", func(t *testing.T) {
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+		}
+
+		recruited := []recruitmentResult{
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "node1"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "9/FF000000"},
+			},
+			{
+				pooler: &multiorchdatapb.PoolerHealthState{
+					MultiPooler: &clustermetadatapb.MultiPooler{
+						Id: &clustermetadatapb.ID{Name: "node2"},
+					},
+				},
+				walPosition: &consensusdatapb.WALPosition{CurrentLsn: "A/10000000"}, // Higher segment
+			},
+		}
+
+		candidate, err := c.selectCandidate(ctx, recruited)
+		require.NoError(t, err)
+		require.Equal(t, "node2", candidate.MultiPooler.Id.Name,
+			"should correctly compare multi-segment LSNs (segment A > segment 9)")
 	})
 }
 
@@ -275,16 +520,19 @@ func TestRecruitNodes(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			candidate,
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+		recruited, err := c.recruitNodes(ctx, cohort, 6, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 3)
+		// Verify WAL positions are populated
+		for _, r := range recruited {
+			require.NotNil(t, r.walPosition, "walPosition should be populated")
+		}
 	})
 
 	t.Run("success - some nodes reject", func(t *testing.T) {
@@ -294,10 +542,8 @@ func TestRecruitNodes(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
-
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			candidate,
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/2000000", true, "standby"),
 		}
@@ -310,7 +556,7 @@ func TestRecruitNodes(t *testing.T) {
 		}
 		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+		recruited, err := c.recruitNodes(ctx, cohort, 6, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 2)
 	})
@@ -322,10 +568,8 @@ func TestRecruitNodes(t *testing.T) {
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
-
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			candidate,
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
@@ -338,7 +582,7 @@ func TestRecruitNodes(t *testing.T) {
 		}
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp3ID)] = context.DeadlineExceeded
 
-		recruited, err := c.recruitNodes(ctx, cohort, 6, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+		recruited, err := c.recruitNodes(ctx, cohort, 6, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 		require.NoError(t, err)
 		require.Len(t, recruited, 2)
 	})
@@ -382,32 +626,96 @@ func TestBeginTerm(t *testing.T) {
 		require.Equal(t, int64(6), term)
 	})
 
-	t.Run("error - insufficient quorum", func(t *testing.T) {
-		// Create cohort where only 1 out of 3 accepts (need 2 for quorum)
+	t.Run("error - all nodes reject term cleanly (no errors)", func(t *testing.T) {
+		// All nodes reject the term (Accepted: false) with no RPC errors
+		// This could happen if nodes are in a higher term, or other consensus reasons
 		fakeClient := rpcclient.NewFakeClient()
 		c := &Coordinator{
 			coordinatorID: coordID,
 			logger:        logger,
 			rpcClient:     fakeClient,
 		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby")
-
 		cohort := []*multiorchdatapb.PoolerHealthState{
-			candidate,
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby"),
 			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
 			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
 		}
 
-		// Override responses after creating nodes
-		// mp2 rejects the term
+		// All nodes cleanly reject (Accepted: false) - no errors
+		mp1ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp1",
+		}
 		mp2ID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      "mp2",
 		}
-		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{Accepted: false}
+		mp3ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp3",
+		}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp1ID)] = &consensusdatapb.BeginTermResponse{
+			Accepted: false,
+			Term:     10, // e.g., already in higher term
+			PoolerId: "mp1",
+		}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{
+			Accepted: false,
+			Term:     10,
+			PoolerId: "mp2",
+		}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp3ID)] = &consensusdatapb.BeginTermResponse{
+			Accepted: false,
+			Term:     10,
+			PoolerId: "mp3",
+		}
 
-		// mp3 returns an error
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum",
+		}
+
+		proposedTerm := int64(6)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		require.Error(t, err)
+		require.Nil(t, candidate)
+		require.Nil(t, standbys)
+		require.Equal(t, int64(0), term)
+		require.Contains(t, err.Error(), "no poolers accepted the term",
+			"should fail with 'no poolers accepted' when all cleanly reject")
+	})
+
+	t.Run("error - insufficient quorum (mix of reject and error)", func(t *testing.T) {
+		// Create cohort where only 1 out of 3 accepts (need 2 for quorum)
+		// Mix of clean rejection and RPC error
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		cohort := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+		}
+
+		// mp2 cleanly rejects the term (Accepted: false, no error)
+		mp2ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp2",
+		}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp2ID)] = &consensusdatapb.BeginTermResponse{
+			Accepted: false,
+			PoolerId: "mp2",
+		}
+
+		// mp3 returns an RPC error
 		mp3ID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
@@ -429,6 +737,138 @@ func TestBeginTerm(t *testing.T) {
 		require.Nil(t, standbys)
 		require.Equal(t, int64(0), term)
 		require.Contains(t, err.Error(), "quorum")
+	})
+
+	t.Run("success - selects node with highest LSN from recruited nodes", func(t *testing.T) {
+		// Regression test: node with highest LSN (mp1) rejects term,
+		// second-highest (mp2) accepts and should be selected as candidate
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		cohort := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"), // Highest LSN
+			createMockNode(fakeClient, "mp2", 5, "0/4000000", true, "standby"), // Second highest
+			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),
+			createMockNode(fakeClient, "mp4", 5, "0/2000000", true, "standby"),
+		}
+
+		// mp1 (highest LSN) rejects the term
+		mp1ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp1",
+		}
+		fakeClient.BeginTermResponses[topoclient.MultiPoolerIDString(mp1ID)] = &consensusdatapb.BeginTermResponse{
+			Accepted: false,
+			PoolerId: "mp1",
+		}
+
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 3,
+			Description:   "Test quorum",
+		}
+
+		proposedTerm := int64(6)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		require.NoError(t, err)
+		require.NotNil(t, candidate)
+		// CRITICAL: mp2 should be selected (highest LSN among recruited), NOT mp1
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"should select mp2 with second-highest LSN since mp1 rejected")
+		require.Len(t, standbys, 2) // mp3, mp4
+		require.Equal(t, int64(6), term)
+	})
+
+	t.Run("error - node accepts term but revoke fails, not recruited", func(t *testing.T) {
+		// When a node accepts the term but revoke action fails,
+		// the multipooler returns accepted=true AND an error.
+		// The coordinator should exclude this node from recruited list.
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		cohort := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"), // Highest LSN
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+		}
+
+		// mp1 accepts term but revoke fails (simulates postgres crash during revoke)
+		// The multipooler returns accepted=true AND an error
+		mp1ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp1",
+		}
+		// Set error for mp1 to simulate revoke failure
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp1ID)] = errors.New("term accepted but revoke action failed")
+
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum",
+		}
+
+		proposedTerm := int64(6)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		require.NoError(t, err)
+		require.NotNil(t, candidate)
+		// CRITICAL: mp2 should be selected (highest LSN among recruited)
+		// mp1 is NOT recruited because revoke failed (error returned)
+		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
+			"should select mp2, not mp1 which failed revoke")
+		require.Len(t, standbys, 1) // Only mp3
+		require.Equal(t, int64(6), term)
+	})
+
+	t.Run("error - multiple nodes accept but revoke fails, insufficient quorum", func(t *testing.T) {
+		// If multiple nodes accept but revoke fails, quorum might not be achieved
+		fakeClient := rpcclient.NewFakeClient()
+		c := &Coordinator{
+			coordinatorID: coordID,
+			logger:        logger,
+			rpcClient:     fakeClient,
+		}
+		cohort := []*multiorchdatapb.PoolerHealthState{
+			createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary"),
+			createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "primary"),
+			createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby"),
+		}
+
+		// mp1 and mp2 accept term but revoke fails on both
+		mp1ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp1",
+		}
+		mp2ID := &clustermetadatapb.ID{
+			Component: clustermetadatapb.ID_MULTIPOOLER,
+			Cell:      "zone1",
+			Name:      "mp2",
+		}
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp1ID)] = errors.New("term accepted but revoke action failed")
+		fakeClient.Errors[topoclient.MultiPoolerIDString(mp2ID)] = errors.New("term accepted but revoke action failed")
+
+		quorumRule := &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			RequiredCount: 2,
+			Description:   "Test quorum requiring 2 nodes",
+		}
+
+		proposedTerm := int64(6)
+		candidate, standbys, term, err := c.BeginTerm(ctx, "shard0", cohort, quorumRule, proposedTerm)
+		require.Error(t, err)
+		require.Nil(t, candidate)
+		require.Nil(t, standbys)
+		require.Equal(t, int64(0), term)
+		require.Contains(t, err.Error(), "quorum",
+			"should fail quorum validation when only 1 node recruited but need 2")
 	})
 }
 
@@ -580,188 +1020,5 @@ func TestEstablishLeader(t *testing.T) {
 		err := c.EstablishLeader(ctx, candidate, 6)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not in ready state")
-	})
-}
-
-func TestSelectCandidate_PrefersInitializedNodes(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	coordID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIORCH,
-		Cell:      "test-cell",
-		Name:      "test-coordinator",
-	}
-
-	t.Run("prefers initialized node over uninitialized with higher LSN", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-
-		// Create cohort with mixed initialization:
-		// - mp1: initialized replica with lower LSN (0/1000000)
-		// - mp2: uninitialized node with higher LSN (0/2000000)
-		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
-		node1.IsLastCheckValid = true
-		node1.IsInitialized = true // Use IsInitialized field directly
-		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
-			LastReplayLsn:  "0/1000000",
-			LastReceiveLsn: "0/1000000",
-		}
-
-		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
-		node2.IsLastCheckValid = true
-		node2.IsInitialized = false // Explicitly uninitialized
-
-		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
-
-		candidate, err := c.selectCandidate(ctx, cohort)
-		require.NoError(t, err)
-		require.Equal(t, "mp1", candidate.MultiPooler.Id.Name,
-			"should prefer initialized node mp1 over uninitialized node mp2 despite lower LSN")
-	})
-
-	t.Run("prefers higher LSN among initialized nodes", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-
-		// Both nodes initialized, mp2 has higher LSN
-		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
-		node1.IsLastCheckValid = true
-		node1.IsInitialized = true
-		node1.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
-			LastReplayLsn:  "0/1000000",
-			LastReceiveLsn: "0/1000000",
-		}
-
-		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
-		node2.IsLastCheckValid = true
-		node2.IsInitialized = true
-		node2.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
-			LastReplayLsn:  "0/2000000",
-			LastReceiveLsn: "0/2000000",
-		}
-
-		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
-
-		candidate, err := c.selectCandidate(ctx, cohort)
-		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
-			"should prefer higher LSN among initialized nodes")
-	})
-
-	t.Run("prefers higher LSN among uninitialized nodes", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-
-		// Both nodes uninitialized, mp2 has higher LSN
-		node1 := createMockNode(fakeClient, "mp1", 5, "0/1000000", true, "standby")
-		node1.IsLastCheckValid = true
-		node1.IsInitialized = false
-
-		node2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
-		node2.IsLastCheckValid = true
-		node2.IsInitialized = false
-
-		cohort := []*multiorchdatapb.PoolerHealthState{node1, node2}
-
-		candidate, err := c.selectCandidate(ctx, cohort)
-		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
-			"should prefer higher LSN among uninitialized nodes")
-	})
-}
-
-func TestSelectCandidate_LSNComparison(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	coordID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIORCH,
-		Cell:      "test-cell",
-		Name:      "test-coordinator",
-	}
-
-	t.Run("selects node with highest LSN using numeric comparison", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/9000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),
-		}
-
-		candidate, err := c.selectCandidate(ctx, cohort)
-		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
-			"should select node with highest LSN (0/9000000)")
-	})
-
-	t.Run("handles multi-digit segment numbers correctly", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		// Numeric: 10/1000000 > 9/9000000 (segment 10 > segment 9)
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "9/9000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "10/1000000", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "8/5000000", true, "standby"),
-		}
-
-		candidate, err := c.selectCandidate(ctx, cohort)
-		require.NoError(t, err)
-		require.Equal(t, "mp2", candidate.MultiPooler.Id.Name,
-			"should use numeric comparison: segment 10 > segment 9")
-	})
-
-	t.Run("returns error when LSN is invalid", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "invalid-lsn", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "0/5000000", true, "standby"),
-		}
-
-		_, err := c.selectCandidate(ctx, cohort)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid LSN format")
-	})
-
-	t.Run("returns error when any healthy node has invalid LSN", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		cohort := []*multiorchdatapb.PoolerHealthState{
-			createMockNode(fakeClient, "mp1", 5, "0/5000000", true, "standby"),
-			createMockNode(fakeClient, "mp2", 5, "not-an-lsn", true, "standby"),
-			createMockNode(fakeClient, "mp3", 5, "0/3000000", true, "standby"),
-		}
-
-		_, err := c.selectCandidate(ctx, cohort)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid LSN format")
 	})
 }

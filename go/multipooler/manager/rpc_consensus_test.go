@@ -53,6 +53,23 @@ func expectStandbyStartupQueries(m *mock.QueryService) {
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 }
 
+// expectWALPositionStandbyQueries mocks queries for WAL position on a standby
+func expectWALPositionStandbyQueries(m *mock.QueryService, receiveLsn, replayLsn string) {
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// Mock queryReplicationStatus query - matches the actual query in pg_replication.go:176-183
+	m.AddQueryPatternOnce("pg_last_wal_replay_lsn",
+		mock.MakeQueryResult(
+			[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+			[][]any{{replayLsn, receiveLsn, false, "not paused", nil, "", "streaming"}},
+		))
+}
+
+// expectWALPositionPrimaryQueries mocks queries for WAL position on a primary
+func expectWALPositionPrimaryQueries(m *mock.QueryService, lsn string) {
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{lsn}}))
+}
+
 func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -155,6 +172,8 @@ func TestBeginTerm(t *testing.T) {
 			},
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			setupMocks: func(m *mock.QueryService) {
+				// Populate WAL position (after term acceptance)
+				expectWALPositionStandbyQueries(m, "0/2000000", "0/2000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: determine role (standby)
@@ -211,6 +230,8 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-A",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Populate WAL position
+				expectWALPositionStandbyQueries(m, "0/3000000", "0/3000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: determine role (standby)
@@ -237,11 +258,13 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Populate WAL position (primary)
+				expectWALPositionPrimaryQueries(m, "0/3000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns false (not in recovery = primary)
+				// executeRevoke: isInRecovery check - returns false (not in recovery = primary)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				// demoteLocked fails at checkDemotionState or another early step
+				// executeRevoke: demoteLocked fails at checkDemotionState or another early step
 				// Simulate failure by not setting up expected queries for demotion steps
 			},
 			expectedError:                       true,
@@ -263,13 +286,15 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Populate WAL position (standby since already demoted)
+				expectWALPositionStandbyQueries(m, "0/4000000", "0/4000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby/demoted)
+				// executeRevoke: isInRecovery check - returns true (in recovery = standby/demoted)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
@@ -290,13 +315,15 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Populate WAL position
+				expectWALPositionStandbyQueries(m, "0/5000000", "0/5000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby)
+				// executeRevoke: isInRecovery check - returns true (in recovery = standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedError:                       false,
@@ -318,13 +345,15 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// Populate WAL position
+				expectWALPositionStandbyQueries(m, "0/6000000", "0/6000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (standby)
+				// executeRevoke: isInRecovery check - returns true (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectedAccepted:                    true,
@@ -396,7 +425,7 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "NO_ACTION still respects term acceptance rules",
 		},
 		{
-			name:   "PostgresDownAcceptsTermButRevokeActionFails",
+			name:   "PostgresDownRejectsTerm_TemporaryBehavior",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
@@ -408,14 +437,16 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Phase 1: executeRevoke health check FAILS - postgres is down
+				// Populate WAL position succeeds - we can query postgres state
+				expectWALPositionStandbyQueries(m, "0/7000000", "0/7000000")
+				// executeRevoke: health check FAILS - postgres is down
 				// DO NOT add SELECT 1 expectation - let it fail
 			},
-			expectedError:                       true, // Revoke action fails
-			expectedAccepted:                    true, // Term is accepted despite revoke failure
-			expectedTerm:                        10,   // Term is updated to new term
+			expectedError:                       true, // Revoke fails because postgres is down
+			expectedAccepted:                    true, // Term IS accepted (acceptance happens before revoke)
+			expectedTerm:                        10,   // Term advances to 10
 			expectedAcceptedTermFromCoordinator: "new-candidate",
-			description:                         "Node with postgres down accepts voting term but revoke action fails - PrimaryTerm tracking allows identifying stale primary",
+			description:                         "Node accepts term but revoke fails when postgres is down",
 		},
 	}
 

@@ -29,7 +29,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // BeginTerm achieves Revocation, Candidacy, and Discovery by recruiting poolers
@@ -49,36 +48,50 @@ import (
 func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, quorumRule *clustermetadatapb.QuorumRule, proposedTerm int64) (*multiorchdatapb.PoolerHealthState, []*multiorchdatapb.PoolerHealthState, int64, error) {
 	c.logger.InfoContext(ctx, "Beginning term", "shard", shardID, "term", proposedTerm)
 
-	// Stage 1: Select Candidate - Choose based on WAL position
-	candidate, err := c.selectCandidate(ctx, cohort)
-	if err != nil {
-		return nil, nil, 0, mterrors.Wrap(err, "failed to select candidate")
-	}
-
-	c.logger.InfoContext(ctx, "Selected candidate", "shard", shardID, "candidate", candidate.MultiPooler.Id.Name)
-
-	// Stage 2: Recruit Nodes - Send BeginTerm RPC to all poolers in parallel
-	// Use REVOKE action to ensure old primary is demoted and standbys stop replicating
-	recruited, err := c.recruitNodes(ctx, cohort, proposedTerm, candidate, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
+	// Recruit Nodes - Send BeginTerm RPC to all poolers in parallel
+	// This is now FIRST to ensure we only select from nodes that accept the term
+	recruited, err := c.recruitNodes(ctx, cohort, proposedTerm, consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE)
 	if err != nil {
 		return nil, nil, 0, mterrors.Wrap(err, "failed to recruit poolers")
 	}
 
 	c.logger.InfoContext(ctx, "Recruited poolers", "shard", shardID, "count", len(recruited))
 
-	// Stage 3: Validate Quorum using durability policy
+	if len(recruited) == 0 {
+		return nil, nil, 0, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
+			"no poolers accepted the term")
+	}
+
+	// Select Candidate - Choose from recruited nodes based on WAL position
+	// This eliminates the race condition
+	candidate, err := c.selectCandidate(ctx, recruited)
+	if err != nil {
+		return nil, nil, 0, mterrors.Wrap(err, "failed to select candidate from recruited nodes")
+	}
+
+	c.logger.InfoContext(ctx, "Selected candidate from recruited nodes",
+		"shard", shardID,
+		"candidate", candidate.MultiPooler.Id.Name)
+
+	// Extract PoolerHealthState list for quorum validation
+	recruitedPoolers := make([]*multiorchdatapb.PoolerHealthState, 0, len(recruited))
+	for _, r := range recruited {
+		recruitedPoolers = append(recruitedPoolers, r.pooler)
+	}
+
+	// Validate Quorum
 	c.logger.InfoContext(ctx, "Validating quorum",
 		"shard", shardID,
 		"quorum_type", quorumRule.QuorumType,
 		"required_count", quorumRule.RequiredCount)
 
-	if err := c.ValidateQuorum(quorumRule, cohort, recruited); err != nil {
+	if err := c.ValidateQuorum(quorumRule, cohort, recruitedPoolers); err != nil {
 		return nil, nil, 0, mterrors.Wrapf(err, "quorum validation failed for shard %s", shardID)
 	}
 
 	// Separate candidate from standbys
 	var standbys []*multiorchdatapb.PoolerHealthState
-	for _, pooler := range recruited {
+	for _, pooler := range recruitedPoolers {
 		if pooler.MultiPooler.Id.Name != candidate.MultiPooler.Id.Name {
 			standbys = append(standbys, pooler)
 		}
@@ -114,123 +127,80 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 	return maxTerm, nil
 }
 
-// selectCandidate chooses the best candidate based on WAL position and health.
-func (c *Coordinator) selectCandidate(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState) (*multiorchdatapb.PoolerHealthState, error) {
-	type poolerStatus struct {
-		pooler      *multiorchdatapb.PoolerHealthState
-		walPosition string
-		healthy     bool
-		initialized bool
+// selectCandidate chooses the best candidate from recruited nodes based on WAL position.
+// Selection criteria: prefer the node with the highest LSN.
+func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitmentResult) (*multiorchdatapb.PoolerHealthState, error) {
+	if len(recruited) == 0 {
+		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
+			"no recruited poolers available for candidate selection")
 	}
 
-	statuses := make([]poolerStatus, 0, len(cohort))
+	var bestCandidate *multiorchdatapb.PoolerHealthState
+	var bestLSN pglogrepl.LSN
 
-	// Query status from all poolers
-	for _, pooler := range cohort {
-		req := &consensusdatapb.StatusRequest{}
-		resp, err := c.rpcClient.ConsensusStatus(ctx, pooler.MultiPooler, req)
-		if err != nil {
-			c.logger.WarnContext(ctx, "Failed to get status from pooler",
-				"pooler", pooler.MultiPooler.Id.Name,
-				"error", err)
-			continue
-		}
-
-		status := poolerStatus{
-			pooler:      pooler,
-			healthy:     resp.IsHealthy,
-			initialized: store.IsInitialized(pooler),
-		}
-
-		// Extract WAL position based on role
-		if resp.WalPosition != nil {
-			if resp.Role == "primary" {
-				status.walPosition = resp.WalPosition.CurrentLsn
-			} else {
-				// For standbys, use receive position (includes unreplayed WAL)
-				status.walPosition = resp.WalPosition.LastReceiveLsn
+	for _, r := range recruited {
+		// Extract LSN from WAL position
+		// For primary: use current_lsn, for standby: use last_receive_lsn
+		lsnStr := ""
+		if r.walPosition != nil {
+			if r.walPosition.CurrentLsn != "" {
+				lsnStr = r.walPosition.CurrentLsn
+			} else if r.walPosition.LastReceiveLsn != "" {
+				lsnStr = r.walPosition.LastReceiveLsn
 			}
 		}
 
-		statuses = append(statuses, status)
-	}
-
-	if len(statuses) == 0 {
-		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
-			"no healthy poolers available for candidate selection")
-	}
-
-	// Prefer initialized poolers over uninitialized poolers
-	// Within each group (initialized vs uninitialized), select by WAL position
-	var bestCandidate *multiorchdatapb.PoolerHealthState
-	var bestLSN pglogrepl.LSN
-	var bestIsInitialized bool
-
-	for _, status := range statuses {
-		if !status.healthy {
-			continue
-		}
-
-		// Skip poolers with empty WAL position (e.g., postgres is down but multipooler is still responding)
-		if status.walPosition == "" {
-			c.logger.InfoContext(ctx, "Skipping pooler with empty WAL position",
-				"pooler", status.pooler.MultiPooler.Id.Name)
+		// Skip poolers with no WAL position data
+		if lsnStr == "" {
+			c.logger.InfoContext(ctx, "Skipping recruited pooler with empty WAL position",
+				"pooler", r.pooler.MultiPooler.Id.Name)
 			continue
 		}
 
 		// Parse and validate LSN
-		lsn, err := pglogrepl.ParseLSN(status.walPosition)
+		lsn, err := pglogrepl.ParseLSN(lsnStr)
 		if err != nil {
-			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-				"invalid LSN format for pooler %s: %s (error: %v)",
-				status.pooler.MultiPooler.Id.Name, status.walPosition, err)
+			c.logger.WarnContext(ctx, "Invalid LSN format for recruited pooler, skipping",
+				"pooler", r.pooler.MultiPooler.Id.Name,
+				"lsn", lsnStr,
+				"error", err)
+			continue
 		}
 
-		// Selection criteria:
-		// 1. Prefer initialized poolers over uninitialized poolers
-		// 2. Within same initialization status, prefer highest LSN
-		shouldSelect := false
-		if bestCandidate == nil {
-			shouldSelect = true
-		} else if status.initialized && !bestIsInitialized {
-			// Prefer initialized over uninitialized
-			shouldSelect = true
-			c.logger.InfoContext(ctx, "Preferring initialized pooler over uninitialized",
-				"initialized_pooler", status.pooler.MultiPooler.Id.Name,
-				"uninitialized_pooler", bestCandidate.MultiPooler.Id.Name)
-		} else if status.initialized == bestIsInitialized && lsn > bestLSN {
-			// Same initialization status, prefer higher LSN
-			shouldSelect = true
-		}
-
-		if shouldSelect {
-			bestCandidate = status.pooler
+		// Select node with highest LSN
+		if bestCandidate == nil || lsn > bestLSN {
+			bestCandidate = r.pooler
 			bestLSN = lsn
-			bestIsInitialized = status.initialized
 		}
 	}
 
 	if bestCandidate == nil {
-		// Fall back to first available pooler if no healthy poolers
-		bestCandidate = statuses[0].pooler
-		c.logger.WarnContext(ctx, "No healthy poolers, using first available",
-			"pooler", bestCandidate.MultiPooler.Id.Name)
+		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
+			"no valid candidate found among recruited poolers - all have empty or invalid WAL positions")
 	}
 
-	c.logger.InfoContext(ctx, "Selected candidate",
+	c.logger.InfoContext(ctx, "Selected candidate from recruited nodes",
 		"pooler", bestCandidate.MultiPooler.Id.Name,
-		"initialized", bestIsInitialized,
 		"lsn", bestLSN)
 
 	return bestCandidate, nil
 }
 
+// selectCandidateFromRecruited chooses the best candidate from recruited nodes based on WAL position.
+// Selection criteria: prefer the node with the highest LSN.
+// recruitmentResult captures recruitment outcome and WAL position from BeginTerm response
+type recruitmentResult struct {
+	pooler      *multiorchdatapb.PoolerHealthState
+	walPosition *consensusdatapb.WALPosition
+}
+
 // recruitNodes sends BeginTerm RPC to all poolers in parallel and returns those that accepted.
-func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, term int64, candidate *multiorchdatapb.PoolerHealthState, action consensusdatapb.BeginTermAction) ([]*multiorchdatapb.PoolerHealthState, error) {
+func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, term int64, action consensusdatapb.BeginTermAction) ([]recruitmentResult, error) {
 	type result struct {
-		pooler   *multiorchdatapb.PoolerHealthState
-		accepted bool
-		err      error
+		pooler      *multiorchdatapb.PoolerHealthState
+		accepted    bool
+		walPosition *consensusdatapb.WALPosition
+		err         error
 	}
 
 	results := make(chan result, len(cohort))
@@ -251,7 +221,11 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 				results <- result{pooler: n, err: err}
 				return
 			}
-			results <- result{pooler: n, accepted: resp.Accepted}
+			results <- result{
+				pooler:      n,
+				accepted:    resp.Accepted,
+				walPosition: resp.WalPosition,
+			}
 		}(pooler)
 	}
 
@@ -261,8 +235,8 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 		close(results)
 	}()
 
-	// Collect accepted poolers
-	var recruited []*multiorchdatapb.PoolerHealthState
+	// Collect accepted poolers with WAL position data
+	var recruited []recruitmentResult
 	for r := range results {
 		if r.err != nil {
 			c.logger.WarnContext(ctx, "BeginTerm failed for pooler",
@@ -271,10 +245,25 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 			continue
 		}
 		if r.accepted {
-			recruited = append(recruited, r.pooler)
+			recruited = append(recruited, recruitmentResult{
+				pooler:      r.pooler,
+				walPosition: r.walPosition,
+			})
+
+			// Log LSN from WAL position
+			lsn := ""
+			if r.walPosition != nil {
+				if r.walPosition.CurrentLsn != "" {
+					lsn = r.walPosition.CurrentLsn
+				} else if r.walPosition.LastReceiveLsn != "" {
+					lsn = r.walPosition.LastReceiveLsn
+				}
+			}
+
 			c.logger.InfoContext(ctx, "Pooler accepted term",
 				"pooler", r.pooler.MultiPooler.Id.Name,
-				"term", term)
+				"term", term,
+				"lsn", lsn)
 		} else {
 			c.logger.WarnContext(ctx, "Pooler rejected term",
 				"pooler", r.pooler.MultiPooler.Id.Name,
