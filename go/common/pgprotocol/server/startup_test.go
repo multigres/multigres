@@ -267,6 +267,10 @@ func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
 }
 
+func (m *mockHandler) HandleStartup(ctx context.Context, conn *Conn) (map[string]string, error) {
+	return nil, nil
+}
+
 // mockHashProvider implements scram.PasswordHashProvider for testing.
 // It accepts a single password for any user/database combination.
 type mockHashProvider struct {
@@ -385,6 +389,7 @@ func TestHandleStartupMessage(t *testing.T) {
 			c := &Conn{
 				conn:           serverConn,
 				listener:       listener,
+				handler:        listener.handler,
 				hashProvider:   listener.hashProvider,
 				bufferedReader: bufio.NewReader(serverConn),
 				bufferedWriter: bufio.NewWriter(serverConn),
@@ -428,6 +433,7 @@ func TestSSLRequest(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -484,6 +490,7 @@ func TestGSSENCRequest(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -540,6 +547,7 @@ func TestSCRAMAuthenticationWrongPassword(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -663,6 +671,227 @@ func TestAuthenticationMessages(t *testing.T) {
 
 	secretKey := binary.BigEndian.Uint32(output[offset+9 : offset+13])
 	assert.Equal(t, uint32(67890), secretKey)
+}
+
+func TestParseOptions(t *testing.T) {
+	tests := []struct {
+		name     string
+		options  string
+		expected map[string]string
+		wantErr  bool
+	}{
+		{
+			name:     "single -c with space",
+			options:  "-c work_mem=64MB",
+			expected: map[string]string{"work_mem": "64MB"},
+		},
+		{
+			name:     "single -c without space",
+			options:  "-cwork_mem=64MB",
+			expected: map[string]string{"work_mem": "64MB"},
+		},
+		{
+			name:     "double dash format",
+			options:  "--work_mem=64MB",
+			expected: map[string]string{"work_mem": "64MB"},
+		},
+		{
+			name:     "double dash with hyphens in key",
+			options:  "--statement-timeout=5min",
+			expected: map[string]string{"statement_timeout": "5min"},
+		},
+		{
+			name:     "double dash with multiple hyphens",
+			options:  "--idle-in-transaction-session-timeout=10s",
+			expected: map[string]string{"idle_in_transaction_session_timeout": "10s"},
+		},
+		{
+			name:    "multiple -c flags",
+			options: "-c work_mem=64MB -c statement_timeout=5000",
+			expected: map[string]string{
+				"work_mem":          "64MB",
+				"statement_timeout": "5000",
+			},
+		},
+		{
+			name:    "mixed formats",
+			options: "-c work_mem=64MB --statement_timeout=5000 -cDateStyle=ISO",
+			expected: map[string]string{
+				"work_mem":          "64MB",
+				"statement_timeout": "5000",
+				"DateStyle":         "ISO",
+			},
+		},
+		{
+			name:    "mixed formats with hyphens",
+			options: "-c geqo=off --statement-timeout=5min",
+			expected: map[string]string{
+				"geqo":              "off",
+				"statement_timeout": "5min",
+			},
+		},
+		{
+			name:     "backslash escaped space in value",
+			options:  `-c DateStyle=ISO,\ MDY`,
+			expected: map[string]string{"DateStyle": "ISO, MDY"},
+		},
+		{
+			name:     "backslash escaped tab in value",
+			options:  `-c search_path=public,\	myschema`,
+			expected: map[string]string{"search_path": "public,\tmyschema"},
+		},
+		{
+			name:     "empty value",
+			options:  "-c search_path=",
+			expected: map[string]string{"search_path": ""},
+		},
+		{
+			name:     "empty options string",
+			options:  "",
+			expected: map[string]string{},
+		},
+		{
+			name:     "whitespace only",
+			options:  "   \t  ",
+			expected: map[string]string{},
+		},
+		{
+			name:    "multiple spaces between options",
+			options: "-c work_mem=64MB   -c  statement_timeout=5000",
+			expected: map[string]string{
+				"work_mem":          "64MB",
+				"statement_timeout": "5000",
+			},
+		},
+		{
+			name:    "-c missing value",
+			options: "-c",
+			wantErr: true,
+		},
+		{
+			name:    "-c with value missing equals",
+			options: "-c work_mem",
+			wantErr: true,
+		},
+		{
+			name:    "unsupported option flag",
+			options: "-x work_mem=64MB",
+			wantErr: true,
+		},
+		{
+			name:    "-- with empty key",
+			options: "--=value",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseOptions(tt.options)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSplitOptionsTokens(t *testing.T) {
+	tests := []struct {
+		name     string
+		options  string
+		expected []string
+	}{
+		{
+			name:     "simple tokens",
+			options:  "-c work_mem=64MB",
+			expected: []string{"-c", "work_mem=64MB"},
+		},
+		{
+			name:     "escaped space",
+			options:  `-c DateStyle=ISO,\ MDY`,
+			expected: []string{"-c", "DateStyle=ISO, MDY"},
+		},
+		{
+			name:     "escaped backslash",
+			options:  `-c path=C:\\temp`,
+			expected: []string{"-c", `path=C:\temp`},
+		},
+		{
+			name:     "multiple spaces",
+			options:  "  -c   work_mem=64MB  ",
+			expected: []string{"-c", "work_mem=64MB"},
+		},
+		{
+			name:     "tabs as delimiters",
+			options:  "-c\twork_mem=64MB",
+			expected: []string{"-c", "work_mem=64MB"},
+		},
+		{
+			name:     "empty string",
+			options:  "",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := splitOptionsTokens(tt.options)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestHandleStartupMessageWithOptions(t *testing.T) {
+	// Create pipe-based connection for bidirectional communication.
+	serverConn, clientConn := newPipeConnPair()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	// Create a test listener.
+	listener := testListener(t)
+	c := &Conn{
+		conn:           serverConn,
+		listener:       listener,
+		handler:        listener.handler,
+		hashProvider:   listener.hashProvider,
+		bufferedReader: bufio.NewReader(serverConn),
+		bufferedWriter: bufio.NewWriter(serverConn),
+		params:         make(map[string]string),
+		txnStatus:      protocol.TxnStatusIdle,
+	}
+	c.ctx = context.Background()
+	c.logger = testLogger(t)
+
+	// Run server-side handleStartup in a goroutine.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.handleStartup()
+	}()
+
+	// Client side: send startup packet with options parameter.
+	params := map[string]string{
+		"user":     "postgres",
+		"database": "testdb",
+		"options":  "-c work_mem=64MB -c statement_timeout=5000",
+	}
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, params)
+	scramClientHelper(t, clientConn, "postgres", "postgres")
+
+	// Wait for server to complete.
+	err := <-errCh
+	require.NoError(t, err)
+
+	// Verify options were parsed and merged into params.
+	assert.Equal(t, "postgres", c.user)
+	assert.Equal(t, "testdb", c.database)
+	assert.Equal(t, "64MB", c.params["work_mem"])
+	assert.Equal(t, "5000", c.params["statement_timeout"])
+	// "options" key should be removed after parsing.
+	_, hasOptions := c.params["options"]
+	assert.False(t, hasOptions, "options key should be removed after parsing")
 }
 
 func TestCancelRequest(t *testing.T) {

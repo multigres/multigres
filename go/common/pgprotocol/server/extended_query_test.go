@@ -99,6 +99,10 @@ func (h *testHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
 }
 
+func (h *testHandler) HandleStartup(ctx context.Context, conn *Conn) (map[string]string, error) {
+	return nil, nil
+}
+
 // testConn wraps both read and write buffers for testing.
 type testConn struct {
 	readBuf  *bytes.Buffer

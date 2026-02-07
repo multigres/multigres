@@ -97,6 +97,11 @@ type Conn struct {
 	// Server parameters received during startup.
 	serverParams map[string]string
 
+	// parameterStatus accumulates ParameterStatus messages received during
+	// query execution (SET commands, etc.). Retrieved and cleared via
+	// GetParameterStatus().
+	parameterStatus map[string]string
+
 	// txnStatus is the current transaction status.
 	txnStatus byte
 
@@ -193,6 +198,19 @@ func (c *Conn) SecretKey() uint32 {
 // ServerParams returns the server parameters received during startup.
 func (c *Conn) ServerParams() map[string]string {
 	return c.serverParams
+}
+
+// GetParameterStatus returns ParameterStatus messages captured since the last
+// call to this method and clears the internal buffer.
+//
+// IMPORTANT: The internal buffer is CLEARED after this call. Calling this method
+// twice consecutively will return an empty map on the second call. This method
+// should be called exactly once per query execution to capture parameter changes
+// from the backend (e.g., SET commands) so they can be forwarded to the client.
+func (c *Conn) GetParameterStatus() map[string]string {
+	ps := c.parameterStatus
+	c.parameterStatus = nil
+	return ps
 }
 
 // TxnStatus returns the current transaction status.

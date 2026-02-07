@@ -16,6 +16,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -150,6 +151,42 @@ func (e *Executor) Describe(
 	// We just send the query to the default table group.
 
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, preparedStatementInfo)
+}
+
+// ValidateStartupParams validates startup parameters by executing SELECT 1
+// against the backend with the startup params applied as session settings.
+// If any parameter is invalid, the backend rejects the SET and returns an error.
+// Returns ParameterStatus values captured from the backend response.
+func (e *Executor) ValidateStartupParams(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+) (map[string]string, error) {
+	e.logger.DebugContext(ctx, "validating startup parameters",
+		"user", conn.User(),
+		"database", conn.Database(),
+		"connection_id", conn.ConnectionID())
+
+	var paramStatus map[string]string
+	err := e.exec.StreamExecute(
+		ctx,
+		conn,
+		e.planner.GetDefaultTableGroup(),
+		"",
+		"SELECT 1",
+		state,
+		func(_ context.Context, result *sqltypes.Result) error {
+			if len(result.ParameterStatus) > 0 {
+				paramStatus = result.ParameterStatus
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid startup parameters: %w", err)
+	}
+
+	return paramStatus, nil
 }
 
 // Ensure Executor implements handler.Executor interface.

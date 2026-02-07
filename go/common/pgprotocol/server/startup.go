@@ -17,6 +17,8 @@ package server
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
@@ -198,6 +200,16 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 		c.logger.Debug("startup parameter", "key", key, "value", value)
 	}
 
+	// Parse options startup parameter (PGOPTIONS) if present.
+	if options, ok := c.params["options"]; ok {
+		parsed, err := parseOptions(options)
+		if err != nil {
+			return fmt.Errorf("invalid options parameter: %w", err)
+		}
+		maps.Copy(c.params, parsed)
+		delete(c.params, "options")
+	}
+
 	// Extract required parameters.
 	c.user = c.params["user"]
 	c.database = c.params["database"]
@@ -240,8 +252,15 @@ func (c *Conn) authenticateTrust() error {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
 
-	// Send initial ParameterStatus messages.
-	if err := c.sendParameterStatuses(); err != nil {
+	// Validate startup parameters by establishing a backend connection.
+	// This must happen after auth but before ParameterStatus/ReadyForQuery.
+	backendParams, err := c.handler.HandleStartup(c.ctx, c)
+	if err != nil {
+		return fmt.Errorf("startup parameter validation failed: %w", err)
+	}
+
+	// Send initial ParameterStatus messages (from backend if available, else defaults).
+	if err := c.sendParameterStatuses(backendParams); err != nil {
 		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
 	}
 
@@ -327,8 +346,15 @@ func (c *Conn) authenticateSCRAM() error {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
 
-	// Send initial ParameterStatus messages.
-	if err := c.sendParameterStatuses(); err != nil {
+	// Validate startup parameters by establishing a backend connection.
+	// This must happen after auth but before ParameterStatus/ReadyForQuery.
+	backendParams, err := c.handler.HandleStartup(c.ctx, c)
+	if err != nil {
+		return fmt.Errorf("startup parameter validation failed: %w", err)
+	}
+
+	// Send initial ParameterStatus messages (from backend if available, else defaults).
+	if err := c.sendParameterStatuses(backendParams); err != nil {
 		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
 	}
 
@@ -474,17 +500,24 @@ func (c *Conn) sendBackendKeyData() error {
 }
 
 // sendParameterStatuses sends initial ParameterStatus messages to the client.
-// These inform the client about server settings.
-func (c *Conn) sendParameterStatuses() error {
-	// Send standard parameters that clients expect.
+// If backendParams is non-nil, those values are used (from the actual backend).
+// Otherwise, default values are sent. server_version is always hardcoded to
+// indicate the client is connected through multigres.
+func (c *Conn) sendParameterStatuses(backendParams map[string]string) error {
 	parameters := map[string]string{
-		"server_version":              "17.0 (multigres)", // Pretend to be PostgreSQL 17
+		"server_version":              "17.0 (multigres)",
 		"server_encoding":             "UTF8",
 		"client_encoding":             "UTF8",
 		"DateStyle":                   "ISO, MDY",
 		"TimeZone":                    "UTC",
 		"integer_datetimes":           "on",
 		"standard_conforming_strings": "on",
+	}
+
+	if backendParams != nil {
+		// Use backend values, but always keep our server_version.
+		maps.Copy(parameters, backendParams)
+		parameters["server_version"] = "17.0 (multigres)"
 	}
 
 	for key, value := range parameters {
@@ -513,4 +546,95 @@ func (c *Conn) sendReadyForQuery() error {
 	}
 	// Flush to ensure the client receives the message immediately.
 	return c.flush()
+}
+
+// parseOptions parses the "options" startup parameter (PGOPTIONS).
+// It supports -c key=value and --key=value patterns, matching PostgreSQL's behavior.
+// Whitespace is used as the delimiter between tokens, with backslash-escaped
+// whitespace preserved within values.
+func parseOptions(options string) (map[string]string, error) {
+	tokens := splitOptionsTokens(options)
+	result := make(map[string]string)
+
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
+
+		switch {
+		case token == "-c":
+			// -c key=value (value is the next token or part of this token)
+			i++
+			if i >= len(tokens) {
+				return nil, errors.New("-c requires a value in key=value format")
+			}
+			key, value, ok := strings.Cut(tokens[i], "=")
+			if !ok || key == "" {
+				return nil, fmt.Errorf("-c requires a value in key=value format, got %q", tokens[i])
+			}
+			result[key] = value
+
+		case strings.HasPrefix(token, "-c"):
+			// -ckey=value (no space after -c)
+			rest := token[2:]
+			key, value, ok := strings.Cut(rest, "=")
+			if !ok || key == "" {
+				return nil, fmt.Errorf("-c requires a value in key=value format, got %q", rest)
+			}
+			result[key] = value
+
+		case strings.HasPrefix(token, "--"):
+			// --key=value (replace hyphens with underscores in key)
+			rest := token[2:]
+			key, value, ok := strings.Cut(rest, "=")
+			if !ok || key == "" {
+				return nil, fmt.Errorf("-- requires a value in key=value format, got %q", rest)
+			}
+			// PostgreSQL convention: replace hyphens with underscores in parameter names
+			key = strings.ReplaceAll(key, "-", "_")
+			result[key] = value
+
+		default:
+			return nil, fmt.Errorf("unsupported option: %q", token)
+		}
+	}
+
+	return result, nil
+}
+
+// splitOptionsTokens splits the options string into tokens on whitespace,
+// respecting backslash-escaped whitespace within values.
+func splitOptionsTokens(options string) []string {
+	var tokens []string
+	var current strings.Builder
+	escaped := false
+
+	for i := 0; i < len(options); i++ {
+		ch := options[i]
+
+		if escaped {
+			current.WriteByte(ch)
+			escaped = false
+			continue
+		}
+
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+
+		if ch == ' ' || ch == '\t' {
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+			continue
+		}
+
+		current.WriteByte(ch)
+	}
+
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+
+	return tokens
 }

@@ -40,6 +40,12 @@ type Executor interface {
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
+
+	// ValidateStartupParams validates startup parameters by executing a simple
+	// query against the backend with those parameters applied as session settings.
+	// If any parameter is invalid, the backend will reject the SET and return an error.
+	// Returns ParameterStatus values captured from the backend response.
+	ValidateStartupParams(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) (map[string]string, error)
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -92,11 +98,12 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 }
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
-// Initializes a new state if it doesn't exist.
+// Initializes a new state if it doesn't exist, populating startup parameters from the connection.
 func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewayConnectionState {
 	state := conn.GetConnectionState()
 	if state == nil {
 		newState := NewMultiGatewayConnectionState()
+		newState.StartupParams = conn.GetStartupParams()
 		conn.SetConnectionState(newState)
 		return newState
 	}
@@ -213,6 +220,38 @@ func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn)
 
 	// TODO: Handle transaction state
 	return nil
+}
+
+// HandleStartup validates startup parameters by establishing a backend connection.
+// If the client has startup parameters (e.g., DateStyle, TimeZone, PGOPTIONS values),
+// they are applied to a backend connection via SET SESSION statements. If any parameter
+// is invalid, an error is returned and the client connection is rejected.
+func (h *MultiGatewayHandler) HandleStartup(ctx context.Context, conn *server.Conn) (map[string]string, error) {
+	startupParams := conn.GetStartupParams()
+	if len(startupParams) == 0 {
+		return nil, nil
+	}
+
+	h.logger.DebugContext(ctx, "validating startup parameters", "params", startupParams)
+
+	// Initialize connection state eagerly so startup params are available
+	// for the validation query.
+	state := NewMultiGatewayConnectionState()
+	state.StartupParams = startupParams
+	conn.SetConnectionState(state)
+
+	// Validate by executing a simple query with the startup params applied.
+	// The executor will merge startup params into session settings, which causes
+	// the multipooler to apply them via SET SESSION statements on the backend.
+	// If any parameter is invalid, PostgreSQL rejects the SET and returns an error.
+	paramStatus, err := h.executor.ValidateStartupParams(ctx, conn, state)
+	if err != nil {
+		// Clear connection state on failure since the connection will be rejected.
+		conn.SetConnectionState(nil)
+		return nil, err
+	}
+
+	return paramStatus, nil
 }
 
 // Ensure MultiGatewayHandler implements server.Handler interface.

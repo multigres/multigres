@@ -44,6 +44,11 @@ message QueryResult {
   // notices contains any PostgreSQL notices received during query execution.
   // These are non-fatal messages like warnings or informational notices.
   repeated Notice notices = 5;
+
+  // parameter_status contains ParameterStatus messages received from the backend
+  // during query execution (e.g., from SET commands that change session variables).
+  // Key is the parameter name, value is the new parameter value.
+  map<string, string> parameter_status = 6;
 }
 
 // Field represents metadata about a column in the result set.

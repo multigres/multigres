@@ -168,5 +168,10 @@ func (h *fakeHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	return nil
 }
 
+// HandleStartup handles connection startup (no-op for fake server).
+func (h *fakeHandler) HandleStartup(ctx context.Context, conn *server.Conn) (map[string]string, error) {
+	return nil, nil
+}
+
 // Ensure fakeHandler implements server.Handler.
 var _ server.Handler = (*fakeHandler)(nil)

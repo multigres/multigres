@@ -69,6 +69,10 @@ type Result struct {
 
 	// Notices contains any PostgreSQL notices received during query execution.
 	Notices []*Notice
+
+	// ParameterStatus contains ParameterStatus messages received from the backend
+	// during query execution (e.g., from SET commands that change session variables).
+	ParameterStatus map[string]string
 }
 
 // ToProto converts Result to proto format for gRPC serialization.
@@ -85,11 +89,12 @@ func (r *Result) ToProto() *query.QueryResult {
 		protoNotices[i] = NoticeToProto(notice)
 	}
 	return &query.QueryResult{
-		Fields:       r.Fields,
-		RowsAffected: r.RowsAffected,
-		Rows:         protoRows,
-		CommandTag:   r.CommandTag,
-		Notices:      protoNotices,
+		Fields:          r.Fields,
+		RowsAffected:    r.RowsAffected,
+		Rows:            protoRows,
+		CommandTag:      r.CommandTag,
+		Notices:         protoNotices,
+		ParameterStatus: r.ParameterStatus,
 	}
 }
 
@@ -107,11 +112,12 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 		notices[i] = NoticeFromProto(notice)
 	}
 	return &Result{
-		Fields:       pr.Fields,
-		RowsAffected: pr.RowsAffected,
-		Rows:         rows,
-		CommandTag:   pr.CommandTag,
-		Notices:      notices,
+		Fields:          pr.Fields,
+		RowsAffected:    pr.RowsAffected,
+		Rows:            rows,
+		CommandTag:      pr.CommandTag,
+		Notices:         notices,
+		ParameterStatus: pr.ParameterStatus,
 	}
 }
 

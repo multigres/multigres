@@ -55,9 +55,13 @@ type QueryResult struct {
 	CommandTag string `protobuf:"bytes,4,opt,name=command_tag,json=commandTag,proto3" json:"command_tag,omitempty"`
 	// notices contains any PostgreSQL notices received during query execution.
 	// These are non-fatal messages like warnings or informational notices.
-	Notices       []*Notice `protobuf:"bytes,5,rep,name=notices,proto3" json:"notices,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Notices []*Notice `protobuf:"bytes,5,rep,name=notices,proto3" json:"notices,omitempty"`
+	// parameter_status contains ParameterStatus messages received from the backend
+	// during query execution (e.g., from SET commands that change session variables).
+	// Key is the parameter name, value is the new parameter value.
+	ParameterStatus map[string]string `protobuf:"bytes,6,rep,name=parameter_status,json=parameterStatus,proto3" json:"parameter_status,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -121,6 +125,13 @@ func (x *QueryResult) GetCommandTag() string {
 func (x *QueryResult) GetNotices() []*Notice {
 	if x != nil {
 		return x.Notices
+	}
+	return nil
+}
+
+func (x *QueryResult) GetParameterStatus() map[string]string {
+	if x != nil {
+		return x.ParameterStatus
 	}
 	return nil
 }
@@ -885,7 +896,7 @@ var File_query_proto protoreflect.FileDescriptor
 
 const file_query_proto_rawDesc = "" +
 	"\n" +
-	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\xc2\x01\n" +
+	"\vquery.proto\x12\x05query\x1a\x15clustermetadata.proto\"\xda\x02\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
@@ -893,7 +904,11 @@ const file_query_proto_rawDesc = "" +
 	".query.RowR\x04rows\x12\x1f\n" +
 	"\vcommand_tag\x18\x04 \x01(\tR\n" +
 	"commandTag\x12'\n" +
-	"\anotices\x18\x05 \x03(\v2\r.query.NoticeR\anotices\"\x89\x02\n" +
+	"\anotices\x18\x05 \x03(\v2\r.query.NoticeR\anotices\x12R\n" +
+	"\x10parameter_status\x18\x06 \x03(\v2'.query.QueryResult.ParameterStatusEntryR\x0fparameterStatus\x1aB\n" +
+	"\x14ParameterStatusEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
@@ -971,7 +986,7 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_query_proto_goTypes = []any{
 	(*QueryResult)(nil),             // 0: query.QueryResult
 	(*Field)(nil),                   // 1: query.Field
@@ -983,22 +998,24 @@ var file_query_proto_goTypes = []any{
 	(*PreparedStatement)(nil),       // 7: query.PreparedStatement
 	(*Portal)(nil),                  // 8: query.Portal
 	(*ExecuteOptions)(nil),          // 9: query.ExecuteOptions
-	nil,                             // 10: query.ExecuteOptions.SessionSettingsEntry
-	(clustermetadata.PoolerType)(0), // 11: clustermetadata.PoolerType
+	nil,                             // 10: query.QueryResult.ParameterStatusEntry
+	nil,                             // 11: query.ExecuteOptions.SessionSettingsEntry
+	(clustermetadata.PoolerType)(0), // 12: clustermetadata.PoolerType
 }
 var file_query_proto_depIdxs = []int32{
 	1,  // 0: query.QueryResult.fields:type_name -> query.Field
 	2,  // 1: query.QueryResult.rows:type_name -> query.Row
 	3,  // 2: query.QueryResult.notices:type_name -> query.Notice
-	5,  // 3: query.StatementDescription.parameters:type_name -> query.ParameterDescription
-	1,  // 4: query.StatementDescription.fields:type_name -> query.Field
-	11, // 5: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
-	10, // 6: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	7,  // [7:7] is the sub-list for method output_type
-	7,  // [7:7] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	10, // 3: query.QueryResult.parameter_status:type_name -> query.QueryResult.ParameterStatusEntry
+	5,  // 4: query.StatementDescription.parameters:type_name -> query.ParameterDescription
+	1,  // 5: query.StatementDescription.fields:type_name -> query.Field
+	12, // 6: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	11, // 7: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	8,  // [8:8] is the sub-list for method output_type
+	8,  // [8:8] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1012,7 +1029,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

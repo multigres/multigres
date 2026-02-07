@@ -245,6 +245,7 @@ func (c *Conn) handleBackendKeyData(body []byte) error {
 }
 
 // handleParameterStatus handles a ParameterStatus message.
+// Updates both the cumulative serverParams and the per-query parameterStatus buffer.
 func (c *Conn) handleParameterStatus(body []byte) error {
 	reader := NewMessageReader(body)
 
@@ -259,6 +260,12 @@ func (c *Conn) handleParameterStatus(body []byte) error {
 	}
 
 	c.serverParams[name] = value
+
+	if c.parameterStatus == nil {
+		c.parameterStatus = make(map[string]string)
+	}
+	c.parameterStatus[name] = value
+
 	return nil
 }
 

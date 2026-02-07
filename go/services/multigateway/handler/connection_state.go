@@ -49,6 +49,11 @@ type MultiGatewayConnectionState struct {
 	// pooled connection (with matching settings) is reused.
 	// Map keys are variable names, values are the string representation.
 	SessionSettings map[string]string
+
+	// StartupParams stores parameters from the client's startup message
+	// (e.g., DateStyle, TimeZone, client_encoding, and PGOPTIONS values).
+	// These are forwarded to the backend as session settings.
+	StartupParams map[string]string
 }
 
 type ShardState struct {
@@ -199,6 +204,19 @@ func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, b
 	}
 	value, exists := m.SessionSettings[name]
 	return value, exists
+}
+
+// GetStartupParams returns a copy of the startup parameters.
+// Returns nil if no startup parameters were set.
+func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.StartupParams) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(m.StartupParams))
+	maps.Copy(result, m.StartupParams)
+	return result
 }
 
 // RestoreSessionSettings replaces the current session settings with a new map.

@@ -78,9 +78,15 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			return nil, fmt.Errorf("failed to execute query: %w", err)
 		}
 
+		// Capture any ParameterStatus changes from the backend
+		paramStatus := reservedConn.Conn().RawConn().GetParameterStatus()
+
 		if len(results) == 0 {
-			return &sqltypes.Result{}, nil
+			result := &sqltypes.Result{}
+			result.ParameterStatus = paramStatus
+			return result, nil
 		}
+		results[0].ParameterStatus = paramStatus
 		return results[0], nil
 	}
 
@@ -104,10 +110,16 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
+	// Capture any ParameterStatus changes from the backend (e.g., SET commands)
+	paramStatus := conn.Conn.RawConn().GetParameterStatus()
+
 	// Return first result (simple query returns single result)
 	if len(results) == 0 {
-		return &sqltypes.Result{}, nil
+		result := &sqltypes.Result{}
+		result.ParameterStatus = paramStatus
+		return result, nil
 	}
+	results[0].ParameterStatus = paramStatus
 	return results[0], nil
 }
 
@@ -143,6 +155,13 @@ func (e *Executor) StreamExecute(
 		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
 		}
+
+		// Send any ParameterStatus changes from the backend
+		if ps := reservedConn.Conn().RawConn().GetParameterStatus(); len(ps) > 0 {
+			if err := callback(ctx, &sqltypes.Result{ParameterStatus: ps}); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -162,6 +181,13 @@ func (e *Executor) StreamExecute(
 	// Use streaming query execution
 	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
 		return fmt.Errorf("query execution failed: %w", err)
+	}
+
+	// Send any ParameterStatus changes from the backend (e.g., SET commands)
+	if ps := conn.Conn.RawConn().GetParameterStatus(); len(ps) > 0 {
+		if err := callback(ctx, &sqltypes.Result{ParameterStatus: ps}); err != nil {
+			return err
+		}
 	}
 
 	return nil

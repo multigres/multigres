@@ -95,4 +95,16 @@ type Handler interface {
 	// HandleSync processes a Sync message ('S').
 	// Called at the end of an extended query cycle to indicate transaction boundary.
 	HandleSync(ctx context.Context, conn *Conn) error
+
+	// HandleStartup is called after authentication succeeds but before
+	// ParameterStatus and ReadyForQuery are sent to the client.
+	// It allows the handler to validate startup parameters by establishing
+	// a backend connection. If the client has startup parameters (e.g.,
+	// DateStyle, TimeZone, PGOPTIONS), they are applied to the backend
+	// connection during this phase. If any parameter is invalid, an error
+	// is returned and the connection is rejected.
+	//
+	// Returns a map of ParameterStatus values from the backend (may be nil
+	// if there are no startup parameters to validate).
+	HandleStartup(ctx context.Context, conn *Conn) (map[string]string, error)
 }

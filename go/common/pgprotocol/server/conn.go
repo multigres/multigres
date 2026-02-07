@@ -179,6 +179,19 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// GetStartupParams returns the startup parameters sent by the client,
+// excluding "user" and "database" which are exposed via dedicated methods.
+func (c *Conn) GetStartupParams() map[string]string {
+	result := make(map[string]string, len(c.params))
+	for k, v := range c.params {
+		if k == "user" || k == "database" {
+			continue
+		}
+		result[k] = v
+	}
+	return result
+}
+
 // Context returns the connection's context.
 func (c *Conn) Context() context.Context {
 	return c.ctx
@@ -389,6 +402,13 @@ func (c *Conn) handleQuery() error {
 		// Handle empty query (nil result signals empty query).
 		if result == nil {
 			return c.writeEmptyQueryResponse()
+		}
+
+		// Forward any ParameterStatus messages from the backend to the client.
+		for key, value := range result.ParameterStatus {
+			if err := c.sendParameterStatus(key, value); err != nil {
+				return fmt.Errorf("writing parameter status: %w", err)
+			}
 		}
 
 		// On first callback with fields for this result set, send RowDescription.
@@ -652,6 +672,13 @@ func (c *Conn) handleExecute() error {
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
 	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
+		// Forward any ParameterStatus messages from the backend to the client.
+		for key, value := range result.ParameterStatus {
+			if err := c.sendParameterStatus(key, value); err != nil {
+				return fmt.Errorf("writing parameter status: %w", err)
+			}
+		}
+
 		// On first callback with fields, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {

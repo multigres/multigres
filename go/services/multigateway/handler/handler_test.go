@@ -68,6 +68,10 @@ func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *M
 	}, nil
 }
 
+func (m *mockExecutor) ValidateStartupParams(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) (map[string]string, error) {
+	return nil, nil
+}
+
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.
 func TestHandleQueryEmptyQuery(t *testing.T) {
 	logger := slog.Default()

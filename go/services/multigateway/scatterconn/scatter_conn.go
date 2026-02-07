@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -53,6 +54,25 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 		logger:  logger,
 		gateway: gateway,
 	}
+}
+
+// mergedSettings returns startup parameters merged with session settings.
+// Session settings take precedence over startup parameters for the same key.
+func mergedSettings(state *handler.MultiGatewayConnectionState) map[string]string {
+	startupParams := state.GetStartupParams()
+	sessionSettings := state.GetSessionSettings()
+
+	if len(startupParams) == 0 {
+		return sessionSettings
+	}
+	if len(sessionSettings) == 0 {
+		return startupParams
+	}
+
+	merged := make(map[string]string, len(startupParams)+len(sessionSettings))
+	maps.Copy(merged, startupParams)
+	maps.Copy(merged, sessionSettings) // session settings override startup params
+	return merged
 }
 
 // StreamExecute executes a query on the specified tablegroup and streams results.
@@ -89,7 +109,7 @@ func (sc *ScatterConn) StreamExecute(
 
 	eo := &query.ExecuteOptions{
 		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		SessionSettings: mergedSettings(state),
 	}
 
 	var qs queryservice.QueryService = sc.gateway
@@ -157,7 +177,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	eo := &query.ExecuteOptions{
 		User:            conn.User(),
 		MaxRows:         uint64(maxRows),
-		SessionSettings: state.GetSessionSettings(),
+		SessionSettings: mergedSettings(state),
 	}
 
 	var qs queryservice.QueryService = sc.gateway
@@ -226,7 +246,7 @@ func (sc *ScatterConn) Describe(
 
 	eo := &query.ExecuteOptions{
 		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		SessionSettings: mergedSettings(state),
 	}
 	var preparedStatement *query.PreparedStatement
 	var portal *query.Portal
@@ -299,7 +319,7 @@ func (sc *ScatterConn) CopyInitiate(
 	// Create execute options
 	execOptions := &query.ExecuteOptions{
 		User:            conn.User(),
-		SessionSettings: state.GetSessionSettings(),
+		SessionSettings: mergedSettings(state),
 	}
 
 	// Call CopyReady on gateway to initiate the COPY and get format info
@@ -350,7 +370,7 @@ func (sc *ScatterConn) CopySendData(
 	// Build options with reserved connection ID
 	copyOptions := &query.ExecuteOptions{
 		User:                 conn.User(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      mergedSettings(state),
 		ReservedConnectionId: uint64(ss.ReservedConnectionId),
 	}
 
@@ -396,7 +416,7 @@ func (sc *ScatterConn) CopyFinalize(
 	// Build options with reserved connection ID
 	copyOptions := &query.ExecuteOptions{
 		User:                 conn.User(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      mergedSettings(state),
 		ReservedConnectionId: uint64(ss.ReservedConnectionId),
 	}
 
@@ -457,7 +477,7 @@ func (sc *ScatterConn) CopyAbort(
 	// Build options with reserved connection ID
 	copyOptions := &query.ExecuteOptions{
 		User:                 conn.User(),
-		SessionSettings:      state.GetSessionSettings(),
+		SessionSettings:      mergedSettings(state),
 		ReservedConnectionId: uint64(ss.ReservedConnectionId),
 	}
 
