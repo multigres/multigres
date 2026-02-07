@@ -238,12 +238,26 @@ func (c *Conn) Kill(ctx context.Context) error {
 }
 
 // Close closes the underlying connection without returning to pool.
+// Unlike Release(), Close() does not recycle the connection - it permanently
+// removes it from the pool and closes the socket.
+// The pool slot is returned to the underlying connpool via Taint().
 func (c *Conn) Close() error {
 	if !c.released.CompareAndSwap(false, true) {
 		return nil // Already released/closed.
 	}
 
-	// Close the underlying connection.
+	// Remove from active map if we have a pool reference.
+	if c.pool != nil {
+		c.pool.mu.Lock()
+		delete(c.pool.active, c.ConnID)
+		c.pool.mu.Unlock()
+	}
+
+	// Taint the connection to return the pool slot to the underlying connpool.
+	// This calls pool.put(nil) which decrements the active count.
+	c.pooled.Taint()
+
+	// Close the underlying socket.
 	c.pooled.Close()
 	return nil
 }
