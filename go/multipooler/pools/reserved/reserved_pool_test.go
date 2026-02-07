@@ -516,3 +516,150 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		conn.Release(ReleaseCommit)
 	}
 }
+
+func TestConn_Close_ReturnsPoolSlot(t *testing.T) {
+	// This test verifies that Close() properly returns the pool slot to the
+	// underlying connpool, preventing pool exhaustion. Before the fix, Close()
+	// only closed the socket without returning the slot, causing a permanent leak.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	// Create a pool with small capacity to easily exhaust it.
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2, // Small capacity to test exhaustion
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	// Use a timeout context to detect deadlock rather than hanging forever.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Step 1: Create 2 connections to exhaust pool capacity.
+	conn1, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	conn2, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	// Step 2: Close both connections (not Release).
+	err = conn1.Close()
+	require.NoError(t, err)
+
+	err = conn2.Close()
+	require.NoError(t, err)
+
+	// Step 3: Verify that 2 new connections can be created without blocking.
+	// This proves Close() returned the pool slots.
+	// Before the fix, this would deadlock/timeout since Close() didn't return slots.
+	conn3, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err, "should be able to create new connection after Close()")
+	defer conn3.Release(ReleaseCommit)
+
+	conn4, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err, "should be able to create second connection after Close()")
+	defer conn4.Release(ReleaseCommit)
+
+	// Verify connections are functional.
+	assert.False(t, conn3.IsClosed())
+	assert.False(t, conn4.IsClosed())
+}
+
+func TestConn_Close_RemovesFromActiveMap(t *testing.T) {
+	// This test verifies that Close() removes the connection from the pool's
+	// active connections map, preventing ghost entries. Before the fix, Close()
+	// didn't clean up the active map, leaving stale entries.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Step 1: Create a reserved connection.
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	connID := conn.ConnID
+
+	// Step 2: Verify it appears in active connections (via pool.Get()).
+	retrieved, ok := pool.Get(connID)
+	require.True(t, ok, "connection should be in active map")
+	assert.Equal(t, connID, retrieved.ConnID)
+
+	// Step 3: Call Close() on the connection.
+	err = conn.Close()
+	require.NoError(t, err)
+
+	// Step 4: Verify pool.Get() returns false for that ConnID (removed from active map).
+	_, ok = pool.Get(connID)
+	assert.False(t, ok, "connection should be removed from active map after Close()")
+
+	// Also verify stats show no active connections.
+	stats := pool.Stats()
+	assert.Equal(t, 0, stats.Active, "active count should be 0 after Close()")
+}
+
+func TestConn_Close_Idempotency(t *testing.T) {
+	// This test verifies that calling Close() multiple times is safe and idempotent,
+	// and that Close() and Release() can be called in any order without panicking.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	t.Run("close twice", func(t *testing.T) {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+
+		// First Close() should work.
+		err = conn.Close()
+		require.NoError(t, err)
+		assert.True(t, conn.IsReleased())
+
+		// Second Close() should be a no-op (no panic or error).
+		err = conn.Close()
+		require.NoError(t, err)
+		assert.True(t, conn.IsReleased())
+	})
+
+	t.Run("release then close", func(t *testing.T) {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+
+		// Release first.
+		conn.Release(ReleaseCommit)
+		assert.True(t, conn.IsReleased())
+
+		// Close after Release should be a no-op (no panic or error).
+		err = conn.Close()
+		require.NoError(t, err)
+		assert.True(t, conn.IsReleased())
+	})
+
+	t.Run("close then release", func(t *testing.T) {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+
+		// Close first.
+		err = conn.Close()
+		require.NoError(t, err)
+		assert.True(t, conn.IsReleased())
+
+		// Release after Close should be a no-op (no panic).
+		conn.Release(ReleaseCommit)
+		assert.True(t, conn.IsReleased())
+	})
+}
