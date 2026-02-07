@@ -446,7 +446,7 @@ func TestInsertLeadershipHistory(t *testing.T) {
 
 			ctx := context.Background()
 			err := pm.insertHistoryRecord(ctx, tt.termNumber, "promotion", tt.leaderID, tt.coordinatorID,
-				tt.walPosition, tt.operation, tt.reason, tt.cohortMembers, tt.acceptedMembers)
+				tt.walPosition, tt.operation, tt.reason, tt.cohortMembers, tt.acceptedMembers, false /* force */)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -541,7 +541,7 @@ func TestInsertReplicationConfigHistory(t *testing.T) {
 			}
 
 			leaderID := generateApplicationName(pm.serviceID)
-			err := pm.insertHistoryRecord(ctx, tt.termNumber, "replication_config", leaderID, "", "", tt.operation, tt.reason, standbyNames, nil)
+			err := pm.insertHistoryRecord(ctx, tt.termNumber, "replication_config", leaderID, "", "", tt.operation, tt.reason, standbyNames, nil, false /* force */)
 
 			if tt.expectError {
 				assert.Error(t, err)

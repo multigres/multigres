@@ -182,7 +182,8 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		"bootstrap", // operation
 		reason,
 		cohortMembers,
-		acceptedMembers); err != nil {
+		acceptedMembers,
+		false /* force */); err != nil {
 		// Log but don't fail - history is for audit, not correctness
 		pm.logger.WarnContext(ctx, "Failed to insert leadership history",
 			"term", req.ConsensusTerm,
