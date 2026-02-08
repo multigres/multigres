@@ -28,7 +28,12 @@ import (
 // BuildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
 // Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
 // For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
-func BuildSyncReplicationConfig(logger *slog.Logger, quorumRule *clustermetadatapb.QuorumRule, standbys []*multiorchdatapb.PoolerHealthState, candidate *multiorchdatapb.PoolerHealthState) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
+func BuildSyncReplicationConfig(
+	logger *slog.Logger,
+	quorumRule *clustermetadatapb.QuorumRule,
+	standbys []*multiorchdatapb.PoolerHealthState,
+	candidate *multiorchdatapb.PoolerHealthState,
+) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
 	requiredCount := int(quorumRule.RequiredCount)
 
 	// Determine async fallback mode (default to REJECT if unset)
