@@ -56,23 +56,19 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	var statusWalPos, beginTermWalPos *consensusdatapb.WALPosition
 	if role == "primary" {
 		statusWalPos = &consensusdatapb.WALPosition{
-			CurrentLsn:  walPosition,
-			PrimaryTerm: 0,
+			CurrentLsn: walPosition,
 		}
 		beginTermWalPos = &consensusdatapb.WALPosition{
-			CurrentLsn:  walPosition,
-			PrimaryTerm: 0,
+			CurrentLsn: walPosition,
 		}
 	} else {
 		statusWalPos = &consensusdatapb.WALPosition{
 			LastReceiveLsn: walPosition,
 			LastReplayLsn:  walPosition,
-			PrimaryTerm:    0,
 		}
 		beginTermWalPos = &consensusdatapb.WALPosition{
 			LastReceiveLsn: walPosition,
 			LastReplayLsn:  walPosition,
-			PrimaryTerm:    0,
 		}
 	}
 

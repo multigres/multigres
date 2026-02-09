@@ -53,23 +53,6 @@ func expectStandbyStartupQueries(m *mock.QueryService) {
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 }
 
-// expectWALPositionStandbyQueries mocks queries for WAL position on a standby
-func expectWALPositionStandbyQueries(m *mock.QueryService, receiveLsn, replayLsn string) {
-	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// Mock queryReplicationStatus query - matches the actual query in pg_replication.go:176-183
-	m.AddQueryPatternOnce("pg_last_wal_replay_lsn",
-		mock.MakeQueryResult(
-			[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
-			[][]any{{replayLsn, receiveLsn, false, "not paused", nil, "", "streaming"}},
-		))
-}
-
-// expectWALPositionPrimaryQueries mocks queries for WAL position on a primary
-func expectWALPositionPrimaryQueries(m *mock.QueryService, lsn string) {
-	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-	m.AddQueryPatternOnce("SELECT pg_current_wal_lsn", mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{lsn}}))
-}
-
 func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -172,8 +155,6 @@ func TestBeginTerm(t *testing.T) {
 			},
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			setupMocks: func(m *mock.QueryService) {
-				// Populate WAL position (after term acceptance)
-				expectWALPositionStandbyQueries(m, "0/2000000", "0/2000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: determine role (standby)
@@ -181,6 +162,10 @@ func TestBeginTerm(t *testing.T) {
 				// executeRevoke: pauseReplication
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/2000000", "0/2000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -230,8 +215,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "candidate-A",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Populate WAL position
-				expectWALPositionStandbyQueries(m, "0/3000000", "0/3000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: determine role (standby)
@@ -239,6 +222,10 @@ func TestBeginTerm(t *testing.T) {
 				// executeRevoke: pauseReplication
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/3000000", "0/3000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        5,
@@ -258,8 +245,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Populate WAL position (primary)
-				expectWALPositionPrimaryQueries(m, "0/3000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: isInRecovery check - returns false (not in recovery = primary)
@@ -286,8 +271,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Populate WAL position (standby since already demoted)
-				expectWALPositionStandbyQueries(m, "0/4000000", "0/4000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: isInRecovery check - returns true (in recovery = standby/demoted)
@@ -296,6 +279,10 @@ func TestBeginTerm(t *testing.T) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/4000000", "0/4000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -315,8 +302,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Populate WAL position
-				expectWALPositionStandbyQueries(m, "0/5000000", "0/5000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: isInRecovery check - returns true (in recovery = standby)
@@ -325,6 +310,10 @@ func TestBeginTerm(t *testing.T) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/5000000", "0/5000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedError:                       false,
 			expectedAccepted:                    true,
@@ -345,8 +334,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Populate WAL position
-				expectWALPositionStandbyQueries(m, "0/6000000", "0/6000000")
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: isInRecovery check - returns true (standby)
@@ -355,6 +342,10 @@ func TestBeginTerm(t *testing.T) {
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/6000000", "0/6000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
@@ -425,7 +416,7 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "NO_ACTION still respects term acceptance rules",
 		},
 		{
-			name:   "PostgresDownRejectsTerm_TemporaryBehavior",
+			name:   "PostgresDown_AcceptsTermButRevokeFails",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
@@ -437,8 +428,6 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Populate WAL position succeeds - we can query postgres state
-				expectWALPositionStandbyQueries(m, "0/7000000", "0/7000000")
 				// executeRevoke: health check FAILS - postgres is down
 				// DO NOT add SELECT 1 expectation - let it fail
 			},

@@ -62,8 +62,6 @@ func (c *Coordinator) BeginTerm(ctx context.Context, shardID string, cohort []*m
 			"no poolers accepted the term")
 	}
 
-	// Select Candidate - Choose from recruited nodes based on WAL position
-	// This eliminates the race condition
 	candidate, err := c.selectCandidate(ctx, recruited)
 	if err != nil {
 		return nil, nil, 0, mterrors.Wrap(err, "failed to select candidate from recruited nodes")
@@ -127,8 +125,46 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 	return maxTerm, nil
 }
 
-// selectCandidate chooses the best candidate from recruited nodes based on WAL position.
-// Selection criteria: prefer the node with the highest LSN.
+// selectCandidate chooses the best candidate from recruited poolers.
+//
+// WAL positions are captured after REVOKE (demote/pause), so they reflect
+// the final state and won't advance further.
+//
+// Selection Strategy (per generalized consensus):
+//
+// The framework (https://multigres.com/blog/generalized-consensus-part7) requires
+// choosing the timeline with the "latest decision" - meaning the most recent
+// term/coordinator that wrote to it.
+//
+// Current Implementation (INCORRECT for multiple failures):
+//   - We currently select based on highest LSN. This works for simple failover
+//     scenarios with a single timeline.
+//   - However, when there are CONFLICTING TIMELINES from multiple failures,
+//     LSN alone cannot determine which timeline is most recent.
+//   - Problem: LSN measures bytes written, not logical progression.
+//     Example: Term 5 writes a large transaction (LSN 1000), Term 6 writes
+//     a small transaction (LSN 500). LSN would incorrectly choose Term 5's
+//     abandoned timeline over Term 6's. It will incorrectly propagate LSN from Term 5.
+//
+// TODO - Next Step:
+//   - Switch to selecting based on highest transaction commit timestamp
+//   - Timestamps provide logical ordering across conflicting timelines
+//     (we are ok with clock skew for now).
+//   - Aligns with the "timestamp way" for systems where per-transaction
+//     term tracking isn't available.
+//
+// Why not use PrimaryTerm?
+//   - We track PrimaryTerm at the pooler/coordinator level (which term the
+//     coordinator is operating in).
+//   - But we DON'T track which term each individual WAL transaction belongs to.
+//   - Without per-transaction term numbers embedded in WAL, we can't determine
+//     which transactions came from which term when comparing conflicting logs.
+//
+// Future Enhancement:
+//   - Once we implement two-phase sync, each WAL transaction will
+//     carry its term number embedded in the log
+//   - Then we can use: highest term first, then highest LSN within that term
+//   - This eliminates reliance on timestamps and clock assumptions
 func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitmentResult) (*multiorchdatapb.PoolerHealthState, error) {
 	if len(recruited) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
