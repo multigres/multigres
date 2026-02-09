@@ -340,12 +340,9 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 		return mterrors.Wrap(err, "failed to marshal cohort_members")
 	}
 
-	var acceptedJSON []byte
-	if len(acceptedMembers) > 0 {
-		acceptedJSON, err = json.Marshal(acceptedMembers)
-		if err != nil {
-			return mterrors.Wrap(err, "failed to marshal accepted_members")
-		}
+	acceptedJSON, err := json.Marshal(acceptedMembers)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to marshal accepted_members")
 	}
 
 	// Use a short timeout for history writes - they should not block on sync replication for long.
@@ -378,7 +375,7 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 		query = insert
 	}
 
-	err = pm.exec(execCtx, query)
+	err = pm.execMultiStatement(execCtx, query)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to insert history record")
 	}

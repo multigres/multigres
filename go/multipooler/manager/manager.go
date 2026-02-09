@@ -267,6 +267,16 @@ func (pm *MultiPoolerManager) exec(ctx context.Context, sql string) error {
 	return err
 }
 
+// execMultiStatement executes a multi-statement command (e.g. "BEGIN; ...; COMMIT;").
+// Unlike exec, it does not require exactly one result set.
+func (pm *MultiPoolerManager) execMultiStatement(ctx context.Context, sql string) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return errors.New("internal query service not available")
+	}
+	return queryService.QueryMultiStatement(ctx, sql)
+}
+
 // queryArgs executes a parameterized query using the internal query service and returns the result.
 // This is a convenience method for internal manager operations that helps prevent SQL injection.
 func (pm *MultiPoolerManager) queryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
