@@ -17,10 +17,12 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/multipooler/executor"
 )
 
@@ -352,24 +354,31 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	insert := fmt.Sprintf(`INSERT INTO multigres.leadership_history
+	(term_number, event_type, leader_id, coordinator_id, wal_position, operation, reason, cohort_members, accepted_members)
+	VALUES (%d, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), %s, %s::jsonb, %s::jsonb)`,
+		termNumber,
+		ast.QuoteStringLiteral(eventType),
+		ast.QuoteStringLiteral(leaderID),
+		ast.QuoteStringLiteral(coordinatorID),
+		ast.QuoteStringLiteral(walPosition),
+		ast.QuoteStringLiteral(operation),
+		ast.QuoteStringLiteral(reason),
+		ast.QuoteStringLiteral(string(cohortJSON)),
+		ast.QuoteStringLiteral(string(acceptedJSON)),
+	)
+
 	// When force=true, use SET LOCAL to prevent blocking the database connection on sync replication.
 	// SET LOCAL only affects this transaction and automatically reverts after COMMIT.
 	// Without this, the connection remains blocked even after Go times out, hanging subsequent operations.
 	var query string
 	if force {
-		query = `BEGIN;
-SET LOCAL synchronous_commit = local;
-INSERT INTO multigres.leadership_history
-	(term_number, event_type, leader_id, coordinator_id, wal_position, operation, reason, cohort_members, accepted_members)
-	VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, $8::jsonb, $9::jsonb);
-COMMIT;`
+		query = "BEGIN; SET LOCAL synchronous_commit = local; " + insert + "; COMMIT;"
 	} else {
-		query = `INSERT INTO multigres.leadership_history
-	(term_number, event_type, leader_id, coordinator_id, wal_position, operation, reason, cohort_members, accepted_members)
-	VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, $8::jsonb, $9::jsonb)`
+		query = insert
 	}
 
-	err = pm.execArgs(execCtx, query, termNumber, eventType, leaderID, coordinatorID, walPosition, operation, reason, cohortJSON, acceptedJSON)
+	err = pm.exec(execCtx, query)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to insert history record")
 	}
