@@ -13,6 +13,17 @@
 // limitations under the License.
 
 // go/tools/s3mock/server.go
+
+// Package s3mock provides an S3-compatible mock server for testing.
+//
+// # Logging
+//
+// By default, HTTP request logging is disabled to reduce noise in CI.
+// To enable logging, set the environment variable:
+//
+//	MULTIGRES_TEST_LOG_S3MOCK=1
+//
+// Accepted values: 1, true, yes (case-insensitive)
 package s3mock
 
 import (
