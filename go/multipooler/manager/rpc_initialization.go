@@ -145,7 +145,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full", "")
+	backupID, err := pm.backupLocked(ctx, true, "full", "", nil)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
@@ -454,7 +454,7 @@ func (pm *MultiPoolerManager) removeArchiveConfigFromAutoConf() error {
 // configureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
 // This must be called after InitDataDir but BEFORE starting PostgreSQL
 func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
-	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	configPath, err := pm.checkPgBackRestConfig(ctx)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
@@ -462,7 +462,7 @@ func (pm *MultiPoolerManager) configureArchiveMode(ctx context.Context) error {
 	// Check if pgbackrest config file exists before configuring archive mode
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("pgbackrest config file not found at %s - cannot configure archive mode", configPath))
+			fmt.Sprintf("pgbackrest config file not found at %s - ensure pgctld generated the config successfully", configPath))
 	}
 
 	autoConfPath := filepath.Join(pm.multipooler.PoolerDir, "pg_data", "postgresql.auto.conf")
@@ -501,13 +501,13 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 // initializePgBackRestStanza initializes the pgbackrest stanza
 // This must be called after PostgreSQL is initialized and running
 func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
-	configPath, err := pm.initPgBackRest(ctx, NotForBackup)
+	configPath, err := pm.checkPgBackRestConfig(ctx)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
 	// Execute pgbackrest stanza-create command
-	stanzaCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(stanzaCtx, "pgbackrest",

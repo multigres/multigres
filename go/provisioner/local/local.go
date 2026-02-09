@@ -817,13 +817,13 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
 
-	// Get pgbackrest port from config
-	pgbackrestConfig, err := p.getCellServiceConfig(cell, constants.ServicePgbackrest)
+	// Get pgbackrest port from pgctld config (pgbackrest is now managed by pgctld)
+	pgctldConfig, err := p.getCellServiceConfig(cell, constants.ServicePgctld)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pgbackrest config for cell %s: %w", cell, err)
+		return nil, fmt.Errorf("failed to get pgctld config for cell %s: %w", cell, err)
 	}
 	pgbackrestPort := ports.DefaultPgbackRestPort
-	if port, ok := pgbackrestConfig["port"].(int); ok && port > 0 {
+	if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
 		pgbackrestPort = port
 	}
 
@@ -1654,7 +1654,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	}
 
 	// Calculate total number of services to provision
-	numServices := len(cellNames) * 4 // multigateway + multipooler + multiorch + pgbackrest per cell
+	numServices := len(cellNames) * 3 // multigateway + multipooler + multiorch per cell (pgbackrest now managed by pgctld)
 	resultsChan := make(chan provisionResult, numServices)
 
 	// Start all services in parallel
@@ -1718,17 +1718,20 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			resultsChan <- provisionResult{result: result}
 		}()
 
-		// Start pgbackrest
-		go func() {
-			// Provision pgbackrest server for this cell
-			_, err := p.provisionPgbackRestServer(ctx, databaseName, cell)
-			if err != nil {
-				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision pgbackrest server for cell %s: %w", cell, err)}
-				return
-			}
-			// pgbackrest doesn't return a ProvisionResult in the same format, so we send a nil result
-			resultsChan <- provisionResult{result: nil}
-		}()
+		// REMOVED: pgbackrest server startup - now managed by pgctld
+		// pgctld starts and manages the pgBackRest TLS server lifecycle
+		// Certificate generation still happens separately via GeneratePgBackRestCerts()
+		//
+		// go func() {
+		// 	// Provision pgbackrest server for this cell
+		// 	_, err := p.provisionPgbackRestServer(ctx, databaseName, cell)
+		// 	if err != nil {
+		// 		resultsChan <- provisionResult{err: fmt.Errorf("failed to provision pgbackrest server for cell %s: %w", cell, err)}
+		// 		return
+		// 	}
+		// 	// pgbackrest doesn't return a ProvisionResult in the same format, so we send a nil result
+		// 	resultsChan <- provisionResult{result: nil}
+		// }()
 	}
 
 	// Collect all results

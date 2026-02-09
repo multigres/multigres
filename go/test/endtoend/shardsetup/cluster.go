@@ -41,7 +41,6 @@ type MultipoolerInstance struct {
 	Name        string
 	Pgctld      *ProcessInstance
 	Multipooler *ProcessInstance
-	PgBackRest  *PgBackRestInstance
 }
 
 // ShardSetup holds shared test infrastructure for a single shard.
@@ -70,6 +69,9 @@ type ShardSetup struct {
 
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
+
+	// BackupLocation stores backup configuration from topology
+	BackupLocation *clustermetadatapb.BackupLocation
 
 	// BaselineGucs stores the GUC values captured after bootstrap completes.
 	// These are the "clean state" values that ValidateCleanState checks against
@@ -198,7 +200,8 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	pgbackrestPort := utils.GetFreePort(t)
 
 	// Create pgctld instance
-	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort)
+	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
+	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
@@ -218,7 +221,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort int) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -229,13 +232,16 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 	require.NoError(t, err)
 
 	return &ProcessInstance{
-		Name:        name,
-		DataDir:     dataDir,
-		LogFile:     logFile,
-		GrpcPort:    grpcPort,
-		PgPort:      pgPort,
-		Binary:      "pgctld",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Name:              name,
+		DataDir:           dataDir,
+		LogFile:           logFile,
+		GrpcPort:          grpcPort,
+		PgPort:            pgPort,
+		Binary:            "pgctld",
+		PgBackRestPort:    pgbackrestPort,
+		PgBackRestCertDir: pgbackrestCertDir,
+		BackupLocation:    backupLocation,
+		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
 	}
 }
 
@@ -399,11 +405,8 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		}
 	}
 
-	// Stop multipooler instances (pgbackrest, multipooler, then pgctld)
+	// Stop multipooler instances (multipooler, then pgctld)
 	for _, inst := range s.Multipoolers {
-		if inst.PgBackRest != nil {
-			inst.PgBackRest.Stop()
-		}
 		if inst.Multipooler != nil {
 			inst.Multipooler.Stop()
 		}
@@ -509,9 +512,6 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 		}
 		if inst.Multipooler != nil && !inst.Multipooler.IsRunning() {
 			dead = append(dead, name+"-multipooler")
-		}
-		if inst.PgBackRest != nil && !inst.PgBackRest.IsRunning() {
-			dead = append(dead, name+"-pgbackrest")
 		}
 	}
 

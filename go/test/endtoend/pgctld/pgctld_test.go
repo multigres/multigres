@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package endtoend
+package pgctld
 
 import (
 	"errors"
@@ -33,7 +33,19 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/pathutil"
 )
+
+// TestMain sets up the test environment for pgctld tests
+func TestMain(m *testing.M) {
+	// Add bin/ to PATH so pgctld binary can be found
+	if err := pathutil.PrependBinToPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to add bin/ to PATH: %v\n", err)
+		os.Exit(1) //nolint:forbidigo
+	}
+
+	os.Exit(m.Run()) //nolint:forbidigo
+}
 
 // setupTestEnv sets up environment variables for PostgreSQL tests
 func setupTestEnv(cmd *exec.Cmd) {

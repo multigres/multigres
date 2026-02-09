@@ -236,12 +236,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	return pm, nil
 }
 
-func (pm *MultiPoolerManager) getPrimaryPoolerID() *clustermetadatapb.ID {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.primaryPoolerID
-}
-
 // internalQueryService returns the InternalQueryService for executing queries via the connection pool.
 func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryService {
 	if pm.qsc == nil {
@@ -456,6 +450,30 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler.Type
+}
+
+// isPgBackRestServerRunning queries pgctld for pgBackRest server running status
+func (pm *MultiPoolerManager) isPgBackRestServerRunning(ctx context.Context) bool {
+	client := pm.getPgCtldClient()
+	if client == nil {
+		return false
+	}
+
+	// Use a short timeout to avoid blocking Status RPC
+	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	resp, err := client.Status(timeoutCtx, &pgctldpb.StatusRequest{})
+	if err != nil {
+		pm.logger.WarnContext(ctx, "Failed to get pgctld status for pgBackRest", "error", err)
+		return false
+	}
+
+	if resp.PgbackrestStatus == nil {
+		return false
+	}
+
+	return resp.PgbackrestStatus.Running
 }
 
 // checkReady returns an error if the manager is not in Ready state
