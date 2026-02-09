@@ -22,6 +22,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -90,6 +92,21 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// isLoggingEnabled checks if S3mock logging should be enabled based on environment variable
+func isLoggingEnabled() bool {
+	val := os.Getenv("MULTIGRES_TEST_LOG_S3MOCK")
+	if val == "" {
+		return false
+	}
+	// Accept: 1, true, True, TRUE, yes, Yes, YES
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 // router creates the HTTP request router
 func (s *Server) router() http.Handler {
 	mux := http.NewServeMux()
@@ -153,7 +170,11 @@ func (s *Server) router() http.Handler {
 		}
 	})
 
-	return loggingMiddleware(mux)
+	// Only apply logging middleware if enabled
+	if isLoggingEnabled() {
+		return loggingMiddleware(mux)
+	}
+	return mux
 }
 
 // Endpoint returns the HTTPS endpoint URL
