@@ -44,6 +44,12 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	execute := func(stmt ast.Stmt) error {
 		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt, callback)
 	}
+	// silentExecute runs a statement without sending results to the client.
+	// Used for synthetic BEGIN/COMMIT/ROLLBACK injected by implicit transaction handling.
+	silentExecute := func(stmt ast.Stmt) error {
+		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
+			func(context.Context, *sqltypes.Result) error { return nil })
+	}
 
 	// If already in a transaction, don't inject BEGIN at start
 	needsBegin := !state.IsInTransaction()
@@ -52,16 +58,20 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	for _, stmt := range stmts {
 		// Inject BEGIN if needed (start of batch or after COMMIT/ROLLBACK)
 		if needsBegin {
-			if err := execute(ast.NewBeginStmt()); err != nil {
+			if err := silentExecute(ast.NewBeginStmt()); err != nil {
 				return err
 			}
 			needsBegin = false
 			isImplicitTx = true
 		}
 
-		// User's BEGIN - skip (we already started), mark as explicit
+		// User's BEGIN - skip execution (we already started), mark as explicit.
+		// Still send a result to the client so the response count matches their statements.
 		if ast.IsBeginStatement(stmt) {
 			isImplicitTx = false
+			if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -79,7 +89,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		if err := execute(stmt); err != nil {
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure
-				_ = execute(ast.NewRollbackStmt())
+				_ = silentExecute(ast.NewRollbackStmt())
 			}
 			return err
 		}
@@ -87,7 +97,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 
 	// Auto-commit if we ended in an implicit transaction
 	if isImplicitTx {
-		if err := execute(ast.NewCommitStmt()); err != nil {
+		if err := silentExecute(ast.NewCommitStmt()); err != nil {
 			return err
 		}
 	}

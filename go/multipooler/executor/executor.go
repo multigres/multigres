@@ -714,14 +714,11 @@ func (e *Executor) ReserveStreamExecute(
 		return queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection: %w", err)
 	}
 
-	// If this is a transaction reservation, execute BEGIN first
+	// If this is a transaction reservation, execute BEGIN first.
+	// The BEGIN result is not sent to the callback — it's an internal setup detail.
+	// The caller (multigateway) handles sending synthetic BEGIN results to the client.
 	if beginTx {
 		if err := reservedConn.Begin(ctx); err != nil {
-			reservedConn.Release(reserved.ReleaseError)
-			return queryservice.ReservedState{}, err
-		}
-		// Send BEGIN result to callback
-		if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
 			return queryservice.ReservedState{}, err
 		}
