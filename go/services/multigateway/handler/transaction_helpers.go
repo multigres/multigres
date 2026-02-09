@@ -42,7 +42,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
 	execute := func(stmt ast.Stmt) error {
-		return h.executor.StreamExecute(ctx, conn, state, queryStr, stmt, callback)
+		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt, callback)
 	}
 
 	// If already in a transaction, don't inject BEGIN at start

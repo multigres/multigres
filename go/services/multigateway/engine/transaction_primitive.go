@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -93,7 +94,7 @@ func (t *TransactionPrimitive) executeBegin(
 	})
 }
 
-// executeCommit handles COMMIT by releasing reserved connections.
+// executeCommit handles COMMIT by concluding the transaction on all reserved connections.
 func (t *TransactionPrimitive) executeCommit(
 	ctx context.Context,
 	exec IExecute,
@@ -110,18 +111,20 @@ func (t *TransactionPrimitive) executeCommit(
 		})
 	}
 
-	// TODO: Phase 5 - Use ReleaseReservedConnection RPC to commit on all shards
-	// For now, execute COMMIT through normal path and reset state
-	err := exec.StreamExecute(ctx, conn, t.TableGroup, "", "COMMIT", state, callback)
+	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
+	// ConcludeTransaction clears shard state entries where the connection was
+	// fully released (remainingReasons == 0) and keeps entries where the
+	// connection is still reserved for other reasons (e.g., temp tables).
+	err := exec.ConcludeTransaction(ctx, conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, callback)
 
-	// Reset transaction state regardless of error
+	// Reset transaction state regardless of error.
 	state.SetTransactionState(handler.TxStateIdle)
-	// TODO: Clear reserved connections after Phase 5 implementation
 
 	return err
 }
 
-// executeRollback handles ROLLBACK by releasing reserved connections.
+// executeRollback handles ROLLBACK by concluding the transaction on all reserved connections.
 func (t *TransactionPrimitive) executeRollback(
 	ctx context.Context,
 	exec IExecute,
@@ -137,13 +140,15 @@ func (t *TransactionPrimitive) executeRollback(
 		})
 	}
 
-	// TODO: Phase 5 - Use ReleaseReservedConnection RPC to rollback on all shards
-	// For now, execute ROLLBACK through normal path and reset state
-	err := exec.StreamExecute(ctx, conn, t.TableGroup, "", "ROLLBACK", state, callback)
+	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
+	// ConcludeTransaction clears shard state entries where the connection was
+	// fully released (remainingReasons == 0) and keeps entries where the
+	// connection is still reserved for other reasons (e.g., temp tables).
+	err := exec.ConcludeTransaction(ctx, conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, callback)
 
-	// Reset transaction state regardless of error
+	// Reset transaction state regardless of error.
 	state.SetTransactionState(handler.TxStateIdle)
-	// TODO: Clear reserved connections after Phase 5 implementation
 
 	return err
 }

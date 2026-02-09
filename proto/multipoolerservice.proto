@@ -269,7 +269,9 @@ enum ReservationReason {
   // Connection is reserved due to temporary tables - no BEGIN needed
   RESERVATION_REASON_TEMP_TABLE = 2;   // 0b010
   // Connection is reserved for portal/cursor operations
-  RESERVATION_REASON_PORTAL = 4;       // 0b100
+  RESERVATION_REASON_PORTAL = 4;       // 0b0100
+  // Connection is reserved for an active COPY operation
+  RESERVATION_REASON_COPY = 8;         // 0b1000
 }
 
 // ReservationOptions specifies options when creating a reserved connection.

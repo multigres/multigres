@@ -24,9 +24,11 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -37,6 +39,10 @@ type txMockIExecute struct {
 	streamExecuteSQL   []string
 	streamExecuteCount int
 	callbackResult     *sqltypes.Result
+
+	concludeTransactionErr        error
+	concludeTransactionCount      int
+	concludeTransactionConclusion multipoolerpb.TransactionConclusion
 }
 
 func (m *txMockIExecute) StreamExecute(
@@ -83,6 +89,31 @@ func (m *txMockIExecute) CopyAbort(context.Context, *server.Conn, string, string
 	return nil
 }
 
+func (m *txMockIExecute) ConcludeTransaction(
+	ctx context.Context,
+	_ *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	conclusion multipoolerpb.TransactionConclusion,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	m.concludeTransactionCount++
+	m.concludeTransactionConclusion = conclusion
+	if m.concludeTransactionErr != nil {
+		// On error, clear all shard states (matches ScatterConn behavior)
+		state.ClearAllReservedConnections()
+		return m.concludeTransactionErr
+	}
+	// Simulate successful conclude: clear all shard states (remainingReasons == 0)
+	state.ClearAllReservedConnections()
+	var commandTag string
+	if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT {
+		commandTag = "COMMIT"
+	} else {
+		commandTag = "ROLLBACK"
+	}
+	return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
+}
+
 // newTestReservedState creates a state with a reserved connection on the given tableGroup.
 func newTestReservedState(tableGroup string) *handler.MultiGatewayConnectionState {
 	state := handler.NewMultiGatewayConnectionState()
@@ -94,7 +125,7 @@ func newTestReservedState(tableGroup string) *handler.MultiGatewayConnectionStat
 	state.StoreReservedConnection(target, queryservice.ReservedState{
 		ReservedConnectionId: 100,
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-	})
+	}, protoutil.ReasonTransaction)
 	return state
 }
 
@@ -154,9 +185,7 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 }
 
 func TestTransactionPrimitive_Commit_WithReservedConnections(t *testing.T) {
-	mockExec := &txMockIExecute{
-		callbackResult: &sqltypes.Result{CommandTag: "COMMIT"},
-	}
+	mockExec := &txMockIExecute{}
 	state := newTestReservedState("tg1")
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "COMMIT", "tg1")
@@ -166,13 +195,15 @@ func TestTransactionPrimitive_Commit_WithReservedConnections(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
-	require.Equal(t, 1, mockExec.streamExecuteCount)
-	require.Equal(t, []string{"COMMIT"}, mockExec.streamExecuteSQL)
+	require.Equal(t, 1, mockExec.concludeTransactionCount, "Should call ConcludeTransaction")
+	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, mockExec.concludeTransactionConclusion)
+	require.Equal(t, 0, mockExec.streamExecuteCount, "Should not use StreamExecute for COMMIT")
+	require.Empty(t, state.ShardStates, "ShardStates should be cleared after COMMIT")
 }
 
-func TestTransactionPrimitive_Commit_StreamExecuteError(t *testing.T) {
+func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 	mockExec := &txMockIExecute{
-		streamExecuteErr: errors.New("commit failed"),
+		concludeTransactionErr: errors.New("commit failed"),
 	}
 	state := newTestReservedState("tg1")
 
@@ -185,6 +216,7 @@ func TestTransactionPrimitive_Commit_StreamExecuteError(t *testing.T) {
 	require.Contains(t, err.Error(), "commit failed")
 	// State should still be reset to Idle regardless of error
 	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Empty(t, state.ShardStates, "ShardStates should be cleared even on error")
 }
 
 func TestTransactionPrimitive_Rollback_NoReservedConnections(t *testing.T) {
@@ -207,9 +239,7 @@ func TestTransactionPrimitive_Rollback_NoReservedConnections(t *testing.T) {
 }
 
 func TestTransactionPrimitive_Rollback_WithReservedConnections(t *testing.T) {
-	mockExec := &txMockIExecute{
-		callbackResult: &sqltypes.Result{CommandTag: "ROLLBACK"},
-	}
+	mockExec := &txMockIExecute{}
 	state := newTestReservedState("tg1")
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "ROLLBACK", "tg1")
@@ -219,13 +249,15 @@ func TestTransactionPrimitive_Rollback_WithReservedConnections(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
-	require.Equal(t, 1, mockExec.streamExecuteCount)
-	require.Equal(t, []string{"ROLLBACK"}, mockExec.streamExecuteSQL)
+	require.Equal(t, 1, mockExec.concludeTransactionCount, "Should call ConcludeTransaction")
+	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, mockExec.concludeTransactionConclusion)
+	require.Equal(t, 0, mockExec.streamExecuteCount, "Should not use StreamExecute for ROLLBACK")
+	require.Empty(t, state.ShardStates, "ShardStates should be cleared after ROLLBACK")
 }
 
-func TestTransactionPrimitive_Rollback_StreamExecuteError(t *testing.T) {
+func TestTransactionPrimitive_Rollback_ConcludeTransactionError(t *testing.T) {
 	mockExec := &txMockIExecute{
-		streamExecuteErr: errors.New("rollback failed"),
+		concludeTransactionErr: errors.New("rollback failed"),
 	}
 	state := newTestReservedState("tg1")
 
@@ -238,6 +270,7 @@ func TestTransactionPrimitive_Rollback_StreamExecuteError(t *testing.T) {
 	require.Contains(t, err.Error(), "rollback failed")
 	// State should still be reset to Idle regardless of error
 	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Empty(t, state.ShardStates, "ShardStates should be cleared even on error")
 }
 
 func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {

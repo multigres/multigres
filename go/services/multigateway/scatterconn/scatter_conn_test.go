@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -145,7 +146,7 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 	state.StoreReservedConnection(target, queryservice.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-	})
+	}, protoutil.ReasonTransaction)
 
 	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", state,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })

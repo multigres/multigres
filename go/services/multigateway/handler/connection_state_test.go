@@ -241,25 +241,28 @@ func TestTransactionState_ShardStateOperations(t *testing.T) {
 		ReservedConnectionId: 42,
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 	}
-	state.StoreReservedConnection(target, rs)
+	state.StoreReservedConnection(target, rs, protoutil.ReasonTransaction)
 
 	// Verify it's retrievable
 	ss = state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
 	require.Equal(t, int64(42), ss.ReservedConnectionId)
 	require.Equal(t, "cell1", ss.PoolerID.Cell)
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservationReasons)
 
-	// Update the same target's reserved connection
+	// Update the same target's reserved connection (reasons should OR together)
 	rs2 := queryservice.ReservedState{
 		ReservedConnectionId: 99,
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell2", Name: "pooler2"},
 	}
-	state.StoreReservedConnection(target, rs2)
+	state.StoreReservedConnection(target, rs2, protoutil.ReasonTempTable)
 
 	ss = state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
 	require.Equal(t, int64(99), ss.ReservedConnectionId)
 	require.Equal(t, "cell2", ss.PoolerID.Cell)
+	// Reasons should be OR'd: transaction | temp_table
+	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, ss.ReservationReasons)
 
 	// Different target should not match
 	otherTarget := newTestTarget("tg2")

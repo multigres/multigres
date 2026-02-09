@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -124,8 +125,8 @@ func (sc *ScatterConn) StreamExecute(
 			return fmt.Errorf("reserve stream execute failed: %w", err)
 		}
 
-		// Store the reserved connection for subsequent queries
-		state.StoreReservedConnection(target, reservedState)
+		// Store the reserved connection for subsequent queries with transaction reason
+		state.StoreReservedConnection(target, reservedState, protoutil.ReasonTransaction)
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
 			"reserved_conn_id", reservedState.ReservedConnectionId)
@@ -211,7 +212,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	if err != nil {
 		return fmt.Errorf("portal execution failed: %w", err)
 	}
-	state.StoreReservedConnection(target, reservedState)
+	state.StoreReservedConnection(target, reservedState, protoutil.ReasonPortal)
 
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
@@ -291,6 +292,63 @@ func (sc *ScatterConn) Describe(
 	return description, nil
 }
 
+// ConcludeTransaction concludes a transaction on reserved connections that have
+// the transaction reason set. Shards reserved for other reasons only (e.g., temp
+// tables, portals) are left untouched. Based on the returned remainingReasons from
+// the multipooler, shard state entries are either cleared (connection fully released)
+// or updated with the new reason bitmask.
+func (sc *ScatterConn) ConcludeTransaction(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	conclusion multipoolerpb.TransactionConclusion,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	// Iterate over all shard states with reserved connections.
+	// Only conclude on shards that have the transaction reason.
+	for _, ss := range state.ShardStates {
+		if ss.ReservedConnectionId == 0 {
+			continue
+		}
+		if !protoutil.HasTransactionReason(ss.ReservationReasons) {
+			continue
+		}
+
+		eo := &query.ExecuteOptions{
+			User:                 conn.User(),
+			SessionSettings:      state.GetSessionSettings(),
+			ReservedConnectionId: uint64(ss.ReservedConnectionId),
+		}
+
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, ss.Target)
+		if err != nil {
+			// Connection lost — clear stale state
+			state.ClearReservedConnection(ss.Target)
+			return fmt.Errorf("conclude transaction: pooler lookup failed: %w", err)
+		}
+
+		result, remainingReasons, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
+		if err != nil {
+			state.ClearReservedConnection(ss.Target)
+			return fmt.Errorf("conclude transaction failed: %w", err)
+		}
+
+		if remainingReasons == 0 {
+			// Connection fully released by multipooler
+			state.ClearReservedConnection(ss.Target)
+		} else {
+			// Connection still reserved for other reasons — update our local tracking
+			ss.ReservationReasons = remainingReasons
+		}
+
+		if err := callback(ctx, result); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // --- COPY FROM STDIN methods ---
 
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
@@ -331,8 +389,8 @@ func (sc *ScatterConn) CopyInitiate(
 		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
-	// Store reserved connection in ShardStates (same pattern as regular queries)
-	state.StoreReservedConnection(target, reservedState)
+	// Store reserved connection with COPY reason. The reason is removed by CopyFinalize/CopyAbort.
+	state.StoreReservedConnection(target, reservedState, protoutil.ReasonCopy)
 
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",
 		"reserved_conn_id", reservedState.ReservedConnectionId,
@@ -426,8 +484,8 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// Clear state even on error - the reserved connection has been released/closed on the server side
-		state.ClearReservedConnection(target)
+		// Remove COPY reason on error. If no other reasons remain, the entry is cleared.
+		state.RemoveReservationReason(target, protoutil.ReasonCopy)
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
@@ -438,13 +496,12 @@ func (sc *ScatterConn) CopyFinalize(
 	// Call callback with result
 	if err := callback(ctx, result); err != nil {
 		sc.logger.ErrorContext(ctx, "callback error in CopyFinalize", "error", err)
-		// Clear state even on callback error - the reserved connection has already been released
-		state.ClearReservedConnection(target)
+		state.RemoveReservationReason(target, protoutil.ReasonCopy)
 		return err
 	}
 
-	// Clear reserved connection since it's been released
-	state.ClearReservedConnection(target)
+	// Remove COPY reason. If the connection is also reserved for a transaction, it stays.
+	state.RemoveReservationReason(target, protoutil.ReasonCopy)
 
 	return nil
 }
@@ -489,8 +546,8 @@ func (sc *ScatterConn) CopyAbort(
 		sc.logger.WarnContext(ctx, "error during COPY abort", "error", err)
 	}
 
-	// Clear reserved connection since it's been released
-	state.ClearReservedConnection(target)
+	// Remove COPY reason. If the connection is also reserved for a transaction, it stays.
+	state.RemoveReservationReason(target, protoutil.ReasonCopy)
 
 	sc.logger.DebugContext(ctx, "COPY aborted")
 

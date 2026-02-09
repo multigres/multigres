@@ -26,6 +26,7 @@ const (
 	ReasonTransaction = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_TRANSACTION) // 1
 	ReasonTempTable   = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_TEMP_TABLE)  // 2
 	ReasonPortal      = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_PORTAL)      // 4
+	ReasonCopy        = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_COPY)        // 8
 )
 
 // HasReason returns true if the reasons bitmask contains the specified reason.
@@ -46,6 +47,11 @@ func HasTempTableReason(reasons uint32) bool {
 // HasPortalReason returns true if the reasons bitmask includes portal.
 func HasPortalReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonPortal)
+}
+
+// HasCopyReason returns true if the reasons bitmask includes an active COPY operation.
+func HasCopyReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonCopy)
 }
 
 // AddReason adds a reason to the bitmask and returns the new value.
@@ -119,6 +125,9 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasPortalReason(reasons) {
 		parts = append(parts, "portal")
+	}
+	if HasCopyReason(reasons) {
+		parts = append(parts, "copy")
 	}
 	if len(parts) == 0 {
 		return "unknown"
