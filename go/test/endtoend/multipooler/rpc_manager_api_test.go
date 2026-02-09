@@ -128,7 +128,7 @@ func TestPrimaryStatus(t *testing.T) {
 			NumSync:           0,
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Use force to avoid history insert blocking on any prior sync replication config
 		}
 		_, err := primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
 		require.NoError(t, err)
@@ -345,7 +345,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           0,
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Use force to avoid history insert blocking on any prior sync replication config
 		}
 		_, err := primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
 		require.NoError(t, err)
@@ -388,7 +388,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        []*clustermetadatapb.ID{standbyID},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Use force to avoid history insert blocking on sync replication
 		}
 		_, err = primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -458,7 +458,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        []*clustermetadatapb.ID{standbyID},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Use force to avoid history insert blocking on sync replication
 		}
 		_, err = primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -544,7 +544,7 @@ func TestGetFollowers(t *testing.T) {
 			NumSync:           2,
 			StandbyIds:        []*clustermetadatapb.ID{connectedID, disconnectedID},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Required: fake standby "missing-standby" won't connect, so history insert would timeout
 		}
 		_, err = primaryClient.Manager.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
