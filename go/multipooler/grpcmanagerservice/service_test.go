@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/manager"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/stretchr/testify/assert"
@@ -46,7 +47,7 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	ctx := context.Background()
 	err := ts.CreateDatabase(ctx, database, &clustermetadata.Database{
 		Name:             database,
-		BackupLocation:   "/var/backups/pgbackrest",
+		BackupLocation:   utils.FilesystemBackupLocation("/var/backups/pgbackrest"),
 		DurabilityPolicy: "ANY_2",
 	})
 	require.NoError(t, err)
@@ -59,7 +60,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	defer cleanupPgctld()
 
 	// Create database in topology

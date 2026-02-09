@@ -194,6 +194,11 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		analysis.ConsensusTerm = pooler.ConsensusStatus.CurrentTerm
 	}
 
+	// Store primary term (term when this pooler was promoted to primary)
+	if pooler.ConsensusTerm != nil {
+		analysis.PrimaryTerm = pooler.ConsensusTerm.PrimaryTerm
+	}
+
 	// If this is a PRIMARY, populate primary-specific fields and aggregate replica stats
 	if analysis.IsPrimary {
 		if pooler.PrimaryStatus != nil {
@@ -489,8 +494,8 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	return true
 }
 
-// detectOtherPrimary checks if there's another PRIMARY in the same shard.
-// If found, populates OtherPrimaryInShard and OtherPrimaryTerm on the analysis.
+// detectOtherPrimary checks for all other PRIMARYs in the same shard.
+// Populates OtherPrimariesInShard and determines HighestTermPrimary based on PrimaryTerm.
 // This is used to detect stale primaries that came back online after failover.
 func (g *AnalysisGenerator) detectOtherPrimary(
 	analysis *store.ReplicationAnalysis,
@@ -503,7 +508,9 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 	}
 
 	thisIDStr := topoclient.MultiPoolerIDString(thisPooler.MultiPooler.Id)
+	var otherPrimaries []*store.PrimaryInfo
 
+	// Collect ALL other primaries (not just first one)
 	for poolerID, pooler := range poolers {
 		// Skip self
 		if poolerID == thisIDStr {
@@ -522,12 +529,78 @@ func (g *AnalysisGenerator) detectOtherPrimary(
 		}
 
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			// Found another PRIMARY - one of them is stale!
-			analysis.OtherPrimaryInShard = pooler.MultiPooler.Id
+			// Extract consensus term and primary term
+			var consensusTerm, primaryTerm int64
 			if pooler.ConsensusStatus != nil {
-				analysis.OtherPrimaryTerm = pooler.ConsensusStatus.CurrentTerm
+				consensusTerm = pooler.ConsensusStatus.CurrentTerm
 			}
-			return // Found one, that's enough to trigger recovery
+			if pooler.ConsensusTerm != nil {
+				primaryTerm = pooler.ConsensusTerm.PrimaryTerm
+			}
+
+			otherPrimaries = append(otherPrimaries, &store.PrimaryInfo{
+				ID:            pooler.MultiPooler.Id,
+				ConsensusTerm: consensusTerm,
+				PrimaryTerm:   primaryTerm,
+			})
 		}
 	}
+
+	// Populate other primaries list (empty if none detected)
+	analysis.OtherPrimariesInShard = otherPrimaries
+
+	// Find most advanced primary (include THIS pooler in comparison)
+	// This should always be set for PRIMARY poolers, even if there are no other primaries
+	allPrimaries := []*store.PrimaryInfo{
+		{
+			ID:            thisPooler.MultiPooler.Id,
+			ConsensusTerm: analysis.ConsensusTerm,
+			PrimaryTerm:   analysis.PrimaryTerm,
+		},
+	}
+	allPrimaries = append(allPrimaries, otherPrimaries...)
+	analysis.HighestTermPrimary = findHighestTermPrimary(allPrimaries)
+}
+
+// findHighestTermPrimary returns the primary with the highest PrimaryTerm.
+// Returns nil if there's a tie between primaries with the same highest PrimaryTerm.
+//
+// Invariant: In a properly initialized shard, PrimaryTerm is always >0 for PRIMARY poolers.
+// PrimaryTerm is set during promotion and only cleared during demotion. This function
+// is defensive and returns nil if all primaries have PrimaryTerm=0, but this should
+// never happen in a properly initialized shard.
+func findHighestTermPrimary(primaries []*store.PrimaryInfo) *store.PrimaryInfo {
+	var mostAdvanced *store.PrimaryInfo
+	maxPrimaryTerm := int64(0)
+	tieDetected := false
+
+	for _, p := range primaries {
+		if p.PrimaryTerm > maxPrimaryTerm {
+			maxPrimaryTerm = p.PrimaryTerm
+			mostAdvanced = p
+			tieDetected = false
+		} else if p.PrimaryTerm == maxPrimaryTerm && p.PrimaryTerm > 0 {
+			tieDetected = true
+		}
+	}
+
+	// Defensive: should not happen in initialized shards, but guard against invalid state
+	if maxPrimaryTerm == 0 {
+		return nil
+	}
+
+	// Tie detected: multiple primaries with same PrimaryTerm indicates a consensus bug.
+	// PrimaryTerm should be unique per primary and monotonically increasing. If two primaries
+	// claim the same PrimaryTerm, something went wrong in the consensus protocol (bug in
+	// promotion logic, data corruption, or split-brain).
+	//
+	// TODO: Rather than requiring manual intervention, multiorch could automatically resolve
+	// this by starting a new term and reappointing one of the primaries, which would update
+	// its primary_term and make the others stale. For now, we skip automatic demotion to
+	// avoid making the situation worse without understanding the root cause.
+	if tieDetected {
+		return nil
+	}
+
+	return mostAdvanced
 }

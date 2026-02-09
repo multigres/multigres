@@ -140,17 +140,23 @@ func (c *WrapperConn) retryConnection(err error) {
 			c.mu.Lock()
 			defer c.mu.Unlock()
 
+			// Check error first - if err != nil, conn is unusable (may be typed nil).
+			if err != nil {
+				if c.closed {
+					// Wrapper was closed while retrying, stop.
+					return false
+				}
+				// Continue retrying.
+				return true
+			}
+
+			// No error, so conn is valid. Check if we should still use it.
 			if c.closed {
 				// If the wrapper was closed, we have to close this extra
 				// connection and stop retrying.
-				if conn != nil {
-					// No need to hold the lock while closing the connection.
-					go conn.Close()
-				}
+				// No need to hold the lock while closing the connection.
+				go conn.Close()
 				return false
-			}
-			if err != nil {
-				return true
 			}
 			c.wrapped = conn
 			return false

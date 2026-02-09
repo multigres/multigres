@@ -26,11 +26,13 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/test/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestMultiAdminServerGetCell(t *testing.T) {
@@ -133,7 +135,7 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 		// First create a database
 		testDatabase := &clustermetadatapb.Database{
 			Name:             "testdb",
-			BackupLocation:   "s3://backup-bucket/testdb",
+			BackupLocation:   utils.S3BackupLocation("backup-bucket", "us-east-1"),
 			DurabilityPolicy: "none",
 			Cells:            []string{"cell1", "cell2"},
 		}
@@ -149,7 +151,7 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Database)
 		assert.Equal(t, "testdb", resp.Database.Name)
-		assert.Equal(t, "s3://backup-bucket/testdb", resp.Database.BackupLocation)
+		assert.True(t, proto.Equal(testDatabase.BackupLocation, resp.Database.BackupLocation))
 		assert.Equal(t, "none", resp.Database.DurabilityPolicy)
 		assert.Equal(t, []string{"cell1", "cell2"}, resp.Database.Cells)
 	})

@@ -25,12 +25,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multipooler/executor/mock"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -390,6 +392,116 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 	}
 }
 
+func TestGetBackupLocation(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	// Create test topology store
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	// Create test database with backup_location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	// Create manager config
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+	multiPooler := &clustermetadatapb.MultiPooler{
+		Id:         serviceID,
+		Database:   database,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+		PoolerDir:  filepath.Join(tmpDir, "pooler"),
+	}
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: "",
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+	require.NoError(t, err)
+
+	// Set backup config
+	backupConfig, err := backup.NewConfig(
+		utils.FilesystemBackupLocation("/var/backups/pgbackrest"),
+	)
+	require.NoError(t, err)
+	manager.backupConfig = backupConfig
+
+	// Test backup config
+	assert.Equal(t, "filesystem", manager.backupConfig.Type())
+	expectedShardBackupLocation := filepath.Join("/var/backups/pgbackrest", database, constants.DefaultTableGroup, constants.DefaultShard)
+	shardPath, err := manager.backupConfig.FullPath(database, constants.DefaultTableGroup, constants.DefaultShard)
+	require.NoError(t, err)
+	assert.Equal(t, expectedShardBackupLocation, shardPath)
+}
+
+func TestGetBackupLocation_S3(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	// Create test topology store
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	// Create test database with S3 backup location
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	// Create manager config
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-service",
+	}
+	multiPooler := &clustermetadatapb.MultiPooler{
+		Id:         serviceID,
+		Database:   database,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+		PoolerDir:  filepath.Join(tmpDir, "pooler"),
+	}
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: "",
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+	require.NoError(t, err)
+
+	// Set S3 backup config
+	backupConfig, err := backup.NewConfig(
+		utils.S3BackupLocation("my-backup-bucket", "us-west-2",
+			utils.WithS3KeyPrefix("prod/backups/")),
+	)
+	require.NoError(t, err)
+	manager.backupConfig = backupConfig
+
+	// Test S3 backup config
+	assert.Equal(t, "s3", manager.backupConfig.Type())
+
+	// Verify full path includes S3 bucket, prefix, and path components
+	expectedPath := "s3://my-backup-bucket/prod/backups/testdb/default/0-inf"
+	shardPath, err := manager.backupConfig.FullPath(database, constants.DefaultTableGroup, constants.DefaultShard)
+	require.NoError(t, err)
+	assert.Equal(t, expectedPath, shardPath)
+
+	// Verify PgBackRestConfig returns correct S3 settings
+	pgbrConfig, err := manager.backupConfig.PgBackRestConfig("multigres")
+	require.NoError(t, err)
+	assert.Equal(t, "s3", pgbrConfig["repo1-type"])
+	assert.Equal(t, "my-backup-bucket", pgbrConfig["repo1-s3-bucket"])
+	assert.Equal(t, "us-west-2", pgbrConfig["repo1-s3-region"])
+	assert.Equal(t, "auto", pgbrConfig["repo1-s3-key-type"])
+	assert.Equal(t, "/prod/backups/multigres", pgbrConfig["repo1-path"])
+}
+
 // TestWaitUntilReady_Success verifies that WaitUntilReady returns immediately
 // when the manager is already in Ready state
 func TestWaitUntilReady_Success(t *testing.T) {
@@ -618,125 +730,6 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotNil(t, manager)
 				manager.Close()
-			}
-		})
-	}
-}
-
-func TestMultiPoolerManager_backupLocationPath(t *testing.T) {
-	tests := []struct {
-		name               string
-		baseBackupLocation string
-		database           string
-		tableGroup         string
-		shard              string
-		wantPath           string
-		wantErr            bool
-		wantErrContains    string
-	}{
-		{
-			name:               "simple valid path",
-			baseBackupLocation: "/backups",
-			database:           "mydb",
-			tableGroup:         "tg1",
-			shard:              "shard0",
-			wantPath:           "/backups/mydb/tg1/shard0",
-			wantErr:            false,
-		},
-		{
-			name:               "with dots in identifiers",
-			baseBackupLocation: "/backups",
-			database:           "my.db",
-			tableGroup:         "tg.1",
-			shard:              "shard.0",
-			wantPath:           "/backups/my.db/tg.1/shard.0",
-			wantErr:            false,
-		},
-		{
-			name:               "empty database",
-			baseBackupLocation: "/backups",
-			database:           "",
-			tableGroup:         "tg1",
-			shard:              "shard0",
-			wantErr:            true,
-			wantErrContains:    "database cannot be empty",
-		},
-		{
-			name:               "empty table group",
-			baseBackupLocation: "/backups",
-			database:           "mydb",
-			tableGroup:         "",
-			shard:              "shard0",
-			wantErr:            true,
-			wantErrContains:    "table group cannot be empty",
-		},
-		{
-			name:               "empty shard",
-			baseBackupLocation: "/backups",
-			database:           "mydb",
-			tableGroup:         "tg1",
-			shard:              "",
-			wantErr:            true,
-			wantErrContains:    "shard cannot be empty",
-		},
-		{
-			name:               "double dot encoded",
-			baseBackupLocation: "/backups",
-			database:           "..",
-			tableGroup:         "tg1",
-			shard:              "shard0",
-			wantPath:           "/backups/%2E%2E/tg1/shard0",
-			wantErr:            false,
-		},
-		{
-			name:               "slash in component encoded",
-			baseBackupLocation: "/backups",
-			database:           "db/etc",
-			tableGroup:         "tg1",
-			shard:              "shard0",
-			wantPath:           "/backups/db%2Fetc/tg1/shard0",
-			wantErr:            false,
-		},
-		{
-			name:               "backslash in component encoded",
-			baseBackupLocation: "/backups",
-			database:           "db\\windows",
-			tableGroup:         "tg1",
-			shard:              "shard0",
-			wantPath:           "/backups/db%5Cwindows/tg1/shard0",
-			wantErr:            false,
-		},
-		{
-			name:               "unicode identifiers",
-			baseBackupLocation: "/backups",
-			database:           "データベース",
-			tableGroup:         "グループ",
-			shard:              "シャード",
-			wantPath:           "/backups/%E3%83%87%E3%83%BC%E3%82%BF%E3%83%99%E3%83%BC%E3%82%B9/%E3%82%B0%E3%83%AB%E3%83%BC%E3%83%97/%E3%82%B7%E3%83%A3%E3%83%BC%E3%83%89",
-			wantErr:            false,
-		},
-		{
-			name:               "colon in identifier",
-			baseBackupLocation: "/backups",
-			database:           "db:backup",
-			tableGroup:         "tg1",
-			shard:              "shard0",
-			wantPath:           "/backups/db%3Abackup/tg1/shard0",
-			wantErr:            false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pm := &MultiPoolerManager{}
-			gotPath, err := pm.backupLocationPath(tt.baseBackupLocation, tt.database, tt.tableGroup, tt.shard)
-
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErrContains)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantPath, gotPath)
 			}
 		})
 	}
