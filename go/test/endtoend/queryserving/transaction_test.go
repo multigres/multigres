@@ -58,17 +58,18 @@ func cleanupTestTables(ctx context.Context, conn *client.Conn) {
 }
 
 // runTransactionTests executes a slice of transaction test cases.
+// Tests connect through multigateway to validate the full transaction path:
+// client → multigateway → multipooler → PostgreSQL.
 func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases []transactionTestCase) {
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
-	primary := setup.GetMultipoolerInstance(setup.PrimaryName)
-	require.NotNil(t, primary, "Primary instance should exist")
+	require.NotZero(t, setup.MultigatewayPgPort, "Multigateway should be configured")
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := client.Connect(ctx, &client.Config{
 				Host:        "localhost",
-				Port:        primary.Pgctld.PgPort,
+				Port:        setup.MultigatewayPgPort,
 				User:        "postgres",
 				Password:    shardsetup.TestPostgresPassword,
 				Database:    "postgres",
@@ -85,7 +86,7 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 				defer cancel()
 				cleanupConn, cleanupErr := client.Connect(cleanupCtx, &client.Config{
 					Host:        "localhost",
-					Port:        primary.Pgctld.PgPort,
+					Port:        setup.MultigatewayPgPort,
 					User:        "postgres",
 					Password:    shardsetup.TestPostgresPassword,
 					Database:    "postgres",

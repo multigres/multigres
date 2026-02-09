@@ -47,7 +47,7 @@ func NewMultipoolerClient(grpcPort int) (*MultipoolerClient, error) {
 	addr := fmt.Sprintf("localhost:%d", grpcPort)
 
 	conn, err := grpc.NewClient(
-		addr,
+		"passthrough:///"+addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -94,8 +94,9 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 	t.Helper()
 
 	// Connect to the manager
+	addr := fmt.Sprintf("localhost:%d", manager.GrpcPort)
 	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", manager.GrpcPort),
+		"passthrough:///"+addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)
@@ -147,7 +148,7 @@ func NewPgctldClient(grpcPort int) (*PgctldClient, error) {
 	addr := fmt.Sprintf("localhost:%d", grpcPort)
 
 	conn, err := grpc.NewClient(
-		addr,
+		"passthrough:///"+addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
