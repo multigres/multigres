@@ -146,14 +146,16 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 //     a small transaction (LSN 500). LSN would incorrectly choose Term 5's
 //     abandoned timeline over Term 6's. It will incorrectly propagate LSN from Term 5.
 //
-// TODO - Next Step:
-//   - Switch to selecting based on highest transaction commit timestamp
-//   - Timestamps provide logical ordering across conflicting timelines
-//     (we are ok with clock skew for now).
-//   - Aligns with the "timestamp way" for systems where per-transaction
-//     term tracking isn't available.
+// Why use Timestamps? (Next Steps)
+//   - We follow the "timestamp way" proposal from the blogpost (Part 7).
+//   - We use the timestamp of the most recent transaction commit to
+//     disambiguate conflicting timelines.
+//   - This provides logical ordering across conflicting timelines.
+//   - Limitation: Relies on clock synchronization (we accept theoretical
+//     clock skew for now).
+//   - TODO: Update selectCandidate to use timestamps
 //
-// Why not use PrimaryTerm?
+// Why *NOT* use PrimaryTerm?
 //   - We track PrimaryTerm at the pooler/coordinator level (which term the
 //     coordinator is operating in).
 //   - But we DON'T track which term each individual WAL transaction belongs to.
@@ -161,8 +163,8 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 //     which transactions came from which term when comparing conflicting logs.
 //
 // Future Enhancement:
-//   - Once we implement two-phase sync, each WAL transaction will
-//     carry its term number embedded in the log
+//   - Once we implement two-phase sync, our API will be able to infer
+//     which term was associated with a WAL transaction.
 //   - Then we can use: highest term first, then highest LSN within that term
 //   - This eliminates reliance on timestamps and clock assumptions
 func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitmentResult) (*multiorchdatapb.PoolerHealthState, error) {
