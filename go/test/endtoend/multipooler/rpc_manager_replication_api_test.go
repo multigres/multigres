@@ -1463,7 +1463,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "test-standby")},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
@@ -1503,7 +1503,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        standbyIDs,
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
@@ -1557,7 +1557,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 					NumSync:           1,
 					StandbyIds:        []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "test-standby")},
 					ReloadConfig:      true,
-					Force:             false,
+					Force:             true, // Required: fake standbys won't connect, so history insert would timeout
 				}
 				_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 				require.NoError(t, err, "ConfigureSynchronousReplication should succeed for %s", tc.level.String())
@@ -1679,7 +1679,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 					NumSync:           tc.numSync,
 					StandbyIds:        tc.standbyIDs,
 					ReloadConfig:      true,
-					Force:             false,
+					Force:             true, // Required: fake standbys won't connect, so history insert would timeout
 				}
 				_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), req)
 				require.NoError(t, err, "ConfigureSynchronousReplication should succeed for %s", tc.name)
@@ -1730,7 +1730,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        []*clustermetadatapb.ID{standbyID},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Use force to avoid history insert blocking on sync replication
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed on primary")
@@ -1891,6 +1891,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby2"),
 			},
 			ReloadConfig: true,
+			Force:        true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed")
@@ -1914,7 +1915,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			NumSync:           0,
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Required: previous config had fake standbys, so history insert would timeout
 		}
 		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
 		require.NoError(t, err, "ConfigureSynchronousReplication should succeed with empty config")
@@ -1997,7 +1998,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 			NumSync:           1,
 			StandbyIds:        []*clustermetadatapb.ID{makeMultipoolerID("test-cell", "standby1")},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err, "Initial configuration should succeed")
@@ -2056,6 +2057,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby2"),
 			},
 			ReloadConfig: true,
+			Force:        true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -2104,6 +2106,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby2"),
 			},
 			ReloadConfig: true,
+			Force:        true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -2154,6 +2157,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby2"),
 			},
 			ReloadConfig: true,
+			Force:        true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -2233,6 +2237,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby3"),
 			},
 			ReloadConfig: true,
+			Force:        true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -2287,6 +2292,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby2"),
 			},
 			ReloadConfig: true,
+			Force:        true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -2339,6 +2345,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 				makeMultipoolerID("test-cell", "standby2"),
 			},
 			ReloadConfig: true,
+			Force:        true, // Required: fake standbys won't connect, so history insert would timeout
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), configReq)
 		require.NoError(t, err)
@@ -2400,7 +2407,7 @@ func TestUpdateSynchronousStandbyList(t *testing.T) {
 			NumSync:           0,
 			StandbyIds:        []*clustermetadatapb.ID{},
 			ReloadConfig:      true,
-			Force:             false,
+			Force:             true, // Use force to avoid history insert blocking on any prior sync replication config
 		}
 		_, err := primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), resetReq)
 		require.NoError(t, err)
