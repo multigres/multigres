@@ -22,7 +22,10 @@ import (
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/pb/query"
 )
 
 func TestNewMultiGatewayConnectionState(t *testing.T) {
@@ -165,6 +168,131 @@ func TestMultiGatewayConnectionState_MultiplePortals(t *testing.T) {
 	// Verify both are gone
 	require.Nil(t, state.GetPortalInfo("portal1"))
 	require.Nil(t, state.GetPortalInfo("portal2"))
+}
+
+// newTestTarget creates a test Target for the given tableGroup.
+func newTestTarget(tableGroup string) *query.Target {
+	return &query.Target{
+		TableGroup: tableGroup,
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+}
+
+func TestTransactionState_InitialState(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+
+	require.Equal(t, TxStateIdle, state.GetTransactionState())
+	require.False(t, state.IsInTransaction())
+}
+
+func TestTransactionState_Transitions(t *testing.T) {
+	tests := []struct {
+		name     string
+		from     TransactionState
+		to       TransactionState
+		expected TransactionState
+	}{
+		{"Idle to InTransaction", TxStateIdle, TxStateInTransaction, TxStateInTransaction},
+		{"InTransaction to Idle", TxStateInTransaction, TxStateIdle, TxStateIdle},
+		{"InTransaction to Aborted", TxStateInTransaction, TxStateAborted, TxStateAborted},
+		{"Aborted to Idle", TxStateAborted, TxStateIdle, TxStateIdle},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMultiGatewayConnectionState()
+			state.SetTransactionState(tt.from)
+			state.SetTransactionState(tt.to)
+			require.Equal(t, tt.expected, state.GetTransactionState())
+		})
+	}
+}
+
+func TestTransactionState_IsInTransaction(t *testing.T) {
+	tests := []struct {
+		name     string
+		txState  TransactionState
+		expected bool
+	}{
+		{"Idle", TxStateIdle, false},
+		{"InTransaction", TxStateInTransaction, true},
+		{"Aborted", TxStateAborted, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMultiGatewayConnectionState()
+			state.SetTransactionState(tt.txState)
+			require.Equal(t, tt.expected, state.IsInTransaction())
+		})
+	}
+}
+
+func TestTransactionState_ShardStateOperations(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+	target := newTestTarget("tg1")
+
+	// Initially no shard state
+	ss := state.GetMatchingShardState(target)
+	require.Nil(t, ss)
+
+	// Store a reserved connection
+	rs := queryservice.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+	}
+	state.StoreReservedConnection(target, rs)
+
+	// Verify it's retrievable
+	ss = state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, int64(42), ss.ReservedConnectionId)
+	require.Equal(t, "cell1", ss.PoolerID.Cell)
+
+	// Update the same target's reserved connection
+	rs2 := queryservice.ReservedState{
+		ReservedConnectionId: 99,
+		PoolerID:             &clustermetadatapb.ID{Cell: "cell2", Name: "pooler2"},
+	}
+	state.StoreReservedConnection(target, rs2)
+
+	ss = state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, int64(99), ss.ReservedConnectionId)
+	require.Equal(t, "cell2", ss.PoolerID.Cell)
+
+	// Different target should not match
+	otherTarget := newTestTarget("tg2")
+	require.Nil(t, state.GetMatchingShardState(otherTarget))
+
+	// Clear the reserved connection
+	state.ClearReservedConnection(target)
+	require.Nil(t, state.GetMatchingShardState(target))
+	require.Empty(t, state.ShardStates)
+}
+
+func TestTransactionState_ConcurrentTransactionStateAccess(t *testing.T) {
+	state := NewMultiGatewayConnectionState()
+	var wg sync.WaitGroup
+	numGoroutines := 20
+
+	for i := range numGoroutines {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			if id%2 == 0 {
+				state.SetTransactionState(TxStateInTransaction)
+				_ = state.IsInTransaction()
+				state.SetTransactionState(TxStateIdle)
+			} else {
+				_ = state.GetTransactionState()
+				_ = state.IsInTransaction()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	// No race panic means success; final state is indeterminate but valid
 }
 
 func TestMultiGatewayConnectionState_PortalInfoIntegrity(t *testing.T) {
