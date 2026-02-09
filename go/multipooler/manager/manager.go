@@ -22,9 +22,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/safepath"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -109,9 +109,9 @@ type MultiPoolerManager struct {
 	// and broadcasts to all receivers) rather than sending to it.
 	readyChan chan struct{}
 
-	// Cached backup location from the database topology record.
+	// Cached backup config from the database topology record.
 	// This is loaded once during startup and cached for fast access.
-	backupLocation string
+	backupConfig *backup.Config
 
 	// pgMonitorRetryInterval is the interval between auto-restore retry attempts.
 	// Defaults to 1 second. Can be set to a shorter duration for testing.
@@ -458,24 +458,6 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	return pm.multipooler.Type
 }
 
-// backupLocationPath returns the full backup location path for a given database, table group,
-// and shard. The topology only stores the base path. Components are URL-encoded to prevent
-// path traversal and support UTF-8 identifiers without collisions.
-func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) (string, error) {
-	// Validate non-empty components
-	if database == "" {
-		return "", errors.New("database cannot be empty")
-	}
-	if tableGroup == "" {
-		return "", errors.New("table group cannot be empty")
-	}
-	if shard == "" {
-		return "", errors.New("shard cannot be empty")
-	}
-
-	return safepath.Join(baseBackupLocation, database, tableGroup, shard)
-}
-
 // checkReady returns an error if the manager is not in Ready state
 func (pm *MultiPoolerManager) checkReady() error {
 	pm.mu.Lock()
@@ -658,15 +640,22 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			return
 		}
 
-		// Compute full backup location: base path + database/tablegroup/shard
-		shardBackupLocation, err := pm.backupLocationPath(db.BackupLocation, database, pm.multipooler.TableGroup, pm.multipooler.Shard)
+		// Validate and parse backup configuration
+		backupConfig, err := backup.NewConfig(db.BackupLocation)
 		if err != nil {
-			pm.setStateError(fmt.Errorf("invalid backup location path: %w", err))
+			pm.setStateError(fmt.Errorf("invalid backup_location: %w", err))
+			return
+		}
+
+		// Verify we can compute the full backup path
+		_, err = backupConfig.FullPath(database, pm.multipooler.TableGroup, pm.multipooler.Shard)
+		if err != nil {
+			pm.setStateError(fmt.Errorf("failed to compute backup path: %w", err))
 			return
 		}
 
 		pm.mu.Lock()
-		pm.backupLocation = shardBackupLocation
+		pm.backupConfig = backupConfig
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 

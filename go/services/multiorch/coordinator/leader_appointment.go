@@ -288,13 +288,16 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 // configures sync replication and writes leadership history, which blocks until
 // at least one standby acknowledges. If standbys aren't configured to replicate
 // yet, the write blocks forever.
-func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState, term int64, quorumRule *clustermetadatapb.QuorumRule, reason string, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
-	// Build synchronous replication configuration based on quorum policy
-	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, standbys, candidate)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to build synchronous replication config")
-	}
-
+func (c *Coordinator) Propagate(
+	ctx context.Context,
+	candidate *multiorchdatapb.PoolerHealthState,
+	standbys []*multiorchdatapb.PoolerHealthState,
+	term int64,
+	quorumRule *clustermetadatapb.QuorumRule,
+	reason string,
+	cohort []*multiorchdatapb.PoolerHealthState,
+	recruited []*multiorchdatapb.PoolerHealthState,
+) error {
 	// Promote candidate to primary
 	c.logger.InfoContext(ctx, "Promoting candidate to primary",
 		"pooler", candidate.MultiPooler.Id.Name,
@@ -393,6 +396,12 @@ func (c *Coordinator) Propagate(ctx context.Context, candidate *multiorchdatapb.
 
 	// Get coordinator ID as a string
 	coordinatorIDStr := topoclient.ClusterIDString(c.GetCoordinatorID())
+
+	// Build synchronous replication configuration based on quorum policy
+	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, cohort, candidate)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to build synchronous replication config")
+	}
 
 	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
 		ConsensusTerm:         term,

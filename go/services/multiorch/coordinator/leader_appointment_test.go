@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -1020,5 +1021,79 @@ func TestEstablishLeader(t *testing.T) {
 		err := c.EstablishLeader(ctx, candidate, 6)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not in ready state")
+	})
+}
+
+func TestAppointLeader(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	t.Run("promote request contains full cohort when some nodes reject term", func(t *testing.T) {
+		fakeClient := rpcclient.NewFakeClient()
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+		defer ts.Close()
+
+		c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+		// Create 3 nodes: mp1 (most advanced WAL), mp2, mp3
+		mp1 := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "standby")
+		mp1.IsPostgresRunning = true
+
+		mp2 := createMockNode(fakeClient, "mp2", 5, "0/2000000", true, "standby")
+		mp2.IsPostgresRunning = true
+
+		mp3 := createMockNode(fakeClient, "mp3", 5, "0/1000000", true, "standby")
+		mp3.IsPostgresRunning = true
+
+		// mp3 rejects the term during BeginTerm
+		mp3Key := topoclient.MultiPoolerIDString(mp3.MultiPooler.Id)
+		fakeClient.BeginTermResponses[mp3Key] = &consensusdatapb.BeginTermResponse{Accepted: false}
+
+		// Register poolers in topo store so updateTopology doesn't panic
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp1.MultiPooler))
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp2.MultiPooler))
+		require.NoError(t, ts.CreateMultiPooler(ctx, mp3.MultiPooler))
+
+		cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2, mp3}
+
+		err := c.AppointLeader(ctx, "shard0", cohort, "testdb", "test_primary_lost")
+		require.NoError(t, err)
+
+		// Verify the PromoteRequest on the candidate (mp1, highest WAL)
+		candidateKey := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
+		promoteReq, ok := fakeClient.PromoteRequests[candidateKey]
+		require.True(t, ok, "PromoteRequest should be recorded for candidate")
+		require.NotNil(t, promoteReq)
+
+		// CohortMembers must include ALL nodes in the original cohort,
+		// including mp3 which rejected the term
+		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers,
+			"CohortMembers should include all nodes in the cohort, even those that rejected the term")
+
+		// AcceptedMembers should only include nodes that accepted the term
+		require.ElementsMatch(t, []string{"mp1", "mp2"}, promoteReq.AcceptedMembers,
+			"AcceptedMembers should only include nodes that accepted the term")
+
+		require.Equal(t, "test_primary_lost", promoteReq.Reason)
+		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId)
+		require.Equal(t, int64(6), promoteReq.ConsensusTerm)
+
+		// Verify syncConfig includes the full cohort in the standby list,
+		// including the leader and nodes that rejected the term
+		require.NotNil(t, promoteReq.SyncReplicationConfig, "SyncReplicationConfig should be set")
+		syncConfig := promoteReq.SyncReplicationConfig
+		require.Equal(t, int32(1), syncConfig.NumSync)
+
+		standbyNames := make([]string, len(syncConfig.StandbyIds))
+		for i, id := range syncConfig.StandbyIds {
+			standbyNames[i] = id.Name
+		}
+		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, standbyNames,
+			"StandbyIds should include the full cohort: leader, accepted standbys, and rejected nodes")
 	})
 }

@@ -1577,15 +1577,16 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
 	fmt.Println("")
 
-	// Set default backup repository path if not specified
-	if p.config.BackupRepoPath == "" {
-		p.config.BackupRepoPath = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+	// Create backup directory if using local backups
+	if p.config.Backup.Local != nil {
+		if p.config.Backup.Local.Path == "" {
+			p.config.Backup.Local.Path = filepath.Join(p.config.RootWorkingDir, "data", "backups")
+		}
+		if err := os.MkdirAll(p.config.Backup.Local.Path, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create backup directory %s: %w", p.config.Backup.Local.Path, err)
+		}
 	}
-
-	// Create the backup repository directory if it doesn't exist
-	if err := os.MkdirAll(p.config.BackupRepoPath, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create backup repository directory %s: %w", p.config.BackupRepoPath, err)
-	}
+	// S3 backups don't need local directory creation
 
 	// Get topology configuration from provisioner config
 	topoConfig := p.config.Topology
@@ -1614,9 +1615,14 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		// Create the database if it doesn't exist
 		fmt.Printf("⚙️  - Creating database \"%s\" with cells: [%s]...\n", databaseName, strings.Join(cellNames, ", "))
 
+		backupLocation, err := p.buildBackupLocation()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build backup location: %w", err)
+		}
+
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
-			BackupLocation:   p.config.BackupRepoPath,
+			BackupLocation:   backupLocation,
 			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
 			Cells:            cellNames, // Register with all cells
 		}
@@ -1748,6 +1754,64 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 	fmt.Printf("Database %s provisioned successfully across %d cells with %d total services\n", databaseName, len(cellNames), len(results))
 	return results, nil
+}
+
+// buildBackupLocation creates a BackupLocation proto from config
+func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocation, error) {
+	switch p.config.Backup.Type {
+	case "":
+		// No backup type configured - use default filesystem backup location
+		defaultPath := filepath.Join(p.config.RootWorkingDir, "data", "backups")
+		if err := os.MkdirAll(defaultPath, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create default backup directory %s: %w", defaultPath, err)
+		}
+		return &clustermetadatapb.BackupLocation{
+			Location: &clustermetadatapb.BackupLocation_Filesystem{
+				Filesystem: &clustermetadatapb.FilesystemBackup{
+					Path: defaultPath,
+				},
+			},
+		}, nil
+
+	case "local":
+		if p.config.Backup.Local == nil || p.config.Backup.Local.Path == "" {
+			return nil, errors.New("backup path not configured")
+		}
+
+		return &clustermetadatapb.BackupLocation{
+			Location: &clustermetadatapb.BackupLocation_Filesystem{
+				Filesystem: &clustermetadatapb.FilesystemBackup{
+					Path: p.config.Backup.Local.Path,
+				},
+			},
+		}, nil
+
+	case "s3":
+		if p.config.Backup.S3 == nil {
+			return nil, errors.New("S3 backup not configured")
+		}
+		if p.config.Backup.S3.Bucket == "" {
+			return nil, errors.New("S3 bucket not configured")
+		}
+		if p.config.Backup.S3.Region == "" {
+			return nil, errors.New("S3 region not configured")
+		}
+
+		return &clustermetadatapb.BackupLocation{
+			Location: &clustermetadatapb.BackupLocation_S3{
+				S3: &clustermetadatapb.S3Backup{
+					Bucket:            p.config.Backup.S3.Bucket,
+					Region:            p.config.Backup.S3.Region,
+					Endpoint:          p.config.Backup.S3.Endpoint,
+					KeyPrefix:         p.config.Backup.S3.KeyPrefix,
+					UseEnvCredentials: p.config.Backup.S3.UseEnvCredentials,
+				},
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown backup type: %s", p.config.Backup.Type)
+	}
 }
 
 // generatePgBackRestCertsOnce generates pgBackRest certificates once for all cells

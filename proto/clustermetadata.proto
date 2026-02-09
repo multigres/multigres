@@ -63,14 +63,53 @@ message Database {
   // Name of the database
   string name = 1;
 
-  // Backups location
-  string backup_location = 2;
+  // Backup location configuration
+  BackupLocation backup_location = 2;
 
   // Durability policy used for consensus
   string durability_policy = 3;
 
   // List of cell identifiers where this database should be deployed
   repeated string cells = 4;
+}
+
+// BackupLocation specifies where backups are stored
+message BackupLocation {
+  oneof location {
+    FilesystemBackup filesystem = 1;
+    S3Backup s3 = 2;
+  }
+}
+
+// FilesystemBackup stores backups on local filesystem
+message FilesystemBackup {
+  // Absolute path to backup directory
+  string path = 1;
+}
+
+// S3Backup stores backups in AWS S3 or S3-compatible storage
+message S3Backup {
+  // S3 bucket name (required)
+  string bucket = 1;
+
+  // AWS region (required, e.g., "us-east-1")
+  string region = 2;
+
+  // Optional: S3-compatible endpoint URL (e.g., for s3mock testing)
+  // If empty, uses standard AWS S3 endpoint
+  string endpoint = 3;
+
+  // Optional: Key prefix within bucket (e.g., "multigres-prod/")
+  // Used to organize backups in shared buckets
+  string key_prefix = 4;
+
+  // If true, read AWS credentials from environment variables at runtime
+  // (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)
+  // pgbackrest config will use repo1-s3-key-type=shared with explicit credentials
+  //
+  // If false, use automatic credential detection via repo1-s3-key-type=auto
+  // (IRSA, EC2 metadata, etc.). This will only work when running on AWS.
+  bool use_env_credentials = 5;
 }
 
 // =============================================================================
