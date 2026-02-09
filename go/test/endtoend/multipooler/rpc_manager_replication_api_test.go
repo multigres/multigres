@@ -1925,20 +1925,21 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			Force:             false, // Intentionally false: fake standby won't connect, so history insert should timeout
 		}
 		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), failReq)
+		// TODO: this seems problematic. Right now the main client gets stuck waiting for the fake standby to connect, which never happens.
+		// DO NOT MERGE BEFORE DISCUSSING THIS
 		require.Error(t, err, "ConfigureSynchronousReplication with Force=false should fail when standbys are not connected")
-		// Clear sync replication config with Force=true so cleanup can proceed.
-		// The failed Force=false call leaves a stuck PG connection; clearing the config
-		// ensures subsequent operations don't block on sync replication.
-		clearReq := &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-			SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
-			SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-			NumSync:           0,
-			StandbyIds:        []*clustermetadatapb.ID{},
-			ReloadConfig:      true,
-			Force:             true,
-		}
-		_, err = primaryManagerClient.ConfigureSynchronousReplication(utils.WithShortDeadline(t), clearReq)
-		require.NoError(t, err, "Clearing sync config with Force=true should succeed")
+		// The failed Force=false call leaves a stuck PG backend connection in the manager's
+		// internal pool. Clear sync replication via ALTER SYSTEM (through a fresh pooler client
+		// with its own connection) so the stuck connection can unblock and cleanup can proceed.
+		cleanupPooler, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+		require.NoError(t, err)
+		defer cleanupPooler.Close()
+		_, err = cleanupPooler.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM RESET synchronous_standby_names", 0)
+		require.NoError(t, err, "ALTER SYSTEM RESET should succeed via fresh pooler client")
+		_, err = cleanupPooler.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM RESET synchronous_commit", 0)
+		require.NoError(t, err)
+		_, err = cleanupPooler.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_reload_conf()", 0)
+		require.NoError(t, err)
 	})
 
 	t.Run("ConfigureSynchronousReplication_ClearConfig", func(t *testing.T) {
