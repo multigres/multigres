@@ -135,6 +135,7 @@ func TestBeginTerm(t *testing.T) {
 		expectedAccepted                    bool
 		expectedTerm                        int64
 		expectedAcceptedTermFromCoordinator string
+		expectedWalPosition                 *consensusdatapb.WALPosition // nil means don't check
 		description                         string
 	}{
 		{
@@ -170,6 +171,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "candidate-B",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/2000000", LastReplayLsn: "0/2000000"},
 			description:                         "Acceptance should succeed when request term is newer than current term, even if already accepted leader in older term",
 		},
 		{
@@ -230,6 +232,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    true,
 			expectedTerm:                        5,
 			expectedAcceptedTermFromCoordinator: "candidate-A",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/3000000", LastReplayLsn: "0/3000000"},
 			description:                         "Acceptance should succeed when already accepted same candidate in same term (idempotent)",
 		},
 		{
@@ -287,6 +290,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/4000000", LastReplayLsn: "0/4000000"},
 			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
 		},
 		{
@@ -319,6 +323,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/5000000", LastReplayLsn: "0/5000000"},
 			description:                         "Standby accepts term with REVOKE action and pauses replication",
 		},
 		{
@@ -350,6 +355,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/6000000", LastReplayLsn: "0/6000000"},
 			description:                         "Standby should pause replication when accepting new term",
 		},
 		{
@@ -546,6 +552,12 @@ func TestBeginTerm(t *testing.T) {
 			if resp != nil {
 				assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
 				assert.Equal(t, tt.expectedTerm, resp.Term)
+				if tt.expectedWalPosition != nil {
+					require.NotNil(t, resp.WalPosition, "WalPosition should be set")
+					assert.Equal(t, tt.expectedWalPosition.CurrentLsn, resp.WalPosition.CurrentLsn)
+					assert.Equal(t, tt.expectedWalPosition.LastReceiveLsn, resp.WalPosition.LastReceiveLsn)
+					assert.Equal(t, tt.expectedWalPosition.LastReplayLsn, resp.WalPosition.LastReplayLsn)
+				}
 			}
 
 			// Verify persisted state (acceptance should be persisted even if revoke fails)
