@@ -312,21 +312,34 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 	return recruited, nil
 }
 
-// Propagate achieves the Propagation goal: making the timeline durable under the new term.
+// EstablishLeadership achieves the Propagation and Establishment goals from the consensus model:
+// It makes the candidate's timeline durable under the new term and establishes leadership.
+//
+// In consensus terminology:
+// - Propagation: Ensuring the recruited quorum has the candidate's complete timeline
+// - Establishment: Delegating the term to the candidate so it can begin accepting requests
 //
 // This is accomplished by:
-// 1. Configuring standbys to replicate from the candidate (before promotion)
-// 2. Promoting the candidate to primary with synchronous replication configured
+//  1. Configuring standbys to replicate from the candidate (before promotion)
+//  2. Promoting the candidate to primary with synchronous replication configured.
+//  3. Writing leadership history under the new timeline. This write blocks until
+//     acknowledged by the quorum, which proves:
+//     a) The quorum has replicated the candidate's entire timeline (up to promotion point).
+//     b) The quorum has replicated the leadership history write itself.
+//     c) The timeline is now durable under the new term.
 //
-// The timeline becomes durable when the promoted candidate can commit under the new term,
-// which requires quorum acknowledgment per the durability policy. This satisfies the
-// Raft constraint that you can commit only when the log's term matches the current term.
+// Once the leadership history write succeeds, the new leader has successfully
+// propagated its timeline and established leadership. The leadership table serves
+// as the canonical source of truth for when the new term began.
 //
-// Standbys are configured BEFORE promotion to avoid a deadlock: the Promote RPC
-// configures sync replication and writes leadership history, which blocks until
-// at least one standby acknowledges. If standbys aren't configured to replicate
-// yet, the write blocks forever.
-func (c *Coordinator) Propagate(
+// Critical ordering: Standbys MUST be configured BEFORE promotion (step 1) to avoid
+// deadlock. Promotion configures sync replication and writes leadership history, which
+// blocks waiting for acknowledgments. If standbys aren't replicating yet, the write
+// blocks forever.
+//
+// If we fail to write leadership history, leadership couldn't be established.
+// A future coordinator will need to re-discover the most advanced timeline and re-propagate.
+func (c *Coordinator) EstablishLeadership(
 	ctx context.Context,
 	candidate *multiorchdatapb.PoolerHealthState,
 	standbys []*multiorchdatapb.PoolerHealthState,
@@ -336,11 +349,6 @@ func (c *Coordinator) Propagate(
 	cohort []*multiorchdatapb.PoolerHealthState,
 	recruited []*multiorchdatapb.PoolerHealthState,
 ) error {
-	// Promote candidate to primary
-	c.logger.InfoContext(ctx, "Promoting candidate to primary",
-		"pooler", candidate.MultiPooler.Id.Name,
-		"term", term)
-
 	// Get current WAL position before promotion (for validation)
 	statusReq := &consensusdatapb.StatusRequest{}
 	status, err := c.rpcClient.ConsensusStatus(ctx, candidate.MultiPooler, statusReq)
@@ -457,35 +465,6 @@ func (c *Coordinator) Propagate(
 	}
 
 	c.logger.InfoContext(ctx, "Candidate promoted successfully", "pooler", candidate.MultiPooler.Id.Name)
-
-	return nil
-}
-
-// EstablishLeader achieves the Establishment goal: finalizing the leader.
-//
-// At this point, the candidate has been promoted and has the delegated term.
-// This function should notify the primary pooler is ready to traffic and that:
-// any other post promotion steps.
-// Note: This is a TODO.
-//
-// These checks ensure the leadership transition is complete and the new leader
-// is operational.
-func (c *Coordinator) EstablishLeader(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, term int64) error {
-	c.logger.InfoContext(ctx, "Establishing leadership",
-		"pooler", candidate.MultiPooler.Id.Name,
-		"term", term)
-
-	// Verify the leader is actually serving
-	stateReq := &multipoolermanagerdatapb.StateRequest{}
-	state, err := c.rpcClient.State(ctx, candidate.MultiPooler, stateReq)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to verify leader status")
-	}
-
-	if state.State != "ready" {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"leader is not in ready state: %s", state.State)
-	}
 
 	return nil
 }

@@ -27,7 +27,6 @@ import (
 )
 
 // Coordinator orchestrates consensus-based leader election for shards.
-// It implements the consensus protocol from multigres-consensus-design-v2.md.
 type Coordinator struct {
 	coordinatorID *clustermetadatapb.ID
 	topoStore     topoclient.Store
@@ -48,15 +47,14 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 // AppointLeader orchestrates the full consensus protocol to appoint a new leader
 // for the given shard. It operates on a cohort of nodes (all nodes in the shard).
 //
-// The process achieves the following goals (from multigres-consensus-design-v2.md):
+// The process achieves the following goals:
 //
 //  1. Obtaining a term number: Discover max term from cached health state and increment
 //  2. Revocation, Candidacy, Discovery: BeginTerm recruits nodes under the new term,
 //     achieving revocation (no old leader can complete requests), candidacy (recruited
 //     nodes contain a suitable candidate), and discovery (identify most progressed node)
-//  3. Propagation: Make the timeline durable under the new term by configuring replication
+//  3. Propagation, Establishment: Make the timeline durable under the new term by configuring replication
 //     and promoting the candidate. Timeline becomes durable when quorum rules are satisfied.
-//  4. Establishment: Finalize the leader by starting heartbeat and enabling serving
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
@@ -112,12 +110,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"candidate", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
 
-	// Goal 3: Propagation
-	// Make the timeline durable under the new term by configuring replication
-	// and promoting the candidate. The timeline becomes durable when quorum rules
-	// are satisfied (synchronous replication configured, promotion completes).
-	c.logger.InfoContext(ctx, "Propagating leadership change", "shard", shardID)
-
 	// Reconstruct the recruited list (nodes that accepted the term).
 	// This is candidate + standbys.
 	//
@@ -129,21 +121,12 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	recruited = append(recruited, candidate)
 	recruited = append(recruited, standbys...)
 
-	if err := c.Propagate(ctx, candidate, standbys, term, quorumRule, reason, cohort, recruited); err != nil {
-		return mterrors.Wrap(err, "Propagate failed")
+	// Propagation and Establishment
+	if err := c.EstablishLeadership(ctx, candidate, standbys, term, quorumRule, reason, cohort, recruited); err != nil {
+		return mterrors.Wrap(err, "EstablishLeadership failed")
 	}
 
-	c.logger.InfoContext(ctx, "Propagation succeeded", "shard", shardID)
-
-	// Goal 4: Establishment
-	// Finalize the leader by verifying heartbeat is running and serving is enabled.
-	// At this point, the candidate has become the new leader with the delegated term.
-	c.logger.InfoContext(ctx, "Establishing leader", "shard", shardID)
-	if err := c.EstablishLeader(ctx, candidate, term); err != nil {
-		return mterrors.Wrap(err, "EstablishLeader failed")
-	}
-
-	c.logger.InfoContext(ctx, "Establishment succeeded", "shard", shardID)
+	c.logger.InfoContext(ctx, "Leadership established", "shard", shardID)
 
 	// Update topology to reflect new primary
 	if err := c.updateTopology(ctx, candidate, standbys); err != nil {

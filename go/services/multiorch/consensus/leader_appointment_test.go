@@ -903,7 +903,7 @@ func TestPropagate(t *testing.T) {
 		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
 		recruited = append(recruited, standbys...)
 
-		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
+		err := c.EstablishLeadership(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
 		require.NoError(t, err)
 
 		// Verify the PromoteRequest contains the expected election metadata
@@ -955,7 +955,7 @@ func TestPropagate(t *testing.T) {
 		recruited := []*multiorchdatapb.PoolerHealthState{candidate}
 		recruited = append(recruited, standbys...)
 
-		err := c.Propagate(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
+		err := c.EstablishLeadership(ctx, candidate, standbys, 6, quorumRule, "test_election", cohort, recruited)
 		// Should succeed even though one standby failed
 		require.NoError(t, err)
 
@@ -970,53 +970,6 @@ func TestPropagate(t *testing.T) {
 		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match cell_name format")
 		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
 		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
-	})
-}
-
-func TestEstablishLeader(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	coordID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIORCH,
-		Cell:      "test-cell",
-		Name:      "test-coordinator",
-	}
-
-	t.Run("success - leader is ready", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
-
-		err := c.EstablishLeader(ctx, candidate, 6)
-		require.NoError(t, err)
-	})
-
-	t.Run("error - leader not in ready state", func(t *testing.T) {
-		fakeClient := rpcclient.NewFakeClient()
-		c := &Coordinator{
-			coordinatorID: coordID,
-			logger:        logger,
-			rpcClient:     fakeClient,
-		}
-		candidate := createMockNode(fakeClient, "mp1", 5, "0/3000000", true, "primary")
-
-		// Override the status response to indicate not ready
-		mp1ID := &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "mp1",
-		}
-		fakeClient.StateResponses[topoclient.MultiPoolerIDString(mp1ID)] = &multipoolermanagerdatapb.StateResponse{
-			State: "initializing",
-		}
-
-		err := c.EstablishLeader(ctx, candidate, 6)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "not in ready state")
 	})
 }
 
