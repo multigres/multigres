@@ -206,7 +206,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 	require.NoError(t, err, "BeginTerm should succeed")
 	require.True(t, beginTermResp.Accepted, "Primary should accept BeginTerm with higher term")
-	t.Logf("BeginTerm accepted by primary, emergency demotion triggered (demote_lsn=%s)", beginTermResp.DemoteLsn)
+	t.Logf("BeginTerm accepted by primary, emergency demotion triggered (current_lsn=%s)", beginTermResp.WalPosition.GetCurrentLsn())
 
 	// Wait for multiorch to detect failure and elect new primary
 	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")

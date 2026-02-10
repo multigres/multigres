@@ -169,7 +169,6 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		if err != nil {
 			return mterrors.Wrap(err, "failed to demote primary during revoke")
 		}
-		response.DemoteLsn = demoteResp.LsnPosition
 		response.WalPosition.CurrentLsn = demoteResp.LsnPosition
 		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
 	} else {
