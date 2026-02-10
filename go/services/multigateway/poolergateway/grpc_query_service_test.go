@@ -89,7 +89,7 @@ func (m *mockMultiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *mul
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamExecuteResponse], error) {
+func (m *mockMultiPoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[query.QueryResultPayload], error) {
 	return nil, nil
 }
 

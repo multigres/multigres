@@ -24,6 +24,7 @@
 package mtrpc
 
 import (
+	query "github.com/multigres/multigres/go/pb/query"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -319,9 +320,15 @@ func (x *CallerID) GetGroups() []string {
 // We use this so the clients don't have to parse the error messages,
 // but instead can depend on the value of the code.
 type RPCError struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	Code          Code                   `protobuf:"varint,2,opt,name=code,proto3,enum=mtrpc.Code" json:"code,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Message string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Code    Code                   `protobuf:"varint,2,opt,name=code,proto3,enum=mtrpc.Code" json:"code,omitempty"`
+	// pg_diagnostic contains the full PostgreSQL diagnostic information when the error
+	// originated from PostgreSQL. This allows preserving all 14 PostgreSQL error fields
+	// (SQLSTATE, position, hint, detail, etc.) through gRPC serialization, enabling
+	// proper PostgreSQL-format error display to clients.
+	// When present, this should be used to format the error response to the client.
+	PgDiagnostic  *query.PgDiagnostic `protobuf:"bytes,3,opt,name=pg_diagnostic,json=pgDiagnostic,proto3,oneof" json:"pg_diagnostic,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -370,19 +377,28 @@ func (x *RPCError) GetCode() Code {
 	return Code_OK
 }
 
+func (x *RPCError) GetPgDiagnostic() *query.PgDiagnostic {
+	if x != nil {
+		return x.PgDiagnostic
+	}
+	return nil
+}
+
 var File_mtrpc_proto protoreflect.FileDescriptor
 
 const file_mtrpc_proto_rawDesc = "" +
 	"\n" +
-	"\vmtrpc.proto\x12\x05mtrpc\"\x82\x01\n" +
+	"\vmtrpc.proto\x12\x05mtrpc\x1a\vquery.proto\"\x82\x01\n" +
 	"\bCallerID\x12\x1c\n" +
 	"\tprincipal\x18\x01 \x01(\tR\tprincipal\x12\x1c\n" +
 	"\tcomponent\x18\x02 \x01(\tR\tcomponent\x12\"\n" +
 	"\fsubcomponent\x18\x03 \x01(\tR\fsubcomponent\x12\x16\n" +
-	"\x06groups\x18\x04 \x03(\tR\x06groups\"E\n" +
+	"\x06groups\x18\x04 \x03(\tR\x06groups\"\x96\x01\n" +
 	"\bRPCError\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1f\n" +
-	"\x04code\x18\x02 \x01(\x0e2\v.mtrpc.CodeR\x04code*\xd8\x02\n" +
+	"\x04code\x18\x02 \x01(\x0e2\v.mtrpc.CodeR\x04code\x12=\n" +
+	"\rpg_diagnostic\x18\x03 \x01(\v2\x13.query.PgDiagnosticH\x00R\fpgDiagnostic\x88\x01\x01B\x10\n" +
+	"\x0e_pg_diagnostic*\xd8\x02\n" +
 	"\x04Code\x12\x06\n" +
 	"\x02OK\x10\x00\x12\f\n" +
 	"\bCANCELED\x10\x01\x12\v\n" +
@@ -420,17 +436,19 @@ func file_mtrpc_proto_rawDescGZIP() []byte {
 var file_mtrpc_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_mtrpc_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_mtrpc_proto_goTypes = []any{
-	(Code)(0),        // 0: mtrpc.Code
-	(*CallerID)(nil), // 1: mtrpc.CallerID
-	(*RPCError)(nil), // 2: mtrpc.RPCError
+	(Code)(0),                  // 0: mtrpc.Code
+	(*CallerID)(nil),           // 1: mtrpc.CallerID
+	(*RPCError)(nil),           // 2: mtrpc.RPCError
+	(*query.PgDiagnostic)(nil), // 3: query.PgDiagnostic
 }
 var file_mtrpc_proto_depIdxs = []int32{
 	0, // 0: mtrpc.RPCError.code:type_name -> mtrpc.Code
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	3, // 1: mtrpc.RPCError.pg_diagnostic:type_name -> query.PgDiagnostic
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_mtrpc_proto_init() }
@@ -438,6 +456,7 @@ func file_mtrpc_proto_init() {
 	if File_mtrpc_proto != nil {
 		return
 	}
+	file_mtrpc_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

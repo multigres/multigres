@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
@@ -60,14 +61,32 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 
 	// Execute the query and stream results
 	err = executor.StreamExecute(stream.Context(), req.Target, req.Query, req.Options, func(ctx context.Context, result *sqltypes.Result) error {
-		// Send the result back to the client
-		response := &multipoolerpb.StreamExecuteResponse{
-			Result: result.ToProto(),
+		// Send notices first (if any) as separate diagnostic messages
+		for _, notice := range result.Notices {
+			noticePayload := &query.QueryResultPayload{
+				Payload: &query.QueryResultPayload_Diagnostic{
+					Diagnostic: mterrors.PgDiagnosticToProto(notice),
+				},
+			}
+			if err := stream.Send(noticePayload); err != nil {
+				return err
+			}
 		}
-		return stream.Send(response)
+
+		// Send row data (if any)
+		if len(result.Rows) > 0 || result.CommandTag != "" {
+			rowPayload := &query.QueryResultPayload{
+				Payload: &query.QueryResultPayload_Result{
+					Result: result.ToProto(),
+				},
+			}
+			return stream.Send(rowPayload)
+		}
+		return nil
 	})
 
-	return err
+	// Convert errors to gRPC format, preserving PostgreSQL error details
+	return mterrors.ToGRPC(err)
 }
 
 // ExecuteQuery executes a SQL query and returns the result
@@ -83,7 +102,8 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 	// Execute the query
 	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.Options)
 	if err != nil {
-		return nil, err
+		// Convert errors to gRPC format, preserving PostgreSQL error details
+		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolerpb.ExecuteQueryResponse{
 		Result: res.ToProto(),
@@ -152,7 +172,8 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 	// Call the executor's Describe method
 	desc, err := executor.Describe(ctx, req.Target, req.PreparedStatement, req.Portal, req.Options)
 	if err != nil {
-		return nil, err
+		// Convert errors to gRPC format, preserving PostgreSQL error details
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	return &multipoolerpb.DescribeResponse{
@@ -177,18 +198,42 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		req.Portal,
 		req.Options,
 		func(ctx context.Context, result *sqltypes.Result) error {
-			// Send the result back to the client
-			response := &multipoolerpb.PortalStreamExecuteResponse{
-				Result: result.ToProto(),
+			// Send notices first (if any) as separate diagnostic messages
+			for _, notice := range result.Notices {
+				noticePayload := &query.QueryResultPayload{
+					Payload: &query.QueryResultPayload_Diagnostic{
+						Diagnostic: mterrors.PgDiagnosticToProto(notice),
+					},
+				}
+				noticeResponse := &multipoolerpb.PortalStreamExecuteResponse{
+					Result: noticePayload,
+				}
+				if err := stream.Send(noticeResponse); err != nil {
+					return err
+				}
 			}
-			return stream.Send(response)
+
+			// Send row data (if any)
+			if len(result.Rows) > 0 || result.CommandTag != "" {
+				rowPayload := &query.QueryResultPayload{
+					Payload: &query.QueryResultPayload_Result{
+						Result: result.ToProto(),
+					},
+				}
+				response := &multipoolerpb.PortalStreamExecuteResponse{
+					Result: rowPayload,
+				}
+				return stream.Send(response)
+			}
+			return nil
 		},
 	)
 	if err != nil {
 		// Note: When PortalStreamExecute returns an error, it also releases any reserved
 		// connection and returns an empty ReservedState. So we don't need to send a
 		// reserved connection ID in the error case.
-		return err
+		// Convert errors to gRPC format, preserving PostgreSQL error details
+		return mterrors.ToGRPC(err)
 	}
 
 	// Send final response with reserved connection ID if one was created
