@@ -42,7 +42,7 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 // the full consensus protocol to establish a new primary.
 type AppointLeaderAction struct {
 	config      *config.Config
-	coordinator *consensus.Coordinator
+	consensus   *consensus.Coordinator
 	poolerStore *store.PoolerHealthStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
@@ -58,7 +58,7 @@ func NewAppointLeaderAction(
 ) *AppointLeaderAction {
 	return &AppointLeaderAction{
 		config:      cfg,
-		coordinator: coordinator,
+		consensus:   coordinator,
 		poolerStore: poolerStore,
 		topoStore:   topoStore,
 		logger:      logger,
@@ -103,7 +103,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	//
 	// Use the problem code as the reason for the election
 	reason := string(problem.Code)
-	if err := a.coordinator.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database, reason); err != nil {
+	if err := a.consensus.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 
