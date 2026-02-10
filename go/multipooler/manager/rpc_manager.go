@@ -1014,7 +1014,7 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 
 	// Clear recovery action after successful rewind
-	if err := pm.recoveryActionState.ClearRecoveryAction(ctx); err != nil {
+	if err := pm.recoveryActionState.ClearRecoveryAction(ctx, RecoveryActionTypeNeedsRewind); err != nil {
 		// WARN but don't fail - worst case is postgres stays stopped (safe)
 		// Operators can manually remove the file if needed
 		pm.logger.ErrorContext(ctx, "Failed to clear recovery action - manual intervention may be required",
@@ -1386,7 +1386,7 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		rewindPerformed = true
 
 		// Clear recovery action after successful rewind
-		if err := pm.recoveryActionState.ClearRecoveryAction(ctx); err != nil {
+		if err := pm.recoveryActionState.ClearRecoveryAction(ctx, RecoveryActionTypeNeedsRewind); err != nil {
 			// WARN but don't fail
 			pm.logger.ErrorContext(ctx, "Failed to clear recovery action - manual intervention may be required",
 				"error", err)

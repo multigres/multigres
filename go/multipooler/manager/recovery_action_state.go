@@ -132,14 +132,32 @@ func (ras *RecoveryActionState) SetRecoveryAction(ctx context.Context, actionTyp
 
 // ClearRecoveryAction removes the recovery action from disk and memory.
 // REQUIRES: action lock must be held (verified via context).
+// Only clears if the current action type matches expectedType.
+// Returns an error if the types don't match (indicating a different action was set).
 // Idempotent: succeeds if no recovery action exists.
-func (ras *RecoveryActionState) ClearRecoveryAction(ctx context.Context) error {
+func (ras *RecoveryActionState) ClearRecoveryAction(ctx context.Context, expectedType RecoveryActionType) error {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 
 	ras.mu.Lock()
 	defer ras.mu.Unlock()
+
+	// If no action pending, clearing is a no-op (idempotent)
+	if ras.action == nil || ras.action.ActionType == RecoveryActionTypeNone {
+		return nil
+	}
+
+	// Verify we're clearing the expected action type
+	if ras.action.ActionType != expectedType {
+		return fmt.Errorf(
+			"recovery action type mismatch: expected %s, current is %s (set at %s for term %d). Not clearing to avoid removing wrong action",
+			expectedType,
+			ras.action.ActionType,
+			ras.action.SetTime.Format(time.RFC3339),
+			ras.action.ConsensusTerm,
+		)
+	}
 
 	// Clear from disk first (lock still held)
 	if err := clearRecoveryState(ras.poolerDir); err != nil {

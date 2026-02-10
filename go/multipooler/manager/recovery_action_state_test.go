@@ -115,7 +115,7 @@ func TestRecoveryActionClearPersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Clear recovery action
-	err = pm1.recoveryActionState.ClearRecoveryAction(lockCtx)
+	err = pm1.recoveryActionState.ClearRecoveryAction(lockCtx, RecoveryActionTypeNeedsRewind)
 	require.NoError(t, err)
 
 	// Verify state file removed
@@ -182,7 +182,7 @@ func TestRecoveryActionClearRequiresActionLock(t *testing.T) {
 	pm := newTestManager(t)
 
 	// Try to clear without lock - should fail
-	err := pm.recoveryActionState.ClearRecoveryAction(ctx)
+	err := pm.recoveryActionState.ClearRecoveryAction(ctx, RecoveryActionTypeNeedsRewind)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "action lock")
 }
@@ -220,11 +220,11 @@ func TestRecoveryActionClearIdempotent(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Clear when nothing exists - should succeed
-	err = pm.recoveryActionState.ClearRecoveryAction(lockCtx)
+	err = pm.recoveryActionState.ClearRecoveryAction(lockCtx, RecoveryActionTypeNeedsRewind)
 	require.NoError(t, err)
 
 	// Clear again - should still succeed
-	err = pm.recoveryActionState.ClearRecoveryAction(lockCtx)
+	err = pm.recoveryActionState.ClearRecoveryAction(lockCtx, RecoveryActionTypeNeedsRewind)
 	require.NoError(t, err)
 }
 
@@ -390,6 +390,55 @@ func TestRecoveryActionSetTimeRecorded(t *testing.T) {
 	assert.False(t, action.SetTime.IsZero())
 	assert.True(t, action.SetTime.After(beforeSet) || action.SetTime.Equal(beforeSet))
 	assert.True(t, action.SetTime.Before(afterSet) || action.SetTime.Equal(afterSet))
+}
+
+// TestRecoveryActionClearTypeMismatch verifies that ClearRecoveryAction
+// fails when the expected action type doesn't match the current action type.
+// This is a critical safety feature to prevent clearing the wrong recovery action.
+func TestRecoveryActionClearTypeMismatch(t *testing.T) {
+	ctx := context.Background()
+
+	pm := newTestManager(t)
+
+	// Initialize data directory structure
+	initializeTestDataDir(t, pm.multipooler.PoolerDir)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	// Set recovery action of type NeedsRewind
+	err = pm.recoveryActionState.SetRecoveryAction(
+		lockCtx,
+		RecoveryActionTypeNeedsRewind,
+		"test rewind action",
+		1,
+	)
+	require.NoError(t, err)
+
+	// Try to clear with wrong expected type (simulating a future recovery action type)
+	// For now we use RecoveryActionTypeNone to test the mismatch logic
+	// In the future when we have more types (e.g., NeedsPITR), this test will be even more relevant
+	err = pm.recoveryActionState.ClearRecoveryAction(lockCtx, RecoveryActionTypeNone)
+	require.Error(t, err, "should fail when expected type doesn't match current type")
+	assert.Contains(t, err.Error(), "recovery action type mismatch")
+	assert.Contains(t, err.Error(), "expected none")
+	assert.Contains(t, err.Error(), "current is needs_rewind")
+
+	// Verify the action was NOT cleared
+	action, err := pm.recoveryActionState.GetRecoveryAction(lockCtx)
+	require.NoError(t, err)
+	require.NotNil(t, action, "action should still be set after failed clear")
+	assert.Equal(t, RecoveryActionTypeNeedsRewind, action.ActionType)
+
+	// Now clear with the CORRECT expected type - should succeed
+	err = pm.recoveryActionState.ClearRecoveryAction(lockCtx, RecoveryActionTypeNeedsRewind)
+	require.NoError(t, err, "should succeed when expected type matches current type")
+
+	// Verify the action was cleared
+	action, err = pm.recoveryActionState.GetRecoveryAction(lockCtx)
+	require.NoError(t, err)
+	assert.Nil(t, action, "action should be cleared after successful clear")
 }
 
 // TODO(endtoend): Add end-to-end tests that simulate crashes in the middle of flows:
