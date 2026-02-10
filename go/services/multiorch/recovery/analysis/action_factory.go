@@ -20,7 +20,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/coordinator"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -32,7 +32,7 @@ type RecoveryActionFactory struct {
 	poolerStore *store.PoolerHealthStore
 	rpcClient   rpcclient.MultiPoolerClient
 	topoStore   topoclient.Store
-	coordinator *coordinator.Coordinator
+	coordinator *consensus.Coordinator
 	logger      *slog.Logger
 }
 
@@ -42,7 +42,7 @@ func NewRecoveryActionFactory(
 	poolerStore *store.PoolerHealthStore,
 	rpcClient rpcclient.MultiPoolerClient,
 	topoStore topoclient.Store,
-	coordinator *coordinator.Coordinator,
+	coordinator *consensus.Coordinator,
 	logger *slog.Logger,
 ) *RecoveryActionFactory {
 	if coordinator == nil {

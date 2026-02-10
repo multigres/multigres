@@ -24,7 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/coordinator"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -37,12 +37,12 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 
 // AppointLeaderAction handles leader appointment using the coordinator's consensus protocol.
 // This action is used for both repair (mixed initialized/empty nodes) and reelect
-// (all nodes initialized) scenarios. The coordinator.AppointLeader method handles
+// (all nodes initialized) scenarios. The consensus.AppointLeader method handles
 // both cases by selecting the most advanced node based on WAL position and running
 // the full consensus protocol to establish a new primary.
 type AppointLeaderAction struct {
 	config      *config.Config
-	coordinator *coordinator.Coordinator
+	consensus   *consensus.Coordinator
 	poolerStore *store.PoolerHealthStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
@@ -51,14 +51,14 @@ type AppointLeaderAction struct {
 // NewAppointLeaderAction creates a new leader appointment action
 func NewAppointLeaderAction(
 	cfg *config.Config,
-	coordinator *coordinator.Coordinator,
+	coordinator *consensus.Coordinator,
 	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *AppointLeaderAction {
 	return &AppointLeaderAction{
 		config:      cfg,
-		coordinator: coordinator,
+		consensus:   coordinator,
 		poolerStore: poolerStore,
 		topoStore:   topoStore,
 		logger:      logger,
@@ -103,7 +103,7 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	//
 	// Use the problem code as the reason for the election
 	reason := string(problem.Code)
-	if err := a.coordinator.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database, reason); err != nil {
+	if err := a.consensus.AppointLeader(ctx, problem.ShardKey.Shard, cohort, problem.ShardKey.Database, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 
