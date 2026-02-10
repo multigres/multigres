@@ -237,17 +237,6 @@ func (c *Conn) Kill(ctx context.Context) error {
 	return c.pooled.Conn.Kill(ctx)
 }
 
-// Close closes the underlying connection without returning to pool.
-func (c *Conn) Close() error {
-	if !c.released.CompareAndSwap(false, true) {
-		return nil // Already released/closed.
-	}
-
-	// Close the underlying connection.
-	c.pooled.Close()
-	return nil
-}
-
 // IsClosed returns true if the underlying connection is closed.
 func (c *Conn) IsClosed() bool {
 	return c.pooled.Conn.IsClosed()
