@@ -155,6 +155,10 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		return mterrors.Wrap(err, "failed to determine role for revoke")
 	}
 
+	response.WalPosition = &consensusdatapb.WALPosition{
+		Timestamp: timestamppb.Now(),
+	}
+
 	if isPrimary {
 		// Revoke primary: demote
 		// TODO: Implement graceful (non-emergency) demote for planned failovers.
@@ -166,6 +170,7 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 			return mterrors.Wrap(err, "failed to demote primary during revoke")
 		}
 		response.DemoteLsn = demoteResp.LsnPosition
+		response.WalPosition.CurrentLsn = demoteResp.LsnPosition
 		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
 	} else {
 		// Revoke standby: pause replication to break connection with old primary
@@ -178,6 +183,12 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 			false)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to pause replication during revoke")
+		}
+		// Standby: use last receive position (includes unreplayed WAL)
+		status, err := pm.queryReplicationStatus(ctx)
+		if err == nil {
+			response.WalPosition.LastReceiveLsn = status.LastReceiveLsn
+			response.WalPosition.LastReplayLsn = status.LastReplayLsn
 		}
 		pm.logger.InfoContext(ctx, "Standby replication paused", "term", term)
 	}
