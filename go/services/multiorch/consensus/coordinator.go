@@ -128,51 +128,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 
 	c.logger.InfoContext(ctx, "Leadership established", "shard", shardID)
 
-	// Update topology to reflect new primary
-	if err := c.updateTopology(ctx, candidate, standbys); err != nil {
-		// Log but don't fail - the leader is established, topology is just metadata
-		c.logger.WarnContext(ctx, "Failed to update topology",
-			"shard", shardID,
-			"error", err)
-	}
-
-	c.logger.InfoContext(ctx, "Leadership change complete",
-		"shard", shardID,
-		"leader", candidate.MultiPooler.Id.Name,
-		"term", term)
-
-	// Async: Repair excluded nodes in this shard
-	// TODO: Implement RepairExcluded
-	// go c.RepairExcluded(context.Background(), candidate, shardID)
-
-	return nil
-}
-
-// updateTopology updates the topology store to reflect the new primary and standbys.
-func (c *Coordinator) updateTopology(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState) error {
-	// Update candidate to PRIMARY type
-	_, err := c.topoStore.UpdateMultiPoolerFields(ctx, candidate.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
-		return nil
-	})
-	if err != nil {
-		return mterrors.Wrap(err, "failed to update candidate to PRIMARY")
-	}
-
-	// Update standbys to REPLICA type
-	for _, standby := range standbys {
-		_, err := c.topoStore.UpdateMultiPoolerFields(ctx, standby.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
-			mp.Type = clustermetadatapb.PoolerType_REPLICA
-			return nil
-		})
-		if err != nil {
-			// Log but continue with other standbys
-			c.logger.WarnContext(ctx, "Failed to update standby type",
-				"node", standby.MultiPooler.Id.Name,
-				"error", err)
-		}
-	}
-
 	return nil
 }
 
