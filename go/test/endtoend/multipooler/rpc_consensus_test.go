@@ -198,7 +198,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		// Verify acceptance without revoke
 		assert.True(t, resp.Accepted, "Primary should accept BeginTerm with NO_ACTION")
 		assert.Equal(t, expectedTerm, resp.Term, "Response term should match expected term")
-		assert.Empty(t, resp.DemoteLsn, "NO_ACTION should not return demote LSN")
+		assert.Nil(t, resp.WalPosition, "NO_ACTION should not return WAL position")
 
 		// Verify primary is still primary and postgres is running
 		managerStatusReq := &multipoolermanagerdatapb.StatusRequest{}
@@ -265,7 +265,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		// Verify acceptance without revoke
 		assert.True(t, resp.Accepted, "Standby should accept BeginTerm with NO_ACTION")
 		assert.Equal(t, expectedTerm, resp.Term, "Response term should match expected term")
-		assert.Empty(t, resp.DemoteLsn, "NO_ACTION should not return demote LSN")
+		assert.Nil(t, resp.WalPosition, "NO_ACTION should not return WAL position")
 
 		// Verify standby still has replication configured (NO_ACTION should not clear it)
 		managerStatusReq := &multipoolermanagerdatapb.StatusRequest{}
@@ -583,7 +583,7 @@ func TestConsensus_CanReachPrimary(t *testing.T) {
 
 // TestBeginTermEmergencyDemotesPrimary verifies that when a primary accepts a BeginTerm
 // for a higher term, it automatically performs an emergency demotion to prevent split-brain.
-// The response includes the demote_lsn (final LSN before emergency demotion).
+// The response includes the WAL position with the final LSN before emergency demotion.
 func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -658,9 +658,10 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		// Verify response
 		assert.True(t, beginTermResp.Accepted, "Primary should accept the higher term")
 		assert.Equal(t, newTerm, beginTermResp.Term, "Response term should be the new term")
-		assert.NotEmpty(t, beginTermResp.DemoteLsn, "Primary should include demote_lsn after auto-demotion")
-		t.Logf("BeginTerm response: accepted=%v, term=%d, demote_lsn=%s",
-			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.DemoteLsn)
+		require.NotNil(t, beginTermResp.WalPosition, "Primary should include WAL position after auto-demotion")
+		assert.NotEmpty(t, beginTermResp.WalPosition.CurrentLsn, "Primary should include current_lsn after auto-demotion")
+		t.Logf("BeginTerm response: accepted=%v, term=%d, current_lsn=%s",
+			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.WalPosition.CurrentLsn)
 
 		// Verify PostgreSQL is stopped (emergency demotion stops postgres, doesn't restart as standby)
 		pgctldClient, err := shardsetup.NewPgctldClient(setup.PrimaryPgctld.GrpcPort)
