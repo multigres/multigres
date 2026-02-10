@@ -471,7 +471,7 @@ func (e *Executor) CopyReady(
 	format, columnFormats, err := conn.InitiateCopyFromStdin(ctx, copyQuery)
 	if err != nil {
 		// Connection is in bad state after failed COPY initiation - close it instead of recycling
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
 	}
 
@@ -559,7 +559,7 @@ func (e *Executor) CopyFinalize(
 		if err := conn.WriteCopyData(finalData); err != nil {
 			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
 			// Connection is in bad state - close it instead of recycling
-			reservedConn.Close()
+			reservedConn.Release(reserved.ReleaseError)
 			return nil, fmt.Errorf("failed to write final COPY data: %w", err)
 		}
 		e.logger.DebugContext(ctx, "sent final COPY data", "size", len(finalData))
@@ -569,7 +569,7 @@ func (e *Executor) CopyFinalize(
 	if err := conn.WriteCopyDone(); err != nil {
 		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
 		// Connection is in bad state - close it instead of recycling
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 		return nil, fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 
@@ -578,7 +578,7 @@ func (e *Executor) CopyFinalize(
 	if err != nil {
 		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
 		// Connection might be in bad state - close it instead of recycling
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 		return nil, fmt.Errorf("COPY operation failed: %w", err)
 	}
 
@@ -648,7 +648,7 @@ func (e *Executor) CopyAbort(
 
 	// If write or read failed, connection might be in bad state - close it
 	if writeFailed || readErr != nil {
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 	} else {
 		// Clean abort - release connection back to pool
 		reservedConn.Release(reserved.ReleasePortalComplete)
