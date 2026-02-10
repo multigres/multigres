@@ -29,7 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	commontypes "github.com/multigres/multigres/go/common/types"
-	"github.com/multigres/multigres/go/services/multiorch/coordinator"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -46,13 +46,13 @@ type testRPCClient struct {
 }
 
 // newTestCoordinator creates a mock coordinator for tests
-func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *coordinator.Coordinator {
+func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *consensus.Coordinator {
 	coordinatorID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
 		Cell:      "cell1",
 		Name:      "test-coordinator",
 	}
-	return coordinator.NewCoordinator(coordinatorID, ts, rpcClient, logger)
+	return consensus.NewCoordinator(coordinatorID, ts, rpcClient, logger)
 }
 
 func (t *testRPCClient) ConfigureSynchronousReplication(

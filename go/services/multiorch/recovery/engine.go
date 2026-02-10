@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/coordinator"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -268,7 +268,7 @@ func NewEngine(
 	config *config.Config,
 	shardWatchTargets []config.WatchTarget,
 	rpcClient rpcclient.MultiPoolerClient,
-	coordinator *coordinator.Coordinator,
+	coordinator *consensus.Coordinator,
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.TODO())
 
