@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -116,6 +117,11 @@ func (sc *ScatterConn) StreamExecute(
 		"pooler_type", target.PoolerType.String())
 
 	if err := qs.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(err, &pgDiag) {
+			return err
+		}
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 
@@ -186,6 +192,11 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, callback)
 	if err != nil {
+		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(err, &pgDiag) {
+			return err
+		}
 		return fmt.Errorf("portal execution failed: %w", err)
 	}
 	state.StoreReservedConnection(target, reservedState)
@@ -258,6 +269,11 @@ func (sc *ScatterConn) Describe(
 
 	description, err := qs.Describe(ctx, target, preparedStatement, portal, eo)
 	if err != nil {
+		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(err, &pgDiag) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("describe failed: %w", err)
 	}
 

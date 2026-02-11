@@ -34,7 +34,7 @@ service MultiPoolerService {
   rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
 
   // StreamExecute executes a SQL query and streams the results back
-  rpc StreamExecute(StreamExecuteRequest) returns (stream StreamExecuteResponse);
+  rpc StreamExecute(StreamExecuteRequest) returns (stream query.QueryResultPayload);
 
   // PortalStreamExecute executes a portal (bound prepared statement) and streams results
   // Returns reserved connection information for session affinity
@@ -122,8 +122,8 @@ message PortalStreamExecuteRequest {
 
 // PortalStreamExecuteResponse represents a response in the portal execution stream
 message PortalStreamExecuteResponse {
-  // result contains the query result data (rows, fields, etc.)
-  query.QueryResult result = 1;
+  // result contains the query result data (rows, fields, etc.) or diagnostics
+  query.QueryResultPayload result = 1;
 
   // reserved_connection_id is the ID of the reserved connection
   // This is returned in the first response and should be used for subsequent queries

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -75,7 +76,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute query: %w", err)
+			return nil, wrapQueryError(err)
 		}
 
 		if len(results) == 0 {
@@ -101,7 +102,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// with proper field info, rows, and command tags already populated
 	results, err := conn.Conn.Query(ctx, sql)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, wrapQueryError(err)
 	}
 
 	// Return first result (simple query returns single result)
@@ -141,7 +142,7 @@ func (e *Executor) StreamExecute(
 		}
 
 		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
-			return fmt.Errorf("query execution failed: %w", err)
+			return wrapQueryError(err)
 		}
 		return nil
 	}
@@ -161,7 +162,7 @@ func (e *Executor) StreamExecute(
 
 	// Use streaming query execution
 	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
-		return fmt.Errorf("query execution failed: %w", err)
+		return wrapQueryError(err)
 	}
 
 	return nil
@@ -269,7 +270,7 @@ func (e *Executor) portalExecuteWithReserved(
 	completed, err := reservedConn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
-		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+		return queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
 	// If portal is suspended (not completed), keep the reserved connection for continuation
@@ -315,7 +316,7 @@ func (e *Executor) portalExecuteWithRegular(
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
 	_, err = conn.Conn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, 0, callback)
 	if err != nil {
-		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+		return queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
 	// No reserved connection for regular execution
@@ -677,6 +678,24 @@ func int32ToInt16Slice(in []int32) []int16 {
 		out[i] = int16(v)
 	}
 	return out
+}
+
+// wrapQueryError handles error wrapping for query execution.
+// PostgreSQL errors (*mterrors.PgDiagnostic) pass through unchanged,
+// preserving the original error format. Non-PostgreSQL errors are wrapped with context.
+func wrapQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// PostgreSQL errors (*mterrors.PgDiagnostic) pass through unchanged
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) {
+		return diag
+	}
+
+	// Non-PostgreSQL errors get wrapped with context
+	return mterrors.Wrapf(err, "query execution failed")
 }
 
 // Ensure Executor implements queryservice.QueryService
