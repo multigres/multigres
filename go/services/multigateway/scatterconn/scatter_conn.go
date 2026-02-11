@@ -223,7 +223,14 @@ func (sc *ScatterConn) PortalStreamExecute(
 		}
 		return fmt.Errorf("portal execution failed: %w", err)
 	}
-	state.StoreReservedConnection(target, reservedState, protoutil.ReasonPortal)
+	if reservedState.ReservedConnectionId != 0 {
+		// Portal is suspended (not all rows fetched) - store reservation
+		state.StoreReservedConnection(target, reservedState, protoutil.ReasonPortal)
+	} else {
+		// Portal completed - remove portal reason (if any previous suspension was stored).
+		// If no other reasons remain (no transaction, no COPY), the entry is cleaned up.
+		state.RemoveReservationReason(target, protoutil.ReasonPortal)
+	}
 
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
