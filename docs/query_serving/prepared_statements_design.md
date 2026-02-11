@@ -1,9 +1,9 @@
-# Prepared Statements and Portals in MultiGres
+# Prepared Statements and Portals in Multigres
 
 ## Overview
 
 This document outlines the design for implementing prepared statements and
-portals in MultiGres, leveraging PostgreSQL's Extended Query Protocol to
+portals in Multigres, leveraging PostgreSQL's Extended Query Protocol to
 optimize query execution performance.
 
 ## Background: Extended Query Protocol
