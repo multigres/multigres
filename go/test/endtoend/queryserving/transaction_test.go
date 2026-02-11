@@ -66,7 +66,7 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			conn, err := client.Connect(ctx, &client.Config{
+			conn, err := client.Connect(ctx, ctx, &client.Config{
 				Host:        "localhost",
 				Port:        primary.Pgctld.PgPort,
 				User:        "postgres",
@@ -83,7 +83,7 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 			t.Cleanup(func() {
 				cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				cleanupConn, cleanupErr := client.Connect(cleanupCtx, &client.Config{
+				cleanupConn, cleanupErr := client.Connect(cleanupCtx, cleanupCtx, &client.Config{
 					Host:        "localhost",
 					Port:        primary.Pgctld.PgPort,
 					User:        "postgres",
