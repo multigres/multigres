@@ -385,6 +385,7 @@ func TestHandleStartupMessage(t *testing.T) {
 			c := &Conn{
 				conn:           serverConn,
 				listener:       listener,
+				handler:        listener.handler,
 				hashProvider:   listener.hashProvider,
 				bufferedReader: bufio.NewReader(serverConn),
 				bufferedWriter: bufio.NewWriter(serverConn),
@@ -428,6 +429,7 @@ func TestSSLRequest(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -484,6 +486,7 @@ func TestGSSENCRequest(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -540,6 +543,7 @@ func TestSCRAMAuthenticationWrongPassword(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -609,6 +613,7 @@ func TestAuthenticationMessages(t *testing.T) {
 	c := &Conn{
 		conn:           mock,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(mock),
 		bufferedWriter: bufio.NewWriter(mock),

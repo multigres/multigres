@@ -40,6 +40,10 @@ type Executor interface {
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
+
+	// ValidateStartupParams validates startup parameters by executing a test query
+	// with the parameters as session settings.
+	ValidateStartupParams(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -216,5 +220,27 @@ func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn)
 	return nil
 }
 
+// ValidateStartup validates startup parameters during connection establishment.
+// It skips validation if no startup params are present.
+// On failure, the connection state is cleared so the connection is not left in a dirty state.
+func (h *MultiGatewayHandler) ValidateStartup(ctx context.Context, conn *server.Conn) error {
+	startupParams := conn.GetStartupParams()
+	if startupParams == nil {
+		return nil
+	}
+
+	state := h.getConnectionState(conn)
+	err := h.executor.ValidateStartupParams(ctx, conn, state)
+	if err != nil {
+		// Clear connection state on failure.
+		conn.SetConnectionState(nil)
+		return err
+	}
+	return nil
+}
+
 // Ensure MultiGatewayHandler implements server.Handler interface.
 var _ server.Handler = (*MultiGatewayHandler)(nil)
+
+// Ensure MultiGatewayHandler implements server.StartupValidator interface.
+var _ server.StartupValidator = (*MultiGatewayHandler)(nil)

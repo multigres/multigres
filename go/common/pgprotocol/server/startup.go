@@ -334,6 +334,13 @@ func (c *Conn) authenticateTrust() error {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
 
+	// Validate startup parameters if the handler supports it.
+	if validator, ok := c.handler.(StartupValidator); ok {
+		if err := validator.ValidateStartup(c.ctx, c); err != nil {
+			return fmt.Errorf("startup parameter validation failed: %w", err)
+		}
+	}
+
 	// Send initial ParameterStatus messages.
 	if err := c.sendParameterStatuses(); err != nil {
 		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
@@ -419,6 +426,13 @@ func (c *Conn) authenticateSCRAM() error {
 	// Send BackendKeyData for query cancellation.
 	if err := c.sendBackendKeyData(); err != nil {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
+	}
+
+	// Validate startup parameters if the handler supports it.
+	if validator, ok := c.handler.(StartupValidator); ok {
+		if err := validator.ValidateStartup(c.ctx, c); err != nil {
+			return fmt.Errorf("startup parameter validation failed: %w", err)
+		}
 	}
 
 	// Send initial ParameterStatus messages.
