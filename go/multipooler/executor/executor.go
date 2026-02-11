@@ -879,7 +879,7 @@ func (e *Executor) ReleaseReservedConnection(
 
 	// Step 4: Release or close the connection.
 	if cleanupFailed {
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 	} else {
 		reservedConn.Release(reserved.ReleaseRollback)
 	}
