@@ -178,19 +178,22 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.SessionSettings = make(map[string]string)
 }
 
-// GetSessionSettings returns a copy of the current session settings.
-// Returns nil if no settings have been set.
+// GetSessionSettings returns a merged view of startup parameters and session settings.
+// Session settings (from SET commands) take precedence over startup params for the same key.
+// When a variable is RESET (deleted from SessionSettings), the startup param value becomes visible again.
+// Returns nil if neither startup params nor session settings exist.
 // The copy prevents external mutation of the internal state.
 func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.SessionSettings) == 0 {
+	if len(m.StartupParams) == 0 && len(m.SessionSettings) == 0 {
 		return nil
 	}
-	// Return copy to prevent external mutation
-	settings := make(map[string]string, len(m.SessionSettings))
-	maps.Copy(settings, m.SessionSettings)
-	return settings
+	// Start with startup params, then overlay session settings (which take precedence)
+	merged := make(map[string]string, len(m.StartupParams)+len(m.SessionSettings))
+	maps.Copy(merged, m.StartupParams)
+	maps.Copy(merged, m.SessionSettings)
+	return merged
 }
 
 // GetSessionVariable returns the value of a specific session variable.
