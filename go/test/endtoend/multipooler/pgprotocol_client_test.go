@@ -41,7 +41,7 @@ func TestPgProtocolClientConnection(t *testing.T) {
 	t.Run("connect_and_close", func(t *testing.T) {
 		ctx := utils.WithTimeout(t, 10*time.Second)
 
-		conn, err := client.Connect(ctx, &client.Config{
+		conn, err := client.Connect(ctx, ctx, &client.Config{
 			Host:        "localhost",
 			Port:        setup.PrimaryPgctld.PgPort,
 			User:        "postgres",
@@ -71,7 +71,7 @@ func TestPgProtocolClientConnection(t *testing.T) {
 	t.Run("connection_state", func(t *testing.T) {
 		ctx := utils.WithTimeout(t, 10*time.Second)
 
-		conn, err := client.Connect(ctx, &client.Config{
+		conn, err := client.Connect(ctx, ctx, &client.Config{
 			Host:        "localhost",
 			Port:        setup.PrimaryPgctld.PgPort,
 			User:        "postgres",
@@ -101,7 +101,7 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",
@@ -215,7 +215,7 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",
@@ -336,7 +336,7 @@ func TestPgProtocolClientDataTypes(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",
@@ -457,7 +457,7 @@ func TestPgProtocolClientErrors(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",
@@ -521,7 +521,7 @@ func TestPgProtocolClientTransactions(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",
@@ -593,7 +593,7 @@ func TestPgProtocolClientStreaming(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",

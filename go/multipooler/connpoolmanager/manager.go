@@ -64,6 +64,7 @@ type Manager struct {
 	logger     *slog.Logger      // Set by Open()
 	connConfig *ConnectionConfig // Stored for lazy pool creation
 
+	ctx           context.Context          // Manager lifecycle context, used for lazy pool creation
 	adminPool     *admin.Pool              // Shared admin pool for kill operations
 	settingsCache *connstate.SettingsCache // Shared settings cache for all users
 	metrics       *Metrics                 // OpenTelemetry metrics
@@ -100,6 +101,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
 
+	m.ctx = ctx
 	m.connConfig = connConfig
 	emptyPools := make(map[string]*UserPool)
 	m.userPoolsSnapshot.Store(&emptyPools)
@@ -171,7 +173,7 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 // This method uses an atomic snapshot pattern for lock-free reads on the hot path.
 // For existing users, this completes with just an atomic load and map lookup.
 // Only new user creation acquires the createMu mutex.
-func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPool, error) {
+func (m *Manager) getOrCreateUserPool(user string) (*UserPool, error) {
 	if user == "" {
 		return nil, errors.New("user cannot be empty")
 	}
@@ -188,8 +190,10 @@ func (m *Manager) getOrCreateUserPool(ctx context.Context, user string) (*UserPo
 		return nil, errors.New("manager is closed")
 	}
 
-	// Cold path: need to create a new user pool
-	return m.createUserPoolSlow(ctx, user)
+	// Cold path: need to create a new user pool.
+	// Use the manager's lifecycle context so the pool is tied to the manager's
+	// lifetime, not the caller's request context.
+	return m.createUserPoolSlow(m.ctx, user)
 }
 
 // createUserPoolSlow creates a new user pool. This is the cold path that requires
@@ -319,7 +323,7 @@ func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
 // GetRegularConn acquires a regular connection for the specified user.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error) {
-	pool, err := m.getOrCreateUserPool(ctx, user)
+	pool, err := m.getOrCreateUserPool(user)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +334,7 @@ func (m *Manager) GetRegularConn(ctx context.Context, user string) (regular.Pool
 // Settings are converted via the shared SettingsCache for consistent bucket assignment.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error) {
-	pool, err := m.getOrCreateUserPool(ctx, user)
+	pool, err := m.getOrCreateUserPool(user)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +350,7 @@ func (m *Manager) GetRegularConnWithSettings(ctx context.Context, settings map[s
 // The connection is assigned a unique ID for client-side tracking.
 // The caller must call Release() when done with the connection.
 func (m *Manager) NewReservedConn(ctx context.Context, settings map[string]string, user string) (*reserved.Conn, error) {
-	pool, err := m.getOrCreateUserPool(ctx, user)
+	pool, err := m.getOrCreateUserPool(user)
 	if err != nil {
 		return nil, err
 	}

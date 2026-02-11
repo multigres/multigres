@@ -60,8 +60,8 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 // Open opens the pool and starts background workers.
 // Must be called before using the pool.
 func (p *Pool) Open() {
-	connector := func(ctx context.Context) (*Conn, error) {
-		conn, err := client.Connect(ctx, p.config.ClientConfig)
+	connector := func(ctx context.Context, poolCtx context.Context) (*Conn, error) {
+		conn, err := client.Connect(ctx, poolCtx, p.config.ClientConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create admin connection: %w", err)
 		}
