@@ -64,7 +64,7 @@ func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *MultiGat
 	return nil, nil
 }
 
-func (m *trackingMockExecutor) RollbackAll(context.Context, *server.Conn, *MultiGatewayConnectionState) error {
+func (m *trackingMockExecutor) ReleaseAll(context.Context, *server.Conn, *MultiGatewayConnectionState) error {
 	return nil
 }
 
@@ -217,13 +217,14 @@ func TestExecuteWithImplicitTransaction_ErrorInExplicitTx(t *testing.T) {
 	}
 	h := newTestHandler(mock)
 	state := NewMultiGatewayConnectionState()
+	conn := newImplicitTxTestConn()
 	// Batch: SELECT 1; BEGIN; SELECT 2
 	// After synthetic BEGIN + SELECT 1, user's BEGIN is skipped (adoption → explicit)
 	// Then SELECT 2 fails → no auto-rollback because we're in explicit tx
 	stmts := parseStmts(t, "SELECT 1; BEGIN; SELECT 2")
 
 	err := h.executeWithImplicitTransaction(
-		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; BEGIN; SELECT 2", stmts,
+		context.Background(), conn, state, "SELECT 1; BEGIN; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
 
@@ -231,6 +232,8 @@ func TestExecuteWithImplicitTransaction_ErrorInExplicitTx(t *testing.T) {
 	require.Contains(t, err.Error(), "query failed")
 	// BEGIN(synthetic), SELECT 1, SELECT 2 (fails) - no auto-ROLLBACK
 	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER"}, stmtDescriptions(mock.executedStmts))
+	// Explicit transaction should transition to aborted state
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
 }
 
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *testing.T) {

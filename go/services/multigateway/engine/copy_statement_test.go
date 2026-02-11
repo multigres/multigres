@@ -146,6 +146,10 @@ func (m *mockIExecute) ConcludeTransaction(
 	return nil
 }
 
+func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+	return nil
+}
+
 // Helper to create a CopyStatement for testing
 func newTestCopyStatement() *CopyStatement {
 	return NewCopyStatement("test_tablegroup", "COPY t FROM STDIN", &ast.CopyStmt{

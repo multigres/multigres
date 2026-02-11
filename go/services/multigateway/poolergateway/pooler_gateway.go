@@ -498,3 +498,18 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	// Delegate to the pooler's QueryService
 	return qs.ConcludeTransaction(ctx, target, options, conclusion)
 }
+
+// ReleaseReservedConnection implements queryservice.QueryService.
+// It forcefully releases a reserved connection regardless of reason.
+func (pg *PoolerGateway) ReleaseReservedConnection(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) error {
+	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	return qs.ReleaseReservedConnection(ctx, target, options)
+}

@@ -66,6 +66,14 @@ service MultiPoolerService {
   // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
   // Returns the reserved state - if non-empty, the connection is still reserved.
   rpc ConcludeTransaction(ConcludeTransactionRequest) returns (ConcludeTransactionResponse);
+
+  // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+  // Used during client disconnect to clean up all reserved connections on the multipooler.
+  // If the connection has a transaction, ROLLBACK is executed.
+  // If the connection has an active COPY, CopyFail is sent.
+  // If the connection has portals, they are released.
+  // If any cleanup step fails, the connection is tainted and closed.
+  rpc ReleaseReservedConnection(ReleaseReservedConnectionRequest) returns (ReleaseReservedConnectionResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -347,4 +355,23 @@ message ConcludeTransactionResponse {
   // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
   // is still reserved. Zero means the connection was released and ScatterConn should clear its state.
   uint32 remaining_reasons = 2;
+}
+
+// ReleaseReservedConnectionRequest requests forceful release of a reserved connection.
+// The multipooler will handle all cleanup internally (rollback, COPY abort, portal release).
+// If any cleanup step fails, the connection is tainted and closed so the pool creates a fresh one.
+message ReleaseReservedConnectionRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection
+  query.ExecuteOptions options = 3;
+}
+
+// ReleaseReservedConnectionResponse is the response from releasing a reserved connection.
+// Intentionally minimal since this is a forceful cleanup operation.
+message ReleaseReservedConnectionResponse {
 }

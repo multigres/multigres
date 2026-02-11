@@ -554,6 +554,45 @@ func (sc *ScatterConn) CopyAbort(
 	return nil
 }
 
+// ReleaseAllReservedConnections forcefully releases all reserved connections.
+// Iterates all shard states and calls ReleaseReservedConnection on the multipooler
+// for each one. Errors are logged but do not stop the iteration (best-effort).
+// After the loop, all local shard state is cleared.
+func (sc *ScatterConn) ReleaseAllReservedConnections(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+) error {
+	for _, ss := range state.ShardStates {
+		if ss.ReservedConnectionId == 0 {
+			continue
+		}
+
+		eo := &query.ExecuteOptions{
+			User:                 conn.User(),
+			SessionSettings:      state.GetSessionSettings(),
+			ReservedConnectionId: uint64(ss.ReservedConnectionId),
+		}
+
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, ss.Target)
+		if err != nil {
+			sc.logger.ErrorContext(ctx, "release: pooler lookup failed",
+				"target", ss.Target, "error", err)
+			continue
+		}
+
+		if err := qs.ReleaseReservedConnection(ctx, ss.Target, eo); err != nil {
+			sc.logger.ErrorContext(ctx, "release: RPC failed",
+				"target", ss.Target,
+				"reserved_conn_id", ss.ReservedConnectionId,
+				"error", err)
+		}
+	}
+
+	state.ClearAllReservedConnections()
+	return nil
+}
+
 // Ensure ScatterConn implements engine.IExecute interface.
 // This will be checked at compile time.
 var _ engine.IExecute = (*ScatterConn)(nil)

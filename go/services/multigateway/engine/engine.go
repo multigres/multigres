@@ -119,6 +119,21 @@ type IExecute interface {
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
+	// ReleaseAllReservedConnections forcefully releases ALL reserved connections,
+	// regardless of reservation reason. Iterates all shard states and calls
+	// ReleaseReservedConnection on the multipooler for each one, then clears
+	// local shard state. Used during client disconnect cleanup.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   conn: Client connection (for user/session info)
+	//   state: Connection state containing all reserved connections to release
+	ReleaseAllReservedConnections(
+		ctx context.Context,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+	) error
+
 	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---
 	// These methods follow the same pattern as StreamExecute: they take tableGroup/shard
 	// and manage reserved connection state internally via state.ShardStates.

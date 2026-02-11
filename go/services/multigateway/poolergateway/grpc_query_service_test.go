@@ -158,6 +158,10 @@ func (m *mockMultiPoolerServiceClient) ConcludeTransaction(ctx context.Context, 
 	return m.concludeResponse, nil
 }
 
+func (m *mockMultiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *multipoolerservice.ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*multipoolerservice.ReleaseReservedConnectionResponse, error) {
+	return &multipoolerservice.ReleaseReservedConnectionResponse{}, nil
+}
+
 // Ensure mockMultiPoolerServiceClient implements the interface
 var _ multipoolerservice.MultiPoolerServiceClient = (*mockMultiPoolerServiceClient)(nil)
 

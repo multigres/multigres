@@ -394,3 +394,17 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 		RemainingReasons: remainingReasons,
 	}, nil
 }
+
+// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return nil, errors.New("executor not initialized")
+	}
+
+	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
+		return nil, err
+	}
+
+	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil
+}

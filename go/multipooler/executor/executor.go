@@ -823,5 +823,73 @@ func (e *Executor) ConcludeTransaction(
 	return result, remainingReasons, nil
 }
 
+// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+// Used during client disconnect cleanup. Handles transaction rollback, COPY abort,
+// and portal release internally. If any cleanup step fails, the connection is
+// tainted and closed so the pool creates a fresh one.
+func (e *Executor) ReleaseReservedConnection(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil // Nothing to release
+	}
+
+	user := e.getUserFromOptions(options)
+
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		// Already cleaned up or timed out
+		return nil
+	}
+
+	e.logger.DebugContext(ctx, "releasing reserved connection",
+		"user", user,
+		"reserved_conn_id", options.ReservedConnectionId,
+		"reasons", protoutil.ReasonsString(reservedConn.RemainingReasons()))
+
+	cleanupFailed := false
+
+	// Step 1: If there's a transaction, rollback.
+	if reservedConn.IsInTransaction() {
+		if err := reservedConn.Rollback(ctx); err != nil {
+			e.logger.ErrorContext(ctx, "rollback failed during release",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		}
+	}
+
+	// Step 2: If there's a COPY reason, send CopyFail and read the response.
+	if !cleanupFailed && protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
+		conn := reservedConn.Conn()
+		if err := conn.WriteCopyFail("connection closing"); err != nil {
+			e.logger.ErrorContext(ctx, "CopyFail write failed during release",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		} else if _, _, err := conn.ReadCopyDoneResponse(ctx); err != nil {
+			e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		}
+	}
+
+	// Step 3: Release all portals (in-memory only, always succeeds).
+	reservedConn.ReleaseAllPortals()
+
+	// Step 4: Release or close the connection.
+	if cleanupFailed {
+		reservedConn.Close()
+	} else {
+		reservedConn.Release(reserved.ReleaseRollback)
+	}
+
+	e.logger.DebugContext(ctx, "reserved connection released",
+		"reserved_conn_id", options.ReservedConnectionId,
+		"cleanup_failed", cleanupFailed)
+
+	return nil
+}
+
 // Ensure Executor implements queryservice.QueryService
 var _ queryservice.QueryService = (*Executor)(nil)

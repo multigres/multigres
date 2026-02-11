@@ -42,9 +42,12 @@ type Executor interface {
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 
-	// RollbackAll rolls back all reserved connections with the transaction reason.
-	// Used for connection cleanup when a client disconnects mid-transaction.
-	RollbackAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error
+	// ReleaseAll releases all reserved connections, regardless of reservation reason.
+	// For transaction-reserved connections, a ROLLBACK is sent first.
+	// For COPY-reserved connections, the COPY is aborted.
+	// Any remaining reserved connections are force-cleared.
+	// Used for connection cleanup when a client disconnects.
+	ReleaseAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -270,31 +273,28 @@ func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn)
 }
 
 // ConnectionClosed is called when a client connection is closed.
-// It cleans up any reserved connections (rolling back active transactions)
+// It releases all reserved connections (rolling back transactions, aborting COPYs)
 // and removes prepared statement state.
 func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
+	// Release reserved connections if connection state exists.
 	connState := conn.GetConnectionState()
-	if connState == nil {
-		return
-	}
-
-	state, ok := connState.(*MultiGatewayConnectionState)
-	if !ok || state == nil {
-		return
-	}
-
-	// If there are reserved connections with active transactions, roll them back.
-	if len(state.ShardStates) > 0 && conn.IsInTransaction() {
-		h.logger.Debug("rolling back transaction on client disconnect",
-			"connection_id", conn.ConnectionID())
-		if err := h.executor.RollbackAll(conn.Context(), conn, state); err != nil {
-			h.logger.Error("failed to rollback on client disconnect",
+	if connState != nil {
+		state, ok := connState.(*MultiGatewayConnectionState)
+		if ok && state != nil && len(state.ShardStates) > 0 {
+			// Release all reserved connections regardless of reason (transaction, COPY, portal).
+			// Use a background context since the connection's context may already be cancelled.
+			h.logger.Debug("releasing reserved connections on client disconnect",
 				"connection_id", conn.ConnectionID(),
-				"error", err)
+				"shard_states", len(state.ShardStates))
+			if err := h.executor.ReleaseAll(conn.Context(), conn, state); err != nil {
+				h.logger.Error("failed to release connections on client disconnect",
+					"connection_id", conn.ConnectionID(),
+					"error", err)
+			}
 		}
 	}
 
-	// Clean up prepared statements for this connection.
+	// Always clean up prepared statements for this connection.
 	h.psc.RemoveConnection(conn.ConnectionID())
 }
 

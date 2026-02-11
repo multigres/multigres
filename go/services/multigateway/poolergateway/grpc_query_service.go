@@ -643,5 +643,46 @@ func (g *grpcQueryService) ConcludeTransaction(
 	return result, remainingReasons, nil
 }
 
+// ReleaseReservedConnection forcefully releases a reserved connection.
+func (g *grpcQueryService) ReleaseReservedConnection(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil
+	}
+
+	g.logger.DebugContext(ctx, "releasing reserved connection",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	// Clean up any stale COPY stream for this connection.
+	g.copyStreamsMu.Lock()
+	if stream, ok := g.copyStreams[options.ReservedConnectionId]; ok {
+		delete(g.copyStreams, options.ReservedConnectionId)
+		_ = stream.CloseSend()
+	}
+	g.copyStreamsMu.Unlock()
+
+	req := &multipoolerservice.ReleaseReservedConnectionRequest{
+		Target:  target,
+		Options: options,
+	}
+
+	_, err := g.client.ReleaseReservedConnection(ctx, req)
+	if err != nil {
+		return fmt.Errorf("release reserved connection failed: %w", err)
+	}
+
+	g.logger.DebugContext(ctx, "reserved connection released",
+		"pooler_id", g.poolerID,
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	return nil
+}
+
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)

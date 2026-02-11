@@ -123,6 +123,10 @@ func (m *mockGateway) CopyAbort(context.Context, *query.Target, string, *query.E
 	return nil
 }
 
+func (m *mockGateway) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions) error {
+	return nil
+}
+
 func (m *mockGateway) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion) (*sqltypes.Result, uint32, error) {
 	return nil, 0, nil
 }

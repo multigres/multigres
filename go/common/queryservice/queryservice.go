@@ -226,4 +226,19 @@ type QueryService interface {
 		options *query.ExecuteOptions,
 		conclusion multipoolerpb.TransactionConclusion,
 	) (result *sqltypes.Result, remainingReasons uint32, err error)
+
+	// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+	// Used during client disconnect cleanup. The multipooler handles all cleanup internally:
+	// transaction rollback, COPY abort, portal release. If any cleanup step fails,
+	// the connection is tainted and closed so the pool creates a fresh one.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   target: Target specifying tablegroup, shard, and pooler type
+	//   options: Execute options including reserved connection ID
+	ReleaseReservedConnection(
+		ctx context.Context,
+		target *query.Target,
+		options *query.ExecuteOptions,
+	) error
 }
