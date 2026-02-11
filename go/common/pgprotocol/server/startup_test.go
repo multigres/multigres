@@ -665,6 +665,68 @@ func TestAuthenticationMessages(t *testing.T) {
 	assert.Equal(t, uint32(67890), secretKey)
 }
 
+func TestGetStartupParams(t *testing.T) {
+	tests := []struct {
+		name     string
+		params   map[string]string
+		expected map[string]string
+	}{
+		{
+			name: "excludes user and database",
+			params: map[string]string{
+				"user":             "postgres",
+				"database":         "testdb",
+				"application_name": "psql",
+				"client_encoding":  "UTF8",
+			},
+			expected: map[string]string{
+				"application_name": "psql",
+				"client_encoding":  "UTF8",
+			},
+		},
+		{
+			name: "only user and database returns nil",
+			params: map[string]string{
+				"user":     "postgres",
+				"database": "testdb",
+			},
+			expected: nil,
+		},
+		{
+			name:     "empty params returns nil",
+			params:   map[string]string{},
+			expected: nil,
+		},
+		{
+			name: "no user or database returns all params",
+			params: map[string]string{
+				"application_name": "myapp",
+				"DateStyle":        "German",
+			},
+			expected: map[string]string{
+				"application_name": "myapp",
+				"DateStyle":        "German",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Conn{
+				params: tt.params,
+			}
+			result := c.GetStartupParams()
+			assert.Equal(t, tt.expected, result)
+
+			// Verify returned map is a copy (not a reference to internal state).
+			if result != nil {
+				result["extra"] = "value"
+				assert.NotContains(t, c.params, "extra")
+			}
+		})
+	}
+}
+
 func TestCancelRequest(t *testing.T) {
 	// Create mock connection.
 	mock := newMockConn()
