@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -73,10 +74,13 @@ func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 }
 
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
-// PostgreSQL returns SQLSTATE 25P02 for this condition; once PgError propagation lands, this
-// will carry the correct code. For now clients see the message in the ErrorResponse.
-// TODO: Use mterrors error
-var errAbortedTransaction = errors.New("current transaction is aborted, commands ignored until end of transaction block")
+// PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
+var errAbortedTransaction = &mterrors.PgDiagnostic{
+	MessageType: 'E',
+	Severity:    "ERROR",
+	Code:        "25P02",
+	Message:     "current transaction is aborted, commands ignored until end of transaction block",
+}
 
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.

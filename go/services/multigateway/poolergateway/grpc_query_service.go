@@ -613,7 +613,13 @@ func (g *grpcQueryService) ReserveStreamExecute(
 	// Call the gRPC ReserveStreamExecute
 	stream, err := g.client.ReserveStreamExecute(ctx, req)
 	if err != nil {
-		return queryservice.ReservedState{}, fmt.Errorf("failed to start reserve stream execute: %w", err)
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return queryservice.ReservedState{}, grpcErr
+		}
+		return queryservice.ReservedState{}, mterrors.Wrapf(grpcErr, "failed to start reserve stream execute")
 	}
 
 	var reservedState queryservice.ReservedState
@@ -626,7 +632,13 @@ func (g *grpcQueryService) ReserveStreamExecute(
 			return reservedState, nil
 		}
 		if err != nil {
-			return reservedState, fmt.Errorf("reserve stream receive error: %w", err)
+			// Convert gRPC error - if it's a PostgreSQL error, preserve it
+			grpcErr := mterrors.FromGRPC(err)
+			var pgDiag *mterrors.PgDiagnostic
+			if errors.As(grpcErr, &pgDiag) {
+				return reservedState, grpcErr
+			}
+			return reservedState, mterrors.Wrapf(grpcErr, "reserve stream receive error")
 		}
 
 		// Extract reserved state from response

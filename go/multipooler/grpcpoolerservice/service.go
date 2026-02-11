@@ -405,7 +405,7 @@ func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExe
 		},
 	)
 	if err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Send final response with reserved connection ID
