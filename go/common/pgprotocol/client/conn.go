@@ -115,7 +115,10 @@ type Conn struct {
 // Connect establishes a new connection to a PostgreSQL server.
 // If config.SocketFile is set, connects via Unix socket.
 // Otherwise, connects via TCP to config.Host:config.Port.
-func Connect(ctx context.Context, config *Config) (*Conn, error) {
+// ctx is used for dial and startup operations.
+// poolCtx is used as the parent for the connection's lifetime context,
+// allowing pool-managed connections to be tied to the pool's lifecycle.
+func Connect(ctx context.Context, poolCtx context.Context, config *Config) (*Conn, error) {
 	dialer := &net.Dialer{
 		Timeout: config.DialTimeout,
 	}
@@ -139,7 +142,8 @@ func Connect(ctx context.Context, config *Config) (*Conn, error) {
 	}
 
 	// Create the connection object.
-	connCtx, cancel := context.WithCancel(context.TODO())
+	// The connection's lifetime is tied to poolCtx, not the caller's ctx.
+	connCtx, cancel := context.WithCancel(poolCtx)
 	c := &Conn{
 		conn:           netConn,
 		bufferedReader: bufio.NewReaderSize(netConn, connBufferSize),

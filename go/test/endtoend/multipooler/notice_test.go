@@ -39,7 +39,7 @@ func TestPgProtocolClientNotices(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",
@@ -226,7 +226,7 @@ func TestPgProtocolClientNoticesExtendedQuery(t *testing.T) {
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, err := client.Connect(ctx, &client.Config{
+	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
 		User:        "postgres",
