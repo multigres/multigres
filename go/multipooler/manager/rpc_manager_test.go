@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1060,6 +1061,129 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	// Note: PostgreSQL was promoted but we return error to indicate the promotion is incomplete.
 	// The coordinator should handle this partial promotion state (e.g., retry or repair).
 	// The mock expectations should still be met (all queries were executed).
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+// TestPromote_TopologyUpdateFailureDoesNotFailPromotion tests that a topo failure
+// during updateTopologyAfterPromotion does not fail the overall Promote operation.
+func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
+	ctx := context.Background()
+
+	mockQueryService := mock.NewQueryService()
+
+	// Startup heartbeat check
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// checkPromotionState
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// waitForPromotionComplete
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+
+	// Validate expected LSN
+	mockQueryService.AddQueryPatternOnce("SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/ABCDEF0", "t"}}))
+
+	// pg_promote()
+	mockQueryService.AddQueryPatternOnce("SELECT pg_promote",
+		mock.MakeQueryResult(nil, nil))
+
+	// Clear primary_conninfo after promotion
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_reload_conf",
+		mock.MakeQueryResult(nil, nil))
+
+	// Get final LSN
+	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
+		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/ABCDEF0"}}))
+
+	// insertLeadershipHistory
+	expectLeadershipHistoryInsert(mockQueryService)
+
+	// Inline setup (like setupPromoteTestManager but capturing factory)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ts, factory := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
+	t.Cleanup(cleanupPgctld)
+
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-replica",
+	}
+
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:            serviceID,
+		Database:      database,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		TableGroup:    constants.DefaultTableGroup,
+		Shard:         constants.DefaultShard,
+	}
+	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+
+	tmpDir := t.TempDir()
+	pgDataDir := filepath.Join(tmpDir, "pg_data")
+	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	multipooler.PoolerDir = tmpDir
+
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: pgctldAddr,
+	}
+	pm, err := NewMultiPoolerManager(logger, multipooler, config)
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.Close() })
+
+	err = pm.setInitialized()
+	require.NoError(t, err)
+
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	go pm.Start(senv)
+
+	require.Eventually(t, func() bool {
+		return pm.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
+	setTermForTest(t, tmpDir, term)
+
+	pm.mu.Lock()
+	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.mu.Unlock()
+
+	_, err = pm.consensusState.Load()
+	require.NoError(t, err)
+
+	// Inject topo failure before calling Promote
+	factory.SetError(errors.New("topo unavailable"))
+
+	// Promote should succeed despite topo failure
+	resp, err := pm.Promote(ctx, 10, "0/ABCDEF0", nil, false, "test_reason", "test_coordinator", nil, nil)
+	require.NoError(t, err, "Promote should succeed even when topology update fails")
+	require.NotNil(t, resp)
+
+	assert.False(t, resp.WasAlreadyPrimary)
+	assert.Equal(t, int64(10), resp.ConsensusTerm)
+	assert.Equal(t, "0/ABCDEF0", resp.LsnPosition)
+
+	// Local state should still be updated to PRIMARY
+	pm.mu.Lock()
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
+	pm.mu.Unlock()
+
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
