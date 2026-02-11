@@ -310,6 +310,50 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	return nil
 }
 
+// waitForReplayCatchup waits for WAL replay to catch up with received WAL.
+// After the receiver is disconnected, replay continues processing buffered WAL.
+// This method polls until pg_last_wal_replay_lsn() >= targetLsn.
+func (pm *MultiPoolerManager) waitForReplayCatchup(ctx context.Context, targetLsn string) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	if targetLsn == "" {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "target LSN is empty, cannot wait for replay catchup")
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if waitCtx.Err() == context.DeadlineExceeded {
+				pm.logger.ErrorContext(ctx, "Timeout waiting for replay to catch up", "target_lsn", targetLsn)
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for replay to catch up with received WAL")
+			}
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay catchup")
+
+		case <-ticker.C:
+			reached, err := pm.checkLSNReached(waitCtx, targetLsn)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "Failed to check replay LSN", "error", err)
+				return nil, err
+			}
+
+			if reached {
+				status, err := pm.queryReplicationStatus(waitCtx)
+				if err != nil {
+					return nil, err
+				}
+				pm.logger.InfoContext(ctx, "Replay caught up with received WAL",
+					"last_replay_lsn", status.LastReplayLsn,
+					"target_lsn", targetLsn)
+				return status, nil
+			}
+		}
+	}
+}
+
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
 // It polls pg_stat_wal_receiver to confirm the receiver has stopped.
 func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {

@@ -172,24 +172,30 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		response.WalPosition.CurrentLsn = demoteResp.LsnPosition
 		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
 	} else {
-		// Revoke standby: pause replication to break connection with old primary
+		// Revoke standby: stop receiver and wait for replay to catch up
 		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
 
-		// First, pause replication to break connection with old primary
-		_, err := pm.pauseReplication(
+		// Stop WAL receiver and wait for it to fully disconnect
+		status, err := pm.pauseReplication(
 			ctx,
 			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-			false)
+			true)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to pause replication during revoke")
 		}
-		// Standby: use last receive position (includes unreplayed WAL)
-		status, err := pm.queryReplicationStatus(ctx)
-		if err == nil {
-			response.WalPosition.LastReceiveLsn = status.LastReceiveLsn
-			response.WalPosition.LastReplayLsn = status.LastReplayLsn
+
+		// Wait for replay to catch up with all received WAL before reporting positions
+		status, err = pm.waitForReplayCatchup(ctx, status.LastReceiveLsn)
+		if err != nil {
+			return mterrors.Wrap(err, "failed waiting for replay to catch up during revoke")
 		}
-		pm.logger.InfoContext(ctx, "Standby replication paused", "term", term)
+
+		response.WalPosition.LastReceiveLsn = status.LastReceiveLsn
+		response.WalPosition.LastReplayLsn = status.LastReplayLsn
+		pm.logger.InfoContext(ctx, "Standby revoke complete",
+			"term", term,
+			"last_receive_lsn", status.LastReceiveLsn,
+			"last_replay_lsn", status.LastReplayLsn)
 	}
 
 	return nil

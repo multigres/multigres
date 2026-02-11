@@ -611,7 +611,43 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
+	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+
+	t.Run("BeginTerm_RevokeStandby_ReplayCatchesUp", func(t *testing.T) {
+		setupPoolerTest(t, setup)
+
+		// Verify standby is replicating
+		statusResp, err := standbyConsensusClient.Status(utils.WithShortDeadline(t), &consensusdatapb.StatusRequest{})
+		require.NoError(t, err)
+		require.Equal(t, "replica", statusResp.Role)
+		currentTerm := statusResp.CurrentTerm
+
+		// Send BeginTerm REVOKE to standby
+		newTerm := currentTerm + 100
+		resp, err := standbyConsensusClient.BeginTerm(utils.WithTimeout(t, 30*time.Second), &consensusdatapb.BeginTermRequest{
+			Term: newTerm,
+			CandidateId: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIORCH,
+				Cell:      "test-cell",
+				Name:      "test-coordinator-standby-revoke",
+			},
+			ShardId: "test-shard",
+			Action:  consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+		})
+		require.NoError(t, err, "BeginTerm REVOKE on standby should succeed")
+		require.NotNil(t, resp)
+
+		assert.True(t, resp.Accepted, "Standby should accept the higher term")
+		assert.Equal(t, newTerm, resp.Term)
+
+		// Verify WAL positions are present and replay caught up with received
+		require.NotNil(t, resp.WalPosition, "Standby should include WAL position after revoke")
+		assert.NotEmpty(t, resp.WalPosition.LastReceiveLsn, "LastReceiveLsn should not be empty")
+		assert.NotEmpty(t, resp.WalPosition.LastReplayLsn, "LastReplayLsn should not be empty")
+		assert.Equal(t, resp.WalPosition.LastReceiveLsn, resp.WalPosition.LastReplayLsn,
+			"Replay LSN must equal receive LSN after revoke (all received WAL must be applied)")
+	})
 
 	t.Run("BeginTerm_AutoEmergencyDemotesPrimary", func(t *testing.T) {
 		setupPoolerTest(t, setup)
