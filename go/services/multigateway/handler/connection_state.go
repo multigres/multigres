@@ -44,6 +44,10 @@ type MultiGatewayConnectionState struct {
 	// It keeps track of any reserved connections on each Shard currently open.
 	ShardStates []*ShardState
 
+	// StartupParams stores startup parameters from the client's StartupMessage.
+	// These are forwarded to the backend for every query.
+	StartupParams map[string]string
+
 	// SessionSettings stores session variables set via SET commands.
 	// These settings are propagated to multipooler to ensure the correct
 	// pooled connection (with matching settings) is reused.
@@ -199,6 +203,19 @@ func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, b
 	}
 	value, exists := m.SessionSettings[name]
 	return value, exists
+}
+
+// GetStartupParams returns a copy of the startup parameters.
+// Returns nil if no startup params were set.
+func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.StartupParams) == 0 {
+		return nil
+	}
+	params := make(map[string]string, len(m.StartupParams))
+	maps.Copy(params, m.StartupParams)
+	return params
 }
 
 // RestoreSessionSettings replaces the current session settings with a new map.
