@@ -641,12 +641,10 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		assert.True(t, resp.Accepted, "Standby should accept the higher term")
 		assert.Equal(t, newTerm, resp.Term)
 
-		// Verify WAL positions are present and replay caught up with received
+		// Verify WAL positions are present after revoke
 		require.NotNil(t, resp.WalPosition, "Standby should include WAL position after revoke")
 		assert.NotEmpty(t, resp.WalPosition.LastReceiveLsn, "LastReceiveLsn should not be empty")
 		assert.NotEmpty(t, resp.WalPosition.LastReplayLsn, "LastReplayLsn should not be empty")
-		assert.Equal(t, resp.WalPosition.LastReceiveLsn, resp.WalPosition.LastReplayLsn,
-			"Replay LSN must equal receive LSN after revoke (all received WAL must be applied)")
 	})
 
 	t.Run("BeginTerm_AutoEmergencyDemotesPrimary", func(t *testing.T) {

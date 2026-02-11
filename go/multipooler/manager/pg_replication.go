@@ -310,46 +310,51 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	return nil
 }
 
-// waitForReplayCatchup waits for WAL replay to catch up with received WAL.
-// After the receiver is disconnected, replay continues processing buffered WAL.
-// This method polls until pg_last_wal_replay_lsn() >= targetLsn.
-func (pm *MultiPoolerManager) waitForReplayCatchup(ctx context.Context, targetLsn string) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	if targetLsn == "" {
-		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "target LSN is empty, cannot wait for replay catchup")
-	}
-
+// waitForReplayStabilize waits for WAL replay to finish processing all buffered WAL.
+// After the receiver is disconnected, replay continues processing buffered records.
+// Since pg_last_wal_receive_lsn() is at byte granularity (can point mid-record) while
+// replay advances at record boundaries, we cannot compare them directly. Instead, we
+// wait for replay_lsn to stabilize (same value on two consecutive polls).
+func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
+
+	const requiredStablePolls = 2
+	var prevReplayLsn string
+	stableCount := 0
 
 	for {
 		select {
 		case <-waitCtx.Done():
 			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.ErrorContext(ctx, "Timeout waiting for replay to catch up", "target_lsn", targetLsn)
-				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for replay to catch up with received WAL")
+				pm.logger.ErrorContext(ctx, "Timeout waiting for replay to stabilize",
+					"last_replay_lsn", prevReplayLsn)
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to stabilize")
 			}
-			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay catchup")
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay to stabilize")
 
 		case <-ticker.C:
-			reached, err := pm.checkLSNReached(waitCtx, targetLsn)
+			status, err := pm.queryReplicationStatus(waitCtx)
 			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to check replay LSN", "error", err)
+				pm.logger.ErrorContext(ctx, "Failed to query replication status", "error", err)
 				return nil, err
 			}
 
-			if reached {
-				status, err := pm.queryReplicationStatus(waitCtx)
-				if err != nil {
-					return nil, err
+			if status.LastReplayLsn == prevReplayLsn && prevReplayLsn != "" {
+				stableCount++
+				if stableCount >= requiredStablePolls {
+					pm.logger.InfoContext(ctx, "WAL replay stabilized",
+						"last_replay_lsn", status.LastReplayLsn,
+						"last_receive_lsn", status.LastReceiveLsn)
+					return status, nil
 				}
-				pm.logger.InfoContext(ctx, "Replay caught up with received WAL",
-					"last_replay_lsn", status.LastReplayLsn,
-					"target_lsn", targetLsn)
-				return status, nil
+			} else {
+				stableCount = 0
 			}
+			prevReplayLsn = status.LastReplayLsn
 		}
 	}
 }

@@ -176,7 +176,7 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
 
 		// Stop WAL receiver and wait for it to fully disconnect
-		status, err := pm.pauseReplication(
+		_, err := pm.pauseReplication(
 			ctx,
 			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 			true)
@@ -184,10 +184,10 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 			return mterrors.Wrap(err, "failed to pause replication during revoke")
 		}
 
-		// Wait for replay to catch up with all received WAL before reporting positions
-		status, err = pm.waitForReplayCatchup(ctx, status.LastReceiveLsn)
+		// Wait for replay to finish processing all buffered WAL
+		status, err := pm.waitForReplayStabilize(ctx)
 		if err != nil {
-			return mterrors.Wrap(err, "failed waiting for replay to catch up during revoke")
+			return mterrors.Wrap(err, "failed waiting for replay to stabilize during revoke")
 		}
 
 		response.WalPosition.LastReceiveLsn = status.LastReceiveLsn

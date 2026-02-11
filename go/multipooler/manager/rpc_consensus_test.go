@@ -49,7 +49,7 @@ func expectPrimaryStartupQueries(m *mock.QueryService) {
 }
 
 // expectStandbyRevokeMocks sets up mock expectations for the standby revoke path:
-// receiver disconnect, wait for disconnect, replay catchup, and final status.
+// receiver disconnect, wait for disconnect, and replay stabilization.
 func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"}
 	replStatusRow := [][]any{{lsn, lsn, false, "not paused", nil, "", nil}}
@@ -65,9 +65,10 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
-	// checkLSNReached (from waitForReplayCatchup) — must be before the next pg_last_wal_replay_lsn pattern
-	m.AddQueryPatternOnce("pg_last_wal_replay_lsn.*>=", mock.MakeQueryResult([]string{"reached"}, [][]any{{true}}))
-	// queryReplicationStatus (from waitForReplayCatchup)
+	// waitForReplayStabilize: three consecutive polls returning the same replay_lsn
+	// (first establishes baseline, next two confirm stability)
+	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
+	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 }
 
