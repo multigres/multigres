@@ -95,4 +95,10 @@ type Handler interface {
 	// HandleSync processes a Sync message ('S').
 	// Called at the end of an extended query cycle to indicate transaction boundary.
 	HandleSync(ctx context.Context, conn *Conn) error
+
+	// ConnectionClosed is called when a client connection is closed.
+	// The handler should clean up any connection-specific state, such as
+	// rolling back active transactions and releasing reserved connections.
+	// The connection's context may already be cancelled at this point.
+	ConnectionClosed(conn *Conn)
 }

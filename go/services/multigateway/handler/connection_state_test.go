@@ -15,11 +15,14 @@
 package handler
 
 import (
+	"bytes"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -178,52 +181,22 @@ func newTestTarget(tableGroup string) *query.Target {
 	}
 }
 
-func TestTransactionState_InitialState(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
-
-	require.Equal(t, TxStateIdle, state.GetTransactionState())
-	require.False(t, state.IsInTransaction())
-}
-
-func TestTransactionState_Transitions(t *testing.T) {
+func TestIsInTransaction(t *testing.T) {
 	tests := []struct {
-		name     string
-		from     TransactionState
-		to       TransactionState
-		expected TransactionState
+		name      string
+		txnStatus protocol.TransactionStatus
+		expected  bool
 	}{
-		{"Idle to InTransaction", TxStateIdle, TxStateInTransaction, TxStateInTransaction},
-		{"InTransaction to Idle", TxStateInTransaction, TxStateIdle, TxStateIdle},
-		{"InTransaction to Aborted", TxStateInTransaction, TxStateAborted, TxStateAborted},
-		{"Aborted to Idle", TxStateAborted, TxStateIdle, TxStateIdle},
+		{"Idle", protocol.TxnStatusIdle, false},
+		{"InTransaction", protocol.TxnStatusInBlock, true},
+		{"Failed", protocol.TxnStatusFailed, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state := NewMultiGatewayConnectionState()
-			state.SetTransactionState(tt.from)
-			state.SetTransactionState(tt.to)
-			require.Equal(t, tt.expected, state.GetTransactionState())
-		})
-	}
-}
-
-func TestTransactionState_IsInTransaction(t *testing.T) {
-	tests := []struct {
-		name     string
-		txState  TransactionState
-		expected bool
-	}{
-		{"Idle", TxStateIdle, false},
-		{"InTransaction", TxStateInTransaction, true},
-		{"Aborted", TxStateAborted, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			state := NewMultiGatewayConnectionState()
-			state.SetTransactionState(tt.txState)
-			require.Equal(t, tt.expected, state.IsInTransaction())
+			tc := server.NewTestConn(&bytes.Buffer{})
+			tc.Conn.SetTxnStatus(tt.txnStatus)
+			require.Equal(t, tt.expected, tc.Conn.IsInTransaction())
 		})
 	}
 }
@@ -272,30 +245,6 @@ func TestTransactionState_ShardStateOperations(t *testing.T) {
 	state.ClearReservedConnection(target)
 	require.Nil(t, state.GetMatchingShardState(target))
 	require.Empty(t, state.ShardStates)
-}
-
-func TestTransactionState_ConcurrentTransactionStateAccess(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
-	var wg sync.WaitGroup
-	numGoroutines := 20
-
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			if id%2 == 0 {
-				state.SetTransactionState(TxStateInTransaction)
-				_ = state.IsInTransaction()
-				state.SetTransactionState(TxStateIdle)
-			} else {
-				_ = state.GetTransactionState()
-				_ = state.IsInTransaction()
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	// No race panic means success; final state is indeterminate but valid
 }
 
 func TestMultiGatewayConnectionState_PortalInfoIntegrity(t *testing.T) {

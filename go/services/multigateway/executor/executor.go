@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -150,6 +151,18 @@ func (e *Executor) Describe(
 	// We just send the query to the default table group.
 
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, preparedStatementInfo)
+}
+
+// RollbackAll rolls back all reserved connections that have the transaction reason.
+// Used for connection cleanup when a client disconnects mid-transaction.
+func (e *Executor) RollbackAll(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+) error {
+	return e.exec.ConcludeTransaction(ctx, conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		func(context.Context, *sqltypes.Result) error { return nil })
 }
 
 // Ensure Executor implements handler.Executor interface.

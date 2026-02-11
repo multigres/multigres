@@ -175,6 +175,27 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 	}
 }
 
+// RemoveConnection removes all prepared statements associated with a connection.
+// This should be called when a client connection is closed.
+func (psc *Consolidator) RemoveConnection(connId uint32) {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+
+	connStmts, exists := psc.incoming[connId]
+	if !exists {
+		return
+	}
+
+	for _, psi := range connStmts {
+		psc.usageCount[psi]--
+		if psc.usageCount[psi] == 0 {
+			delete(psc.stmts, psi.Query)
+			delete(psc.usageCount, psi)
+		}
+	}
+	delete(psc.incoming, connId)
+}
+
 // Stats returns statistics about the consolidator's current state.
 func (psc *Consolidator) Stats() ConsolidatorStats {
 	psc.mu.Lock()

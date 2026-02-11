@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -63,7 +64,7 @@ func (t *TransactionPrimitive) StreamExecute(
 ) error {
 	switch t.Kind {
 	case ast.TRANS_STMT_BEGIN, ast.TRANS_STMT_START:
-		return t.executeBegin(ctx, state, callback)
+		return t.executeBegin(ctx, conn, callback)
 
 	case ast.TRANS_STMT_COMMIT:
 		return t.executeCommit(ctx, exec, conn, state, callback)
@@ -82,11 +83,11 @@ func (t *TransactionPrimitive) StreamExecute(
 // will be sent atomically with the first real query.
 func (t *TransactionPrimitive) executeBegin(
 	ctx context.Context,
-	state *handler.MultiGatewayConnectionState,
+	conn *server.Conn,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// Set transaction state (deferred - no backend call yet)
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
 	// Return synthetic result to client
 	return callback(ctx, &sqltypes.Result{
@@ -105,7 +106,7 @@ func (t *TransactionPrimitive) executeCommit(
 	// If no reserved connections, just return synthetic result
 	// (empty transaction or deferred BEGIN that was never used)
 	if len(state.ShardStates) == 0 {
-		state.SetTransactionState(handler.TxStateIdle)
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
 		return callback(ctx, &sqltypes.Result{
 			CommandTag: "COMMIT",
 		})
@@ -119,7 +120,7 @@ func (t *TransactionPrimitive) executeCommit(
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, callback)
 
 	// Reset transaction state regardless of error.
-	state.SetTransactionState(handler.TxStateIdle)
+	conn.SetTxnStatus(protocol.TxnStatusIdle)
 
 	return err
 }
@@ -134,7 +135,7 @@ func (t *TransactionPrimitive) executeRollback(
 ) error {
 	// If no reserved connections, just return synthetic result
 	if len(state.ShardStates) == 0 {
-		state.SetTransactionState(handler.TxStateIdle)
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
 		return callback(ctx, &sqltypes.Result{
 			CommandTag: "ROLLBACK",
 		})
@@ -148,7 +149,7 @@ func (t *TransactionPrimitive) executeRollback(
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, callback)
 
 	// Reset transaction state regardless of error.
-	state.SetTransactionState(handler.TxStateIdle)
+	conn.SetTxnStatus(protocol.TxnStatusIdle)
 
 	return err
 }

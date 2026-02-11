@@ -25,18 +25,6 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// TransactionState represents the current transaction state of a connection.
-type TransactionState int
-
-const (
-	// TxStateIdle indicates no active transaction.
-	TxStateIdle TransactionState = iota
-	// TxStateInTransaction indicates an active transaction (after BEGIN, before COMMIT/ROLLBACK).
-	TxStateInTransaction
-	// TxStateAborted indicates a failed transaction that requires ROLLBACK.
-	TxStateAborted
-)
-
 // MultiGatewayConnectionState keeps track of the information specific
 // to each connection.
 type MultiGatewayConnectionState struct {
@@ -61,10 +49,6 @@ type MultiGatewayConnectionState struct {
 	// pooled connection (with matching settings) is reused.
 	// Map keys are variable names, values are the string representation.
 	SessionSettings map[string]string
-
-	// TxState tracks the current transaction state of this connection.
-	// Used for deferred BEGIN execution and transaction management.
-	TxState TransactionState
 }
 
 type ShardState struct {
@@ -269,25 +253,4 @@ func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string
 		m.SessionSettings = make(map[string]string, len(settings))
 		maps.Copy(m.SessionSettings, settings)
 	}
-}
-
-// SetTransactionState sets the transaction state.
-func (m *MultiGatewayConnectionState) SetTransactionState(state TransactionState) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.TxState = state
-}
-
-// GetTransactionState returns the current transaction state.
-func (m *MultiGatewayConnectionState) GetTransactionState() TransactionState {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.TxState
-}
-
-// IsInTransaction returns true if the connection is currently in a transaction.
-func (m *MultiGatewayConnectionState) IsInTransaction() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.TxState == TxStateInTransaction || m.TxState == TxStateAborted
 }

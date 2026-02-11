@@ -80,7 +80,7 @@ func (sc *ScatterConn) StreamExecute(
 		"user", conn.User(),
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID(),
-		"in_transaction", state.IsInTransaction())
+		"in_transaction", conn.IsInTransaction())
 
 	// Create target for routing
 	// TODO: Add query analysis to determine if this is a read or write query
@@ -116,7 +116,7 @@ func (sc *ScatterConn) StreamExecute(
 	}
 
 	// Case 2: In transaction but no reserved connection - create one with BEGIN
-	if state.IsInTransaction() {
+	if conn.IsInTransaction() {
 		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for transaction")
 
 		reservationOpts := protoutil.NewTransactionReservationOptions()

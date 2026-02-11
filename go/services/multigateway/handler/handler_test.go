@@ -68,6 +68,10 @@ func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *M
 	}, nil
 }
 
+func (m *mockExecutor) RollbackAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error {
+	return nil
+}
+
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.
 func TestHandleQueryEmptyQuery(t *testing.T) {
 	logger := slog.Default()

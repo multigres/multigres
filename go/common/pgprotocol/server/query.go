@@ -292,7 +292,7 @@ func (c *Conn) writeReadyForQuery() error {
 	}
 
 	// Write transaction status.
-	if err := writeByte(w, c.txnStatus); err != nil {
+	if err := writeByte(w, byte(c.txnStatus)); err != nil {
 		return err
 	}
 

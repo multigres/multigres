@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -137,7 +138,8 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 	}
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultiGatewayConnectionState()
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
 	target := &query.Target{
 		TableGroup: "tg1",
@@ -148,7 +150,7 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 	}, protoutil.ReasonTransaction)
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", state,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -169,9 +171,10 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	}
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultiGatewayConnectionState()
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", state,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -195,9 +198,10 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	}
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultiGatewayConnectionState()
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", state,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)

@@ -15,6 +15,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -32,6 +34,10 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
+
+func newTxTestConn() *server.Conn {
+	return server.NewTestConn(&bytes.Buffer{}).Conn
+}
 
 // txMockIExecute is a mock IExecute for testing TransactionPrimitive.
 type txMockIExecute struct {
@@ -115,9 +121,10 @@ func (m *txMockIExecute) ConcludeTransaction(
 }
 
 // newTestReservedState creates a state with a reserved connection on the given tableGroup.
-func newTestReservedState(tableGroup string) *handler.MultiGatewayConnectionState {
+// It also sets the conn's txn status to InBlock (in transaction).
+func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultiGatewayConnectionState {
 	state := handler.NewMultiGatewayConnectionState()
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	target := &query.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
@@ -132,16 +139,17 @@ func newTestReservedState(tableGroup string) *handler.MultiGatewayConnectionStat
 func TestTransactionPrimitive_Begin_SetsStateAndReturnsSyntheticResult(t *testing.T) {
 	mockExec := &txMockIExecute{}
 	state := handler.NewMultiGatewayConnectionState()
+	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "BEGIN", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, r *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, handler.TxStateInTransaction, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
 	require.Equal(t, 0, mockExec.streamExecuteCount, "BEGIN should not call backend")
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "BEGIN", callbackResult.CommandTag)
@@ -150,16 +158,17 @@ func TestTransactionPrimitive_Begin_SetsStateAndReturnsSyntheticResult(t *testin
 func TestTransactionPrimitive_StartTransaction(t *testing.T) {
 	mockExec := &txMockIExecute{}
 	state := handler.NewMultiGatewayConnectionState()
+	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_START, "START TRANSACTION", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, r *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, handler.TxStateInTransaction, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
 	require.Equal(t, 0, mockExec.streamExecuteCount, "START should not call backend")
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "BEGIN", callbackResult.CommandTag)
@@ -168,17 +177,18 @@ func TestTransactionPrimitive_StartTransaction(t *testing.T) {
 func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 	mockExec := &txMockIExecute{}
 	state := handler.NewMultiGatewayConnectionState()
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn := newTxTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	var callbackResult *sqltypes.Result
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "COMMIT", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, r *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Equal(t, 0, mockExec.streamExecuteCount, "No backend call when no reserved connections")
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "COMMIT", callbackResult.CommandTag)
@@ -186,15 +196,16 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 
 func TestTransactionPrimitive_Commit_WithReservedConnections(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := newTestReservedState("tg1")
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "COMMIT", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, _ *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Equal(t, 1, mockExec.concludeTransactionCount, "Should call ConcludeTransaction")
 	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, mockExec.concludeTransactionConclusion)
 	require.Equal(t, 0, mockExec.streamExecuteCount, "Should not use StreamExecute for COMMIT")
@@ -205,34 +216,36 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 	mockExec := &txMockIExecute{
 		concludeTransactionErr: errors.New("commit failed"),
 	}
-	state := newTestReservedState("tg1")
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "COMMIT", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, _ *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "commit failed")
 	// State should still be reset to Idle regardless of error
-	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Empty(t, state.ShardStates, "ShardStates should be cleared even on error")
 }
 
 func TestTransactionPrimitive_Rollback_NoReservedConnections(t *testing.T) {
 	mockExec := &txMockIExecute{}
 	state := handler.NewMultiGatewayConnectionState()
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn := newTxTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	var callbackResult *sqltypes.Result
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "ROLLBACK", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, r *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, r *sqltypes.Result) error {
 		callbackResult = r
 		return nil
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Equal(t, 0, mockExec.streamExecuteCount, "No backend call when no reserved connections")
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
@@ -240,15 +253,16 @@ func TestTransactionPrimitive_Rollback_NoReservedConnections(t *testing.T) {
 
 func TestTransactionPrimitive_Rollback_WithReservedConnections(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := newTestReservedState("tg1")
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "ROLLBACK", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, _ *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Equal(t, 1, mockExec.concludeTransactionCount, "Should call ConcludeTransaction")
 	require.Equal(t, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, mockExec.concludeTransactionConclusion)
 	require.Equal(t, 0, mockExec.streamExecuteCount, "Should not use StreamExecute for ROLLBACK")
@@ -259,17 +273,18 @@ func TestTransactionPrimitive_Rollback_ConcludeTransactionError(t *testing.T) {
 	mockExec := &txMockIExecute{
 		concludeTransactionErr: errors.New("rollback failed"),
 	}
-	state := newTestReservedState("tg1")
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "ROLLBACK", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, _ *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "rollback failed")
 	// State should still be reset to Idle regardless of error
-	require.Equal(t, handler.TxStateIdle, state.GetTransactionState())
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Empty(t, state.ShardStates, "ShardStates should be cleared even on error")
 }
 
@@ -278,10 +293,11 @@ func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "SAVEPOINT"},
 	}
 	state := handler.NewMultiGatewayConnectionState()
-	state.SetTransactionState(handler.TxStateInTransaction)
+	conn := newTxTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_SAVEPOINT, "SAVEPOINT sp1", "tg1")
-	err := tp.StreamExecute(context.Background(), mockExec, nil, state, func(_ context.Context, _ *sqltypes.Result) error {
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, func(_ context.Context, _ *sqltypes.Result) error {
 		return nil
 	})
 

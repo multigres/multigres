@@ -458,7 +458,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			completed = false
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			return completed, firstErr
 
 		case protocol.MsgErrorResponse:
@@ -577,7 +577,7 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 			gotParseComplete = true
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return firstErr
 			}
@@ -625,7 +625,7 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 			gotCloseComplete = true
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return firstErr
 			}
@@ -669,7 +669,7 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 
 		switch msgType {
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			return firstErr
 
 		case protocol.MsgErrorResponse:
@@ -732,7 +732,7 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 			// No data to return (e.g., for non-SELECT statements).
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return nil, firstErr
 			}
@@ -874,7 +874,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			completed = false
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return false, firstErr
 			}
@@ -938,7 +938,7 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 			// No data to return (e.g., for non-SELECT statements).
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return nil, firstErr
 			}
@@ -1099,7 +1099,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			}
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return firstErr
 			}

@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
@@ -52,7 +53,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	}
 
 	// If already in a transaction, don't inject BEGIN at start
-	needsBegin := !state.IsInTransaction()
+	needsBegin := !conn.IsInTransaction()
 	isImplicitTx := false
 
 	for _, stmt := range stmts {
@@ -90,6 +91,10 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure
 				_ = silentExecute(ast.NewRollbackStmt())
+			} else {
+				// Explicit transaction: enter aborted state.
+				// The client must issue ROLLBACK to recover.
+				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 			return err
 		}
