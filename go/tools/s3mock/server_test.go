@@ -19,7 +19,9 @@ import (
 	"bytes"
 	"crypto/tls"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -142,5 +144,89 @@ func TestServerPutGetObject(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !bytes.Equal(body, data) {
 		t.Fatalf("expected data %q, got %q", data, body)
+	}
+}
+
+func TestServerLoggingConditional(t *testing.T) {
+	tests := []struct {
+		name          string
+		envValue      string
+		expectLogging bool
+	}{
+		{"disabled by default", "", false},
+		{"enabled with 1", "1", true},
+		{"enabled with true", "true", true},
+		{"enabled with True", "True", true},
+		{"enabled with TRUE", "TRUE", true},
+		{"enabled with yes", "yes", true},
+		{"disabled with 0", "0", false},
+		{"disabled with false", "false", false},
+		{"disabled with random", "random", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			oldValue := os.Getenv("MULTIGRES_TEST_LOG_S3MOCK")
+			defer func() {
+				if oldValue == "" {
+					os.Unsetenv("MULTIGRES_TEST_LOG_S3MOCK")
+				} else {
+					os.Setenv("MULTIGRES_TEST_LOG_S3MOCK", oldValue)
+				}
+			}()
+
+			if tt.envValue != "" {
+				os.Setenv("MULTIGRES_TEST_LOG_S3MOCK", tt.envValue)
+			} else {
+				os.Unsetenv("MULTIGRES_TEST_LOG_S3MOCK")
+			}
+
+			// Capture log output
+			var buf bytes.Buffer
+			oldFlags := log.Flags()
+			oldOutput := log.Writer()
+			log.SetOutput(&buf)
+			log.SetFlags(0) // Remove timestamps for easier testing
+			defer func() {
+				log.SetOutput(oldOutput)
+				log.SetFlags(oldFlags)
+			}()
+
+			// Create server
+			srv, err := NewServer(0)
+			if err != nil {
+				t.Fatalf("NewServer() failed: %v", err)
+			}
+			defer func() { _ = srv.Stop() }()
+
+			_ = srv.CreateBucket("test-bucket")
+
+			// Make a request
+			client := &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: true, // #nosec G402 - test code
+					},
+				},
+			}
+
+			resp, err := client.Head(srv.Endpoint() + "/test-bucket")
+			if err != nil {
+				t.Fatalf("HEAD request failed: %v", err)
+			}
+			resp.Body.Close()
+
+			// Verify logging behavior
+			logOutput := buf.String()
+			hasLog := strings.Contains(logOutput, "[S3]")
+
+			if tt.expectLogging && !hasLog {
+				t.Errorf("expected logging to be enabled, but no [S3] log found. Output: %q", logOutput)
+			}
+			if !tt.expectLogging && hasLog {
+				t.Errorf("expected logging to be disabled, but found [S3] log: %q", logOutput)
+			}
+		})
 	}
 }

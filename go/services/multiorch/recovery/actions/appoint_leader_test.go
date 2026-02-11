@@ -19,14 +19,14 @@ import (
 )
 
 // Note: These tests are placeholders. Full integration tests for AppointLeaderAction
-// would require a real coordinator instance with proper setup. The action
-// delegates to coordinator.AppointLeader, which is tested separately in the
-// coordinator package tests.
+// would require a real consensus instance with proper setup. The action
+// delegates to consensus.AppointLeader, which is tested separately in the
+// consensus package tests.
 
 func TestAppointLeaderAction_Placeholder(t *testing.T) {
-	// The AppointLeaderAction is a thin wrapper around coordinator.AppointLeader.
+	// The AppointLeaderAction is a thin wrapper around consensus.AppointLeader.
 	// Its logic is tested through:
-	// 1. Coordinator package tests (go/multiorch/coordinator)
+	// 1. Coordinator package tests (go/multiorch/consensus)
 	// 2. Integration tests with real cluster setup
-	t.Skip("AppointLeaderAction integration tests require real coordinator setup")
+	t.Skip("AppointLeaderAction integration tests require real consensus setup")
 }

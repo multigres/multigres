@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/coordinator"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 )
 
 // testEngineOptions contains options for creating a test engine.
@@ -72,17 +72,17 @@ func newTestEngine(ctx context.Context, t *testing.T, opts ...TestEngineOption) 
 		Cell:      "cell1",
 		Name:      "test-coordinator",
 	}
-	coord := coordinator.NewCoordinator(coordID, ts, options.fakeClient, logger)
+	coord := consensus.NewCoordinator(coordID, ts, options.fakeClient, logger)
 	return NewEngine(ts, logger, cfg, options.watchTargets, options.fakeClient, coord)
 }
 
 // newTestCoordinator creates a coordinator for tests that need one but manage their own Engine creation.
-func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultiPoolerClient, cell string) *coordinator.Coordinator {
+func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultiPoolerClient, cell string) *consensus.Coordinator {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	coordID := &clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIORCH,
 		Cell:      cell,
 		Name:      "test-coordinator",
 	}
-	return coordinator.NewCoordinator(coordID, ts, rpcClient, logger)
+	return consensus.NewCoordinator(coordID, ts, rpcClient, logger)
 }

@@ -135,6 +135,7 @@ func TestBeginTerm(t *testing.T) {
 		expectedAccepted                    bool
 		expectedTerm                        int64
 		expectedAcceptedTermFromCoordinator string
+		expectedWalPosition                 *consensusdatapb.WALPosition // nil means don't check
 		description                         string
 	}{
 		{
@@ -162,10 +163,15 @@ func TestBeginTerm(t *testing.T) {
 				// executeRevoke: pauseReplication
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/2000000", "0/2000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "candidate-B",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/2000000", LastReplayLsn: "0/2000000"},
 			description:                         "Acceptance should succeed when request term is newer than current term, even if already accepted leader in older term",
 		},
 		{
@@ -218,10 +224,15 @@ func TestBeginTerm(t *testing.T) {
 				// executeRevoke: pauseReplication
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/3000000", "0/3000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        5,
 			expectedAcceptedTermFromCoordinator: "candidate-A",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/3000000", LastReplayLsn: "0/3000000"},
 			description:                         "Acceptance should succeed when already accepted same candidate in same term (idempotent)",
 		},
 		{
@@ -239,9 +250,9 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns false (not in recovery = primary)
+				// executeRevoke: isInRecovery check - returns false (not in recovery = primary)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-				// demoteLocked fails at checkDemotionState or another early step
+				// executeRevoke: demoteLocked fails at checkDemotionState or another early step
 				// Simulate failure by not setting up expected queries for demotion steps
 			},
 			expectedError:                       true,
@@ -265,16 +276,21 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby/demoted)
+				// executeRevoke: isInRecovery check - returns true (in recovery = standby/demoted)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/4000000", "0/4000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/4000000", LastReplayLsn: "0/4000000"},
 			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
 		},
 		{
@@ -292,17 +308,22 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (in recovery = standby)
+				// executeRevoke: isInRecovery check - returns true (in recovery = standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/5000000", "0/5000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedError:                       false,
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/5000000", LastReplayLsn: "0/5000000"},
 			description:                         "Standby accepts term with REVOKE action and pauses replication",
 		},
 		{
@@ -320,16 +341,21 @@ func TestBeginTerm(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
-				// isInRecovery check - returns true (standby)
+				// executeRevoke: isInRecovery check - returns true (standby)
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				// pauseReplication - ALTER SYSTEM RESET primary_conninfo
+				// executeRevoke: pauseReplication - ALTER SYSTEM RESET primary_conninfo
 				m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				// pauseReplication - pg_reload_conf
+				// executeRevoke: pauseReplication - pg_reload_conf
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
+				// executeRevoke: queryReplicationStatus (WAL position captured after pause)
+				m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+					[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"},
+					[][]any{{"0/6000000", "0/6000000", false, "not paused", nil, "", "streaming"}}))
 			},
 			expectedAccepted:                    true,
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
+			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/6000000", LastReplayLsn: "0/6000000"},
 			description:                         "Standby should pause replication when accepting new term",
 		},
 		{
@@ -396,7 +422,7 @@ func TestBeginTerm(t *testing.T) {
 			description:                         "NO_ACTION still respects term acceptance rules",
 		},
 		{
-			name:   "PostgresDownAcceptsTermButRevokeActionFails",
+			name:   "PostgresDown_AcceptsTermButRevokeFails",
 			action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 			initialTerm: &multipoolermanagerdatapb.ConsensusTerm{
 				TermNumber: 5,
@@ -408,14 +434,14 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
-				// Phase 1: executeRevoke health check FAILS - postgres is down
+				// executeRevoke: health check FAILS - postgres is down
 				// DO NOT add SELECT 1 expectation - let it fail
 			},
-			expectedError:                       true, // Revoke action fails
-			expectedAccepted:                    true, // Term is accepted despite revoke failure
-			expectedTerm:                        10,   // Term is updated to new term
+			expectedError:                       true, // Revoke fails because postgres is down
+			expectedAccepted:                    true, // Term IS accepted (acceptance happens before revoke)
+			expectedTerm:                        10,   // Term advances to 10
 			expectedAcceptedTermFromCoordinator: "new-candidate",
-			description:                         "Node with postgres down accepts voting term but revoke action fails - PrimaryTerm tracking allows identifying stale primary",
+			description:                         "Node accepts term but revoke fails when postgres is down",
 		},
 	}
 
@@ -526,6 +552,12 @@ func TestBeginTerm(t *testing.T) {
 			if resp != nil {
 				assert.Equal(t, tt.expectedAccepted, resp.Accepted, tt.description)
 				assert.Equal(t, tt.expectedTerm, resp.Term)
+				if tt.expectedWalPosition != nil {
+					require.NotNil(t, resp.WalPosition, "WalPosition should be set")
+					assert.Equal(t, tt.expectedWalPosition.CurrentLsn, resp.WalPosition.CurrentLsn)
+					assert.Equal(t, tt.expectedWalPosition.LastReceiveLsn, resp.WalPosition.LastReceiveLsn)
+					assert.Equal(t, tt.expectedWalPosition.LastReplayLsn, resp.WalPosition.LastReplayLsn)
+				}
 			}
 
 			// Verify persisted state (acceptance should be persisted even if revoke fails)

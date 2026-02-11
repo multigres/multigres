@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package coordinator
+package consensus
 
 import (
 	"context"
@@ -82,9 +82,6 @@ func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*multiorchdat
 
 	// If PRIMARY exists, load from it
 	if primaryNode != nil {
-		c.logger.InfoContext(ctx, "Loading durability policy from PRIMARY node",
-			"node", primaryNode.MultiPooler.Id.Name,
-			"database", database)
 		rule, err := c.LoadQuorumRuleFromNode(ctx, primaryNode, database)
 		if err != nil {
 			c.logger.WarnContext(ctx, "Failed to load policy from PRIMARY, falling back to REPLICAs",
@@ -101,11 +98,6 @@ func (c *Coordinator) LoadQuorumRule(ctx context.Context, cohort []*multiorchdat
 		c.logger.WarnContext(ctx, "No REPLICA nodes available, using default policy")
 		return c.getDefaultQuorumRule(ctx, len(cohort)), nil
 	}
-
-	c.logger.InfoContext(ctx, "Loading durability policy from REPLICA nodes in parallel",
-		"replica_count", len(replicaNodes),
-		"database", database)
-
 	return c.loadFromReplicasInParallel(ctx, replicaNodes, database)
 }
 

@@ -540,6 +540,105 @@ func TestPool_TimestampBasedConnectionIDs(t *testing.T) {
 	}
 }
 
+func TestConn_ReleaseError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	connID := conn.ConnID
+
+	// Verify connection is active.
+	stats := pool.Stats()
+	assert.Equal(t, 1, stats.Active)
+
+	// Release with error.
+	conn.Release(ReleaseError)
+
+	// Connection should be marked as released.
+	assert.True(t, conn.IsReleased())
+
+	// Should no longer be in active map.
+	_, ok := pool.Get(connID)
+	assert.False(t, ok)
+
+	// Release count should be incremented.
+	stats = pool.Stats()
+	assert.Equal(t, 0, stats.Active)
+	assert.Equal(t, int64(1), stats.ReleaseCount)
+
+	// Connection should be closed (tainted connections get closed on recycle).
+	assert.True(t, conn.IsClosed())
+}
+
+func TestConn_ReleaseError_DoubleRelease(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	// Release with error.
+	conn.Release(ReleaseError)
+	assert.True(t, conn.IsReleased())
+
+	// Double release should be a no-op (should not panic).
+	conn.Release(ReleaseError)
+
+	// Release count should still be 1 (not 2).
+	stats := pool.Stats()
+	assert.Equal(t, int64(1), stats.ReleaseCount)
+}
+
+func TestConn_ReleaseError_TaintsConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	// Pool capacity is 4.
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Create and release a connection with error (taints it).
+	conn1, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	conn1.Release(ReleaseError)
+
+	// The tainted connection should be closed.
+	assert.True(t, conn1.IsClosed())
+
+	// The pool capacity should be preserved — we should still be able to
+	// acquire all 4 connections. With the old Close() approach, this slot
+	// would have been leaked and only 3 connections would be available.
+	conns := make([]*Conn, 4)
+	for i := range conns {
+		c, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err, "should be able to acquire connection %d of 4", i+1)
+		conns[i] = c
+	}
+
+	stats := pool.Stats()
+	assert.Equal(t, 4, stats.Active)
+
+	for _, c := range conns {
+		c.Release(ReleaseCommit)
+	}
+}
+
 func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 	// This test simulates the scenario where multipooler restarts:
 	// - Old pool had connections with certain IDs
