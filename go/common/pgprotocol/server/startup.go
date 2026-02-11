@@ -17,6 +17,8 @@ package server
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
@@ -166,6 +168,88 @@ func (c *Conn) handleCancelRequest(reader *MessageReader) error {
 	return c.Close()
 }
 
+// splitOptionsTokens splits a PGOPTIONS string on unescaped whitespace.
+// Backslash-escaped characters (e.g. `\ ` for a literal space) are preserved
+// with the backslash removed.
+func splitOptionsTokens(s string) []string {
+	var tokens []string
+	var cur strings.Builder
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			cur.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == ' ' || ch == '\t' {
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+			continue
+		}
+		cur.WriteByte(ch)
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
+}
+
+// parseOptions parses a PGOPTIONS string into individual key-value pairs.
+// It supports:
+//   - `-c key=value` and `-ckey=value`
+//   - `--key=value` (hyphens in key converted to underscores)
+//   - Multiple flags in a single string
+func parseOptions(options string) (map[string]string, error) {
+	tokens := splitOptionsTokens(options)
+	result := make(map[string]string)
+
+	for i := 0; i < len(tokens); i++ {
+		tok := tokens[i]
+		switch {
+		case tok == "-c":
+			// -c key=value (space-separated)
+			i++
+			if i >= len(tokens) {
+				return nil, errors.New("missing value after -c")
+			}
+			key, value, ok := strings.Cut(tokens[i], "=")
+			if !ok || key == "" {
+				return nil, fmt.Errorf("invalid -c option: %q", tokens[i])
+			}
+			result[key] = value
+		case strings.HasPrefix(tok, "-c"):
+			// -ckey=value (no space)
+			rest := tok[2:]
+			key, value, ok := strings.Cut(rest, "=")
+			if !ok || key == "" {
+				return nil, fmt.Errorf("invalid -c option: %q", rest)
+			}
+			result[key] = value
+		case strings.HasPrefix(tok, "--"):
+			// --key=value
+			rest := tok[2:]
+			key, value, ok := strings.Cut(rest, "=")
+			if !ok || key == "" {
+				return nil, fmt.Errorf("invalid -- option: %q", tok)
+			}
+			// Convert hyphens to underscores in key.
+			key = strings.ReplaceAll(key, "-", "_")
+			result[key] = value
+		default:
+			return nil, fmt.Errorf("unsupported option flag: %q", tok)
+		}
+	}
+
+	return result, nil
+}
+
 // handleStartupMessage processes a startup message and extracts connection parameters.
 func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReader) error {
 	c.logger.Debug("parsing startup message", "protocol_version", protocolVersion)
@@ -196,6 +280,16 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 		c.params[key] = value
 
 		c.logger.Debug("startup parameter", "key", key, "value", value)
+	}
+
+	// Parse PGOPTIONS if present.
+	if options, ok := c.params["options"]; ok {
+		parsed, err := parseOptions(options)
+		if err != nil {
+			return fmt.Errorf("failed to parse options: %w", err)
+		}
+		maps.Copy(c.params, parsed)
+		delete(c.params, "options")
 	}
 
 	// Extract required parameters.
