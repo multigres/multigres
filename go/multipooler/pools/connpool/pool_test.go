@@ -195,6 +195,47 @@ func TestPoolClose(t *testing.T) {
 	conn2.Recycle()
 }
 
+func TestPoolCallerContextCancelDoesNotCloseConnection(t *testing.T) {
+	// Verify that cancelling the caller's context (used for Get) does not
+	// close the underlying connection. The connection's lifetime should be
+	// tied to the pool's context, not the caller's.
+	var connPoolCtx context.Context
+	pool := NewPool[*mockConnection](context.Background(), &Config{
+		Name:         "test",
+		Capacity:     1,
+		MaxIdleCount: 1,
+	})
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*mockConnection, error) {
+		connPoolCtx = poolCtx
+		return newMockConnection(), nil
+	}, nil)
+	defer pool.Close()
+
+	// Get a connection using a cancellable context.
+	callerCtx, callerCancel := context.WithCancel(context.Background())
+	conn, err := pool.Get(callerCtx)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	assert.False(t, conn.Conn.IsClosed(), "connection should be open after Get")
+
+	// Cancel the caller's context.
+	callerCancel()
+
+	// The connection should still be open — its lifetime is tied to the pool context.
+	assert.False(t, conn.Conn.IsClosed(), "connection should remain open after caller context is cancelled")
+
+	// The pool context should still be active.
+	assert.NoError(t, connPoolCtx.Err(), "pool context should not be cancelled")
+
+	// Recycle and re-get: the connection should be reusable.
+	conn.Recycle()
+	conn2, err := pool.Get(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, conn, conn2, "should reuse the same connection from the pool")
+	assert.False(t, conn2.Conn.IsClosed(), "reused connection should still be open")
+	conn2.Recycle()
+}
+
 func TestPoolConcurrentGetPut(t *testing.T) {
 	pool := newTestPool(50)
 	defer pool.Close()
