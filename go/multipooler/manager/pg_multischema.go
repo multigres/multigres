@@ -365,18 +365,14 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 		ast.QuoteStringLiteral(string(acceptedJSON)),
 	)
 
-	// When force=true, use SET LOCAL to prevent blocking the database connection on sync replication.
-	// SET LOCAL only affects this transaction and automatically reverts after COMMIT.
-	// Without this, the connection remains blocked even after Go times out, hanging subsequent operations.
-	var query string
-	if force {
-		query = "BEGIN; SET LOCAL synchronous_commit = local; " + insert + "; COMMIT;"
-	} else {
-		query = insert
-	}
-
-	err = pm.execMultiStatement(execCtx, query)
+	err = pm.exec(execCtx, insert)
 	if err != nil {
+		if force {
+			// In force mode, history insert failures are non-fatal. Force is used during
+			// emergency operations where we must configure replication GUCs even if we
+			// cannot record the decision via consensus.
+			return nil
+		}
 		return mterrors.Wrap(err, "failed to insert history record")
 	}
 

@@ -386,6 +386,7 @@ func TestInsertLeadershipHistory(t *testing.T) {
 		reason          string
 		cohortMembers   []string
 		acceptedMembers []string
+		force           bool
 		setupMock       func(m *mock.QueryService)
 		expectError     bool
 		errorContains   string
@@ -422,6 +423,22 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			errorContains: "failed to insert history record",
 		},
 		{
+			name:            "force mode ignores insert failure",
+			termNumber:      2,
+			leaderID:        "leader-2",
+			coordinatorID:   "coordinator-2",
+			walPosition:     "0/2345678",
+			operation:       "configure",
+			reason:          "Emergency replication GUC change",
+			cohortMembers:   []string{"member-1", "member-2"},
+			acceptedMembers: []string{"member-1"},
+			force:           true,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", errors.New("timeout waiting for sync replication"))
+			},
+			expectError: false,
+		},
+		{
 			name:            "insert with empty cohort and accepted members arrays",
 			termNumber:      3,
 			leaderID:        "leader-3",
@@ -444,9 +461,8 @@ func TestInsertLeadershipHistory(t *testing.T) {
 
 			tt.setupMock(mockQueryService)
 
-			ctx := context.Background()
-			err := pm.insertHistoryRecord(ctx, tt.termNumber, "promotion", tt.leaderID, tt.coordinatorID,
-				tt.walPosition, tt.operation, tt.reason, tt.cohortMembers, tt.acceptedMembers, false /* force */)
+			err := pm.insertHistoryRecord(t.Context(), tt.termNumber, "promotion", tt.leaderID, tt.coordinatorID,
+				tt.walPosition, tt.operation, tt.reason, tt.cohortMembers, tt.acceptedMembers, tt.force)
 
 			if tt.expectError {
 				assert.Error(t, err)
