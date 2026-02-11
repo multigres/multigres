@@ -139,7 +139,7 @@ func Connect(ctx context.Context, config *Config) (*Conn, error) {
 	}
 
 	// Create the connection object.
-	connCtx, cancel := context.WithCancel(ctx)
+	connCtx, cancel := context.WithCancel(context.TODO())
 	c := &Conn{
 		conn:           netConn,
 		bufferedReader: bufio.NewReaderSize(netConn, connBufferSize),
