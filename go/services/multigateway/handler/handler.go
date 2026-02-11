@@ -95,11 +95,14 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 	st := h.getConnectionState(conn)
 
-	// If the transaction is in an aborted state, reject all queries except ROLLBACK.
-	// This matches PostgreSQL's behavior: after an error in a transaction block,
-	// all commands are rejected until the user issues ROLLBACK.
+	// If the transaction is in an aborted state, reject all queries unless the
+	// first statement is ROLLBACK. This matches PostgreSQL's behavior: after an
+	// error in a transaction block, commands are rejected until ROLLBACK.
+	// Multi-statement batches starting with ROLLBACK are allowed (e.g.,
+	// "ROLLBACK; SELECT 1;") — ROLLBACK clears the aborted state and the
+	// remaining statements execute normally.
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
-		if !h.isOnlyRollback(asts) {
+		if !h.startsWithRollback(asts) {
 			return errAbortedTransaction
 		}
 	}
@@ -127,13 +130,12 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	return nil
 }
 
-// isOnlyRollback returns true if the statement list contains exactly one
-// ROLLBACK statement (allowing the client to exit an aborted transaction).
-func (h *MultiGatewayHandler) isOnlyRollback(asts []ast.Stmt) bool {
-	if len(asts) != 1 {
-		return false
-	}
-	return ast.IsRollbackStatement(asts[0])
+// startsWithRollback returns true if the first statement is ROLLBACK,
+// allowing the client to exit an aborted transaction. Multi-statement
+// batches are permitted as long as the first statement is ROLLBACK
+// (matching PostgreSQL behavior).
+func (h *MultiGatewayHandler) startsWithRollback(asts []ast.Stmt) bool {
+	return len(asts) > 0 && ast.IsRollbackStatement(asts[0])
 }
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
@@ -282,7 +284,6 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 		state, ok := connState.(*MultiGatewayConnectionState)
 		if ok && state != nil && len(state.ShardStates) > 0 {
 			// Release all reserved connections regardless of reason (transaction, COPY, portal).
-			// Use a background context since the connection's context may already be cancelled.
 			h.logger.Debug("releasing reserved connections on client disconnect",
 				"connection_id", conn.ConnectionID(),
 				"shard_states", len(state.ShardStates))

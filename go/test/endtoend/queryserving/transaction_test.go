@@ -47,6 +47,7 @@ var testTables = []string{
 	"temp_ddl_test", "t1_ddl_test", "t2_ddl_test",
 	// explicitTransactionTestCases
 	"txn_explicit_test", "txn_rollback_test", "txn_savepoint_test", "txn_abort_test",
+	"txn_abort_batch_test", "txn_timeout_test",
 }
 
 // cleanupTestTables drops all test tables to ensure a clean state.
@@ -597,6 +598,79 @@ func explicitTransactionTestCases() []transactionTestCase {
 			},
 			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
 				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM txn_abort_test")
+				require.NoError(t, err)
+				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]))
+			},
+		},
+		{
+			// Multi-statement batch starting with ROLLBACK works in aborted state
+			name: "RollbackBatchInAbortedState",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS txn_abort_batch_test")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE txn_abort_batch_test (id INT PRIMARY KEY, name TEXT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+
+				// Cause an error to enter aborted state
+				_, err = conn.Query(ctx, "INSERT INTO nonexistent_table VALUES (1)")
+				require.Error(t, err, "Expected error for nonexistent table")
+
+				// Send ROLLBACK + INSERT as a single multi-statement batch.
+				// PostgreSQL allows this: ROLLBACK clears aborted state, then
+				// the remaining statements execute normally.
+				_, err = conn.Query(ctx, "ROLLBACK; INSERT INTO txn_abort_batch_test VALUES (1, 'Alice')")
+				require.NoError(t, err, "ROLLBACK batch should succeed in aborted state")
+
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				// Alice should have been inserted after the ROLLBACK cleared aborted state
+				results, err := conn.Query(ctx, "SELECT name FROM txn_abort_batch_test")
+				require.NoError(t, err)
+				require.Len(t, results[0].Rows, 1, "Alice should exist")
+				assert.Equal(t, "Alice", string(results[0].Rows[0].Values[0]))
+			},
+		},
+		{
+			// Statement timeout in a transaction causes aborted state
+			name: "StatementTimeoutInTransaction",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS txn_timeout_test")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE txn_timeout_test (id INT PRIMARY KEY, name TEXT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "INSERT INTO txn_timeout_test VALUES (1, 'Alice')")
+				require.NoError(t, err)
+
+				// Set a short statement timeout and trigger it
+				_, err = conn.Query(ctx, "SET statement_timeout = '200ms'")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "SELECT pg_sleep(5)")
+				require.Error(t, err, "Expected statement timeout error")
+
+				// Transaction should be in aborted state - further queries should fail
+				_, err = conn.Query(ctx, "INSERT INTO txn_timeout_test VALUES (2, 'Bob')")
+				require.Error(t, err, "Should fail in aborted transaction after timeout")
+
+				// ROLLBACK should recover
+				_, err = conn.Query(ctx, "ROLLBACK")
+				require.NoError(t, err)
+
+				// Reset statement_timeout so it doesn't affect subsequent queries
+				_, err = conn.Query(ctx, "SET statement_timeout = '0'")
+				require.NoError(t, err)
+
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				// Nothing should have been committed (transaction was rolled back)
+				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM txn_timeout_test")
 				require.NoError(t, err)
 				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]))
 			},

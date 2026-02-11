@@ -400,6 +400,48 @@ func TestHandleQuery_AbortedTransactionAllowsRollback(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestHandleQuery_AbortedTransactionAllowsRollbackInBatch tests that a multi-statement
+// batch starting with ROLLBACK is allowed when in aborted state, matching PostgreSQL
+// behavior where "ROLLBACK; SELECT 1;" works even in aborted state.
+func TestHandleQuery_AbortedTransactionAllowsRollbackInBatch(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Put connection in aborted transaction state
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	err := h.HandleQuery(context.Background(), conn, "ROLLBACK; SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	// Batch starting with ROLLBACK should be allowed through (not rejected at the gate).
+	// Transaction state transitions (ROLLBACK clearing aborted state) are verified
+	// by integration tests since the mock executor doesn't process transaction statements.
+	require.NoError(t, err)
+}
+
+// TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback tests that
+// a multi-statement batch NOT starting with ROLLBACK is rejected in aborted state.
+func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Put connection in aborted transaction state
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1; ROLLBACK", func(_ context.Context, _ *sqltypes.Result) error {
+		t.Fatal("callback should not be called for aborted transaction")
+		return nil
+	})
+
+	require.Error(t, err)
+	require.Equal(t, errAbortedTransaction, err)
+}
+
 // TestHandleQuery_ErrorInTransactionSetsAbortedState tests that a query error
 // while in a transaction transitions the state to aborted.
 func TestHandleQuery_ErrorInTransactionSetsAbortedState(t *testing.T) {
