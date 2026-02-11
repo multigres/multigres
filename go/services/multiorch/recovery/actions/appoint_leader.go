@@ -51,14 +51,14 @@ type AppointLeaderAction struct {
 // NewAppointLeaderAction creates a new leader appointment action
 func NewAppointLeaderAction(
 	cfg *config.Config,
-	coordinator *consensus.Coordinator,
+	consensus *consensus.Coordinator,
 	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *AppointLeaderAction {
 	return &AppointLeaderAction{
 		config:      cfg,
-		consensus:   coordinator,
+		consensus:   consensus,
 		poolerStore: poolerStore,
 		topoStore:   topoStore,
 		logger:      logger,
