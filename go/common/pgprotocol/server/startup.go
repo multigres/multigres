@@ -451,7 +451,7 @@ func (c *Conn) readSASLResponse() (string, error) {
 
 // sendAuthError sends an authentication error to the client.
 func (c *Conn) sendAuthError(message string) error {
-	if err := c.writeErrorResponse("FATAL", "28P01", message, "", ""); err != nil {
+	if err := c.writeSimpleErrorWithDetail("FATAL", "28P01", message, "", ""); err != nil {
 		return err
 	}
 	return c.flush()

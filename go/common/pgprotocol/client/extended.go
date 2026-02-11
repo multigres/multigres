@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -367,7 +368,6 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
-	var notices []*sqltypes.Notice
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -376,16 +376,14 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			return
 		}
 		result := &sqltypes.Result{
-			Fields:  currentFields,
-			Rows:    batchedRows,
-			Notices: notices,
+			Fields: currentFields,
+			Rows:   batchedRows,
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
-		notices = nil
 	}
 
 	for {
@@ -434,7 +432,6 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
-					Notices:      notices,
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -443,7 +440,6 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			currentFields = nil
 			batchedRows = nil
 			batchedSize = 0
-			notices = nil
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
@@ -467,8 +463,15 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Parse and accumulate notices to be included in the Result.
-			notices = append(notices, c.parseNotice(body))
+			// Stream notice immediately via callback (zero-buffering notice delivery).
+			// Notices are sent as separate Results with no rows or command tag.
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				}
+				firstErr = callback(ctx, noticeResult)
+			}
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -773,7 +776,6 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
-	var notices []*sqltypes.Notice
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -783,16 +785,14 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			return
 		}
 		result := &sqltypes.Result{
-			Fields:  currentFields,
-			Rows:    batchedRows,
-			Notices: notices,
+			Fields: currentFields,
+			Rows:   batchedRows,
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
-		notices = nil
 	}
 
 	for {
@@ -848,7 +848,6 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
-					Notices:      notices,
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -858,7 +857,6 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			currentFields = nil
 			batchedRows = nil
 			batchedSize = 0
-			notices = nil
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
@@ -889,8 +887,15 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Parse and accumulate notices to be included in the Result.
-			notices = append(notices, c.parseNotice(body))
+			// Stream notice immediately via callback (zero-buffering notice delivery).
+			// Notices are sent as separate Results with no rows or command tag.
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				}
+				firstErr = callback(ctx, noticeResult)
+			}
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -1004,7 +1009,6 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
-	var notices []*sqltypes.Notice
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -1014,16 +1018,14 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			return
 		}
 		result := &sqltypes.Result{
-			Fields:  currentFields,
-			Rows:    batchedRows,
-			Notices: notices,
+			Fields: currentFields,
+			Rows:   batchedRows,
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
 		batchedRows = nil
 		batchedSize = 0
-		notices = nil
 	}
 
 	for {
@@ -1082,7 +1084,6 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
-					Notices:      notices,
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -1091,7 +1092,6 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			currentFields = nil
 			batchedRows = nil
 			batchedSize = 0
-			notices = nil
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {
@@ -1117,8 +1117,15 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Parse and accumulate notices to be included in the Result.
-			notices = append(notices, c.parseNotice(body))
+			// Stream notice immediately via callback (zero-buffering notice delivery).
+			// Notices are sent as separate Results with no rows or command tag.
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				}
+				firstErr = callback(ctx, noticeResult)
+			}
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {

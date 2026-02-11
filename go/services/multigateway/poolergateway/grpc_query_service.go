@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -95,37 +96,58 @@ func (g *grpcQueryService) StreamExecute(
 	// Call the gRPC StreamExecute
 	stream, err := g.client.StreamExecute(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to start stream execute: %w", err)
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return grpcErr
+		}
+		return mterrors.Wrapf(grpcErr, "failed to start stream execute")
 	}
 
 	// Stream results back via callback
 	for {
-		response, err := stream.Recv()
+		payload, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			// Stream completed successfully
 			g.logger.DebugContext(ctx, "stream completed", "pooler_id", g.poolerID)
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("stream receive error: %w", err)
+			// Convert gRPC error - if it's a PostgreSQL error, preserve it
+			grpcErr := mterrors.FromGRPC(err)
+			var pgDiag *mterrors.PgDiagnostic
+			if errors.As(grpcErr, &pgDiag) {
+				return grpcErr
+			}
+			return mterrors.Wrapf(grpcErr, "stream receive error")
 		}
 
-		// Extract result from response
-		if response.Result == nil {
-			g.logger.WarnContext(ctx, "received response with nil result", "pooler_id", g.poolerID)
-			continue
-		}
-
-		// Convert proto result to sqltypes (preserves NULL vs empty string)
-		result := sqltypes.ResultFromProto(response.Result)
-
-		// Call the callback with the result
-		if err := callback(ctx, result); err != nil {
-			// Callback returned error, stop streaming
-			g.logger.DebugContext(ctx, "callback returned error, stopping stream",
-				"pooler_id", g.poolerID,
-				"error", err)
-			return err
+		// Handle the union type payload
+		switch p := payload.GetPayload().(type) {
+		case *query.QueryResultPayload_Result:
+			// Row data - convert and send to callback
+			result := sqltypes.ResultFromProto(p.Result)
+			if err := callback(ctx, result); err != nil {
+				g.logger.DebugContext(ctx, "callback returned error, stopping stream",
+					"pooler_id", g.poolerID,
+					"error", err)
+				return err
+			}
+		case *query.QueryResultPayload_Diagnostic:
+			// Diagnostic (notice or error) - convert to Result with notice for backwards compat
+			diag := mterrors.PgDiagnosticFromProto(p.Diagnostic)
+			noticeResult := &sqltypes.Result{
+				Notices: []*mterrors.PgDiagnostic{diag},
+			}
+			if err := callback(ctx, noticeResult); err != nil {
+				g.logger.DebugContext(ctx, "callback returned error on notice, stopping stream",
+					"pooler_id", g.poolerID,
+					"error", err)
+				return err
+			}
+		default:
+			g.logger.WarnContext(ctx, "received response with unknown payload type", "pooler_id", g.poolerID)
 		}
 	}
 }
@@ -187,7 +209,13 @@ func (g *grpcQueryService) PortalStreamExecute(
 	// Call the gRPC PortalStreamExecute
 	stream, err := g.client.PortalStreamExecute(ctx, req)
 	if err != nil {
-		return queryservice.ReservedState{}, fmt.Errorf("failed to start portal stream execute: %w", err)
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return queryservice.ReservedState{}, grpcErr
+		}
+		return queryservice.ReservedState{}, mterrors.Wrapf(grpcErr, "failed to start portal stream execute")
 	}
 
 	var reservedState queryservice.ReservedState
@@ -201,7 +229,13 @@ func (g *grpcQueryService) PortalStreamExecute(
 			return reservedState, nil
 		}
 		if err != nil {
-			return reservedState, fmt.Errorf("portal stream receive error: %w", err)
+			// Convert gRPC error - if it's a PostgreSQL error, preserve it
+			grpcErr := mterrors.FromGRPC(err)
+			var pgDiag *mterrors.PgDiagnostic
+			if errors.As(grpcErr, &pgDiag) {
+				return reservedState, grpcErr
+			}
+			return reservedState, mterrors.Wrapf(grpcErr, "portal stream receive error")
 		}
 
 		// Extract reserved state if present
@@ -213,22 +247,33 @@ func (g *grpcQueryService) PortalStreamExecute(
 				"pooler_id", response.PoolerId.String())
 		}
 
-		// Extract result from response
-		if response.Result == nil {
-			g.logger.WarnContext(ctx, "received response with nil result", "pooler_id", g.poolerID)
-			continue
-		}
-
-		// Convert proto result to sqltypes (preserves NULL vs empty string)
-		result := sqltypes.ResultFromProto(response.Result)
-
-		// Call the callback with the result
-		if err := callback(ctx, result); err != nil {
-			// Callback returned error, stop streaming
-			g.logger.DebugContext(ctx, "callback returned error, stopping stream",
-				"pooler_id", g.poolerID,
-				"error", err)
-			return reservedState, err
+		// Handle the union type payload (if present)
+		if response.Result != nil {
+			switch p := response.Result.GetPayload().(type) {
+			case *query.QueryResultPayload_Result:
+				// Row data - convert and send to callback
+				result := sqltypes.ResultFromProto(p.Result)
+				if err := callback(ctx, result); err != nil {
+					g.logger.DebugContext(ctx, "callback returned error, stopping stream",
+						"pooler_id", g.poolerID,
+						"error", err)
+					return reservedState, err
+				}
+			case *query.QueryResultPayload_Diagnostic:
+				// Diagnostic (notice or error) - convert to Result with notice for backwards compat
+				diag := mterrors.PgDiagnosticFromProto(p.Diagnostic)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{diag},
+				}
+				if err := callback(ctx, noticeResult); err != nil {
+					g.logger.DebugContext(ctx, "callback returned error on notice, stopping stream",
+						"pooler_id", g.poolerID,
+						"error", err)
+					return reservedState, err
+				}
+			default:
+				g.logger.WarnContext(ctx, "received response with unknown payload type", "pooler_id", g.poolerID)
+			}
 		}
 	}
 }
@@ -259,7 +304,13 @@ func (g *grpcQueryService) Describe(
 	// Call the gRPC Describe
 	response, err := g.client.Describe(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("describe failed: %w", err)
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return nil, grpcErr
+		}
+		return nil, mterrors.Wrapf(grpcErr, "describe failed")
 	}
 
 	g.logger.DebugContext(ctx, "describe completed successfully", "pooler_id", g.poolerID)

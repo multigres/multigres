@@ -12,68 +12,133 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package mterrors provides simple error handling primitives for Multigres
+// Package mterrors provides error handling primitives for Multigres.
 //
-// In all Multigres code, errors should be propagated using mterrors.Wrapf()
-// and not fmt.Errorf(). This makes sure that stacktraces are kept and
-// propagated correctly.
+// In all Multigres code, errors should be propagated using [Wrapf]
+// and not fmt.Errorf(). This ensures stacktraces are kept and propagated correctly.
 //
-// # New errors should be created using mterrors.New or mterrors.Errorf
+// # Creating Errors
 //
-// Multigres uses canonical error codes for error reporting. This is based
-// on years of industry experience with error reporting. This idea is
+// New errors should be created using [New] or [Errorf]:
+//
+//	err := mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "invalid table name")
+//	err := mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "table %q not found", name)
+//
+// # Canonical Error Codes
+//
+// Multigres uses canonical error codes for error reporting. This idea is
 // that errors should be classified into a small set of errors (10 or so)
-// with very specific meaning. Each error has a code, and a message. When
-// errors are passed around (even through RPCs), the code is
-// propagated. To handle errors, only the code should be looked at (and
-// not string-matching on the error message).
+// with very specific meaning. Each error has a code and a message. When
+// errors are passed around (even through RPCs), the code is propagated.
+// To handle errors, only the code should be looked at (not string-matching
+// on the error message).
 //
-// Error codes are defined in /proto/mtrpc.proto. Along with an
-// RPCError message that can be used to transmit errors through RPCs, in
-// the message payloads. These codes match the names and numbers defined
-// by gRPC.
+// Error codes are defined in /proto/mtrpc.proto. These codes match the
+// names and numbers defined by gRPC and are transmitted using gRPC's
+// error propagation mechanism.
 //
-// A standardized error implementation that allows you to build an error
-// with an associated canonical code is also defined.
-// While sending an error through gRPC, these codes are transmitted
-// using gRPC's error propagation mechanism and decoded back to
-// the original code on the other end.
+// # PostgreSQL Errors
 //
-// # Retrieving the cause of an error
+// [PgDiagnostic] implements the error interface directly and represents PostgreSQL
+// errors with full diagnostic information. All 14 PostgreSQL error fields are preserved
+// as errors flow through the Multigres system:
 //
-// Using mterrors.Wrap constructs a stack of errors, adding context to the
+//	PostgreSQL ErrorResponse ('E' or 'N')
+//	        ↓
+//	*PgDiagnostic (client parses wire format, implements error)
+//	        ↓
+//	mterrors.Wrapf(err, "context") (adds context, preserves diagnostic)
+//	        ↓
+//	gRPC: ToGRPC() serializes to RPCError.pg_diagnostic
+//	        ↓
+//	*PgDiagnostic (FromGRPC reconstructs diagnostic)
+//	        ↓
+//	server.writeError() uses RootCause() to extract diagnostic
+//	        ↓
+//	Client receives native PostgreSQL error format
+//
+// # Error Wrapping Best Practices
+//
+// Always wrap errors with [Wrapf] for context, even PostgreSQL errors:
+//
+//	err := conn.Query(...)
+//	if err != nil {
+//	    return mterrors.Wrapf(err, "failed to query table %s", tableName)
+//	}
+//
+// Use [RootCause] to extract the underlying PgDiagnostic when needed:
+//
+//	rootErr := mterrors.RootCause(err)
+//	var diag *PgDiagnostic
+//	if errors.As(rootErr, &diag) {
+//	    // Handle PostgreSQL error with full diagnostic info
+//	    fmt.Printf("SQLSTATE: %s\n", diag.Code)
+//	}
+//
+// The unified writeError() method automatically extracts PgDiagnostic from
+// wrapped errors using RootCause(), so no special handling is needed at
+// error boundaries.
+//
+// Example:
+//
+//	if pgErr, ok := mterrors.AsPgError(err); ok {
+//	    // Handle PostgreSQL error with full diagnostic info
+//	    diag := pgErr.Diagnostic()
+//	    fmt.Printf("SQLSTATE: %s, Position: %d\n", diag.Code, diag.Position)
+//	}
+//
+// See: https://www.postgresql.org/docs/current/protocol-error-fields.html
+//
+// # Notice Streaming
+//
+// PostgreSQL notices (MessageType 'N') are streamed immediately via
+// QueryResultPayload.diagnostic for zero-buffering delivery. This enables
+// real-time notice delivery without batching overhead.
+//
+// The client parses NoticeResponse messages and immediately invokes the
+// callback with a Result containing only the notice. The grpcpoolerservice
+// extracts the notice and streams it via QueryResultPayload.diagnostic.
+// The server receives the diagnostic and writes it as a native PostgreSQL
+// NoticeResponse message to the client.
+//
+// This end-to-end streaming architecture ensures notices are delivered
+// in real-time as they are generated by PostgreSQL, with no buffering
+// or accumulation at any layer.
+//
+// # Error Wrapping
+//
+// Using [Wrap] constructs a stack of errors, adding context to the
 // preceding error, instead of simply building up a string.
 // Depending on the nature of the error it may be necessary to reverse the
-// operation of errors.Wrap to retrieve the original error for inspection.
-// Any error value which implements this interface
+// operation of Wrap to retrieve the original error for inspection.
+// Any error value which implements this interface:
 //
 //	type causer interface {
 //	        Cause() error
 //	}
 //
-// can be inspected by mterrors.Cause and mterrors.RootCause.
+// can be inspected by [Cause] and [RootCause].
 //
-//   - mterrors.Cause will find the immediate cause if one is available, or nil
-//     if the error is not a `causer` or if no cause is available.
+//   - [Cause] will find the immediate cause if one is available, or nil
+//     if the error is not a causer or if no cause is available.
 //
-//   - mterrors.RootCause will recursively retrieve
-//     the topmost error which does not implement causer, which is assumed to be
-//     the original cause. For example:
+//   - [RootCause] will recursively retrieve the topmost error which does
+//     not implement causer, which is assumed to be the original cause:
 //
-//     switch err := errors.RootCause(err).(type) {
+//     switch err := mterrors.RootCause(err).(type) {
 //     case *MyError:
-//     // handle specifically
+//         // handle specifically
 //     default:
-//     // unknown error
+//         // unknown error
 //     }
 //
-// causer interface is not exported by this package, but is considered a part
-// of stable public API.
+// The causer interface is not exported by this package, but is considered
+// a part of the stable public API.
 //
-// # Formatted printing of errors
+// # Formatted Printing
 //
 // All error values returned from this package implement fmt.Formatter and can
-// be formatted by the fmt package. The following verbs are supported
+// be formatted by the fmt package. The following verbs are supported:
 //
 //	%s    print the error. If the error has a Cause it will be
 //	      printed recursively
