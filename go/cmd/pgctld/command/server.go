@@ -239,7 +239,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.logger, s.config)
+	result, err := StartPostgreSQLWithResult(s.logger, s.config, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -276,7 +276,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 }
 
 func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*pb.RestartResponse, error) {
-	s.logger.InfoContext(ctx, "gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby)
+	s.logger.InfoContext(ctx, "gRPC Restart request", "mode", req.Mode, "port", req.Port, "as_standby", req.AsStandby, "skip_wait", req.SkipWait)
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized(s.poolerDir) {
@@ -285,7 +285,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	}
 
 	// Use the pre-configured PostgreSQL config for restart operation
-	result, err := RestartPostgreSQLWithResult(s.logger, s.config, req.Mode, req.AsStandby)
+	result, err := RestartPostgreSQLWithResult(s.logger, s.config, req.Mode, req.AsStandby, req.SkipWait)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
@@ -429,5 +429,51 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	return &pb.PgRewindResponse{
 		Message: result.Message,
 		Output:  result.Output,
+	}, nil
+}
+
+func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecoveryRequest) (*pb.CrashRecoveryResponse, error) {
+	s.logger.InfoContext(ctx, "gRPC CrashRecovery request")
+
+	// Check if crash recovery is needed
+	needsRecovery, stateBefore, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if crash recovery needed: %w", err)
+	}
+
+	if !needsRecovery {
+		s.logger.InfoContext(ctx, "Database is already clean, no crash recovery needed",
+			"state", stateBefore.String())
+		return &pb.CrashRecoveryResponse{
+			RecoveryPerformed: false,
+			StateBefore:       stateBefore,
+			StateAfter:        stateBefore,
+			Message:           "Database is already in clean state",
+		}, nil
+	}
+
+	s.logger.InfoContext(ctx, "Database requires crash recovery, running single-user recovery",
+		"state_before", stateBefore.String())
+
+	// Run crash recovery
+	if err := runCrashRecovery(ctx, s.logger, s.poolerDir); err != nil {
+		return nil, fmt.Errorf("crash recovery failed: %w", err)
+	}
+
+	// Verify recovery completed successfully
+	_, stateAfter, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify recovery: %w", err)
+	}
+
+	s.logger.InfoContext(ctx, "Crash recovery completed successfully",
+		"state_before", stateBefore.String(),
+		"state_after", stateAfter.String())
+
+	return &pb.CrashRecoveryResponse{
+		RecoveryPerformed: true,
+		StateBefore:       stateBefore,
+		StateAfter:        stateAfter,
+		Message:           "Crash recovery completed successfully",
 	}, nil
 }

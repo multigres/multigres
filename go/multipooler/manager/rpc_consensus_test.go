@@ -1164,9 +1164,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
 
-				// setPrimaryConnInfoLocked queries (after reopen)
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+				// Note: primary_conninfo is now written directly to postgresql.auto.conf file
+				// instead of using ALTER SYSTEM, so no SQL query expectations needed here
 			},
 			expectedFinalConsensusTerm: 10,
 			expectedPrimaryTerm:        0, // Primary term cleared after demotion
@@ -1215,9 +1214,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
 
-				// setPrimaryConnInfoLocked queries (after reopen)
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+				// Note: primary_conninfo is now written directly to postgresql.auto.conf file
+				// instead of using ALTER SYSTEM, so no SQL query expectations needed here
 			},
 			expectedFinalConsensusTerm: 15, // With force, term is NOT updated when older
 			expectedPrimaryTerm:        0,  // Primary term is cleared
@@ -1246,9 +1244,8 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
 
-				// setPrimaryConnInfoLocked queries (after reopen)
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+				// Note: primary_conninfo is now written directly to postgresql.auto.conf file
+				// instead of using ALTER SYSTEM, so no SQL query expectations needed here
 			},
 			expectedFinalConsensusTerm: 10,
 			expectedPrimaryTerm:        0, // Primary term cleared

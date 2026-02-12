@@ -32,35 +32,38 @@ import (
 // MockPgCtldService implements a mock version of the PgCtld gRPC service for testing
 type MockPgCtldService struct {
 	pb.UnimplementedPgCtldServer
-	mu            sync.Mutex
-	StartCalls    []*pb.StartRequest
-	StopCalls     []*pb.StopRequest
-	RestartCalls  []*pb.RestartRequest
-	ReloadCalls   []*pb.ReloadConfigRequest
-	StatusCalls   []*pb.StatusRequest
-	VersionCalls  []*pb.VersionRequest
-	InitDirCalls  []*pb.InitDataDirRequest
-	PgRewindCalls []*pb.PgRewindRequest
+	mu                 sync.Mutex
+	StartCalls         []*pb.StartRequest
+	StopCalls          []*pb.StopRequest
+	RestartCalls       []*pb.RestartRequest
+	ReloadCalls        []*pb.ReloadConfigRequest
+	StatusCalls        []*pb.StatusRequest
+	VersionCalls       []*pb.VersionRequest
+	InitDirCalls       []*pb.InitDataDirRequest
+	PgRewindCalls      []*pb.PgRewindRequest
+	CrashRecoveryCalls []*pb.CrashRecoveryRequest
 
 	// Response configurations
-	StartResponse    *pb.StartResponse
-	StopResponse     *pb.StopResponse
-	RestartResponse  *pb.RestartResponse
-	ReloadResponse   *pb.ReloadConfigResponse
-	StatusResponse   *pb.StatusResponse
-	VersionResponse  *pb.VersionResponse
-	InitDirResponse  *pb.InitDataDirResponse
-	PgRewindResponse *pb.PgRewindResponse
+	StartResponse         *pb.StartResponse
+	StopResponse          *pb.StopResponse
+	RestartResponse       *pb.RestartResponse
+	ReloadResponse        *pb.ReloadConfigResponse
+	StatusResponse        *pb.StatusResponse
+	VersionResponse       *pb.VersionResponse
+	InitDirResponse       *pb.InitDataDirResponse
+	PgRewindResponse      *pb.PgRewindResponse
+	CrashRecoveryResponse *pb.CrashRecoveryResponse
 
 	// Error configurations
-	StartError    error
-	StopError     error
-	RestartError  error
-	ReloadError   error
-	StatusError   error
-	VersionError  error
-	InitDirError  error
-	PgRewindError error
+	StartError         error
+	StopError          error
+	RestartError       error
+	ReloadError        error
+	StatusError        error
+	VersionError       error
+	InitDirError       error
+	PgRewindError      error
+	CrashRecoveryError error
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -183,6 +186,25 @@ func (m *MockPgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindReques
 	return &pb.PgRewindResponse{
 		Message: "Mock pg_rewind completed successfully",
 		Output:  "Done!",
+	}, nil
+}
+
+func (m *MockPgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecoveryRequest) (*pb.CrashRecoveryResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.CrashRecoveryCalls = append(m.CrashRecoveryCalls, req)
+	if m.CrashRecoveryError != nil {
+		return nil, m.CrashRecoveryError
+	}
+	if m.CrashRecoveryResponse != nil {
+		return m.CrashRecoveryResponse, nil
+	}
+	// Default response: no recovery needed (clean state)
+	return &pb.CrashRecoveryResponse{
+		RecoveryPerformed: false,
+		StateBefore:       pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_SHUT_DOWN,
+		StateAfter:        pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_SHUT_DOWN,
+		Message:           "Mock crash recovery: no recovery needed",
 	}, nil
 }
 
