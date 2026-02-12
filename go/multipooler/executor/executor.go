@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -75,7 +76,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute query: %w", err)
+			return nil, wrapQueryError(err)
 		}
 
 		if len(results) == 0 {
@@ -101,7 +102,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// with proper field info, rows, and command tags already populated
 	results, err := conn.Conn.Query(ctx, sql)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, wrapQueryError(err)
 	}
 
 	// Return first result (simple query returns single result)
@@ -141,7 +142,7 @@ func (e *Executor) StreamExecute(
 		}
 
 		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
-			return fmt.Errorf("query execution failed: %w", err)
+			return wrapQueryError(err)
 		}
 		return nil
 	}
@@ -161,7 +162,7 @@ func (e *Executor) StreamExecute(
 
 	// Use streaming query execution
 	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
-		return fmt.Errorf("query execution failed: %w", err)
+		return wrapQueryError(err)
 	}
 
 	return nil
@@ -269,7 +270,7 @@ func (e *Executor) portalExecuteWithReserved(
 	completed, err := reservedConn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
-		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+		return queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
 	// If portal is suspended (not completed), keep the reserved connection for continuation
@@ -315,7 +316,7 @@ func (e *Executor) portalExecuteWithRegular(
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
 	_, err = conn.Conn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, 0, callback)
 	if err != nil {
-		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+		return queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
 	// No reserved connection for regular execution
@@ -426,6 +427,237 @@ func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt 
 	return canonicalName, nil
 }
 
+// CopyReady initiates a COPY FROM STDIN operation and returns format information.
+// Uses an existing reserved connection if ReservedConnectionId is set in options,
+// otherwise creates a new reserved connection (COPY requires connection affinity).
+func (e *Executor) CopyReady(
+	ctx context.Context,
+	target *query.Target,
+	copyQuery string,
+	options *query.ExecuteOptions,
+) (int16, []int16, queryservice.ReservedState, error) {
+	user := e.getUserFromOptions(options)
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
+	}
+
+	e.logger.DebugContext(ctx, "initiating COPY FROM STDIN",
+		"query", copyQuery,
+		"user", user)
+
+	var reservedConn *reserved.Conn
+	var err error
+
+	// Check if we should use an existing reserved connection
+	if options != nil && options.ReservedConnectionId > 0 {
+		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+		if reservedConn == nil {
+			return 0, nil, queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+	} else {
+		// Create a new reserved connection (COPY requires connection affinity)
+		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
+		if err != nil {
+			return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
+		}
+	}
+
+	connID := reservedConn.ConnID
+
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
+
+	// Send COPY command and read CopyInResponse
+	format, columnFormats, err := conn.InitiateCopyFromStdin(ctx, copyQuery)
+	if err != nil {
+		// Connection is in bad state after failed COPY initiation - close it instead of recycling
+		reservedConn.Release(reserved.ReleaseError)
+		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
+	}
+
+	e.logger.DebugContext(ctx, "COPY INITIATE successful",
+		"conn_id", connID,
+		"format", format,
+		"num_columns", len(columnFormats))
+
+	reservedState := queryservice.ReservedState{
+		ReservedConnectionId: uint64(connID),
+		PoolerID:             nil, // TODO: implement pooler ID retrieval
+	}
+
+	return format, columnFormats, reservedState, nil
+}
+
+// CopySendData sends a chunk of data for an active COPY operation.
+func (e *Executor) CopySendData(
+	ctx context.Context,
+	target *query.Target,
+	data []byte,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return errors.New("options.ReservedConnectionId is required for CopySendData")
+	}
+
+	user := e.getUserFromOptions(options)
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		return fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+	}
+
+	e.logger.DebugContext(ctx, "sending COPY data",
+		"data_size", len(data),
+		"conn_id", options.ReservedConnectionId)
+
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
+
+	// Write CopyData to PostgreSQL
+	if err := conn.WriteCopyData(data); err != nil {
+		e.logger.ErrorContext(ctx, "failed to write COPY data",
+			"error", err,
+			"data_size", len(data))
+		return fmt.Errorf("failed to write COPY data: %w", err)
+	}
+
+	e.logger.DebugContext(ctx, "COPY DATA sent successfully",
+		"data_size", len(data))
+
+	return nil
+}
+
+// CopyFinalize completes a COPY operation, sending final data and returning the result.
+func (e *Executor) CopyFinalize(
+	ctx context.Context,
+	target *query.Target,
+	finalData []byte,
+	options *query.ExecuteOptions,
+) (*sqltypes.Result, error) {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, errors.New("options.ReservedConnectionId is required for CopyFinalize")
+	}
+
+	user := e.getUserFromOptions(options)
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+	}
+
+	e.logger.DebugContext(ctx, "finalizing COPY",
+		"final_data_size", len(finalData),
+		"conn_id", options.ReservedConnectionId)
+
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
+
+	// Send any remaining data first
+	if len(finalData) > 0 {
+		if err := conn.WriteCopyData(finalData); err != nil {
+			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
+			// Connection is in bad state - close it instead of recycling
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, fmt.Errorf("failed to write final COPY data: %w", err)
+		}
+		e.logger.DebugContext(ctx, "sent final COPY data", "size", len(finalData))
+	}
+
+	// Send CopyDone to signal completion
+	if err := conn.WriteCopyDone(); err != nil {
+		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
+		// Connection is in bad state - close it instead of recycling
+		reservedConn.Release(reserved.ReleaseError)
+		return nil, fmt.Errorf("failed to write CopyDone: %w", err)
+	}
+
+	// Read CommandComplete response from PostgreSQL
+	commandTag, rowsAffected, err := conn.ReadCopyDoneResponse(ctx)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
+		// Connection might be in bad state - close it instead of recycling
+		reservedConn.Release(reserved.ReleaseError)
+		return nil, fmt.Errorf("COPY operation failed: %w", err)
+	}
+
+	e.logger.DebugContext(ctx, "COPY DONE successful",
+		"rows_affected", rowsAffected,
+		"command_tag", commandTag)
+
+	// Build result
+	result := &sqltypes.Result{
+		CommandTag:   commandTag,
+		RowsAffected: rowsAffected,
+	}
+
+	// Success - release connection back to pool for reuse
+	reservedConn.Release(reserved.ReleasePortalComplete)
+
+	return result, nil
+}
+
+// CopyAbort aborts a COPY operation.
+func (e *Executor) CopyAbort(
+	ctx context.Context,
+	target *query.Target,
+	errorMsg string,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		// Already cleaned up or never initiated
+		return nil
+	}
+
+	user := e.getUserFromOptions(options)
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		// Already cleaned up
+		e.logger.DebugContext(ctx, "COPY connection already cleaned up",
+			"conn_id", options.ReservedConnectionId)
+		return nil
+	}
+
+	e.logger.DebugContext(ctx, "aborting COPY",
+		"error", errorMsg,
+		"conn_id", options.ReservedConnectionId)
+
+	// Get the pooled connection for COPY operations
+	conn := reservedConn.Conn()
+
+	// Send CopyFail to abort the operation
+	writeFailed := false
+	if err := conn.WriteCopyFail(errorMsg); err != nil {
+		e.logger.ErrorContext(ctx, "failed to write CopyFail", "error", err)
+		writeFailed = true
+		// Continue to try reading response
+	}
+
+	// Read ErrorResponse from PostgreSQL
+	// After CopyFail, PostgreSQL should respond with ErrorResponse and ReadyForQuery
+	// We can try to read it, but if it fails, that's okay since we're aborting anyway
+	_, _, readErr := conn.ReadCopyDoneResponse(ctx)
+	if readErr != nil {
+		e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)", "error", readErr)
+	}
+
+	e.logger.DebugContext(ctx, "COPY FAIL completed")
+
+	// If write or read failed, connection might be in bad state - close it
+	if writeFailed || readErr != nil {
+		reservedConn.Release(reserved.ReleaseError)
+	} else {
+		// Clean abort - release connection back to pool
+		reservedConn.Release(reserved.ReleasePortalComplete)
+	}
+
+	return nil
+}
+
 // getUserFromOptions extracts the user from ExecuteOptions.
 // Returns "postgres" as default if no user is specified.
 func (e *Executor) getUserFromOptions(options *query.ExecuteOptions) string {
@@ -446,6 +678,16 @@ func int32ToInt16Slice(in []int32) []int16 {
 		out[i] = int16(v)
 	}
 	return out
+}
+
+// wrapQueryError wraps query execution errors with context.
+// PostgreSQL errors (*mterrors.PgDiagnostic) are wrapped like any other error;
+// the display boundary (writeError) extracts the underlying diagnostic via errors.As.
+func wrapQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return mterrors.Wrapf(err, "query execution failed")
 }
 
 // Ensure Executor implements queryservice.QueryService

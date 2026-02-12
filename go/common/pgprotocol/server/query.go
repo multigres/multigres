@@ -19,7 +19,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -319,53 +321,115 @@ func (c *Conn) writeEmptyQueryResponse() error {
 	return nil
 }
 
-// writeErrorResponse writes an 'E' (ErrorResponse) message.
-// Format:
-//   - Type: 'E'
-//   - Length: int32
-//   - Fields: series of field-value pairs (each null-terminated)
-//   - Terminator: byte(0)
+// writeSimpleError writes an 'E' (ErrorResponse) message for non-PostgreSQL errors.
+// It creates a minimal PgDiagnostic and uses the unified writePgDiagnosticResponse.
+// Use this for internal errors that don't originate from PostgreSQL.
 //
-// Common fields:
-//   - 'S': Severity (ERROR, FATAL, PANIC)
-//   - 'V': Severity (non-localized)
-//   - 'C': SQLSTATE code (5 characters)
-//   - 'M': Primary message
-//   - 'D': Detail
-//   - 'H': Hint
-func (c *Conn) writeErrorResponse(severity, sqlState, message, detail, hint string) error {
-	// Build the fields map.
-	fields := make(map[byte]string)
-	fields[protocol.FieldSeverity] = severity
-	fields[protocol.FieldSeverityV] = severity // Non-localized version
-	fields[protocol.FieldCode] = sqlState
-	fields[protocol.FieldMessage] = message
-	if detail != "" {
-		fields[protocol.FieldDetail] = detail
+// For PostgreSQL errors with full diagnostic information, use writeErrorFromDiagnostic instead.
+func (c *Conn) writeSimpleError(sqlState, message string) error {
+	diag := &mterrors.PgDiagnostic{
+		MessageType: protocol.MsgErrorResponse,
+		Severity:    "ERROR",
+		Code:        sqlState,
+		Message:     message,
 	}
-	if hint != "" {
-		fields[protocol.FieldHint] = hint
-	}
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+}
 
-	return c.writeErrorOrNotice(protocol.MsgErrorResponse, fields)
+// writeSimpleErrorWithDetail writes an 'E' (ErrorResponse) message with detail and hint.
+// It creates a PgDiagnostic with the provided fields and uses the unified writePgDiagnosticResponse.
+// Use this for internal errors that don't originate from PostgreSQL but need additional context.
+//
+// For PostgreSQL errors with full diagnostic information, use writeErrorFromDiagnostic instead.
+func (c *Conn) writeSimpleErrorWithDetail(severity, sqlState, message, detail, hint string) error {
+	diag := &mterrors.PgDiagnostic{
+		MessageType: protocol.MsgErrorResponse,
+		Severity:    severity,
+		Code:        sqlState,
+		Message:     message,
+		Detail:      detail,
+		Hint:        hint,
+	}
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
 }
 
 // writeNoticeResponse writes an 'N' (NoticeResponse) message.
 // Format is identical to ErrorResponse but with different severity levels.
-func (c *Conn) writeNoticeResponse(severity, sqlState, message, detail, hint string) error {
-	fields := make(map[byte]string)
-	fields[protocol.FieldSeverity] = severity
-	fields[protocol.FieldSeverityV] = severity
-	fields[protocol.FieldCode] = sqlState
-	fields[protocol.FieldMessage] = message
-	if detail != "" {
-		fields[protocol.FieldDetail] = detail
-	}
-	if hint != "" {
-		fields[protocol.FieldHint] = hint
+func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
+	return c.writePgDiagnosticResponse(protocol.MsgNoticeResponse, diag)
+}
+
+// writeError writes an error response to the client.
+// It handles both PostgreSQL errors (preserving all diagnostic fields)
+// and generic errors (creating synthetic PgDiagnostic).
+func (c *Conn) writeError(err error) error {
+	if err == nil {
+		return nil
 	}
 
-	return c.writeErrorOrNotice(protocol.MsgNoticeResponse, fields)
+	// Extract root cause - handles wrapped errors
+	rootErr := mterrors.RootCause(err)
+
+	// Check if root cause is a PostgreSQL error
+	var diag *mterrors.PgDiagnostic
+	if errors.As(rootErr, &diag) {
+		return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+	}
+
+	// Generic error: use outer message for context
+	synthetic := &mterrors.PgDiagnostic{
+		MessageType: protocol.MsgErrorResponse,
+		Severity:    "ERROR",
+		Code:        "XX000",     // internal_error
+		Message:     err.Error(), // Full wrapped message
+	}
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, synthetic)
+}
+
+// writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).
+// The msgType should be MsgErrorResponse ('E') or MsgNoticeResponse ('N').
+// This unified function handles all 14 PostgreSQL diagnostic fields.
+func (c *Conn) writePgDiagnosticResponse(msgType byte, diag *mterrors.PgDiagnostic) error {
+	fields := make(map[byte]string)
+	fields[protocol.FieldSeverity] = diag.Severity
+	fields[protocol.FieldSeverityV] = diag.Severity
+	fields[protocol.FieldCode] = diag.Code
+	fields[protocol.FieldMessage] = diag.Message
+	if diag.Detail != "" {
+		fields[protocol.FieldDetail] = diag.Detail
+	}
+	if diag.Hint != "" {
+		fields[protocol.FieldHint] = diag.Hint
+	}
+	if diag.Position != 0 {
+		fields[protocol.FieldPosition] = strconv.Itoa(int(diag.Position))
+	}
+	if diag.InternalPosition != 0 {
+		fields[protocol.FieldInternalPosition] = strconv.Itoa(int(diag.InternalPosition))
+	}
+	if diag.InternalQuery != "" {
+		fields[protocol.FieldInternalQuery] = diag.InternalQuery
+	}
+	if diag.Where != "" {
+		fields[protocol.FieldWhere] = diag.Where
+	}
+	if diag.Schema != "" {
+		fields[protocol.FieldSchema] = diag.Schema
+	}
+	if diag.Table != "" {
+		fields[protocol.FieldTable] = diag.Table
+	}
+	if diag.Column != "" {
+		fields[protocol.FieldColumn] = diag.Column
+	}
+	if diag.DataType != "" {
+		fields[protocol.FieldDataType] = diag.DataType
+	}
+	if diag.Constraint != "" {
+		fields[protocol.FieldConstraint] = diag.Constraint
+	}
+
+	return c.writeErrorOrNotice(msgType, fields)
 }
 
 // writeErrorOrNotice writes an error or notice message with the given fields.
@@ -390,7 +454,7 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 	}
 
 	// Write fields in a defined order for consistency.
-	// Order: S, V, C, M, D, H, and others
+	// Order follows PostgreSQL convention: S, V, C, M, D, H, P, p, q, W, s, t, c, d, n, F, L, R
 	fieldOrder := []byte{
 		protocol.FieldSeverity,
 		protocol.FieldSeverityV,
@@ -399,6 +463,8 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 		protocol.FieldDetail,
 		protocol.FieldHint,
 		protocol.FieldPosition,
+		protocol.FieldInternalPosition,
+		protocol.FieldInternalQuery,
 		protocol.FieldWhere,
 		protocol.FieldSchema,
 		protocol.FieldTable,
@@ -427,6 +493,94 @@ func (c *Conn) writeErrorOrNotice(msgType byte, fields map[byte]string) error {
 	}
 
 	return nil
+}
+
+// WriteCopyInResponse writes a CopyInResponse ('G') message to the client
+// This tells the client that the server is ready to receive COPY data
+func (c *Conn) WriteCopyInResponse(format int16, columnFormats []int16) error {
+	// Calculate message size: 4 (length) + 1 (format as Int8) + 2 (num columns) + 2*numCols (column formats)
+	size := 4 + 1 + 2 + (2 * len(columnFormats))
+
+	w := c.getWriter()
+
+	// Write message type
+	if err := writeByte(w, protocol.MsgCopyInResponse); err != nil {
+		return err
+	}
+
+	// Write message length
+	if err := writeInt32(w, int32(size)); err != nil {
+		return err
+	}
+
+	// Write overall format as Int8 (1 byte) - 0=text, 1=binary
+	if err := writeByte(w, byte(format)); err != nil {
+		return err
+	}
+
+	// Write number of columns (Int16, 2 bytes)
+	if err := writeInt16(w, int16(len(columnFormats))); err != nil {
+		return err
+	}
+
+	// Write format code for each column (Int16 each)
+	for _, fmt := range columnFormats {
+		if err := writeInt16(w, fmt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ReadCopyDataMessage reads a CopyData ('d') message body
+// The message type byte has already been read
+// length is the body length (already has 4 subtracted by ReadMessageLength)
+func (c *Conn) ReadCopyDataMessage(length int) ([]byte, error) {
+	if length < 0 {
+		return nil, fmt.Errorf("invalid CopyData message length: %d", length)
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(c.bufferedReader, data); err != nil {
+		return nil, fmt.Errorf("failed to read CopyData: %w", err)
+	}
+
+	return data, nil
+}
+
+// ReadCopyDoneMessage reads a CopyDone ('c') message
+// The message type byte has already been read
+// CopyDone has no body, just validates the length
+// length is the body length (already has 4 subtracted by ReadMessageLength)
+func (c *Conn) ReadCopyDoneMessage(length int) error {
+	// CopyDone has no body, so length should be 0
+	if length != 0 {
+		return fmt.Errorf("invalid CopyDone message length: %d (expected 0)", length)
+	}
+	return nil
+}
+
+// ReadCopyFailMessage reads a CopyFail ('f') message
+// The message type byte has already been read
+// Returns the error message string from the client
+// length is the body length (already has 4 subtracted by ReadMessageLength)
+func (c *Conn) ReadCopyFailMessage(length int) (string, error) {
+	if length < 0 {
+		return "", fmt.Errorf("invalid CopyFail message length: %d", length)
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(c.bufferedReader, data); err != nil {
+		return "", fmt.Errorf("failed to read CopyFail: %w", err)
+	}
+
+	// Message should be null-terminated
+	if len(data) > 0 && data[len(data)-1] == 0 {
+		data = data[:len(data)-1]
+	}
+
+	return string(data), nil
 }
 
 // Helper functions for writing protocol data types.

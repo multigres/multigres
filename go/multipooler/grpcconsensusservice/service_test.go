@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/manager"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/stretchr/testify/assert"
@@ -42,7 +43,7 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	ctx := context.Background()
 	err := ts.CreateDatabase(ctx, database, &clustermetadata.Database{
 		Name:             database,
-		BackupLocation:   "/var/backups/pgbackrest",
+		BackupLocation:   utils.FilesystemBackupLocation("/var/backups/pgbackrest"),
 		DurabilityPolicy: "ANY_2",
 	})
 	require.NoError(t, err)
@@ -55,7 +56,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -113,7 +114,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 		manager: pm,
 	}
 
-	t.Run("BeginTerm without database connection should fail", func(t *testing.T) {
+	t.Run("BeginTerm with REVOKE action without database connection accepts term but revoke fails", func(t *testing.T) {
 		req := &consensusdata.BeginTermRequest{
 			Term: 5,
 			CandidateId: &clustermetadata.ID{
@@ -122,14 +123,20 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 				Name:      "candidate-1",
 			},
 			ShardId: "shard-1",
+			Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 		}
 
 		resp, err := svc.BeginTerm(ctx, req)
 
-		// Should fail because no database connection
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		assert.Contains(t, err.Error(), "postgres")
+		// With PrimaryTerm tracking: voting term is accepted even when postgres is unhealthy,
+		// but the revoke action fails. This allows distinguishing voting term from primary term.
+		// The node accepts the new voting term but keeps its old primary term, making it
+		// unambiguous which node is the true primary.
+		assert.Error(t, err, "Revoke action should fail when postgres is unhealthy")
+		assert.Contains(t, err.Error(), "term accepted but revoke action failed")
+		assert.NotNil(t, resp)
+		assert.True(t, resp.Accepted, "Voting term should be accepted even when revoke fails")
+		assert.Equal(t, int64(5), resp.Term, "Response should contain the accepted term")
 	})
 }
 
@@ -140,7 +147,7 @@ func TestConsensusService_Status(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -224,7 +231,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -303,7 +310,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -384,7 +391,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	defer ts.Close()
 
 	// Start mock pgctld server
-	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t)
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, &testutil.MockPgCtldService{})
 	t.Cleanup(cleanupPgctld)
 
 	// Create database in topology
@@ -458,11 +465,13 @@ func TestConsensusService_AllMethods(t *testing.T) {
 						Name:      "candidate-1",
 					},
 					ShardId: "shard-1",
+					Action:  consensusdata.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 				}
 				_, err := svc.BeginTerm(ctx, req)
 				return err
 			},
-			shouldSucceed: false, // No database connection
+			// No database connection: term is accepted but revoke action fails, so error is returned
+			shouldSucceed: false,
 		},
 		{
 			name: "Status",

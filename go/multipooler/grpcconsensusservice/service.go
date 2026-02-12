@@ -47,7 +47,9 @@ func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) 
 func (s *consensusService) BeginTerm(ctx context.Context, req *consensusdata.BeginTermRequest) (*consensusdata.BeginTermResponse, error) {
 	resp, err := s.manager.BeginTerm(ctx, req)
 	if err != nil {
-		return nil, mterrors.ToGRPC(err)
+		// Return response even on error - the response may contain accepted=true
+		// when the term was accepted but the action (e.g. REVOKE) failed
+		return resp, mterrors.ToGRPC(err)
 	}
 	return resp, nil
 }

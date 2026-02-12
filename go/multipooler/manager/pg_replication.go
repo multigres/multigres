@@ -25,8 +25,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/multipooler/executor"
-	"github.com/multigres/multigres/go/parser/ast"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"

@@ -1522,8 +1522,10 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 		if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
 			t.Logf("Warning: cleanup failed: %v", cleanupErr)
 		}
-		if os.Getenv("KEEP_TEMP_DIRS") != "" {
-			t.Logf("Keeping test directory for debugging: %s", tempDir)
+
+		// Keep temp dir on test failure, clean up on success
+		if t.Failed() {
+			shardsetup.PrintLogLocation(tempDir)
 		} else {
 			os.RemoveAll(tempDir)
 		}

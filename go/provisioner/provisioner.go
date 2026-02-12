@@ -94,10 +94,10 @@ type Provisioner interface {
 	// DefaultConfig returns the default configuration for this provisioner.
 	// The returned map contains key-value pairs that represent the default
 	// settings for the provisioner. The provisioner will use the configPaths
-	// to specify data file locations.
+	// to specify data file locations and backupConfig for backup settings.
 	// TODO: We can have better typing in the future here,
 	// but we can wait until we start implementing other provisioners
-	DefaultConfig(configPaths []string) map[string]any
+	DefaultConfig(configPaths []string, backupConfig map[string]string) map[string]any
 
 	// LoadConfig loads the provisioner-specific configuration from the given config paths.
 	// The provisioner will search for config files in the provided paths and load

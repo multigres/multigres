@@ -17,14 +17,17 @@ package client
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strconv"
 
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
@@ -94,11 +97,23 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*sqltypes.Result, 
 	var currentResult *sqltypes.Result
 
 	err := c.QueryStreaming(ctx, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
+		// Handle notice-only results (zero-buffering notice delivery).
+		if len(result.Notices) > 0 && len(result.Rows) == 0 && result.CommandTag == "" {
+			// Accumulate notices into current result.
+			if currentResult == nil {
+				currentResult = &sqltypes.Result{}
+			}
+			currentResult.Notices = append(currentResult.Notices, result.Notices...)
+			return nil
+		}
+
 		// Accumulate rows into the current result.
 		if currentResult == nil {
 			currentResult = result
 		} else {
 			currentResult.Rows = append(currentResult.Rows, result.Rows...)
+			// Also accumulate any notices that came with row data.
+			currentResult.Notices = append(currentResult.Notices, result.Notices...)
 		}
 
 		// CommandTag being set signals the end of a result set.
@@ -290,7 +305,15 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices for now.
+			// Stream notice immediately via callback (zero-buffering notice delivery).
+			// Notices are sent as separate Results with no rows or command tag.
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				}
+				firstErr = callback(ctx, noticeResult)
+			}
 
 		case protocol.MsgParameterStatus:
 			// Handle parameter status updates. Capture error but continue draining.
@@ -454,11 +477,19 @@ func parseRowsAffected(tag string) uint64 {
 	return 0
 }
 
-// parseError parses an ErrorResponse message into an error.
-func (c *Conn) parseError(body []byte) error {
+// parseDiagnosticFields parses all 14 PostgreSQL diagnostic fields from the wire format.
+// This is a shared helper used by both parseError() and parseNotice() since PostgreSQL
+// uses the same field format for ErrorResponse ('E') and NoticeResponse ('N') messages.
+// The msgType parameter should be protocol.MsgErrorResponse or protocol.MsgNoticeResponse.
+//
+// If the parsed diagnostic fails validation (missing required fields), a warning is logged
+// but the diagnostic is still returned. This allows lenient handling of malformed messages.
+func parseDiagnosticFields(msgType byte, body []byte) *mterrors.PgDiagnostic {
 	reader := NewMessageReader(body)
 
-	var severity, code, message, detail, hint string
+	diag := &mterrors.PgDiagnostic{
+		MessageType: msgType,
+	}
 
 	for reader.Remaining() > 0 {
 		fieldType, err := reader.ReadByte()
@@ -476,45 +507,70 @@ func (c *Conn) parseError(body []byte) error {
 
 		switch fieldType {
 		case protocol.FieldSeverity:
-			severity = value
+			diag.Severity = value
+		case protocol.FieldSeverityV:
+			// FieldSeverityV ('V') is the non-localized severity.
+			// Only use it if FieldSeverity ('S') wasn't already set.
+			if diag.Severity == "" {
+				diag.Severity = value
+			}
 		case protocol.FieldCode:
-			code = value
+			diag.Code = value
 		case protocol.FieldMessage:
-			message = value
+			diag.Message = value
 		case protocol.FieldDetail:
-			detail = value
+			diag.Detail = value
 		case protocol.FieldHint:
-			hint = value
+			diag.Hint = value
+		case protocol.FieldPosition:
+			if pos, err := strconv.ParseInt(value, 10, 32); err == nil {
+				diag.Position = int32(pos)
+			}
+		case protocol.FieldInternalPosition:
+			if pos, err := strconv.ParseInt(value, 10, 32); err == nil {
+				diag.InternalPosition = int32(pos)
+			}
+		case protocol.FieldInternalQuery:
+			diag.InternalQuery = value
+		case protocol.FieldWhere:
+			diag.Where = value
+		case protocol.FieldSchema:
+			diag.Schema = value
+		case protocol.FieldTable:
+			diag.Table = value
+		case protocol.FieldColumn:
+			diag.Column = value
+		case protocol.FieldDataType:
+			diag.DataType = value
+		case protocol.FieldConstraint:
+			diag.Constraint = value
 		}
 	}
 
-	return &Error{
-		Severity: severity,
-		Code:     code,
-		Message:  message,
-		Detail:   detail,
-		Hint:     hint,
+	// Validate the parsed diagnostic. Log a warning if validation fails,
+	// but still return the diagnostic to allow lenient handling.
+	if err := diag.Validate(); err != nil {
+		slog.Warn("parsed PostgreSQL diagnostic with missing required fields",
+			"error", err,
+			// Convert single byte to string directly (msgType is 'E' or 'N')
+			"message_type", string([]byte{msgType}),
+			"severity", diag.Severity,
+			"code", diag.Code,
+		)
 	}
+
+	return diag
 }
 
-// Error represents a PostgreSQL error response.
-type Error struct {
-	Severity string
-	Code     string
-	Message  string
-	Detail   string
-	Hint     string
+// parseError parses an ErrorResponse message into a *mterrors.PgDiagnostic.
+// Since mterrors.PgDiagnostic implements the error interface, it can be returned
+// directly as an error. This eliminates the need for a separate wrapper type.
+// It captures all 14 PostgreSQL error fields defined in the protocol.
+func (c *Conn) parseError(body []byte) error {
+	return parseDiagnosticFields(protocol.MsgErrorResponse, body)
 }
 
-// Error implements the error interface.
-func (e *Error) Error() string {
-	if e.Detail != "" {
-		return fmt.Sprintf("%s: %s (SQLSTATE %s)\nDETAIL: %s", e.Severity, e.Message, e.Code, e.Detail)
-	}
-	return fmt.Sprintf("%s: %s (SQLSTATE %s)", e.Severity, e.Message, e.Code)
-}
-
-// IsSQLState checks if the error has the given SQLSTATE code.
-func (e *Error) IsSQLState(code string) bool {
-	return e.Code == code
+// parseNotice parses a NoticeResponse message into a mterrors.PgDiagnostic.
+func (c *Conn) parseNotice(body []byte) *mterrors.PgDiagnostic {
+	return parseDiagnosticFields(protocol.MsgNoticeResponse, body)
 }

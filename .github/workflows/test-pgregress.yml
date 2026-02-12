@@ -1,0 +1,63 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: PostgreSQL Regression Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  test-pgregress:
+    name: Run PostgreSQL regression tests
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up test environment
+        run: .github/scripts/setup-test-environment.sh
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev
+
+      - name: Build
+        run: make build
+
+      - name: Run PostgreSQL regression tests
+        env:
+          RUN_PGREGRESS: "1"
+          TEST_PRINT_LOGS: "1"
+        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... | tee pgregress-test-results.jsonl | go tool tparse -follow
+
+      - name: Test Report
+        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+        if: ${{ !cancelled() }}
+        with:
+          name: PostgreSQL Regression Tests
+          path: pgregress-test-results.jsonl
+          reporter: golang-json

@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/coordinator"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -57,7 +57,7 @@ type BootstrapShardAction struct {
 	topoStore        topoclient.Store
 	logger           *slog.Logger
 	statusRPCTimeout time.Duration
-	coordinator      *coordinator.Coordinator
+	coordinator      *consensus.Coordinator
 }
 
 // NewBootstrapShardAction creates a new bootstrap action with default settings.
@@ -66,7 +66,7 @@ func NewBootstrapShardAction(
 	rpcClient rpcclient.MultiPoolerClient,
 	poolerStore *store.PoolerHealthStore,
 	topoStore topoclient.Store,
-	coordinator *coordinator.Coordinator,
+	coordinator *consensus.Coordinator,
 	logger *slog.Logger,
 ) *BootstrapShardAction {
 	return &BootstrapShardAction{
@@ -290,7 +290,7 @@ func (a *BootstrapShardAction) configureSynchronousReplication(
 	quorumRule *clustermetadatapb.QuorumRule,
 ) error {
 	// Build sync replication config using shared function
-	syncConfig, err := coordinator.BuildSyncReplicationConfig(a.logger, quorumRule, standbys, primary)
+	syncConfig, err := consensus.BuildSyncReplicationConfig(a.logger, quorumRule, standbys, primary)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to build sync replication config")
 	}

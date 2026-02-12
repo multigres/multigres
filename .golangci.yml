@@ -99,6 +99,16 @@ linters:
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
+        parser-isolation:
+          list-mode: lax
+          files:
+            - "**/go/common/parser/**"
+          deny:
+            - pkg: "github.com/multigres/multigres/go/common"
+              desc: "parser can only depend on itself within go/common - this component should be usable as a standalone library"
+          allow:
+            - $gostd
+            - github.com/multigres/multigres/go/common/parser
         multiadmin-isolation:
           files:
             - "!**/go/services/multiadmin/*.go"
@@ -122,17 +132,16 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/services/pgctld"
               desc: "pgctld can only be imported by its own package and cmd"
-        # TODO: Move go/multigateway to go/services/multigateway and update paths below
         multigateway-isolation:
           files:
-            - "!**/go/multigateway/*.go"
-            - "!**/go/multigateway/**/*.go"
+            - "!**/go/services/multigateway/*.go"
+            - "!**/go/services/multigateway/**/*.go"
             - "!**/go/cmd/multigateway/*.go"
             - "!**/go/cmd/multigateway/**/*.go"
             - "**/*.go"
           list-mode: lax
           deny:
-            - pkg: "github.com/multigres/multigres/go/multigateway"
+            - pkg: "github.com/multigres/multigres/go/services/multigateway"
               desc: "multigateway can only be imported by its own package and cmd"
         multiorch-isolation:
           files:
@@ -290,7 +299,7 @@ linters:
         path: ^proto/
       - linters:
           - unused
-        path: ^go/(parser|common/pgprotocol|tools/ruleguard)
+        path: ^go/(common/parser|common/pgprotocol|tools/ruleguard)
       # Potentially unsafe integer casts are all over the place (unsigned to signed, 64-bit to 32-bit, etc.)
       - linters:
           - gosec
@@ -314,7 +323,7 @@ linters:
       # Parser has many unnecessary type conversions
       - linters:
           - unconvert
-        path: ^go/parser/
+        path: ^go/common/parser/
 formatters:
   enable:
     - gofumpt

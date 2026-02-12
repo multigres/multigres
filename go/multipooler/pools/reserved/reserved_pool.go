@@ -257,6 +257,8 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 		p.timeoutCount.Add(1)
 	case ReleaseKill:
 		p.killCount.Add(1)
+	case ReleaseError:
+		rc.pooled.Taint()
 	}
 
 	// Return the underlying connection to the pool.
@@ -316,6 +318,24 @@ func (p *Pool) Stats() PoolStats {
 		TxRollbackCount: p.txRollbackCount.Load(),
 		RegularPool:     p.conns.Stats(),
 	}
+}
+
+// SetCapacity changes the pool's maximum capacity.
+// If reducing capacity, may block waiting for borrowed connections to return.
+func (p *Pool) SetCapacity(ctx context.Context, newcap int64) error {
+	return p.conns.SetCapacity(ctx, newcap)
+}
+
+// Requested returns the number of currently requested connections (borrowed + waiters).
+// Used for demand tracking in the rebalancer.
+func (p *Pool) Requested() int64 {
+	return p.conns.Requested()
+}
+
+// PeakRequestedAndReset returns the peak demand since the last reset and resets the peak.
+// This captures burst demand that point-in-time sampling might miss.
+func (p *Pool) PeakRequestedAndReset() int64 {
+	return p.conns.PeakRequestedAndReset()
 }
 
 // PoolStats contains pool statistics for reserved connections.

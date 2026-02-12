@@ -179,6 +179,22 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// GetStartupParams returns the startup parameters sent by the client,
+// excluding 'user' and 'database' which are handled separately.
+func (c *Conn) GetStartupParams() map[string]string {
+	result := make(map[string]string, len(c.params))
+	for k, v := range c.params {
+		if k == "user" || k == "database" {
+			continue
+		}
+		result[k] = v
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 // Context returns the connection's context.
 func (c *Conn) Context() context.Context {
 	return c.ctx
@@ -241,6 +257,13 @@ func (c *Conn) flush() error {
 	return nil
 }
 
+// Flush flushes any buffered writes to the client.
+// This is exposed for external callers (like gateway handler) that need to
+// ensure messages are sent immediately (e.g., CopyInResponse).
+func (c *Conn) Flush() error {
+	return c.flush()
+}
+
 // endWriterBuffering ends write buffering and returns the writer to the pool.
 // This should be called after each query to release the buffer back to the pool.
 func (c *Conn) endWriterBuffering() {
@@ -278,7 +301,7 @@ func (c *Conn) serve() error {
 	if err := c.handleStartup(); err != nil {
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
-		_ = c.writeErrorResponse("FATAL", "08P01", "connection startup failed", err.Error(), "")
+		_ = c.writeSimpleErrorWithDetail("FATAL", "08P01", "connection startup failed", err.Error(), "")
 		_ = c.flush()
 		return err
 	}
@@ -291,7 +314,7 @@ func (c *Conn) serve() error {
 		}
 
 		// Read the message type (1 byte).
-		msgType, err := c.readMessageType()
+		msgType, err := c.ReadMessageType()
 		if err != nil {
 			// EOF or connection error - close gracefully.
 			if errors.Is(err, io.EOF) {
@@ -306,7 +329,7 @@ func (c *Conn) serve() error {
 		if err := c.handleMessage(msgType); err != nil {
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
-			_ = c.writeErrorResponse("ERROR", "XX000", "internal error", err.Error(), "")
+			_ = c.writeSimpleErrorWithDetail("ERROR", "XX000", "internal error", err.Error(), "")
 			_ = c.writeReadyForQuery()
 			_ = c.flush()
 			// For now, close connection on any error.
@@ -384,6 +407,15 @@ func (c *Conn) handleQuery() error {
 			return c.writeEmptyQueryResponse()
 		}
 
+		// Send notices immediately (zero-buffering delivery).
+		// Notices may arrive as standalone Results (no rows/CommandTag) from the gRPC
+		// streaming path, or bundled with the final Result that has a CommandTag.
+		for _, notice := range result.Notices {
+			if err := c.writeNoticeResponse(notice); err != nil {
+				return fmt.Errorf("writing notice response: %w", err)
+			}
+		}
+
 		// On first callback with fields for this result set, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {
@@ -400,7 +432,6 @@ func (c *Conn) handleQuery() error {
 		}
 
 		// If CommandTag is set, this is the last packet of the current result set.
-		// Send CommandComplete and reset state for the next result set.
 		if result.CommandTag != "" {
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
@@ -413,12 +444,9 @@ func (c *Conn) handleQuery() error {
 		return nil
 	})
 	if err != nil {
-		// Send error response with the actual error in the message for better visibility.
-		// lib/pq and other clients often only show the message field, not the detail field.
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
-		errMsg := fmt.Sprintf("query execution failed: %v", err)
-		if err := c.writeErrorResponse("ERROR", "42000", errMsg, "", ""); err != nil {
-			return err
+		if writeErr := c.writeError(err); writeErr != nil {
+			return writeErr
 		}
 	}
 
@@ -441,7 +469,7 @@ func (c *Conn) handleParse() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	bodyLen, err := c.readMessageLength()
+	bodyLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Parse message length: %w", err)
 	}
@@ -485,7 +513,7 @@ func (c *Conn) handleParse() error {
 	// Call the handler to validate and prepare the statement.
 	// The handler is responsible for storing any state it needs.
 	if err := c.handler.HandleParse(c.ctx, c, stmtName, queryStr, paramTypes); err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "parse failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "parse failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -508,7 +536,7 @@ func (c *Conn) handleBind() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	bodyLen, err := c.readMessageLength()
+	bodyLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Bind message length: %w", err)
 	}
@@ -579,7 +607,7 @@ func (c *Conn) handleBind() error {
 
 	// Call the handler to create and bind the portal with parameters.
 	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -605,7 +633,7 @@ func (c *Conn) handleExecute() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	bodyLen, err := c.readMessageLength()
+	bodyLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Execute message length: %w", err)
 	}
@@ -638,6 +666,13 @@ func (c *Conn) handleExecute() error {
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
 	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
+		// Send notices immediately (zero-buffering delivery).
+		for _, notice := range result.Notices {
+			if err := c.writeNoticeResponse(notice); err != nil {
+				return fmt.Errorf("writing notice response: %w", err)
+			}
+		}
+
 		// On first callback with fields, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {
@@ -654,7 +689,6 @@ func (c *Conn) handleExecute() error {
 		}
 
 		// If CommandTag is set, this is the last packet.
-		// Send CommandComplete.
 		if result.CommandTag != "" {
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
@@ -664,7 +698,7 @@ func (c *Conn) handleExecute() error {
 		return nil
 	})
 	if err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "execution failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -680,7 +714,7 @@ func (c *Conn) handleDescribe() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	msgLen, err := c.readMessageLength()
+	msgLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Describe message length: %w", err)
 	}
@@ -709,7 +743,7 @@ func (c *Conn) handleDescribe() error {
 	// Call the handler.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42P03", "describe failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "describe failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -744,7 +778,7 @@ func (c *Conn) handleClose() error {
 	defer c.endWriterBuffering()
 
 	// Read message length.
-	msgLen, err := c.readMessageLength()
+	msgLen, err := c.ReadMessageLength()
 	if err != nil {
 		return fmt.Errorf("failed to read Close message length: %w", err)
 	}
@@ -772,7 +806,7 @@ func (c *Conn) handleClose() error {
 
 	// Call the handler.
 	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42P03", "close failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "close failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -794,7 +828,7 @@ func (c *Conn) handleSync() error {
 	defer c.endWriterBuffering()
 
 	// Read (and discard) message length.
-	if _, err := c.readMessageLength(); err != nil {
+	if _, err := c.ReadMessageLength(); err != nil {
 		return fmt.Errorf("failed to read Sync message length: %w", err)
 	}
 
@@ -803,7 +837,7 @@ func (c *Conn) handleSync() error {
 	// Call the handler.
 	if err := c.handler.HandleSync(c.ctx, c); err != nil {
 		// Even if handler returns error, we still send ReadyForQuery after Sync.
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "sync failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "sync failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 	}

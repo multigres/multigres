@@ -35,7 +35,7 @@ func TestServer_BasicQuery(t *testing.T) {
 	))
 
 	// Connect to the server.
-	conn, err := client.Connect(context.Background(), s.ClientConfig())
+	conn, err := client.Connect(context.Background(), context.Background(), s.ClientConfig())
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -61,7 +61,7 @@ func TestServer_QueryPattern(t *testing.T) {
 		[][]any{{int64(1), "Alice"}},
 	))
 
-	conn, err := client.Connect(context.Background(), s.ClientConfig())
+	conn, err := client.Connect(context.Background(), context.Background(), s.ClientConfig())
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -78,7 +78,7 @@ func TestServer_RejectedQuery(t *testing.T) {
 
 	s.AddRejectedQuery("SELECT * FROM forbidden", errors.New("access denied"))
 
-	conn, err := client.Connect(context.Background(), s.ClientConfig())
+	conn, err := client.Connect(context.Background(), context.Background(), s.ClientConfig())
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -96,7 +96,7 @@ func TestServer_QueryCallCount(t *testing.T) {
 		[][]any{{int64(1)}},
 	))
 
-	conn, err := client.Connect(context.Background(), s.ClientConfig())
+	conn, err := client.Connect(context.Background(), context.Background(), s.ClientConfig())
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -116,7 +116,7 @@ func TestServer_NeverFail(t *testing.T) {
 	defer s.Close()
 	s.SetNeverFail(true)
 
-	conn, err := client.Connect(context.Background(), s.ClientConfig())
+	conn, err := client.Connect(context.Background(), context.Background(), s.ClientConfig())
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -147,7 +147,7 @@ func TestServer_OrderedQueries(t *testing.T) {
 		),
 	})
 
-	conn, err := client.Connect(context.Background(), s.ClientConfig())
+	conn, err := client.Connect(context.Background(), context.Background(), s.ClientConfig())
 	require.NoError(t, err)
 	defer conn.Close()
 

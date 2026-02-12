@@ -34,7 +34,7 @@ service MultiPoolerService {
   rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
 
   // StreamExecute executes a SQL query and streams the results back
-  rpc StreamExecute(StreamExecuteRequest) returns (stream StreamExecuteResponse);
+  rpc StreamExecute(StreamExecuteRequest) returns (stream query.QueryResultPayload);
 
   // PortalStreamExecute executes a portal (bound prepared statement) and streams results
   // Returns reserved connection information for session affinity
@@ -51,6 +51,11 @@ service MultiPoolerService {
   // an up-to-date cache of all password hashes and by real-time updates from multipooler
   // when any credentials change.
   rpc GetAuthCredentials(GetAuthCredentialsRequest) returns (GetAuthCredentialsResponse);
+
+  // CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
+  // The gateway sends the initial command and then streams data/messages.
+  // The pooler responds with protocol-specific messages and final result.
+  rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -117,8 +122,8 @@ message PortalStreamExecuteRequest {
 
 // PortalStreamExecuteResponse represents a response in the portal execution stream
 message PortalStreamExecuteResponse {
-  // result contains the query result data (rows, fields, etc.)
-  query.QueryResult result = 1;
+  // result contains the query result data (rows, fields, etc.) or diagnostics
+  query.QueryResultPayload result = 1;
 
   // reserved_connection_id is the ID of the reserved connection
   // This is returned in the first response and should be used for subsequent queries
@@ -168,4 +173,77 @@ message GetAuthCredentialsResponse {
   // Format: SCRAM-SHA-256$<iterations>:<salt>$<stored_key>:<server_key>
   // Empty if user exists but has no password set.
   string scram_hash = 1;
+}
+
+// CopyBidiExecuteRequest represents a message in the bidirectional execute stream from gateway to pooler.
+// Used for commands that require bidirectional streaming (e.g., COPY FROM STDIN, COPY TO STDOUT).
+message CopyBidiExecuteRequest {
+  // Phase indicates which phase of the operation this message represents
+  enum Phase {
+    INITIATE = 0;  // Initial command
+    DATA = 1;      // Data chunk (for COPY FROM STDIN)
+    DONE = 2;      // Finalize operation (all data sent for COPY FROM, or ready to receive for COPY TO)
+    FAIL = 3;      // Abort operation
+  }
+
+  // phase indicates the current phase
+  Phase phase = 1;
+
+  // query is the SQL command to execute (only for INITIATE phase)
+  string query = 2;
+
+  // target specifies the routing destination (only for INITIATE phase)
+  query.Target target = 3;
+
+  // caller_id identifies the caller (only for INITIATE phase)
+  mtrpc.CallerID caller_id = 4;
+
+  // options contains execution options (only for INITIATE phase)
+  query.ExecuteOptions options = 5;
+
+  // data contains the data chunk (for DATA and DONE phases in COPY FROM STDIN)
+  bytes data = 6;
+
+  // error_message contains the error message (for FAIL phase)
+  string error_message = 7;
+}
+
+// CopyBidiExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.
+// Used for responses to commands that require bidirectional streaming.
+message CopyBidiExecuteResponse {
+  // Phase indicates which phase of the response this represents
+  enum Phase {
+    READY = 0;    // Command initiated successfully, ready for data streaming
+    // For COPY FROM STDIN: PostgreSQL sent CopyInResponse
+    // For COPY TO STDOUT: PostgreSQL sent CopyOutResponse
+    DATA = 1;     // Data chunk (for COPY TO STDOUT)
+    RESULT = 2;   // Final result (CommandComplete)
+    ERROR = 3;    // Error occurred
+  }
+
+  // phase indicates the current phase
+  Phase phase = 1;
+
+  // reserved_connection_id is the ID of the reserved connection (for READY phase)
+  uint64 reserved_connection_id = 2;
+
+  // pooler_id identifies which multipooler instance owns the reserved connection (for READY phase)
+  clustermetadata.ID pooler_id = 3;
+
+  // format indicates the COPY format (for READY phase with COPY commands)
+  // 0 = text, 1 = binary
+  int32 format = 4;
+
+  // column_formats contains the format code for each column (for READY phase with COPY commands)
+  // Each value is 0 (text) or 1 (binary)
+  repeated int32 column_formats = 8;
+
+  // data contains the data chunk (for DATA phase in COPY TO STDOUT)
+  bytes data = 5;
+
+  // result contains the final query result (for RESULT phase)
+  query.QueryResult result = 6;
+
+  // error contains the error message (for ERROR phase)
+  string error = 7;
 }

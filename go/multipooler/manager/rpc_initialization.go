@@ -136,6 +136,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Wrap(err, "failed to set pooler type")
 	}
 
+	// Set primary term during bootstrap initialization
+	if pm.consensusState != nil {
+		if err := pm.consensusState.SetPrimaryTerm(ctx, req.ConsensusTerm, false /* force */); err != nil {
+			return nil, mterrors.Wrap(err, "failed to set primary term")
+		}
+	}
+
 	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
 	backupID, err := pm.backupLocked(ctx, true, "full", "")
@@ -487,7 +494,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 		return mterrors.Wrap(err, "failed to write archive config")
 	}
 
-	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", pm.stanzaName(), "repo_path", pm.backupLocation)
+	pm.logger.InfoContext(ctx, "Configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", pm.stanzaName(), "backup_type", pm.backupConfig.Type())
 	return nil
 }
 

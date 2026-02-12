@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -462,7 +463,15 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Stream notice immediately via callback (zero-buffering notice delivery).
+			// Notices are sent as separate Results with no rows or command tag.
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				}
+				firstErr = callback(ctx, noticeResult)
+			}
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -586,7 +595,8 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -633,7 +643,8 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -670,7 +681,8 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -735,7 +747,8 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -874,7 +887,15 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Stream notice immediately via callback (zero-buffering notice delivery).
+			// Notices are sent as separate Results with no rows or command tag.
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				}
+				firstErr = callback(ctx, noticeResult)
+			}
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -937,7 +958,8 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Parse notice (no result to attach to in this context).
+			_ = c.parseNotice(body)
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {
@@ -1095,7 +1117,15 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			}
 
 		case protocol.MsgNoticeResponse:
-			// Ignore notices.
+			// Stream notice immediately via callback (zero-buffering notice delivery).
+			// Notices are sent as separate Results with no rows or command tag.
+			if callback != nil && firstErr == nil {
+				notice := c.parseNotice(body)
+				noticeResult := &sqltypes.Result{
+					Notices: []*mterrors.PgDiagnostic{notice},
+				}
+				firstErr = callback(ctx, noticeResult)
+			}
 
 		case protocol.MsgParameterStatus:
 			if firstErr == nil {

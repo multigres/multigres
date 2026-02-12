@@ -83,7 +83,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	watchTargets := []string{"postgres/default/0-inf"}
 	config := &shardsetup.SetupConfig{CellName: setup.CellName}
 	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", watchTargets, config)
-	require.NoError(t, mo.Start(t), "should start multiorch")
+	require.NoError(t, mo.Start(t.Context(), t), "should start multiorch")
 	t.Cleanup(moCleanup)
 
 	// Wait for multiorch to detect uninitialized shard and bootstrap it automatically
@@ -109,6 +109,15 @@ func TestBootstrapInitialization(t *testing.T) {
 		defer primaryClient.Close()
 
 		ctx := t.Context()
+
+		// Verify primary term is set to 1 (bootstrap term)
+		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		require.NoError(t, err, "Should be able to get status from primary")
+		require.NotNil(t, status.Status.ConsensusTerm, "Primary should have consensus term")
+		assert.Equal(t, int64(1), status.Status.ConsensusTerm.TermNumber, "Primary should be on term 1 after bootstrap")
+		assert.Equal(t, int64(1), status.Status.ConsensusTerm.PrimaryTerm, "Primary term should be set to 1 after bootstrap")
+		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
+			status.Status.ConsensusTerm.TermNumber, status.Status.ConsensusTerm.PrimaryTerm)
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -183,7 +192,14 @@ func TestBootstrapInitialization(t *testing.T) {
 			require.NoError(t, err)
 			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				standbyCount++
-				t.Logf("Standby node: %s (pooler_type=%s)", name, status.Status.PoolerType)
+
+				// Verify replica has primary_term = 0 (never been primary)
+				require.NotNil(t, status.Status.ConsensusTerm, "Standby %s should have consensus term", name)
+				assert.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
+					"Standby %s should have primary_term=0 (never been primary)", name)
+
+				t.Logf("Standby node: %s (pooler_type=%s, primary_term=%d)",
+					name, status.Status.PoolerType, status.Status.ConsensusTerm.PrimaryTerm)
 			}
 		}
 		// Should have at least 1 standby
@@ -316,6 +332,11 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify it contains ANY keyword (for ANY_2 policy)
 		assert.Contains(t, strings.ToUpper(syncStandbyNames), "ANY",
 			"should use ANY method for ANY_2 policy")
+
+		// Verify synchronous_commit is set to 'on'
+		syncCommit, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")
+		require.NoError(t, err, "should query synchronous_commit")
+		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on'")
 	})
 
 	t.Run("verify auto-restore on startup", func(t *testing.T) {
@@ -355,7 +376,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Removed pg_data directory: %s", pgDataDir)
 
 		// Restart multipooler (should auto-restore from backup)
-		require.NoError(t, standbyInst.Multipooler.Start(t), "Should restart multipooler")
+		require.NoError(t, standbyInst.Multipooler.Start(t.Context(), t), "Should restart multipooler")
 		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyName)
 
 		// Wait for multipooler to be ready

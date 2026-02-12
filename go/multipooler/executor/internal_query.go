@@ -22,12 +22,12 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
-// TODO: We might want to make this a configuration. For now its a constant.
 // DefaultInternalUser is the default PostgreSQL user for internal queries.
+// This can be overridden when creating an Executor instance.
 const DefaultInternalUser = "postgres"
 
 // InternalQueryService provides a simplified query interface for internal multipooler
-// components. It uses the connection pool with "postgres" user by default.
+// components. It uses the connection pool with a configurable internal user.
 type InternalQueryService interface {
 	// Query executes a query and returns the result.
 	Query(ctx context.Context, query string) (*sqltypes.Result, error)
@@ -44,7 +44,7 @@ type InternalQueryService interface {
 var _ InternalQueryService = (*Executor)(nil)
 
 // Query implements InternalQueryService for simple internal queries.
-// It executes a query using the "postgres" user and returns the first result.
+// It executes a query using the configured internal user and returns the first result.
 // Internal queries include SQL text in trace spans since they use system functions.
 func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
 	// Enable SQL text in trace spans for internal queries (safe - no user data)
@@ -52,7 +52,7 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, DefaultInternalUser)
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sql
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, DefaultInternalUser)
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
 	if err != nil {
 		return nil, err
 	}

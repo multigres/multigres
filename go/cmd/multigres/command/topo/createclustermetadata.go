@@ -131,8 +131,14 @@ func provisionDatabase(ctx context.Context, ts topoclient.Store, databaseName st
 		fmt.Printf("Creating database \"%s\" with cells: [%s]...\n", databaseName, cellNames)
 
 		databaseConfig := &clustermetadatapb.Database{
-			Name:             databaseName,
-			BackupLocation:   backupLocation,
+			Name: databaseName,
+			BackupLocation: &clustermetadatapb.BackupLocation{
+				Location: &clustermetadatapb.BackupLocation_Filesystem{
+					Filesystem: &clustermetadatapb.FilesystemBackup{
+						Path: backupLocation,
+					},
+				},
+			},
 			DurabilityPolicy: durabilityPolicy,
 			Cells:            cellNames,
 		}

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,18 +51,15 @@ func TestConfig_DefaultValues(t *testing.T) {
 	assert.Equal(t, "", config.adminPassword.Default())
 	assert.Equal(t, int64(5), config.adminCapacity.Default())
 
-	assert.Equal(t, int64(10), config.userRegularCapacity.Default())
-	assert.Equal(t, int64(5), config.userRegularMaxIdle.Default())
+	// Regular pool (capacity managed by rebalancer)
 	assert.Equal(t, 5*time.Minute, config.userRegularIdleTimeout.Default())
 	assert.Equal(t, 1*time.Hour, config.userRegularMaxLifetime.Default())
 
-	assert.Equal(t, int64(5), config.userReservedCapacity.Default())
-	assert.Equal(t, int64(2), config.userReservedMaxIdle.Default())
+	// Reserved pool (capacity managed by rebalancer)
 	assert.Equal(t, 30*time.Second, config.userReservedInactivityTimeout.Default())
 	assert.Equal(t, 5*time.Minute, config.userReservedIdleTimeout.Default())
 	assert.Equal(t, 1*time.Hour, config.userReservedMaxLifetime.Default())
 
-	assert.Equal(t, int64(0), config.maxUsers.Default())
 	assert.Equal(t, int64(1024), config.settingsCacheSize.Default())
 }
 
@@ -84,17 +82,9 @@ func TestConfig_RegisterFlags(t *testing.T) {
 	require.NotNil(t, adminCapFlag)
 	assert.Equal(t, "5", adminCapFlag.DefValue)
 
-	regularCapFlag := cmd.Flags().Lookup("connpool-user-regular-capacity")
-	require.NotNil(t, regularCapFlag)
-	assert.Equal(t, "10", regularCapFlag.DefValue)
-
-	reservedCapFlag := cmd.Flags().Lookup("connpool-user-reserved-capacity")
-	require.NotNil(t, reservedCapFlag)
-	assert.Equal(t, "5", reservedCapFlag.DefValue)
-
-	maxUsersFlag := cmd.Flags().Lookup("connpool-max-users")
-	require.NotNil(t, maxUsersFlag)
-	assert.Equal(t, "0", maxUsersFlag.DefValue)
+	demandWindowFlag := cmd.Flags().Lookup("connpool-demand-window")
+	require.NotNil(t, demandWindowFlag)
+	assert.Equal(t, "30s", demandWindowFlag.DefValue)
 }
 
 func TestConfig_Getters_ReturnDefaults(t *testing.T) {
@@ -113,18 +103,15 @@ func TestConfig_Getters_ReturnDefaults(t *testing.T) {
 	assert.Equal(t, "", config.AdminPassword())
 	assert.Equal(t, int64(5), config.AdminCapacity())
 
-	assert.Equal(t, int64(10), config.UserRegularCapacity())
-	assert.Equal(t, int64(5), config.UserRegularMaxIdle())
+	// Regular pool (capacity managed by rebalancer)
 	assert.Equal(t, 5*time.Minute, config.UserRegularIdleTimeout())
 	assert.Equal(t, 1*time.Hour, config.UserRegularMaxLifetime())
 
-	assert.Equal(t, int64(5), config.UserReservedCapacity())
-	assert.Equal(t, int64(2), config.UserReservedMaxIdle())
+	// Reserved pool (capacity managed by rebalancer)
 	assert.Equal(t, 30*time.Second, config.UserReservedInactivityTimeout())
 	assert.Equal(t, 5*time.Minute, config.UserReservedIdleTimeout())
 	assert.Equal(t, 1*time.Hour, config.UserReservedMaxLifetime())
 
-	assert.Equal(t, int64(0), config.MaxUsers())
 	assert.Equal(t, 1024, config.SettingsCacheSize())
 }
 
@@ -188,4 +175,70 @@ func TestUserPoolStats(t *testing.T) {
 	}
 
 	assert.Equal(t, "testuser", stats.Username)
+}
+
+// --- InternalUser tests ---
+
+func TestConfig_InternalUser_Default(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	// Default value should be "postgres"
+	assert.Equal(t, "postgres", config.InternalUser())
+}
+
+func TestConfig_InternalUser_CustomValue(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	// Register flags
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	// Parse a custom value
+	err := fs.Parse([]string{"--connpool-internal-user", "custom-internal-user"})
+	require.NoError(t, err)
+
+	// Bind to viper
+	v := viper.New()
+	err = v.BindPFlags(fs)
+	require.NoError(t, err)
+
+	// The value should be available through viper
+	assert.Equal(t, "custom-internal-user", v.GetString("connpool-internal-user"))
+}
+
+func TestConfig_InternalUser_EnvVar(t *testing.T) {
+	// Set environment variable
+	t.Setenv("CONNPOOL_INTERNAL_USER", "env_internal_user")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	// Register flags
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	// Bind to viper
+	v := viper.New()
+	v.AutomaticEnv()
+	err := v.BindPFlags(fs)
+	require.NoError(t, err)
+
+	// The environment variable should be picked up
+	assert.Equal(t, "env_internal_user", v.GetString("CONNPOOL_INTERNAL_USER"))
+}
+
+func TestConfig_InternalUserFlagRegistration(t *testing.T) {
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	// Verify the flag is registered
+	flag := fs.Lookup("connpool-internal-user")
+	require.NotNil(t, flag, "connpool-internal-user flag should be registered")
+	assert.Equal(t, "postgres", flag.DefValue, "default value should be postgres")
+	assert.Contains(t, flag.Usage, "Internal user for multipooler system queries")
 }

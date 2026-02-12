@@ -65,7 +65,7 @@ func TestDemoteStalePrimary(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t)
+	setup.StartMultiOrchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)
@@ -111,7 +111,7 @@ func TestDemoteStalePrimary(t *testing.T) {
 	// 4. Configure replication to the new primary
 	// 5. Start WAL receiver
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 120*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 20*time.Second)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -233,6 +233,15 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 			resp.Status.WalReceiverStatus)
 		return true
 	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
+
+	// Verify primary_term was cleared after DemoteStalePrimary
+	ctx := utils.WithTimeout(t, 5*time.Second)
+	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Should be able to get status from demoted replica")
+	require.NotNil(t, status.Status.ConsensusTerm, "Replica should have consensus term")
+	require.Equal(t, int64(0), status.Status.ConsensusTerm.PrimaryTerm,
+		"Demoted stale primary %s should have primary_term=0 (cleared during DemoteStalePrimary)", replicaName)
+	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }
 
 // verifyDataReplication writes data to the new primary and verifies it replicates to the old primary
