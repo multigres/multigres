@@ -1,5 +1,6 @@
-# Build stage
-FROM node:22-alpine AS builder
+# Build stage - run on the host's native architecture to avoid slow QEMU emulation.
+# Next.js standalone output is pure JS so it runs on any platform.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 
 WORKDIR /app
 
