@@ -187,15 +187,22 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 		assert.Equal(t, baselineVersion, version, "server_version should remain unchanged with startup params")
 	})
 
-	t.Run("invalid startup parameter fails connection", func(t *testing.T) {
+	t.Run("invalid startup parameter allows connection but fails queries", func(t *testing.T) {
 		connCfg, err := pgx.ParseConfig(fmt.Sprintf(
 			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
 			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
 		require.NoError(t, err)
 		connCfg.RuntimeParams["completely_invalid_guc_12345"] = "some_value"
 
-		_, err = pgx.ConnectConfig(ctx, connCfg)
-		require.Error(t, err, "connection with invalid startup parameter should fail")
+		// Connection should succeed — no validation at startup.
+		conn, err := pgx.ConnectConfig(ctx, connCfg)
+		require.NoError(t, err, "connection with invalid startup parameter should succeed")
+		defer conn.Close(ctx)
+
+		// Queries should fail because the invalid GUC is sent as a SET SESSION command.
+		var result string
+		err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
+		require.Error(t, err, "query should fail due to invalid startup parameter")
 	})
 }
 

@@ -96,10 +96,3 @@ type Handler interface {
 	// Called at the end of an extended query cycle to indicate transaction boundary.
 	HandleSync(ctx context.Context, conn *Conn) error
 }
-
-// StartupValidator is an optional interface that handlers can implement
-// to validate startup parameters during connection establishment.
-// If the handler does not implement this interface, validation is skipped.
-type StartupValidator interface {
-	ValidateStartup(ctx context.Context, conn *Conn) error
-}

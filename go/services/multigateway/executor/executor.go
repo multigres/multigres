@@ -152,22 +152,5 @@ func (e *Executor) Describe(
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, preparedStatementInfo)
 }
 
-// ValidateStartupParams validates startup parameters by running a test query
-// with the startup params as session settings.
-func (e *Executor) ValidateStartupParams(
-	ctx context.Context,
-	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
-) error {
-	e.logger.DebugContext(ctx, "validating startup parameters",
-		"user", conn.User(),
-		"database", conn.Database(),
-		"connection_id", conn.ConnectionID())
-
-	return e.exec.StreamExecute(ctx, conn, e.planner.GetDefaultTableGroup(), "", "SELECT 1", state, func(ctx context.Context, res *sqltypes.Result) error {
-		return nil
-	})
-}
-
 // Ensure Executor implements handler.Executor interface.
 var _ handler.Executor = (*Executor)(nil)
