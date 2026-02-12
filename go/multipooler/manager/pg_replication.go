@@ -311,32 +311,11 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 }
 
 // waitForReplayStabilize waits, best effort, for WAL replay to stop making
-// observable progress. The intent is to approximate “replay is idle given the WAL
-// that is currently available to this standby”.
+// observable progress. The intent is to approximate replay is idle given the WAL
+// that is currently available to this standby.
 //
-// Background: In PostgreSQL, pg_last_wal_receive_lsn() and pg_last_wal_replay_lsn()
-// can differ. The receive LSN is a byte position reflecting what the receiver has
-// received and flushed, while replay advances as complete WAL records are decoded
-// and applied. As a result, replay may stop at the last decodable record boundary
-// even if the receive position is slightly ahead.
-//
-// Expected call context: the caller has already stopped streaming (for example by
-// waiting for the WAL receiver to disconnect). In our setup, that should guarantee
-// we won't receive more WAL.
-//
-// Durability and consensus: In our multigres setup (synchronous_commit=on)
-// an acknowledged commit implies that the commit record reached durable
-// storage on the synchronous standby. If replay is healthy and unblocked, it should
-// eventually be able to apply up to that point. In our system, this is typically
-// enough to discover the current term, since the term marker is written as the first
-// commit in a term.
-//
-// Caveats: “stable replay LSN” is only a heuristic for “idle”. A stable value can
-// also occur if replay is stalled or throttled. Causes vary and I (@rafa) did not do
-// a full research on this yet.
-// It seems that the following could happen: recovery conflicts, IO pressure.
-// If this heuristic proves insufficient, we may want a more
-// explicit signal that distinguishes “idle” from “stuck”.
+// WARNING: This function is not perfect and has some theoretical limitations.
+// See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md for more context.
 func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
