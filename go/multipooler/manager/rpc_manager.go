@@ -888,9 +888,9 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		return nil, err
 	}
 
-	// Drain & Checkpoint (Parallel)
+	// Drain write connections
 
-	if err := pm.drainAndCheckpoint(ctx, drainTimeout); err != nil {
+	if err := pm.drainWriteActivity(ctx, drainTimeout); err != nil {
 		return nil, err
 	}
 
@@ -1223,9 +1223,9 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		pm.replTracker.MakePrimary()
 	}
 
-	// Update topology if needed
+	// Update topology if needed (best-effort, don't fail promotion)
 	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
-		return nil, err
+		pm.logger.WarnContext(ctx, "Failed to update topology after promotion", "error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Promote completed successfully",
