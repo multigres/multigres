@@ -14,9 +14,6 @@ import { Loader2, ExternalLink } from "lucide-react";
 import { useApi } from "@/lib/api/context";
 import type { MultiGateway } from "@/lib/api/types";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_MULTIADMIN_API_URL || "http://localhost:15000";
-
 export function MultiGatewaysTable() {
   const api = useApi();
   const [gateways, setGateways] = useState<MultiGateway[]>([]);
@@ -131,7 +128,7 @@ export function MultiGatewaysTable() {
             </TableHeader>
             <TableBody>
               {filteredGateways.map((gateway, idx) => {
-                const dashboardUrl = `${BASE_URL}/proxy/gate/${gateway.id?.cell}/${gateway.id?.name}`;
+                const dashboardUrl = `/proxy/gate/${gateway.id?.cell}/${gateway.id?.name}`;
 
                 return (
                   <TableRow key={gateway.id?.name || idx}>
