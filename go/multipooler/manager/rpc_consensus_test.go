@@ -54,6 +54,10 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status"}
 	replStatusRow := [][]any{{lsn, lsn, false, "not paused", nil, "", nil}}
 
+	// Replay state columns used by queryReplayState during stabilization polling
+	replayStateCols := []string{"replay_lsn", "is_paused"}
+	replayStateRow := [][]any{{lsn, false}}
+
 	// health check
 	m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 	// determine role (standby)
@@ -65,10 +69,11 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count"}, [][]any{{int64(0)}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
-	// waitForReplayStabilize: three consecutive polls returning the same replay_lsn
-	// (first establishes baseline, next two confirm stability)
-	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
-	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
+	// waitForReplayStabilize: three consecutive polls with same replay_lsn = stable
+	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
+	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
+	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
+	// Final queryReplicationStatus after stability confirmed
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 }
 

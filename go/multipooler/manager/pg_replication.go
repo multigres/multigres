@@ -310,11 +310,33 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	return nil
 }
 
-// waitForReplayStabilize waits for WAL replay to finish processing all buffered WAL.
-// After the receiver is disconnected, replay continues processing buffered records.
-// Since pg_last_wal_receive_lsn() is at byte granularity (can point mid-record) while
-// replay advances at record boundaries, we cannot compare them directly. Instead, we
-// wait for replay_lsn to stabilize (same value on two consecutive polls).
+// waitForReplayStabilize waits, best effort, for WAL replay to stop making
+// observable progress. The intent is to approximate “replay is idle given the WAL
+// that is currently available to this standby”.
+//
+// Background: In PostgreSQL, pg_last_wal_receive_lsn() and pg_last_wal_replay_lsn()
+// can differ. The receive LSN is a byte position reflecting what the receiver has
+// received and flushed, while replay advances as complete WAL records are decoded
+// and applied. As a result, replay may stop at the last decodable record boundary
+// even if the receive position is slightly ahead.
+//
+// Expected call context: the caller has already stopped streaming (for example by
+// waiting for the WAL receiver to disconnect). In our setup, that should guarantee
+// we won't receive more WAL.
+//
+// Durability and consensus: In our multigres setup (synchronous_commit=on)
+// an acknowledged commit implies that the commit record reached durable
+// storage on the synchronous standby. If replay is healthy and unblocked, it should
+// eventually be able to apply up to that point. In our system, this is typically
+// enough to discover the current term, since the term marker is written as the first
+// commit in a term.
+//
+// Caveats: “stable replay LSN” is only a heuristic for “idle”. A stable value can
+// also occur if replay is stalled or throttled. Causes vary and I (@rafa) did not do
+// a full research on this yet.
+// It seems that the following could happen: recovery conflicts, IO pressure.
+// If this heuristic proves insufficient, we may want a more
+// explicit signal that distinguishes “idle” from “stuck”.
 func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -322,41 +344,71 @@ func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*mult
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
-	const requiredStablePolls = 2
+	// requiredStablePolls: number of consecutive polls showing the same replay_lsn
+	// before we declare stability. At 10ms per tick, 3 polls = 30ms of stability.
+	const requiredStablePolls = 3
 	var prevReplayLsn string
-	stableCount := 0
+	consecutive := 0
 
 	for {
 		select {
 		case <-waitCtx.Done():
 			if waitCtx.Err() == context.DeadlineExceeded {
-				pm.logger.ErrorContext(ctx, "Timeout waiting for replay to stabilize",
-					"last_replay_lsn", prevReplayLsn)
 				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to stabilize")
 			}
 			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay to stabilize")
 
 		case <-ticker.C:
-			status, err := pm.queryReplicationStatus(waitCtx)
+			replayLsn, isPaused, err := pm.queryReplayState(waitCtx)
 			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to query replication status", "error", err)
 				return nil, err
 			}
 
-			if status.LastReplayLsn == prevReplayLsn && prevReplayLsn != "" {
-				stableCount++
-				if stableCount >= requiredStablePolls {
-					pm.logger.InfoContext(ctx, "WAL replay stabilized",
-						"last_replay_lsn", status.LastReplayLsn,
-						"last_receive_lsn", status.LastReceiveLsn)
-					return status, nil
-				}
-			} else {
-				stableCount = 0
+			if isPaused {
+				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+					"WAL replay is paused during revoke — unexpected state")
 			}
-			prevReplayLsn = status.LastReplayLsn
+
+			if replayLsn == prevReplayLsn {
+				consecutive++
+			} else {
+				consecutive = 1
+			}
+			prevReplayLsn = replayLsn
+
+			if consecutive >= requiredStablePolls {
+				pm.logger.InfoContext(ctx, "WAL replay stabilized (maximally applied)",
+					"replay_lsn", replayLsn)
+
+				status, err := pm.queryReplicationStatus(waitCtx)
+				if err != nil {
+					return nil, err
+				}
+				return status, nil
+			}
 		}
 	}
+}
+
+// queryReplayState returns the current replay LSN and pause state.
+// Returns FAILED_PRECONDITION if the server is not in recovery (replay LSN is NULL).
+func (pm *MultiPoolerManager) queryReplayState(ctx context.Context) (replayLsn string, isPaused bool, err error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn(), pg_is_wal_replay_paused()")
+	if err != nil {
+		return "", false, mterrors.Wrap(err, "failed to query replay state")
+	}
+
+	var lsn *string
+	if err := executor.ScanSingleRow(result, &lsn, &isPaused); err != nil {
+		return "", false, mterrors.Wrap(err, "failed to scan replay state")
+	}
+	if lsn == nil {
+		return "", false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"pg_last_wal_replay_lsn is NULL (not in recovery) — unexpected during revoke")
+	}
+	return *lsn, isPaused, nil
 }
 
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
