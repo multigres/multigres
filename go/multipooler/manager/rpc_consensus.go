@@ -179,12 +179,12 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		_, err := pm.pauseReplication(
 			ctx,
 			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-			true)
+			true /* wait */)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to pause replication during revoke")
 		}
 
-		// Wait for replay to finish processing all buffered WAL
+		// Wait for replay to finish processing all WAL that is on disk
 		status, err := pm.waitForReplayStabilize(ctx)
 		if err != nil {
 			return mterrors.Wrap(err, "failed waiting for replay to stabilize during revoke")
