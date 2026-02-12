@@ -385,6 +385,7 @@ func TestHandleStartupMessage(t *testing.T) {
 			c := &Conn{
 				conn:           serverConn,
 				listener:       listener,
+				handler:        listener.handler,
 				hashProvider:   listener.hashProvider,
 				bufferedReader: bufio.NewReader(serverConn),
 				bufferedWriter: bufio.NewWriter(serverConn),
@@ -428,6 +429,7 @@ func TestSSLRequest(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -484,6 +486,7 @@ func TestGSSENCRequest(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -540,6 +543,7 @@ func TestSCRAMAuthenticationWrongPassword(t *testing.T) {
 	c := &Conn{
 		conn:           serverConn,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(serverConn),
 		bufferedWriter: bufio.NewWriter(serverConn),
@@ -609,6 +613,7 @@ func TestAuthenticationMessages(t *testing.T) {
 	c := &Conn{
 		conn:           mock,
 		listener:       listener,
+		handler:        listener.handler,
 		hashProvider:   listener.hashProvider,
 		bufferedReader: bufio.NewReader(mock),
 		bufferedWriter: bufio.NewWriter(mock),
@@ -665,6 +670,68 @@ func TestAuthenticationMessages(t *testing.T) {
 	assert.Equal(t, uint32(67890), secretKey)
 }
 
+func TestGetStartupParams(t *testing.T) {
+	tests := []struct {
+		name     string
+		params   map[string]string
+		expected map[string]string
+	}{
+		{
+			name: "excludes user and database",
+			params: map[string]string{
+				"user":             "postgres",
+				"database":         "testdb",
+				"application_name": "psql",
+				"client_encoding":  "UTF8",
+			},
+			expected: map[string]string{
+				"application_name": "psql",
+				"client_encoding":  "UTF8",
+			},
+		},
+		{
+			name: "only user and database returns nil",
+			params: map[string]string{
+				"user":     "postgres",
+				"database": "testdb",
+			},
+			expected: nil,
+		},
+		{
+			name:     "empty params returns nil",
+			params:   map[string]string{},
+			expected: nil,
+		},
+		{
+			name: "no user or database returns all params",
+			params: map[string]string{
+				"application_name": "myapp",
+				"DateStyle":        "German",
+			},
+			expected: map[string]string{
+				"application_name": "myapp",
+				"DateStyle":        "German",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Conn{
+				params: tt.params,
+			}
+			result := c.GetStartupParams()
+			assert.Equal(t, tt.expected, result)
+
+			// Verify returned map is a copy (not a reference to internal state).
+			if result != nil {
+				result["extra"] = "value"
+				assert.NotContains(t, c.params, "extra")
+			}
+		})
+	}
+}
+
 func TestCancelRequest(t *testing.T) {
 	// Create mock connection.
 	mock := newMockConn()
@@ -692,4 +759,154 @@ func TestCancelRequest(t *testing.T) {
 	// Verify no response was sent (cancel requests don't get responses).
 	output := mock.writeBuf.Bytes()
 	assert.Empty(t, output, "should not send any response to cancel request")
+}
+
+func TestSplitOptionsTokens(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "simple tokens",
+			input:    "-c work_mem=64MB",
+			expected: []string{"-c", "work_mem=64MB"},
+		},
+		{
+			name:     "escaped space",
+			input:    `-c DateStyle=ISO,\ MDY`,
+			expected: []string{"-c", "DateStyle=ISO, MDY"},
+		},
+		{
+			name:     "escaped backslash",
+			input:    `-c search_path=a\\b`,
+			expected: []string{"-c", `search_path=a\b`},
+		},
+		{
+			name:     "multiple spaces between tokens",
+			input:    "-c   work_mem=64MB",
+			expected: []string{"-c", "work_mem=64MB"},
+		},
+		{
+			name:     "tabs as separators",
+			input:    "-c\twork_mem=64MB",
+			expected: []string{"-c", "work_mem=64MB"},
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:     "whitespace only",
+			input:    "   \t  ",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := splitOptionsTokens(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParseOptions(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		expected  map[string]string
+		expectErr string
+	}{
+		{
+			name:     "single -c with space",
+			input:    "-c work_mem=64MB",
+			expected: map[string]string{"work_mem": "64MB"},
+		},
+		{
+			name:     "-c without space",
+			input:    "-cwork_mem=64MB",
+			expected: map[string]string{"work_mem": "64MB"},
+		},
+		{
+			name:     "double-dash format",
+			input:    "--work-mem=64MB",
+			expected: map[string]string{"work_mem": "64MB"},
+		},
+		{
+			name:     "double-dash with hyphens in key",
+			input:    "--statement-timeout=5min",
+			expected: map[string]string{"statement_timeout": "5min"},
+		},
+		{
+			name:  "multiple flags",
+			input: "-c work_mem=64MB -c geqo=off",
+			expected: map[string]string{
+				"work_mem": "64MB",
+				"geqo":     "off",
+			},
+		},
+		{
+			name:  "mixed -c and -- formats",
+			input: `-c work_mem=64MB --statement-timeout=5min`,
+			expected: map[string]string{
+				"work_mem":          "64MB",
+				"statement_timeout": "5min",
+			},
+		},
+		{
+			name:     "escaped space in value",
+			input:    `-c DateStyle=ISO,\ MDY`,
+			expected: map[string]string{"DateStyle": "ISO, MDY"},
+		},
+		{
+			name:     "empty value",
+			input:    "-c search_path=",
+			expected: map[string]string{"search_path": ""},
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: map[string]string{},
+		},
+		{
+			name:     "whitespace only",
+			input:    "   ",
+			expected: map[string]string{},
+		},
+		{
+			name:      "missing value after -c",
+			input:     "-c",
+			expectErr: "missing value after -c",
+		},
+		{
+			name:      "unsupported flag",
+			input:     "-x something",
+			expectErr: "unsupported option flag",
+		},
+		{
+			name:      "empty key after --",
+			input:     "--=value",
+			expectErr: "invalid -- option",
+		},
+		{
+			name:      "-c with invalid format",
+			input:     "-c noequals",
+			expectErr: "invalid -c option",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseOptions(tt.input)
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

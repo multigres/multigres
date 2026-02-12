@@ -179,6 +179,22 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// GetStartupParams returns the startup parameters sent by the client,
+// excluding 'user' and 'database' which are handled separately.
+func (c *Conn) GetStartupParams() map[string]string {
+	result := make(map[string]string, len(c.params))
+	for k, v := range c.params {
+		if k == "user" || k == "database" {
+			continue
+		}
+		result[k] = v
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 // Context returns the connection's context.
 func (c *Conn) Context() context.Context {
 	return c.ctx
