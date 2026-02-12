@@ -55,20 +55,6 @@ If a node has accepted term 6 but is still primary for term 5, it must report pr
 - Delete the code in Postgres Monitor that changes the type to primary and use this as authoritative determination
 - Publish the term number in the topo
 
-## Related Reasoning and Implications
-
-### Transaction Ordering
-
-Transaction ordering and propagation will eventually need term numbers on transactions. During discovery, nodes should be able to report the term of their transaction state so the system can prefer the most advanced term state regardless of the election term.
-
-### Propagation Atomicity
-
-When propagating from higher term to lower term, the receiver must atomically update both the transaction log and its transaction term marker.
-
-### Term Completion
-
-Term completion is not guaranteed to be explicitly recorded. Revocation can be implicit by recruiting sync replicas. Only durable records count: any decision not recorded with durability never happened.
-
 ## Risks and Mitigations
 
 **Risk:** Confusion about which term to trust in different phases.
