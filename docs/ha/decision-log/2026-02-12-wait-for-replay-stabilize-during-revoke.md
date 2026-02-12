@@ -1,4 +1,3 @@
-
 # Wait for WAL Replay to Stabilize During Standby Revoke
 
 **Date:** 2026-02-12  
