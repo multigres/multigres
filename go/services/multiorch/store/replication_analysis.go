@@ -87,6 +87,11 @@ type ReplicationAnalysis struct {
 	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
 	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)
 
+	// Total number of replicas in the shard (regardless of reachability).
+	CountReplicasInShard uint
+	// Number of replicas reachable by multiorch (IsLastCheckValid == true).
+	CountReachableReplicasInShard uint
+
 	// ReplicasConnectedToPrimary is true only if ALL replicas in the shard are still
 	// connected to the primary Postgres (have primary_conninfo configured and are receiving WAL).
 	// Used to avoid failover when only the primary pooler is down but Postgres is still running.

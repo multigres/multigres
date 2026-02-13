@@ -380,10 +380,10 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	// Check if this replica is in the primary's synchronous standby list
 	analysis.IsInPrimaryStandbyList = g.isInStandbyList(analysis.PoolerID, primary)
 
-	// Compute ReplicasConnectedToPrimary: true only if ALL replicas are connected to primary.
+	// Compute replica visibility and connectivity for the shard.
 	// When the primary pooler is down but Postgres is still running, replicas remain connected
 	// and we should NOT trigger failover. Instead, the operator should restart the pooler process.
-	analysis.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(primary, poolers)
+	g.computeReplicaConnectivity(analysis, primary, poolers)
 }
 
 // isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.
@@ -404,24 +404,21 @@ func (g *AnalysisGenerator) isInStandbyList(
 	return false
 }
 
-// allReplicasConnectedToPrimary checks if ALL replicas in the shard are connected to the primary.
-// A replica is considered connected if:
-// 1. Its health check is valid (IsLastCheckValid)
-// 2. It has PrimaryConnInfo configured pointing to this primary
-// 3. It has received WAL (LastReceiveLsn is not empty)
-//
-// Returns true only if all replicas meet these criteria.
-// Returns false if there are no replicas or any replica is disconnected.
-func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
+// computeReplicaConnectivity checks replica visibility and connectivity for the shard.
+// Sets CountReplicasInShard, CountReachableReplicasInShard, and ReplicasConnectedToPrimary
+// on the analysis.
+func (g *AnalysisGenerator) computeReplicaConnectivity(
+	analysis *store.ReplicationAnalysis,
 	primary *multiorchdatapb.PoolerHealthState,
 	poolers map[string]*multiorchdatapb.PoolerHealthState,
-) bool {
+) {
 	primaryIDStr := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
 	primaryHost := primary.MultiPooler.Hostname
 	primaryPort := primary.MultiPooler.PortMap["postgres"]
 
-	replicaCount := 0
-	connectedCount := 0
+	var replicaCount uint
+	var reachableCount uint
+	var connectedCount uint
 
 	for poolerID, pooler := range poolers {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
@@ -444,16 +441,20 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 
 		replicaCount++
 
-		// Check if replica is connected to the primary
-		if !g.isReplicaConnectedToPrimary(pooler, primaryHost, primaryPort) {
-			continue
+		if pooler.IsLastCheckValid {
+			reachableCount++
 		}
 
-		connectedCount++
+		// Check if replica is connected to the primary
+		if g.isReplicaConnectedToPrimary(pooler, primaryHost, primaryPort) {
+			connectedCount++
+		}
 	}
 
+	analysis.CountReplicasInShard = replicaCount
+	analysis.CountReachableReplicasInShard = reachableCount
 	// All replicas must be connected (and there must be at least one replica)
-	return replicaCount > 0 && connectedCount == replicaCount
+	analysis.ReplicasConnectedToPrimary = replicaCount > 0 && connectedCount == replicaCount
 }
 
 // isReplicaConnectedToPrimary checks if a single replica is connected to the primary.

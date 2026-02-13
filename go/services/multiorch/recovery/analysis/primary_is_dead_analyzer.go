@@ -19,14 +19,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PrimaryIsDeadAnalyzer detects when a primary exists in topology but is unhealthy/unreachable.
-// This is a per-pooler analyzer that returns a shard-wide problem.
-// The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
+// PrimaryIsDeadAnalyzer detects when a primary is unreachable and ALL replicas
+// are reachable but none is connected. Strongest signal for failover.
 type PrimaryIsDeadAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -48,37 +46,7 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// Only analyze replicas (primaries can't report themselves as dead)
-	if poolerAnalysis.IsPrimary {
-		return nil, nil
-	}
-
-	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
-	if !poolerAnalysis.IsInitialized {
-		return nil, nil
-	}
-
-	// Skip if no primary exists in topology
-	if poolerAnalysis.PrimaryPoolerID == nil {
-		return nil, nil
-	}
-
-	// Early return if primary is fully reachable (pooler up AND Postgres running)
-	if poolerAnalysis.PrimaryReachable {
-		return nil, nil
-	}
-
-	// --- At this point, multiorch reports primary unreachable ---
-
-	// Primary pooler down but Postgres still running.
-	// ReplicasConnectedToPrimary is true only when ALL replicas are:
-	// streaming WAL, connected to the correct primary, and have healthy heartbeat.
-	// This means the primary is alive — only the pooler process needs restart.
-	if !poolerAnalysis.PrimaryPoolerReachable && poolerAnalysis.ReplicasConnectedToPrimary {
-		a.factory.Logger().Warn("primary pooler unreachable but postgres still running (replicas connected with healthy heartbeat)",
-			"shard_key", poolerAnalysis.ShardKey.String(),
-			"primary_pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PrimaryPoolerID),
-			"action", "operator should restart pooler process")
+	if checkPrimaryUnreachable(a.factory, poolerAnalysis) != primaryDeadAllReplicasReachable {
 		return nil, nil
 	}
 
@@ -87,7 +55,7 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		CheckName:      "PrimaryIsDead",
 		PoolerID:       poolerAnalysis.PoolerID,
 		ShardKey:       poolerAnalysis.ShardKey,
-		Description:    fmt.Sprintf("Primary for shard %s is dead/unreachable", poolerAnalysis.ShardKey),
+		Description:    fmt.Sprintf("Primary for shard %s is dead/unreachable and none of its replicas is connected", poolerAnalysis.ShardKey),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
