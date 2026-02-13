@@ -28,9 +28,8 @@ type Config struct {
 	PgctldAddr          string                  // Address of pgctld gRPC service
 	ConsensusEnabled    bool                    // Whether consensus gRPC service is enabled
 	ConnPoolConfig      *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
-	// pgBackRest TLS certificate paths (used for both server and client authentication)
-	PgBackRestCertFile string
-	PgBackRestKeyFile  string
-	PgBackRestCAFile   string
-	PgBackRestPort     int // pgBackRest TLS server port
+	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
+	PgBackRestCertFile string // TLS client certificate file path
+	PgBackRestKeyFile  string // TLS client key file path
+	PgBackRestCAFile   string // TLS CA certificate file path
 }

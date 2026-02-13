@@ -133,7 +133,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			t.Run("CreateFullBackup", func(t *testing.T) {
 				t.Log("Creating full backup...")
-				fullBackupID := createAndVerifyBackup(t, backupClient, "full", true, 5*time.Minute)
+				fullBackupID := createAndVerifyBackup(t, backupClient, "full", true, 5*time.Minute, nil)
 
 				t.Run("GetBackups_VerifyFullBackup", func(t *testing.T) {
 					t.Log("Listing backups to verify full backup...")
@@ -343,7 +343,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			t.Run("CreateDifferentialBackup", func(t *testing.T) {
 				t.Log("Creating differential backup...")
-				createAndVerifyBackup(t, backupClient, "differential", true, 5*time.Minute)
+				createAndVerifyBackup(t, backupClient, "differential", true, 5*time.Minute, nil)
 
 				// Verify differential backup appears in list
 				listReq := &multipoolermanagerdata.GetBackupsRequest{
@@ -363,7 +363,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 			t.Run("CreateIncrementalBackup", func(t *testing.T) {
 				t.Log("Creating incremental backup...")
-				createAndVerifyBackup(t, backupClient, "incremental", true, 5*time.Minute)
+				createAndVerifyBackup(t, backupClient, "incremental", true, 5*time.Minute, nil)
 
 				// Verify incremental backup appears in list
 				listReq := &multipoolermanagerdata.GetBackupsRequest{
@@ -458,9 +458,16 @@ func TestBackup_FromStandby(t *testing.T) {
 			// Create backup client connection to standby
 			backupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
 
+			// For local mode (tests without TLS), we need to pass pg2_path override
+			// so pgBackRest can connect to the primary's postgres to get WAL files
+			primaryDataPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data")
+			overrides := map[string]string{
+				"pg2_path": primaryDataPath,
+			}
+
 			t.Run("CreateFullBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating full backup from standby...")
-				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute)
+				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, overrides)
 				foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
 
 				t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
@@ -469,7 +476,7 @@ func TestBackup_FromStandby(t *testing.T) {
 
 			t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
 				t.Log("Creating incremental backup from standby...")
-				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute)
+				createAndVerifyBackup(t, backupClient, "incremental", false, 5*time.Minute, overrides)
 			})
 		})
 	}

@@ -1,0 +1,47 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package command
+
+import (
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestPgBackRestFlags(t *testing.T) {
+	// Test default values
+	rootCmd, _ := GetRootCommand()
+
+	// Find the server subcommand
+	var serverCmd *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "server" {
+			serverCmd = cmd
+			break
+		}
+	}
+	assert.NotNil(t, serverCmd, "server subcommand should exist")
+
+	err := serverCmd.ParseFlags([]string{})
+	assert.NoError(t, err)
+
+	// Verify pgbackrest flags are registered on server command (not root)
+	portFlag := serverCmd.Flags().Lookup("pgbackrest-port")
+	assert.NotNil(t, portFlag, "pgbackrest-port flag should be registered on server command")
+
+	certDirFlag := serverCmd.Flags().Lookup("pgbackrest-cert-dir")
+	assert.NotNil(t, certDirFlag, "pgbackrest-cert-dir flag should be registered on server command")
+}

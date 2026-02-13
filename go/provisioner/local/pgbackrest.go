@@ -22,10 +22,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/provisioner"
-	"github.com/multigres/multigres/go/provisioner/local/ports"
-	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // PgbackRestProvisionResult contains the result of provisioning pgbackrest server
@@ -125,110 +122,6 @@ ConfigReady:
 	)
 
 	return cmd, nil
-}
-
-// provisionPgbackRestServer provisions a pgbackrest server for a cell
-// It waits for the multipooler to generate the pgbackrest.conf file before starting the server
-func (p *localProvisioner) provisionPgbackRestServer(ctx context.Context, dbName, cell string) (*PgbackRestProvisionResult, error) {
-	// Create unique pgbackrest service ID for this cell
-	pgbackrestServiceID := "pgbackrest-" + cell
-
-	// Check if pgbackrest server is already running for this service combination
-	existingService, err := p.findRunningDbService(constants.ServicePgbackrest, dbName, cell)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check for existing pgbackrest service: %w", err)
-	}
-
-	// Check if the existing service matches our specific service ID
-	if existingService != nil && existingService.ID == pgbackrestServiceID {
-		fmt.Printf("pgbackrest server is already running (PID %d) ✓\n", existingService.PID)
-		return &PgbackRestProvisionResult{
-			Port:    existingService.Ports["pgbackrest_port"],
-			LogFile: existingService.LogFile,
-		}, nil
-	}
-
-	// Get cell-specific multipooler config to find pooler directory
-	multipoolerConfig, err := p.getCellServiceConfig(cell, constants.ServiceMultipooler)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get multipooler config for cell %s: %w", cell, err)
-	}
-
-	poolerDir, ok := multipoolerConfig["pooler_dir"].(string)
-	if !ok || poolerDir == "" {
-		return nil, fmt.Errorf("pooler_dir not found in multipooler config for cell %s", cell)
-	}
-
-	// Get cell-specific pgbackrest config
-	pgbackrestConfig, err := p.getCellServiceConfig(cell, constants.ServicePgbackrest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pgbackrest config for cell %s: %w", cell, err)
-	}
-
-	// Get pgbackrest port from config or use default
-	pgbackrestPort := ports.DefaultPgbackRestPort
-	if port, ok := pgbackrestConfig["port"].(int); ok && port > 0 {
-		pgbackrestPort = port
-	}
-
-	// Create pgbackrest log file
-	pgbackrestLogFile, err := p.createLogFile(constants.ServicePgbackrest, cell, dbName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pgbackrest log file: %w", err)
-	}
-
-	// Get cert directory
-	certDir := p.certDir()
-
-	// Wait for multipooler to generate config and start pgBackRest server
-	configFile := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
-	fmt.Printf("▶️  - Waiting for pgbackrest config at: %s\n", configFile)
-
-	pgbackrestCmd, err := StartPgBackRestServer(ctx, poolerDir, 30*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Printf("▶️  - Config file found, starting pgBackRest server (port:%d)...\n", pgbackrestPort)
-
-	if err := telemetry.StartCmd(ctx, pgbackrestCmd); err != nil {
-		return nil, fmt.Errorf("failed to start pgbackrest server: %w", err)
-	}
-
-	// Validate process is running
-	if err := p.validateProcessRunning(pgbackrestCmd.Process.Pid); err != nil {
-		return nil, fmt.Errorf("pgbackrest process validation failed: %w", err)
-	}
-
-	fmt.Printf("▶️  - pgbackrest server started (PID %d) ✓\n", pgbackrestCmd.Process.Pid)
-
-	// Create provision state for pgbackrest
-	service := &LocalProvisionedService{
-		ID:         pgbackrestServiceID,
-		Service:    constants.ServicePgbackrest,
-		PID:        pgbackrestCmd.Process.Pid,
-		BinaryPath: pgbackrestCmd.Path,
-		Ports:      map[string]int{"pgbackrest_port": pgbackrestPort},
-		FQDN:       "localhost",
-		LogFile:    pgbackrestLogFile,
-		StartedAt:  time.Now(),
-		DataDir:    certDir,
-		Metadata: map[string]any{
-			"cell":     cell,
-			"database": dbName,
-			"cert_dir": certDir,
-		},
-	}
-
-	// Save pgbackrest service state to disk
-	if err := p.saveServiceState(service, dbName); err != nil {
-		fmt.Printf("Warning: failed to save pgbackrest service state: %v\n", err)
-	}
-
-	return &PgbackRestProvisionResult{
-		Port:    pgbackrestPort,
-		LogFile: pgbackrestLogFile,
-	}, nil
 }
 
 // deprovisionPgbackRestServer deprovisions a pgbackrest server and cleans up certificates
