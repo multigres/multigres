@@ -550,7 +550,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		operationName = "unknown"
 	}
 
-	// Insert history before applying GUCs
 	// Convert standby IDs to application names for history
 	standbyNames := make([]string, len(updatedStandbys))
 	for i, id := range updatedStandbys {
@@ -564,6 +563,11 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		coordinatorIDStr = generateApplicationName(coordinatorID)
 	}
 
+	// Insert history before applying GUCs
+	// Rationale: we want to ensure that a new cohort is advertised
+	// before this primary can accept ACKs from it.
+	// This is for safe replica joining of the cluster.
+	// It will ensure multiorch can discover the new cohort during a failure.
 	if err := pm.insertHistoryRecord(ctx,
 		consensusTerm,
 		"replication_config",
@@ -572,8 +576,8 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		"", // walPosition (not applicable for replication config changes)
 		operationName,
 		"UpdateSynchronousStandbyList: "+operationName,
-		standbyNames,
-		nil, // acceptedMembers
+		standbyNames, // This is what we care in this update
+		nil,          // acceptedMembers
 		force); err != nil {
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}

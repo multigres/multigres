@@ -423,7 +423,7 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			errorContains: "failed to insert history record",
 		},
 		{
-			name:            "force mode ignores insert failure",
+			name:            "force mode skips insert entirely",
 			termNumber:      2,
 			leaderID:        "leader-2",
 			coordinatorID:   "coordinator-2",
@@ -434,7 +434,7 @@ func TestInsertLeadershipHistory(t *testing.T) {
 			acceptedMembers: []string{"member-1"},
 			force:           true,
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("INSERT INTO multigres.leadership_history", errors.New("timeout waiting for sync replication"))
+				// No mock needed - force mode skips the insert entirely
 			},
 			expectError: false,
 		},

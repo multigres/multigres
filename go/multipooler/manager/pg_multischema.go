@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/multipooler/executor"
 )
 
@@ -335,6 +336,18 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 // This operation uses the remote-operation-timeout and will fail if it cannot complete within
 // that time. A timeout typically indicates that synchronous replication is not functioning.
 func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumber int64, eventType, leaderID, coordinatorID, walPosition, operation, reason string, cohortMembers, acceptedMembers []string, force bool) error {
+	if force {
+		// Force mode skips history recording entirely. Force operations are emergency
+		// operations that must configure replication GUCs regardless. The INSERT would
+		// block on sync replication with unreachable standbys, consuming the parent
+		// context's deadline and causing subsequent GUC changes to fail.
+		pm.logger.InfoContext(ctx, "Skipping history record in force mode",
+			"term_number", termNumber,
+			"event_type", eventType,
+			"operation", operation)
+		return nil
+	}
+
 	cohortJSON, err := json.Marshal(cohortMembers)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to marshal cohort_members")
@@ -345,10 +358,9 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 		return mterrors.Wrap(err, "failed to marshal accepted_members")
 	}
 
-	// Use a short timeout for history writes - they should not block on sync replication for long.
-	// This prevents configuration operations from hanging if sync replication is misconfigured.
-	timeout := 20 * time.Millisecond
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	// Use the remote operation timeout for history writes. This write validates that synchronous
+	// replication is functioning - it must wait long enough for standbys to connect and acknowledge.
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 	defer cancel()
 
 	insert := fmt.Sprintf(`INSERT INTO multigres.leadership_history
@@ -365,14 +377,7 @@ func (pm *MultiPoolerManager) insertHistoryRecord(ctx context.Context, termNumbe
 		ast.QuoteStringLiteral(string(acceptedJSON)),
 	)
 
-	err = pm.exec(execCtx, insert)
-	if err != nil {
-		if force {
-			// In force mode, history insert failures are non-fatal. Force is used during
-			// emergency operations where we must configure replication GUCs even if we
-			// cannot record the decision via consensus.
-			return nil
-		}
+	if err := pm.exec(execCtx, insert); err != nil {
 		return mterrors.Wrap(err, "failed to insert history record")
 	}
 

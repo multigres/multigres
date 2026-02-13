@@ -649,9 +649,6 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_current_wal_lsn",
 		mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/FEDCBA0"}}))
 
-	// Mock: insertLeadershipHistory - required for promotion success
-	expectLeadershipHistoryInsert(mockQueryService)
-
 	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Topology shows PRIMARY (inconsistent!)
@@ -2201,7 +2198,7 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *testing.T) {
 	// This test verifies that if insertReplicationConfigHistory fails,
 	// the synchronous_commit and synchronous_standby_names GUCs are NOT updated.
-	// This ensures atomicity: either both history and GUC updates succeed, or neither do.
+	// This ensures, that we only update the GUC, if the insert succeeds
 
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
