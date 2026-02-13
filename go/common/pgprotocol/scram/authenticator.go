@@ -127,14 +127,14 @@ func (a *ScramAuthenticator) StartAuthentication() []string {
 // The client-first-message comes from SASLInitialResponse and contains
 // the GS2 header and client-first-message-bare (username, client nonce).
 //
-// The fallbackUsername is used when the client sends an empty username in the
+// The startupMessageUsername is used when the client sends an empty username in the
 // client-first-message. PostgreSQL allows this and uses the username from
 // the startup message. This parameter should be the username from the startup
 // message.
 //
 // This method looks up the user's password hash and generates the
 // server-first-message containing the combined nonce, salt, and iteration count.
-func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstMessage, fallbackUsername string) (string, error) {
+func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstMessage, startupMessageUsername string) (string, error) {
 	// Verify state.
 	if a.state != stateStarted {
 		return "", fmt.Errorf("auth: invalid state for HandleClientFirst (expected started, got %d)", a.state)
@@ -147,16 +147,18 @@ func (a *ScramAuthenticator) HandleClientFirst(ctx context.Context, clientFirstM
 		return "", fmt.Errorf("auth: invalid client-first-message: %w", err)
 	}
 
-	// Use the username from the client-first-message if provided,
-	// otherwise use the fallback username from the startup message.
-	// PostgreSQL allows empty username in SCRAM and uses the startup username.
-	username := parsed.username
+	// PostgreSQL always ignores the username from client-first-message
+	// and uses the startup message username. This is because not all UTF-8
+	// strings are valid postgres usernames.
+	// See https://www.postgresql.org/docs/current/sasl-authentication.html#SASL-SCRAM-SHA-256
+	// We still parse the name here for protocol validation, but intentionally ignore it.
+	_ = parsed.username // Parsed but ignored per PostgreSQL behavior
+
+	// Always use the username from the startup message.
+	username := startupMessageUsername
 	if username == "" {
-		if fallbackUsername == "" {
-			a.state = stateFailed
-			return "", errors.New("auth: no username provided in client-first-message and no fallback")
-		}
-		username = fallbackUsername
+		a.state = stateFailed
+		return "", errors.New("auth: no username provided in startup message")
 	}
 
 	// Store values for later verification.
