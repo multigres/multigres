@@ -16,9 +16,6 @@ import { useApi } from "@/lib/api/context";
 import type { MultiPooler } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_MULTIADMIN_API_URL || "http://localhost:15000";
-
 function PoolerTypeBadge({ type }: { type?: string }) {
   if (!type) return <>-</>;
 
@@ -173,7 +170,7 @@ export function MultiPoolersTable() {
             </TableHeader>
             <TableBody>
               {filteredPoolers.map((pooler, idx) => {
-                const dashboardUrl = `${BASE_URL}/proxy/pool/${pooler.id?.cell}/${pooler.id?.name}`;
+                const dashboardUrl = `/proxy/pool/${pooler.id?.cell}/${pooler.id?.name}`;
 
                 return (
                   <TableRow key={pooler.id?.name || idx}>
