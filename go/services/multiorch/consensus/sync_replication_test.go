@@ -79,7 +79,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
-		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, config.SynchronousCommit)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY, config.SynchronousMethod)
 		require.Equal(t, int32(1), config.NumSync, "num_sync should be required_count - 1")
 		require.Len(t, config.StandbyIds, 1)
@@ -197,7 +197,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		require.True(t, names["mp-gamma"])
 	})
 
-	t.Run("uses REMOTE_WRITE commit level", func(t *testing.T) {
+	t.Run("uses ON commit level", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
 			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
 			RequiredCount: 2,
@@ -208,7 +208,7 @@ func TestBuildSyncReplicationConfig(t *testing.T) {
 		config, err := BuildSyncReplicationConfig(c.logger, rule, standbys, candidate)
 		require.NoError(t, err)
 		require.NotNil(t, config)
-		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE, config.SynchronousCommit)
+		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, config.SynchronousCommit)
 	})
 
 	t.Run("uses ANY synchronous method", func(t *testing.T) {

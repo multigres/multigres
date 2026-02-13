@@ -64,7 +64,9 @@ func (m *Metrics) DiffStateCount() int64    { return m.diffState.Load() }
 func (m *Metrics) ResetStateCount() int64   { return m.resetState.Load() }
 
 // Connector is a function that creates a new connection.
-type Connector[C Connection] func(ctx context.Context) (C, error)
+// ctx is used for the dial/startup operations.
+// poolCtx is the pool's lifecycle context, used to tie the connection's lifetime to the pool.
+type Connector[C Connection] func(ctx context.Context, poolCtx context.Context) (C, error)
 
 // RefreshCheck is a callback to check whether the pool needs to be refreshed.
 type RefreshCheck func() (bool, error)
@@ -576,7 +578,7 @@ func (pool *Pool[D]) extendedMaxLifetime() time.Duration {
 }
 
 func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time.Duration) (err error) {
-	dbconn.Conn, err = pool.config.connect(ctx)
+	dbconn.Conn, err = pool.config.connect(ctx, pool.ctx)
 	if err != nil {
 		return err
 	}
@@ -595,7 +597,7 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 }
 
 func (pool *Pool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
-	conn, err := pool.config.connect(ctx)
+	conn, err := pool.config.connect(ctx, pool.ctx)
 	if err != nil {
 		return nil, err
 	}

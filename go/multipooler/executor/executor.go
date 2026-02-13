@@ -683,21 +683,13 @@ func int32ToInt16Slice(in []int32) []int16 {
 	return out
 }
 
-// wrapQueryError handles error wrapping for query execution.
-// PostgreSQL errors (*mterrors.PgDiagnostic) pass through unchanged,
-// preserving the original error format. Non-PostgreSQL errors are wrapped with context.
+// wrapQueryError wraps query execution errors with context.
+// PostgreSQL errors (*mterrors.PgDiagnostic) are wrapped like any other error;
+// the display boundary (writeError) extracts the underlying diagnostic via errors.As.
 func wrapQueryError(err error) error {
 	if err == nil {
 		return nil
 	}
-
-	// PostgreSQL errors (*mterrors.PgDiagnostic) pass through unchanged
-	var diag *mterrors.PgDiagnostic
-	if errors.As(err, &diag) {
-		return diag
-	}
-
-	// Non-PostgreSQL errors get wrapped with context
 	return mterrors.Wrapf(err, "query execution failed")
 }
 

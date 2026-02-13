@@ -332,6 +332,11 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify it contains ANY keyword (for ANY_2 policy)
 		assert.Contains(t, strings.ToUpper(syncStandbyNames), "ANY",
 			"should use ANY method for ANY_2 policy")
+
+		// Verify synchronous_commit is set to 'on'
+		syncCommit, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")
+		require.NoError(t, err, "should query synchronous_commit")
+		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on'")
 	})
 
 	t.Run("verify auto-restore on startup", func(t *testing.T) {

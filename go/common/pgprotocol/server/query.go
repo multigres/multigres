@@ -359,12 +359,6 @@ func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
 	return c.writePgDiagnosticResponse(protocol.MsgNoticeResponse, diag)
 }
 
-// writeErrorFromDiagnostic writes an 'E' (ErrorResponse) message using a PgDiagnostic.
-// This preserves all PostgreSQL error fields for native error format output.
-func (c *Conn) writeErrorFromDiagnostic(diag *mterrors.PgDiagnostic) error {
-	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
-}
-
 // writeError writes an error response to the client.
 // It handles both PostgreSQL errors (preserving all diagnostic fields)
 // and generic errors (creating synthetic PgDiagnostic).

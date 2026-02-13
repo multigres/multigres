@@ -14,13 +14,12 @@ interface ApiProviderProps {
   baseUrl?: string;
 }
 
-// Default to multiadmin API port for local development
-const DEFAULT_BASE_URL =
-  process.env.NEXT_PUBLIC_MULTIADMIN_API_URL || "http://localhost:15000";
+// Use same-origin relative paths — Next.js rewrites proxy to multiadmin.
+const DEFAULT_BASE_URL = "";
 
 export function ApiProvider({ children, baseUrl }: ApiProviderProps) {
   const client = useMemo(
-    () => new MultiAdminClient({ baseUrl: baseUrl || DEFAULT_BASE_URL }),
+    () => new MultiAdminClient({ baseUrl: baseUrl ?? DEFAULT_BASE_URL }),
     [baseUrl],
   );
 

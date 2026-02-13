@@ -148,6 +148,7 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 	state := conn.GetConnectionState()
 	if state == nil {
 		newState := NewMultiGatewayConnectionState()
+		newState.StartupParams = conn.GetStartupParams()
 		conn.SetConnectionState(newState)
 		return newState
 	}

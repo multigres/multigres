@@ -1,8 +1,8 @@
-# Connection Pooling in MultiGres
+# Connection Pooling in Multigres
 
 ## Overview
 
-MultiGres implements a **per-user connection pooling** architecture in the
+Multigres implements a **per-user connection pooling** architecture in the
 MultiPooler service to efficiently manage PostgreSQL connections. Each user
 gets their own dedicated connection pools that authenticate directly as that
 user via trust/peer authentication. This design ensures strong security
