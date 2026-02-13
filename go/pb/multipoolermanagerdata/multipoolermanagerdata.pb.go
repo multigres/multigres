@@ -416,8 +416,13 @@ type StandbyReplicationStatus struct {
 	// Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
 	// Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
 	WalReceiverStatus string `protobuf:"bytes,8,opt,name=wal_receiver_status,json=walReceiverStatus,proto3" json:"wal_receiver_status,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Whether the heartbeat from the primary is healthy (fresh and readable).
+	// True means the replica can read a recent heartbeat from the multigres.heartbeat
+	// table, proving the primary is alive and replication is working.
+	// False means the heartbeat reader returned an error (stale, unreadable, or unavailable).
+	HeartbeatHealthy bool `protobuf:"varint,9,opt,name=heartbeat_healthy,json=heartbeatHealthy,proto3" json:"heartbeat_healthy,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StandbyReplicationStatus) Reset() {
@@ -504,6 +509,13 @@ func (x *StandbyReplicationStatus) GetWalReceiverStatus() string {
 		return x.WalReceiverStatus
 	}
 	return ""
+}
+
+func (x *StandbyReplicationStatus) GetHeartbeatHealthy() bool {
+	if x != nil {
+		return x.HeartbeatHealthy
+	}
+	return false
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
@@ -4066,7 +4078,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +
 	"\x04user\x18\x03 \x01(\tR\x04user\x12)\n" +
 	"\x10application_name\x18\x04 \x01(\tR\x0fapplicationName\x12\x10\n" +
-	"\x03raw\x18\x05 \x01(\tR\x03raw\"\xc1\x03\n" +
+	"\x03raw\x18\x05 \x01(\tR\x03raw\"\xee\x03\n" +
 	"\x18StandbyReplicationStatus\x12&\n" +
 	"\x0flast_replay_lsn\x18\x01 \x01(\tR\rlastReplayLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12/\n" +
@@ -4075,7 +4087,8 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x03lag\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x03lag\x12;\n" +
 	"\x1alast_xact_replay_timestamp\x18\x06 \x01(\tR\x17lastXactReplayTimestamp\x12S\n" +
 	"\x11primary_conn_info\x18\a \x01(\v2'.multipoolermanagerdata.PrimaryConnInfoR\x0fprimaryConnInfo\x12.\n" +
-	"\x13wal_receiver_status\x18\b \x01(\tR\x11walReceiverStatus\"g\n" +
+	"\x13wal_receiver_status\x18\b \x01(\tR\x11walReceiverStatus\x12+\n" +
+	"\x11heartbeat_healthy\x18\t \x01(\bR\x10heartbeatHealthy\"g\n" +
 	"\x11WaitForLSNRequest\x12\x1d\n" +
 	"\n" +
 	"target_lsn\x18\x01 \x01(\tR\ttargetLsn\x123\n" +

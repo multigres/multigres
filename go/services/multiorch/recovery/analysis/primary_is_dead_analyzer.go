@@ -68,17 +68,14 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, nil
 	}
 
-	// At this point, PrimaryReachable is false. This can happen in two cases:
-	// 1. Primary pooler is reachable but Postgres is down -> FAILOVER
-	// 2. Primary pooler is unreachable -> need to check if Postgres is still running
-	//
-	// For case 2, we check if ALL replicas are still connected to the primary Postgres.
-	// If they are, Postgres is still running and only the pooler process is down.
-	// In this case, we do NOT trigger failover - the operator should restart the pooler.
+	// --- At this point, multiorch reports primary unreachable ---
+
+	// Primary pooler down but Postgres still running.
+	// ReplicasConnectedToPrimary is true only when ALL replicas are:
+	// streaming WAL, connected to the correct primary, and have healthy heartbeat.
+	// This means the primary is alive — only the pooler process needs restart.
 	if !poolerAnalysis.PrimaryPoolerReachable && poolerAnalysis.ReplicasConnectedToPrimary {
-		// Primary pooler is down but Postgres is still running (replicas are connected).
-		// Do not trigger failover - operator should restart the pooler process.
-		a.factory.Logger().Warn("primary pooler unreachable but postgres still running",
+		a.factory.Logger().Warn("primary pooler unreachable but postgres still running (replicas connected with healthy heartbeat)",
 			"shard_key", poolerAnalysis.ShardKey.String(),
 			"primary_pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PrimaryPoolerID),
 			"action", "operator should restart pooler process")

@@ -757,7 +757,9 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 			IsLastCheckValid: true,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				LastReceiveLsn: "0/1234567",
+				LastReceiveLsn:    "0/1234567",
+				WalReceiverStatus: "streaming",
+				HeartbeatHealthy:  true,
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -780,7 +782,9 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
 			IsLastCheckValid: true,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-				LastReceiveLsn: "0/1234567",
+				LastReceiveLsn:    "0/1234567",
+				WalReceiverStatus: "streaming",
+				HeartbeatHealthy:  true,
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -1001,6 +1005,172 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when replica points to wrong primary")
+	})
+
+	t.Run("returns false when replica WAL receiver not streaming", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false,
+			IsPostgresRunning: false,
+		})
+
+		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn:    "0/1234567",
+				WalReceiverStatus: "stopped",
+				HeartbeatHealthy:  true,
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when WAL receiver is not streaming")
+	})
+
+	t.Run("returns false when replica heartbeat unhealthy", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false,
+			IsPostgresRunning: false,
+		})
+
+		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn:    "0/1234567",
+				WalReceiverStatus: "streaming",
+				HeartbeatHealthy:  false, // Heartbeat unhealthy
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when heartbeat is unhealthy")
+	})
+
+	t.Run("returns true when heartbeat unhealthy but replica is lagging", func(t *testing.T) {
+		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+
+		primaryID := "multipooler-cell1-primary"
+		replicaID := "multipooler-cell1-replica"
+
+		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "primary",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+				Hostname:   "primary-host",
+				PortMap:    map[string]int32{"postgres": 5432},
+			},
+			PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+			IsLastCheckValid:  false,
+			IsPostgresRunning: false,
+		})
+
+		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "cell1",
+					Name:      "replica",
+				},
+				Database:   "db1",
+				TableGroup: "tg1",
+				Shard:      "shard1",
+			},
+			PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+			IsLastCheckValid: true,
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				LastReceiveLsn:    "0/1234567",
+				WalReceiverStatus: "streaming",
+				HeartbeatHealthy:  false,                            // Heartbeat unhealthy
+				Lag:               durationpb.New(10 * time.Second), // But replica is lagging
+				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+					Host: "primary-host",
+					Port: 5432,
+				},
+			},
+		})
+
+		gen := NewAnalysisGenerator(poolerStore)
+		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
+		require.NoError(t, err)
+
+		assert.True(t, analysis.ReplicasConnectedToPrimary, "should be true when heartbeat is unhealthy but explained by lag")
 	})
 }
 

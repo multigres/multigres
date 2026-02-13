@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/mterrors"
 )
 
 // TestReaderReadHeartbeat tests that reading a heartbeat sets the appropriate
@@ -143,8 +145,7 @@ func TestReaderStatusNoHeartbeat(t *testing.T) {
 	}
 
 	_, err := tr.Status()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no heartbeat received in over 2x the heartbeat interval")
+	require.ErrorIs(t, err, mterrors.ErrHeartbeatStale)
 }
 
 // newTestReader creates a new heartbeat reader for testing.

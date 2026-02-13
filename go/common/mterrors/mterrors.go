@@ -163,6 +163,10 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
+// ErrHeartbeatStale indicates the heartbeat reader has not received a fresh
+// heartbeat within the expected interval, meaning the primary may have stopped writing.
+var ErrHeartbeatStale = errors.New("heartbeat stale")
+
 // logErrStacks controls whether printing errors includes the
 // embedded stack trace in the output.
 var (

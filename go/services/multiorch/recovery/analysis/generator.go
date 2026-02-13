@@ -226,6 +226,8 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 			analysis.ReplicaReceiveLSN = rs.LastReceiveLsn
 			analysis.IsWalReplayPaused = rs.IsWalReplayPaused
 			analysis.WalReplayPauseState = rs.WalReplayPauseState
+			analysis.WalReceiverStatus = rs.WalReceiverStatus
+			analysis.HeartbeatHealthy = rs.HeartbeatHealthy
 
 			// Extract primary connection info
 			if rs.PrimaryConnInfo != nil {
@@ -455,11 +457,8 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 }
 
 // isReplicaConnectedToPrimary checks if a single replica is connected to the primary.
-//
-// TODO: Check heartbeat data timestamp to verify writes are actively flowing through replication.
-// The multigres.heartbeat table is updated periodically on the primary, so checking if the
-// replica's heartbeat timestamp is recent would prove the replication connection is active.
-// Currently we check that LastReceiveLsn is non-empty, but this doesn't prove active connectivity.
+// Verifies reachability, correct primary_conninfo, WAL receipt, active WAL receiver,
+// and healthy heartbeat.
 func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	replica *multiorchdatapb.PoolerHealthState,
 	primaryHost string,
@@ -488,6 +487,22 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 
 	// Replica must have received WAL (indicates connection was established)
 	if replica.ReplicationStatus.LastReceiveLsn == "" {
+		return false
+	}
+
+	// Replica must have an active WAL receiver connection
+	if replica.ReplicationStatus.WalReceiverStatus != "streaming" {
+		return false
+	}
+
+	// A lagging replica may have a stale heartbeat because replay hasn't caught
+	// up, not because the primary stopped writing. Skip the heartbeat check.
+	if replica.ReplicationStatus.Lag != nil && replica.ReplicationStatus.Lag.AsDuration() > 5*time.Second {
+		return true
+	}
+
+	// Replica must have a healthy heartbeat from the primary
+	if !replica.ReplicationStatus.HeartbeatHealthy {
 		return false
 	}
 

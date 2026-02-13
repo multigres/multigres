@@ -641,7 +641,19 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 // getStandbyStatusInternal gets standby replication status without guardrail checks.
 // Called by Status() which has already verified the PostgreSQL role.
 func (pm *MultiPoolerManager) getStandbyStatusInternal(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	return pm.queryReplicationStatus(ctx)
+	status, err := pm.queryReplicationStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if pm.replTracker == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "replication tracker not initialized")
+	}
+
+	_, hbErr := pm.replTracker.HeartbeatReader().Status()
+	status.HeartbeatHealthy = hbErr == nil
+
+	return status, nil
 }
 
 // PrimaryStatus gets the status of the leader server

@@ -69,6 +69,12 @@ message StandbyReplicationStatus {
   // Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
   // Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
   string wal_receiver_status = 8;
+
+  // Whether the heartbeat from the primary is healthy (fresh and readable).
+  // True means the replica can read a recent heartbeat from the multigres.heartbeat
+  // table, proving the primary is alive and replication is working.
+  // False means the heartbeat reader returned an error (stale, unreadable, or unavailable).
+  bool heartbeat_healthy = 9;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
