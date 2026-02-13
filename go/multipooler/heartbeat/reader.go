@@ -109,7 +109,7 @@ func (r *Reader) Status() (time.Duration, error) {
 
 	// Return an error if we didn't receive a heartbeat for more than two intervals
 	if !r.lastKnownTime.IsZero() && r.now().Sub(r.lastKnownTime) > 2*r.interval {
-		return 0, mterrors.ErrHeartbeatStale
+		return 0, mterrors.MT13003()
 	}
 
 	return r.lastKnownLag, nil

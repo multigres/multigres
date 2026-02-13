@@ -145,7 +145,7 @@ func TestReaderStatusNoHeartbeat(t *testing.T) {
 	}
 
 	_, err := tr.Status()
-	require.ErrorIs(t, err, mterrors.ErrHeartbeatStale)
+	require.True(t, mterrors.IsError(err, "MT13003"))
 }
 
 // newTestReader creates a new heartbeat reader for testing.
