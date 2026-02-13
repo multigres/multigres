@@ -30,7 +30,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -76,7 +75,6 @@ type Config struct {
 	MultiadminGRPC      string
 	KubectlContext      string
 	KubernetesNamespace string
-	MultigresBin        string
 }
 
 // PoolerStatus represents the status returned from the HTTP API
@@ -186,16 +184,11 @@ func runFailoverTest(cmd *cobra.Command, args []string) error {
 }
 
 func loadConfig() *Config {
-	// Find multigres binary (relative to demo/k8s directory)
-	scriptDir, _ := os.Getwd()
-	multigresBin := filepath.Join(scriptDir, "..", "..", "bin", "multigres")
-
 	return &Config{
 		MultiadminURL:       getEnvOrDefault("MULTIADMIN_URL", "http://localhost:18000"),
 		MultiadminGRPC:      getEnvOrDefault("MULTIADMIN_GRPC", "localhost:18070"),
 		KubectlContext:      getEnvOrDefault("KUBECTL_CONTEXT", "kind-multidemo"),
 		KubernetesNamespace: getEnvOrDefault("KUBERNETES_NAMESPACE", "default"),
-		MultigresBin:        multigresBin,
 	}
 }
 
@@ -207,13 +200,6 @@ func getEnvOrDefault(key, defaultValue string) string {
 }
 
 func verifyPrerequisites(config *Config) error {
-	// Check multigres binary
-	if _, err := os.Stat(config.MultigresBin); err != nil {
-		logError("multigres binary not found: " + config.MultigresBin)
-		logError("Please run 'make build' first")
-		return err
-	}
-
 	// Check kubectl connectivity
 	cmd := exec.Command("kubectl", "--context", config.KubectlContext, "cluster-info")
 	cmd.Stdout = nil
@@ -398,11 +384,10 @@ func findPrimary(config *Config) (*PoolerInfo, error) {
 }
 
 func getPoolerInfo(cell, serviceID string) *PoolerInfo {
-	// In k8s, pod name is just the service_id
 	return &PoolerInfo{
 		Cell:      cell,
 		ServiceID: serviceID,
-		PodName:   serviceID,
+		PodName:   fmt.Sprintf("multipooler-%s-%s", cell, serviceID),
 	}
 }
 
