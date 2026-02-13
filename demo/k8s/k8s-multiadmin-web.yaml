@@ -20,6 +20,9 @@ spec:
           image: docker.io/multigres/multiadmin-web:latest
           imagePullPolicy: IfNotPresent
           env:
+            # Multiadmin API backend (proxied by Next.js middleware)
+            - name: MULTIADMIN_API_URL
+              value: "http://multiadmin:18000"
             # PostgreSQL connection via multigateway (server-side)
             - name: POSTGRES_HOST
               value: "multigateway"
