@@ -163,12 +163,29 @@
 //   - No plaintext passwords stored or logged
 //   - ClientKey extraction requires successful authentication
 //
+// # Password Normalization (SASLprep)
+//
+// This implementation includes SASLprep password normalization (RFC 4013) for full
+// PostgreSQL compatibility. SASLprep applies NFKC Unicode normalization and character
+// mapping to passwords before hashing.
+//
+// Key behaviors:
+//   - Non-ASCII spaces normalized to ASCII space (U+0020)
+//   - Soft hyphens and zero-width characters removed
+//   - Unicode combining characters normalized
+//   - Fallback to raw password on normalization failure (prohibited chars, bidi violations)
+//
+// This matches PostgreSQL's lenient approach: passwords that fail SASLprep validation
+// (invalid UTF-8, prohibited characters, bidirectional check failures) are accepted
+// using their raw byte representation.
+//
 // # Compatibility
 //
 // This implementation is compatible with:
 //   - PostgreSQL 10+ SCRAM-SHA-256 authentication
 //   - Standard PostgreSQL client libraries (psql, libpq, pgx, etc.)
 //   - PostgreSQL's pg_authid password hash format
+//   - PostgreSQL's SASLprep implementation (RFC 4013)
 //
 // Not currently supported:
 //   - SCRAM-SHA-1 (deprecated, not used by PostgreSQL)
