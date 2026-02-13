@@ -32,7 +32,7 @@ This is the failure mode we want to avoid.
 
 1. Primary commits txn **T** and acks it to the client.
 2. With `synchronous_commit = remote_write`, the synchronous standby acks once WAL is written to the OS, but not necessarily flushed to durable storage.
-3. Standby crashes (for example OOM kill or node reboot) before those buffers are flushed. It restarts missing WAL that included txn **T**, even though **T** was acknowledged.
+3. Standby crashes (for example OOM kill or node reboot) before those buffers are flushed. It restarts without WAL records for txn **T**, even though **T** was acknowledged.
 4. Separately, primary crashes and its local data is damaged or otherwise cannot be trusted for recovery.
 5. We promote the standby. The system appears healthy, but txn **T** is silently missing.
 
