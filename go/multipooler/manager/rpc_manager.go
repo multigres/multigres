@@ -387,9 +387,15 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		return err
 	}
 
+	if pm.consensusState == nil {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"consensus state must be available to configure synchronous replication",
+		)
+	}
+
 	// Insert history before making changes
 	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetInconsistentTerm()
+		term, err := pm.consensusState.GetTerm(ctx)
 		if err == nil && term != nil {
 			// Convert standby IDs to application names for history
 			standbyNames := make([]string, len(standbyIDs))
