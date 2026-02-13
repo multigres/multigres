@@ -157,25 +157,25 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("empty username uses fallback from startup message", func(t *testing.T) {
+	t.Run("empty username in client-first-message uses startup message username", func(t *testing.T) {
 		// pgx sends empty username in SCRAM client-first-message (n,,n=,r=...)
 		// and expects the server to use the username from the startup message.
 		provider := &mockHashProvider{
 			hashes: map[string]*ScramHash{
-				"fallbackuser": createTestHash(testPassword, testSalt, testIterations),
+				"startupuser": createTestHash(testPassword, testSalt, testIterations),
 			},
 		}
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		// Client sends empty username, but we provide fallback
+		// Client sends empty username in SCRAM, startup message has "startupuser"
 		clientFirstMessage := "n,,n=,r=clientnonce12345"
-		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "fallbackuser")
+		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "startupuser")
 		require.NoError(t, err)
 		assert.Contains(t, serverFirstMessage, "r=clientnonce12345") // Combined nonce starts with client nonce
 	})
 
-	t.Run("empty username with no fallback returns error", func(t *testing.T) {
+	t.Run("empty username with no startup message username returns error", func(t *testing.T) {
 		provider := &mockHashProvider{
 			hashes: map[string]*ScramHash{
 				"testuser": createTestHash(testPassword, testSalt, testIterations),
@@ -184,11 +184,34 @@ func TestScramAuthenticator_HandleClientFirst(t *testing.T) {
 		auth := NewScramAuthenticator(provider, "testdb")
 		auth.StartAuthentication()
 
-		// Client sends empty username with no fallback - should fail
+		// Client sends empty username with no startup message username - should fail
 		clientFirstMessage := "n,,n=,r=clientnonce12345"
 		_, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no username")
+		assert.Contains(t, err.Error(), "startup message")
+	})
+
+	t.Run("client-first-message username is ignored, startup message username always used", func(t *testing.T) {
+		// PostgreSQL ALWAYS ignores the username from client-first-message and uses
+		// the startup message username. This test verifies that behavior.
+		provider := &mockHashProvider{
+			hashes: map[string]*ScramHash{
+				"actualuser": createTestHash(testPassword, testSalt, testIterations),
+			},
+		}
+		auth := NewScramAuthenticator(provider, "testdb")
+		auth.StartAuthentication()
+
+		// Client sends "wronguser" in client-first-message but "actualuser" in startup message.
+		// PostgreSQL behavior: ALWAYS use startup message username.
+		clientFirstMessage := "n,,n=wronguser,r=clientnonce12345"
+		serverFirstMessage, err := auth.HandleClientFirst(context.Background(), clientFirstMessage, "actualuser")
+		require.NoError(t, err)
+		assert.Contains(t, serverFirstMessage, "r=clientnonce12345")
+
+		// Verify that "actualuser" was used for credential lookup, not "wronguser".
+		// If "wronguser" was used, the test would have failed with ErrUserNotFound.
+		assert.Equal(t, "actualuser", auth.username)
 	})
 
 	t.Run("channel binding requested but not supported", func(t *testing.T) {
