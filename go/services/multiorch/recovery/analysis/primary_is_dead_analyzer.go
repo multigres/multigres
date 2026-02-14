@@ -23,8 +23,8 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PrimaryIsDeadAnalyzer detects when a primary is unreachable and ALL replicas
-// are reachable but none is connected. Strongest signal for failover.
+// PrimaryIsDeadAnalyzer detects when a primary is unreachable, ALL replica poolers
+// are reachable, and none is connected to the primary. Strongest signal for failover.
 type PrimaryIsDeadAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -46,16 +46,28 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	if checkPrimaryUnreachable(a.factory, poolerAnalysis) != primaryDeadAllReplicasReachable {
+	if !checkPrimaryUnreachable(poolerAnalysis) {
+		return nil, nil
+	}
+
+	// Full visibility required: all replica poolers must be reachable.
+	if poolerAnalysis.CountReachableReplicaPoolersInShard != poolerAnalysis.CountReplicaPoolersInShard {
+		return nil, nil
+	}
+
+	// All replicas confirm primary is alive (streaming WAL + healthy heartbeat).
+	// Primary pooler may be down but Postgres is still running — don't failover.
+	if poolerAnalysis.AllReplicasConfirmPrimaryAlive {
 		return nil, nil
 	}
 
 	return &types.Problem{
-		Code:           types.ProblemPrimaryIsDead,
-		CheckName:      "PrimaryIsDead",
-		PoolerID:       poolerAnalysis.PoolerID,
-		ShardKey:       poolerAnalysis.ShardKey,
-		Description:    fmt.Sprintf("Primary for shard %s is dead/unreachable and none of its replicas is connected", poolerAnalysis.ShardKey),
+		Code:      types.ProblemPrimaryIsDead,
+		CheckName: "PrimaryIsDead",
+		PoolerID:  poolerAnalysis.PoolerID,
+		ShardKey:  poolerAnalysis.ShardKey,
+		Description: fmt.Sprintf("Primary for shard %s is dead/unreachable and none of its replicas is connected",
+			poolerAnalysis.ShardKey),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),

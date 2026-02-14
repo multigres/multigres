@@ -405,8 +405,8 @@ func (g *AnalysisGenerator) isInStandbyList(
 }
 
 // computeReplicaConnectivity checks replica visibility and connectivity for the shard.
-// Sets CountReplicasInShard, CountReachableReplicasInShard, and ReplicasConnectedToPrimary
-// on the analysis.
+// Sets CountReplicaPoolersInShard, CountReachableReplicaPoolersInShard,
+// CountReplicasConfirmingPrimaryAliveInShard, and AllReplicasConfirmPrimaryAlive on the analysis.
 func (g *AnalysisGenerator) computeReplicaConnectivity(
 	analysis *store.ReplicationAnalysis,
 	primary *multiorchdatapb.PoolerHealthState,
@@ -451,10 +451,10 @@ func (g *AnalysisGenerator) computeReplicaConnectivity(
 		}
 	}
 
-	analysis.CountReplicasInShard = replicaCount
-	analysis.CountReachableReplicasInShard = reachableCount
-	// All replicas must be connected (and there must be at least one replica)
-	analysis.ReplicasConnectedToPrimary = replicaCount > 0 && connectedCount == replicaCount
+	analysis.CountReplicaPoolersInShard = replicaCount
+	analysis.CountReachableReplicaPoolersInShard = reachableCount
+	analysis.CountReplicasConfirmingPrimaryAliveInShard = connectedCount
+	analysis.AllReplicasConfirmPrimaryAlive = replicaCount > 0 && connectedCount == replicaCount
 }
 
 // isReplicaConnectedToPrimary checks if a single replica is connected to the primary.

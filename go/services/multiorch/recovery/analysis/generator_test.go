@@ -716,7 +716,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	})
 }
 
-func TestAllReplicasConnectedToPrimary(t *testing.T) {
+func TestAllReplicasConfirmPrimaryAlive(t *testing.T) {
 	t.Run("returns true when all replicas connected", func(t *testing.T) {
 		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
@@ -796,7 +796,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
-		assert.True(t, analysis.ReplicasConnectedToPrimary, "should be true when all replicas are connected")
+		assert.True(t, analysis.AllReplicasConfirmPrimaryAlive, "should be true when all replicas are connected")
 	})
 
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
@@ -870,7 +870,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when any replica is disconnected")
+		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive, "should be false when any replica is disconnected")
 	})
 
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
@@ -917,7 +917,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when replica is unreachable")
+		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive, "should be false when replica is unreachable")
 	})
 
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
@@ -948,9 +948,9 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(primaryID)
 		require.NoError(t, err)
 
-		// For primary analysis, ReplicasConnectedToPrimary is not populated
+		// For primary analysis, AllReplicasConfirmPrimaryAlive is not populated
 		// This test ensures no panic occurs
-		assert.False(t, analysis.ReplicasConnectedToPrimary)
+		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive)
 	})
 
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
@@ -1004,7 +1004,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when replica points to wrong primary")
+		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive, "should be false when replica points to wrong primary")
 	})
 
 	t.Run("returns false when replica WAL receiver not streaming", func(t *testing.T) {
@@ -1059,7 +1059,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when WAL receiver is not streaming")
+		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive, "should be false when WAL receiver is not streaming")
 	})
 
 	t.Run("returns false when replica heartbeat unhealthy", func(t *testing.T) {
@@ -1114,7 +1114,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.ReplicasConnectedToPrimary, "should be false when heartbeat is unhealthy")
+		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive, "should be false when heartbeat is unhealthy")
 	})
 
 	t.Run("returns true when heartbeat unhealthy but replica is lagging", func(t *testing.T) {
@@ -1170,7 +1170,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.True(t, analysis.ReplicasConnectedToPrimary, "should be true when heartbeat is unhealthy but explained by lag")
+		assert.True(t, analysis.AllReplicasConfirmPrimaryAlive, "should be true when heartbeat is unhealthy but explained by lag")
 	})
 }
 

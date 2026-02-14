@@ -23,8 +23,13 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PrimaryAndReplicasDeadAnalyzer detects when a primary is unreachable and NO replicas
-// are reachable. Non-actionable — no viable failover candidate exists.
+// PrimaryAndReplicasDeadAnalyzer detects when a primary is unreachable and NO replica
+// poolers are reachable. This most likely means multiorch itself is network-partitioned
+// from the entire cluster, not that every node is actually down. Non-actionable: there
+// are no viable failover candidates, and the other primary-is-dead analyzers will
+// trigger the appropriate recovery if any replica becomes reachable. This analyzer
+// exists for observability — it surfaces the problem so operators can investigate
+// the network partition.
 type PrimaryAndReplicasDeadAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -46,7 +51,12 @@ func (a *PrimaryAndReplicasDeadAnalyzer) Analyze(poolerAnalysis *store.Replicati
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	if checkPrimaryUnreachable(a.factory, poolerAnalysis) != primaryDeadNoReplicasReachable {
+	if !checkPrimaryUnreachable(poolerAnalysis) {
+		return nil, nil
+	}
+
+	// No replica poolers reachable — non-actionable, no viable failover candidate.
+	if poolerAnalysis.CountReachableReplicaPoolersInShard != 0 {
 		return nil, nil
 	}
 
@@ -56,8 +66,8 @@ func (a *PrimaryAndReplicasDeadAnalyzer) Analyze(poolerAnalysis *store.Replicati
 		PoolerID:  poolerAnalysis.PoolerID,
 		ShardKey:  poolerAnalysis.ShardKey,
 		Description: fmt.Sprintf("Primary for shard %s is unreachable and none of its replicas is reachable (%d total)",
-			poolerAnalysis.ShardKey, poolerAnalysis.CountReplicasInShard),
-		Priority:       types.PriorityEmergency,
+			poolerAnalysis.ShardKey, poolerAnalysis.CountReplicaPoolersInShard),
+		Priority:       types.PriorityNormal,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
 		RecoveryAction: &types.NoOpAction{},

@@ -23,9 +23,9 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PrimaryIsDeadAndSomeReplicasAnalyzer detects when a primary is unreachable and
-// SOME replicas are reachable but not all. None of the reachable replicas is connected.
-// Triggers failover with partial visibility.
+// PrimaryIsDeadAndSomeReplicasAnalyzer detects when a primary is unreachable,
+// SOME but not all replica poolers are reachable, and none of the reachable
+// replicas is connected to the primary. Triggers failover with partial visibility.
 type PrimaryIsDeadAndSomeReplicasAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -47,7 +47,23 @@ func (a *PrimaryIsDeadAndSomeReplicasAnalyzer) Analyze(poolerAnalysis *store.Rep
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	if checkPrimaryUnreachable(a.factory, poolerAnalysis) != primaryDeadSomeReplicasReachable {
+	if !checkPrimaryUnreachable(poolerAnalysis) {
+		return nil, nil
+	}
+
+	// If there are no reachable replicas, this analyzer can't make a decision.
+	if poolerAnalysis.CountReachableReplicaPoolersInShard == 0 {
+		return nil, nil
+	}
+
+	// All replicas are reachable, so this analyzer can't make a decision.
+	if poolerAnalysis.CountReachableReplicaPoolersInShard == poolerAnalysis.CountReplicaPoolersInShard {
+		return nil, nil
+	}
+
+	// If any reachable replica is still connected to the primary, the primary
+	// may be alive — don't failover with only partial visibility.
+	if poolerAnalysis.CountReplicasConfirmingPrimaryAliveInShard > 0 {
 		return nil, nil
 	}
 
@@ -57,7 +73,7 @@ func (a *PrimaryIsDeadAndSomeReplicasAnalyzer) Analyze(poolerAnalysis *store.Rep
 		PoolerID:  poolerAnalysis.PoolerID,
 		ShardKey:  poolerAnalysis.ShardKey,
 		Description: fmt.Sprintf("Primary for shard %s is dead/unreachable; some replicas unreachable and none of the reachable ones is connected (%d/%d reachable)",
-			poolerAnalysis.ShardKey, poolerAnalysis.CountReachableReplicasInShard, poolerAnalysis.CountReplicasInShard),
+			poolerAnalysis.ShardKey, poolerAnalysis.CountReachableReplicaPoolersInShard, poolerAnalysis.CountReplicaPoolersInShard),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),

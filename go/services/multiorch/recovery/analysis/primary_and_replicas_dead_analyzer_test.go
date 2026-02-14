@@ -47,40 +47,42 @@ func TestPrimaryAndReplicasDeadAnalyzer_Analyze(t *testing.T) {
 
 	analyzer := &PrimaryAndReplicasDeadAnalyzer{factory: factory}
 
-	t.Run("detects when no replicas reachable", func(t *testing.T) {
+	t.Run("detects when no poolers reachable", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &store.ReplicationAnalysis{
-			PoolerID:                      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:                      commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:                     false,
-			IsInitialized:                 true,
-			PrimaryPoolerID:               primaryID,
-			PrimaryReachable:              false,
-			ReplicasConnectedToPrimary:    false,
-			CountReplicasInShard:          2,
-			CountReachableReplicasInShard: 0,
+			PoolerID:                            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:                            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:                           false,
+			IsInitialized:                       true,
+			PrimaryPoolerID:                     primaryID,
+			PrimaryReachable:                    false,
+			AllReplicasConfirmPrimaryAlive:      false,
+			CountReplicaPoolersInShard:          2,
+			CountReachableReplicaPoolersInShard: 0,
+			CountReplicasConfirmingPrimaryAliveInShard: 0,
 		}
 
 		problem, err := analyzer.Analyze(analysis)
 		require.NoError(t, err)
 		require.NotNil(t, problem)
 		require.Equal(t, types.ProblemPrimaryAndReplicasDead, problem.Code)
-		require.Equal(t, types.PriorityEmergency, problem.Priority)
+		require.Equal(t, types.PriorityNormal, problem.Priority)
 		require.IsType(t, &types.NoOpAction{}, problem.RecoveryAction, "non-actionable when no replicas reachable")
 	})
 
-	t.Run("does not trigger when some replicas reachable", func(t *testing.T) {
+	t.Run("does not trigger when some poolers reachable", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &store.ReplicationAnalysis{
-			PoolerID:                      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:                      commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:                     false,
-			IsInitialized:                 true,
-			PrimaryPoolerID:               primaryID,
-			PrimaryReachable:              false,
-			ReplicasConnectedToPrimary:    false,
-			CountReplicasInShard:          3,
-			CountReachableReplicasInShard: 1,
+			PoolerID:                            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:                            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:                           false,
+			IsInitialized:                       true,
+			PrimaryPoolerID:                     primaryID,
+			PrimaryReachable:                    false,
+			AllReplicasConfirmPrimaryAlive:      false,
+			CountReplicaPoolersInShard:          3,
+			CountReachableReplicaPoolersInShard: 1,
+			CountReplicasConfirmingPrimaryAliveInShard: 0,
 		}
 
 		problem, err := analyzer.Analyze(analysis)
@@ -88,18 +90,19 @@ func TestPrimaryAndReplicasDeadAnalyzer_Analyze(t *testing.T) {
 		require.Nil(t, problem)
 	})
 
-	t.Run("does not trigger when all replicas reachable", func(t *testing.T) {
+	t.Run("does not trigger when all poolers reachable", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &store.ReplicationAnalysis{
-			PoolerID:                      &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
-			ShardKey:                      commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
-			IsPrimary:                     false,
-			IsInitialized:                 true,
-			PrimaryPoolerID:               primaryID,
-			PrimaryReachable:              false,
-			ReplicasConnectedToPrimary:    false,
-			CountReplicasInShard:          2,
-			CountReachableReplicasInShard: 2,
+			PoolerID:                            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:                            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:                           false,
+			IsInitialized:                       true,
+			PrimaryPoolerID:                     primaryID,
+			PrimaryReachable:                    false,
+			AllReplicasConfirmPrimaryAlive:      false,
+			CountReplicaPoolersInShard:          2,
+			CountReachableReplicaPoolersInShard: 2,
+			CountReplicasConfirmingPrimaryAliveInShard: 0,
 		}
 
 		problem, err := analyzer.Analyze(analysis)

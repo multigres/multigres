@@ -15,70 +15,32 @@
 package analysis
 
 import (
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// primaryUnreachableState represents the failure mode when the primary is unreachable.
-type primaryUnreachableState int
-
-const (
-	// primaryOK means the primary is reachable or replicas confirm it's alive.
-	primaryOK primaryUnreachableState = iota
-	// primaryDeadAllReplicasReachable means primary is unreachable and ALL replicas
-	// are reachable but none is connected to the primary.
-	primaryDeadAllReplicasReachable
-	// primaryDeadSomeReplicasReachable means primary is unreachable and SOME replicas
-	// are reachable (but not all), and none of the reachable ones is connected.
-	primaryDeadSomeReplicasReachable
-	// primaryDeadNoReplicasReachable means primary is unreachable and NO replicas
-	// are reachable either.
-	primaryDeadNoReplicasReachable
-)
-
-// checkPrimaryUnreachable evaluates common preconditions for all primary-is-dead
-// analyzers and returns the failure mode. Returns primaryOK if the analysis does not
-// apply (wrong pooler type, primary reachable, replicas still connected, etc).
-func checkPrimaryUnreachable(factory *RecoveryActionFactory, analysis *store.ReplicationAnalysis) primaryUnreachableState {
+// checkPrimaryUnreachable evaluates common preconditions shared by all
+// primary-is-dead analyzers. Returns true when the primary is unreachable
+// — each analyzer then applies its own visibility and connectivity checks.
+func checkPrimaryUnreachable(analysis *store.ReplicationAnalysis) bool {
 	// Only analyze replicas (primaries can't report themselves as dead)
 	if analysis.IsPrimary {
-		return primaryOK
+		return false
 	}
 
 	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
 	if !analysis.IsInitialized {
-		return primaryOK
+		return false
 	}
 
 	// Skip if no primary exists in topology
 	if analysis.PrimaryPoolerID == nil {
-		return primaryOK
+		return false
 	}
 
-	// Primary is fully reachable (pooler up AND Postgres running)
+	// Primary is reachable — no failure to detect
 	if analysis.PrimaryReachable {
-		return primaryOK
+		return false
 	}
 
-	// Primary pooler down but Postgres still running.
-	// ReplicasConnectedToPrimary is true only when ALL replicas are:
-	// streaming WAL, connected to the correct primary, and have healthy heartbeat.
-	// This means the primary is alive — only the pooler process needs restart.
-	if !analysis.PrimaryPoolerReachable && analysis.ReplicasConnectedToPrimary {
-		factory.Logger().Warn("primary pooler unreachable but postgres still running (replicas connected with healthy heartbeat)",
-			"shard_key", analysis.ShardKey.String(),
-			"primary_pooler_id", topoclient.MultiPoolerIDString(analysis.PrimaryPoolerID),
-			"action", "operator should restart pooler process")
-		return primaryOK
-	}
-
-	// Primary is unreachable — determine failure mode based on replica visibility.
-	switch {
-	case analysis.CountReachableReplicasInShard == 0:
-		return primaryDeadNoReplicasReachable
-	case analysis.CountReachableReplicasInShard < analysis.CountReplicasInShard:
-		return primaryDeadSomeReplicasReachable
-	default:
-		return primaryDeadAllReplicasReachable
-	}
+	return true
 }
