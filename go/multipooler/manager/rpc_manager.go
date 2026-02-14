@@ -393,27 +393,30 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 		)
 	}
 
-	// Insert history before making changes
-	if pm.consensusState != nil {
-		term, err := pm.consensusState.GetTerm(ctx)
-		if err == nil && term != nil {
-			// Convert standby IDs to application names for history
-			standbyNames := make([]string, len(standbyIDs))
-			for i, id := range standbyIDs {
-				standbyNames[i] = generateApplicationName(id)
-			}
-			if err := pm.insertHistoryRecord(ctx,
-				term.GetPrimaryTerm(),
-				"replication_config",
-				"", "", "", // leaderID, coordinatorID, walPosition
-				"configure",
-				"ConfigureSynchronousReplication called",
-				standbyNames,
-				nil, // acceptedMembers
-				force); err != nil {
-				return mterrors.Wrap(err, "failed to record replication config history")
-			}
-		}
+	// Insert history before applying GUCs.
+	// Rationale: we want to ensure that a new cohort is advertised
+	// before this primary can accept ACKs from it.
+	// This is for safe replica joining of the cluster.
+	// It will ensure multiorch can discover the new cohort during a failure.
+	term, err := pm.consensusState.GetTerm(ctx)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to get consensus term")
+	}
+	// Convert standby IDs to application names for history
+	standbyNames := make([]string, len(standbyIDs))
+	for i, id := range standbyIDs {
+		standbyNames[i] = generateApplicationName(id)
+	}
+	if err := pm.insertHistoryRecord(ctx,
+		term.GetPrimaryTerm(),
+		"replication_config",
+		"", "", "", // leaderID, coordinatorID, walPosition
+		"configure",
+		"ConfigureSynchronousReplication called",
+		standbyNames,
+		nil, // acceptedMembers
+		force); err != nil {
+		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
 	// Set synchronous_commit level
@@ -537,18 +540,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return nil
 	}
 
-	// Map operation enum to string
-	var operationName string
-	switch operation {
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
-		operationName = "add"
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
-		operationName = "remove"
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		operationName = "replace"
-	default:
-		operationName = "unknown"
-	}
+	operationName := standbyUpdateOperationName(operation)
 
 	// Convert standby IDs to application names for history
 	standbyNames := make([]string, len(updatedStandbys))
