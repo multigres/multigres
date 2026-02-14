@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -51,9 +52,9 @@ func (c *CopyStatement) StreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// For now, shard is empty (unsharded). When sharding is supported,
+	// For now, use DefaultShard (unsharded). When sharding is supported,
 	// this will need to be determined from the COPY target table.
-	shard := ""
+	shard := constants.DefaultShard
 
 	// Phase 1: INITIATE - Send COPY command to pooler
 	// CopyInitiate stores reserved connection info in state.ShardStates internally
