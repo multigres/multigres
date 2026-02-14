@@ -40,6 +40,23 @@ const (
 	PostgresCacheDir = "/tmp/multigres_pg_cache"
 )
 
+// RegressionTests is the list of PostgreSQL regression tests to run, following the
+// order from src/test/regress/parallel_schedule. Tests are added incrementally as
+// multigres compatibility improves.
+//
+// Group 1: basic types and operators
+var RegressionTests = []string{
+	// Required setup
+	"test_setup",
+
+	// Group 1: basic types
+	"boolean", "char", "name", "varchar", "text",
+	"int2", "int4", "int8", "oid",
+	"float4", "float8",
+	"bit", "numeric", "txid", "uuid", "enum",
+	"money", "rangetypes", "pg_lsn", "regproc",
+}
+
 // PostgresBuilder manages PostgreSQL source checkout, build, and test execution
 type PostgresBuilder struct {
 	SourceDir  string // Shared source cache: /tmp/multigres_pg_cache/source/postgres
@@ -56,6 +73,14 @@ type TestResults struct {
 	SkippedTests   int
 	Duration       time.Duration
 	FailureDetails []TestFailure
+	Tests          []IndividualTestResult // Per-test results in order
+}
+
+// IndividualTestResult represents a single test's result
+type IndividualTestResult struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"` // "pass", "fail", "skip"
+	Duration string `json:"duration"`
 }
 
 // TestFailure represents a single test failure
@@ -245,7 +270,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	cmd := exec.CommandContext(ctx, "make",
 		"-C", filepath.Join(pb.BuildDir, "src/test/regress"), // Regress directory
 		"installcheck-tests", // Target for running specific tests against existing server
-		"TESTS=test_setup boolean char name varchar int2 int4 oid float4 bit uuid enum money pg_lsn regproc", // Run only boolean and char tests
+		"TESTS="+strings.Join(RegressionTests, " "),
 	)
 
 	// Set environment variables for connection
@@ -268,7 +293,10 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	duration := time.Since(startTime)
 
 	// Parse results even if command failed (some tests may have passed)
-	results := pb.ParseTestResults(&stdout, &stderr)
+	results, parseErr := pb.ParseTestResults(&stdout, &stderr)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse test results: %w", parseErr)
+	}
 	results.Duration = duration
 
 	t.Logf("Test execution completed in %v", duration)
@@ -331,44 +359,49 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	return results, nil
 }
 
-// ParseTestResults parses pg_regress output to extract test results
-func (pb *PostgresBuilder) ParseTestResults(stdout, stderr *bytes.Buffer) *TestResults {
+// ParseTestResults parses pg_regress TAP output to extract test results.
+// Returns an error if no TAP-formatted lines are found in the output.
+func (pb *PostgresBuilder) ParseTestResults(stdout, stderr *bytes.Buffer) (*TestResults, error) {
 	results := &TestResults{
 		FailureDetails: []TestFailure{},
+		Tests:          []IndividualTestResult{},
 	}
 
 	output := stdout.String()
 	combinedOutput := output + "\n" + stderr.String()
 
-	// Parse pg_regress output format
-	// Example line: "test test_setup                   ... ok"
-	// Example line: "test boolean                      ... FAILED"
-	// Example line: "test char                         ... ok"
-
-	// Count individual test results
-	okPattern := regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.+\s+ok`)
-	failedPattern := regexp.MustCompile(`(?m)^test\s+(\S+)\s+\.+\s+FAILED`)
-
-	okMatches := okPattern.FindAllStringSubmatch(combinedOutput, -1)
-	results.PassedTests = len(okMatches)
-
-	failedMatches := failedPattern.FindAllStringSubmatch(combinedOutput, -1)
-	results.FailedTests = len(failedMatches)
-
-	// Extract failure details
-	for _, match := range failedMatches {
-		if len(match) > 1 {
-			testName := match[1]
+	// Parse TAP format output from pg_regress
+	// Example lines:
+	//   ok 1         - test_setup                                178 ms
+	//   ok 2         - boolean                                    61 ms
+	//   not ok 3     - char                                       39 ms
+	tapLine := regexp.MustCompile(`(?m)^(ok|not ok)\s+(\d+)\s+-\s+(\S+)\s+(\d+)\s+ms`)
+	for _, match := range tapLine.FindAllStringSubmatch(combinedOutput, -1) {
+		status := "pass"
+		if match[1] == "not ok" {
+			status = "fail"
+		}
+		results.Tests = append(results.Tests, IndividualTestResult{
+			Name:     match[3],
+			Status:   status,
+			Duration: match[4] + "ms",
+		})
+		if status == "pass" {
+			results.PassedTests++
+		} else {
+			results.FailedTests++
 			results.FailureDetails = append(results.FailureDetails, TestFailure{
-				TestName: testName,
+				TestName: match[3],
 				Error:    "Test failed (see regression.diffs for details)",
 			})
 		}
 	}
 
+	if len(results.Tests) == 0 {
+		return nil, fmt.Errorf("no TAP-formatted test output found in pg_regress output")
+	}
+
 	// Parse summary line
-	// Example: " 3 of 3 tests failed."
-	// Example: " All 3 tests passed."
 	summaryPassPattern := regexp.MustCompile(`All (\d+) tests? passed`)
 	summaryFailPattern := regexp.MustCompile(`(\d+) of (\d+) tests? failed`)
 
@@ -390,7 +423,138 @@ func (pb *PostgresBuilder) ParseTestResults(stdout, stderr *bytes.Buffer) *TestR
 		results.TotalTests = results.PassedTests + results.FailedTests + results.SkippedTests
 	}
 
-	return results
+	return results, nil
+}
+
+// WriteMarkdownSummary generates a markdown summary suitable for GitHub Actions job summary
+func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, results *TestResults) (string, error) {
+	t.Helper()
+
+	var sb strings.Builder
+
+	// Header
+	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
+
+	// Summary with shields.io badge
+	badgeColor := "red"
+	if results.FailedTests == 0 && results.TotalTests > 0 {
+		badgeColor = "brightgreen"
+	} else if results.PassedTests > 0 {
+		pct := results.PassedTests * 100 / results.TotalTests
+		if pct >= 80 {
+			badgeColor = "yellow"
+		} else if pct >= 50 {
+			badgeColor = "orange"
+		}
+	}
+	sb.WriteString(fmt.Sprintf("**Status:** ![PG Compatibility](https://img.shields.io/badge/PG_Compatibility-%d%%2F%d_tests-%s)\n",
+		results.PassedTests, results.TotalTests, badgeColor))
+	sb.WriteString(fmt.Sprintf("**PostgreSQL Version:** `%s`\n", PostgresVersion))
+	sb.WriteString(fmt.Sprintf("**Duration:** %v\n", results.Duration.Round(time.Millisecond)))
+	sb.WriteString(fmt.Sprintf("**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339)))
+
+	// Parse per-test diffs for inline display
+	testDiffs := make(map[string]string)
+	diffsPath := filepath.Join(pb.OutputDir, "regression.diffs")
+	if data, err := os.ReadFile(diffsPath); err == nil && len(data) > 0 {
+		testDiffs = splitDiffsByTest(string(data))
+		t.Logf("Parsed %d per-test diffs from %s (%d bytes)", len(testDiffs), diffsPath, len(data))
+	} else if err != nil {
+		t.Logf("Warning: could not read diffs file %s: %v", diffsPath, err)
+	}
+
+	// Test results in TAP-like format with expandable diffs below failures
+	sb.WriteString("### Test Results\n\n")
+
+	for i, test := range results.Tests {
+		status := "✅ ok"
+		if test.Status == "fail" {
+			status = "❌ not ok"
+		} else if test.Status == "skip" {
+			status = "⏭️ skip"
+		}
+		duration := test.Duration
+		if duration == "" {
+			duration = "-"
+		}
+
+		sb.WriteString(fmt.Sprintf("%s %d - %s %s\n", status, i+1, test.Name, duration))
+
+		// Show expandable diff right below failing tests
+		if test.Status == "fail" {
+			if diff, ok := testDiffs[test.Name]; ok {
+				if len(diff) > 5000 {
+					diff = diff[:5000] + "\n... (truncated, see full diff in artifacts)"
+				}
+				sb.WriteString(fmt.Sprintf("<details>\n<summary>Show diff</summary>\n\n```diff\n%s\n```\n</details>\n", diff))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	summary := sb.String()
+
+	// Write to file
+	summaryPath := filepath.Join(pb.OutputDir, "compatibility-report.md")
+	if err := os.WriteFile(summaryPath, []byte(summary), 0o644); err != nil {
+		return summary, fmt.Errorf("failed to write markdown summary: %w", err)
+	}
+
+	t.Logf("Markdown summary written to: %s", summaryPath)
+
+	// Write to GitHub Actions job summary if available
+	if summaryFile := os.Getenv("GITHUB_STEP_SUMMARY"); summaryFile != "" {
+		f, err := os.OpenFile(summaryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			_, _ = f.WriteString(summary)
+			f.Close()
+			t.Logf("Written to GitHub Actions job summary")
+		}
+	}
+
+	return summary, nil
+}
+
+// splitDiffsByTest splits a combined regression.diffs file into per-test diffs.
+// Each test's diff starts with "diff -U3 .../expected/<testname>.out .../results/<testname>.out"
+func splitDiffsByTest(allDiffs string) map[string]string {
+	result := make(map[string]string)
+	lines := strings.Split(allDiffs, "\n")
+
+	var currentTest string
+	var currentLines []string
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff -U3 ") {
+			// Save previous test's diff
+			if currentTest != "" {
+				result[currentTest] = strings.Join(currentLines, "\n")
+			}
+			// Extract test name from path like .../expected/<testname>.out
+			parts := strings.Split(line, "/")
+			for i, p := range parts {
+				if p == "expected" && i+1 < len(parts) {
+					name := parts[i+1]
+					// Remove anything after space (the second path in diff header)
+					if idx := strings.Index(name, " "); idx >= 0 {
+						name = name[:idx]
+					}
+					name = strings.TrimSuffix(name, ".out")
+					currentTest = name
+					break
+				}
+			}
+			currentLines = []string{line}
+		} else if currentTest != "" {
+			currentLines = append(currentLines, line)
+		}
+	}
+	// Save last test
+	if currentTest != "" {
+		result[currentTest] = strings.Join(currentLines, "\n")
+	}
+
+	return result
 }
 
 // Cleanup removes build artifacts but preserves source cache
