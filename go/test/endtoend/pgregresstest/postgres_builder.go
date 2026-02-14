@@ -463,13 +463,21 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, results *TestResul
 		t.Logf("Warning: could not read diffs file %s: %v", diffsPath, err)
 	}
 
-	// Test results in TAP-like format with expandable diffs below failures
+	// Test results in aligned columnar format inside code blocks.
+	// Code blocks break at each failure to allow an expandable <details> diff inline.
 	sb.WriteString("### Test Results\n\n")
+
+	// Header
+	sb.WriteString("```\n")
+	sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "#", "Test", "Status", "Duration"))
+	sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "---", "---------------", "-------", "--------"))
+
+	inCodeBlock := true
 
 	for i, test := range results.Tests {
 		status := "✅ ok"
 		if test.Status == "fail" {
-			status = "❌ not ok"
+			status = "❌ FAIL"
 		} else if test.Status == "skip" {
 			status = "⏭️ skip"
 		}
@@ -478,18 +486,25 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, results *TestResul
 			duration = "-"
 		}
 
-		sb.WriteString(fmt.Sprintf("%s %d - %s %s\n", status, i+1, test.Name, duration))
+		if !inCodeBlock {
+			sb.WriteString("```\n")
+			inCodeBlock = true
+		}
 
-		// Show expandable diff right below failing tests
+		sb.WriteString(fmt.Sprintf(" %2d  %-15s %-7s %8s\n", i+1, test.Name, status, duration))
+
+		// Break out of code block for expandable diff
 		if test.Status == "fail" {
 			if diff, ok := testDiffs[test.Name]; ok {
-				if len(diff) > 5000 {
-					diff = diff[:5000] + "\n... (truncated, see full diff in artifacts)"
-				}
-				sb.WriteString(fmt.Sprintf("<details>\n<summary>Show diff</summary>\n\n```diff\n%s\n```\n</details>\n", diff))
+				sb.WriteString("```\n")
+				inCodeBlock = false
+				sb.WriteString(fmt.Sprintf("<details>\n<summary>Show diff</summary>\n\n```diff\n%s\n```\n</details>\n\n", diff))
 			}
 		}
-		sb.WriteString("\n")
+	}
+
+	if inCodeBlock {
+		sb.WriteString("```\n")
 	}
 
 	summary := sb.String()

@@ -15,12 +15,9 @@
 name: PostgreSQL Regression Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-permissions: {}
+  schedule:
+    - cron: '0 3 * * *' # Nightly at 3:00 AM UTC
+  workflow_dispatch:
 
 jobs:
   test-pgregress:
@@ -29,8 +26,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
@@ -52,12 +47,15 @@ jobs:
         env:
           RUN_PGREGRESS: "1"
           TEST_PRINT_LOGS: "1"
-        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... | tee pgregress-test-results.jsonl | go tool tparse -follow
+        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 600s | tee pgregress-test-results.jsonl | go tool tparse -follow
 
-      - name: Test Report
-        uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
+      - name: Upload compatibility report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled() }}
         with:
-          name: PostgreSQL Regression Tests
-          path: pgregress-test-results.jsonl
-          reporter: golang-json
+          name: postgres-compatibility-report
+          path: /tmp/multigres_pg_cache/results/**/compatibility-report.*
+          if-no-files-found: warn
+
+      # Note: the Go test writes the full report (including shields.io badge)
+      # directly to GITHUB_STEP_SUMMARY via postgres_builder.go
