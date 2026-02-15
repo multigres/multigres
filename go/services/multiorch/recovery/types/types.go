@@ -41,6 +41,7 @@ const (
 	ProblemPrimaryIsDeadAndSomeReplicas ProblemCode = "PrimaryIsDeadAndSomeReplicas"
 	ProblemPrimaryDiskStalled           ProblemCode = "PrimaryDiskStalled"
 	ProblemStalePrimary                 ProblemCode = "StalePrimary"
+	ProblemPrimaryRevoked               ProblemCode = "PrimaryRevoked"
 
 	// Primary configuration problems (can fix while primary alive).
 	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"

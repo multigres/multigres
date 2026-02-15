@@ -84,8 +84,9 @@ type ReplicationAnalysis struct {
 	ConsensusTerm         int64          // This node's consensus term (from health check)
 
 	// Primary health details (for distinguishing pooler-down vs postgres-down)
-	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
-	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)
+	PrimaryPoolerReachable bool  // True if primary pooler health check succeeded (IsLastCheckValid)
+	PrimaryPostgresRunning bool  // True if primary Postgres is running (IsPostgresRunning from health check)
+	PrimaryConsensusTerm   int64 // Primary's consensus term (for detecting revoked primary via term mismatch)
 
 	// Total replica poolers in the shard (regardless of reachability).
 	CountReplicaPoolersInShard uint

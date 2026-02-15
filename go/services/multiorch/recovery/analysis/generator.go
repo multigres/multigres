@@ -387,6 +387,9 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	// Track primary health details separately (for distinguishing pooler-down vs postgres-down)
 	analysis.PrimaryPoolerReachable = primary.IsLastCheckValid
 	analysis.PrimaryPostgresRunning = primary.IsPostgresRunning
+	if primary.ConsensusTerm != nil {
+		analysis.PrimaryConsensusTerm = primary.ConsensusTerm.PrimaryTerm
+	}
 
 	// Primary is reachable only if both pooler is reachable AND Postgres is running
 	analysis.PrimaryReachable = analysis.PrimaryPoolerReachable && analysis.PrimaryPostgresRunning

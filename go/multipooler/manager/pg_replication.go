@@ -310,6 +310,28 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	return nil
 }
 
+// disableRestoreCommand disables the restore_command to prevent the standby from
+// fetching WAL from the archive. After a REVOKE, the old primary may still archive
+// divergent WAL (e.g. locally-committed writes from cancelled sync rep waits).
+// Without this, archive-get could apply that divergent WAL before promotion.
+func (pm *MultiPoolerManager) disableRestoreCommand(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "Disabling restore_command")
+
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+	if err := pm.exec(execCtx, "ALTER SYSTEM SET restore_command = 'exit 1'"); err != nil {
+		return mterrors.Wrap(err, "failed to disable restore_command")
+	}
+
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer reloadCancel()
+	if err := pm.exec(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
+		return mterrors.Wrap(err, "failed to reload config after disabling restore_command")
+	}
+
+	return nil
+}
+
 // waitForReplayStabilize waits, best effort, for WAL replay to stop making
 // observable progress. The intent is to approximate replay is idle given the WAL
 // that is currently available to this standby.

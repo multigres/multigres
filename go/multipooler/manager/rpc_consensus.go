@@ -160,7 +160,9 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 	}
 
 	if isPrimary {
-		// Revoke primary: demote
+		// Revoke primary: emergency demote stops postgres, making this node unusable.
+		// Return an error so the coordinator knows not to select this node as candidate.
+		// The response still carries Accepted=true and the WAL position.
 		// TODO: Implement graceful (non-emergency) demote for planned failovers.
 		// This emergency demote path will remain for BeginTerm REVOKE actions.
 		pm.logger.InfoContext(ctx, "Revoking primary", "term", term)
@@ -171,9 +173,17 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		}
 		response.WalPosition.CurrentLsn = demoteResp.LsnPosition
 		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "primary demoted and postgres stopped (lsn=%s)", demoteResp.LsnPosition)
 	} else {
 		// Revoke standby: stop receiver and wait for replay to catch up
 		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
+
+		// Disable restore_command before pausing replication. Once the WAL
+		// receiver disconnects, the recovery process falls back to archive-get.
+		// The old primary may still archive divergent WAL after demotion.
+		if err := pm.disableRestoreCommand(ctx); err != nil {
+			return mterrors.Wrap(err, "failed to disable restore_command during revoke")
+		}
 
 		// Stop WAL receiver and wait for it to fully disconnect
 		_, err := pm.pauseReplication(

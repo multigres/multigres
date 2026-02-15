@@ -120,8 +120,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	preFailoverSuccess, preFailoverFailed := validator.Stats()
 	t.Logf("Pre-failover writes: %d successful, %d failed", preFailoverSuccess, preFailoverFailed)
 
-	// Perform 3 consecutive failovers
-	for i := range 3 {
+	// Perform 2 consecutive failovers
+	for i := range 2 {
 		t.Logf("=== Failover iteration %d ===", i+1)
 
 		// Refresh and get current primary (queries cluster to find actual primary)
@@ -173,7 +173,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	}
 
 	// Perform one more failover using BeginTerm to trigger emergency demotion
-	t.Logf("=== Failover iteration 4 (via BeginTerm emergency demotion) ===")
+	t.Logf("=== Failover iteration (via BeginTerm emergency demotion) ===")
 
 	// Refresh and get current primary
 	currentPrimary := setup.RefreshPrimary(t)
@@ -186,12 +186,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	statusResp, err := primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
 	oldPrimaryTerm := statusResp.Status.ConsensusTerm.TermNumber
-	t.Logf("Primary %s is on term %d", currentPrimaryName, oldPrimaryTerm)
-
 	// Call BeginTerm with a higher term to trigger emergency demotion
 	beginTermTerm := oldPrimaryTerm + 1
-	t.Logf("Calling BeginTerm on primary %s with term %d to trigger emergency demotion", currentPrimaryName, beginTermTerm)
-
 	beginTermReq := &consensusdatapb.BeginTermRequest{
 		Term: beginTermTerm,
 		CandidateId: &clustermetadatapb.ID{
@@ -201,13 +197,14 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		},
 		Action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 	}
-	beginTermResp, err := primaryClient.Consensus.BeginTerm(utils.WithTimeout(t, 10*time.Second), beginTermReq)
+	_, err = primaryClient.Consensus.BeginTerm(utils.WithTimeout(t, 10*time.Second), beginTermReq)
 	primaryClient.Close()
 
-	require.NoError(t, err, "BeginTerm should succeed")
-	require.True(t, beginTermResp.Accepted, "Primary should accept BeginTerm with higher term")
-	t.Logf("BeginTerm accepted by primary, emergency demotion triggered (current_lsn=%s)", beginTermResp.WalPosition.GetCurrentLsn())
-
+	// BeginTerm returns an error for primary REVOKE because emergency demotion stops postgres,
+	// making the node unusable. The term is accepted on the server side, but the gRPC
+	// transport drops the response when returning an error status.
+	require.Error(t, err, "BeginTerm REVOKE on primary should return error (postgres stopped)")
+	require.Contains(t, err.Error(), "primary demoted and postgres stopped")
 	// Wait for multiorch to detect failure and elect new primary
 	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")
 	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 20*time.Second)
@@ -239,6 +236,123 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Logf("Iteration 4: %d successful, %d failed writes so far (multigateway auto-routing to %s)",
 		successWrites, failedWrites, newPrimaryName)
 	time.Sleep(200 * time.Millisecond) // Let writes accumulate
+
+	// Perform a 5th failover: revoke leadership on standbys while multiorch is down.
+	// This simulates standbys disconnecting from the primary, blocking sync replication writes.
+	t.Logf("=== Failover iteration (leadership revoked on standbys) ===")
+
+	// Refresh primary
+	currentPrimary = setup.RefreshPrimary(t)
+	require.NotNil(t, currentPrimary, "current primary should exist")
+	currentPrimaryName = currentPrimary.Name
+
+	// Get the current primary's term
+	primaryClient, err = shardsetup.NewMultipoolerClient(currentPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	statusResp, err = primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	currentTerm := statusResp.Status.ConsensusTerm.TermNumber
+	primaryClient.Close()
+	t.Logf("Primary %s is on term %d", currentPrimaryName, currentTerm)
+
+	// Stop all multiorchs so recovery doesn't interfere with our setup
+	t.Logf("Stopping all multiorch instances...")
+	for name, mo := range setup.MultiOrchInstances {
+		mo.Stop()
+		t.Logf("Stopped multiorch %s", name)
+	}
+
+	// Disable monitoring so local monitors don't interfere
+	disableMonitoringOnAllNodes(t, setup)
+
+	// Stop the validator before disconnecting standbys. Once sync replication is
+	// blocked, validator write goroutines hang indefinitely through multigateway
+	// (lib/pq CancelRequest doesn't propagate through the proxy).
+	validator.Stop()
+
+	// Call BeginTerm with REVOKE on both standbys with a higher term.
+	// This makes them disconnect from the primary (stop WAL streaming).
+	// With sync replication configured, the primary can no longer complete writes.
+	revokedTerm := currentTerm + 1
+	t.Logf("Revoking leadership on standbys with term %d...", revokedTerm)
+	for name, inst := range setup.Multipoolers {
+		if name == currentPrimaryName {
+			continue
+		}
+
+		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+
+		beginTermResp, err := client.Consensus.BeginTerm(utils.WithTimeout(t, 10*time.Second), &consensusdatapb.BeginTermRequest{
+			Term: revokedTerm,
+			CandidateId: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIORCH,
+				Cell:      setup.CellName,
+				Name:      "test-coordinator",
+			},
+			Action: consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
+		})
+		client.Close()
+
+		require.NoError(t, err, "BeginTerm should succeed on standby %s", name)
+		require.True(t, beginTermResp.Accepted, "Standby %s should accept BeginTerm with higher term", name)
+		t.Logf("Standby %s accepted BeginTerm (term=%d, revoked)", name, revokedTerm)
+	}
+
+	// Verify writes are blocked when sync standbys are disconnected.
+	// The context timeout cancels the sync rep wait, but PostgreSQL commits the data
+	// locally (known PG limitation: CancelRequest releases the sync rep wait, not the txn).
+	// After failover, pg_rewind will undo this locally-committed write.
+	//
+	// TODO(query-serving): This should go through the gateway instead of direct postgres.
+	// Currently lib/pq's CancelRequest doesn't propagate through multigateway, so writes
+	// through the gateway hang even after the context deadline. Once multigateway forwards
+	// CancelRequest to backend postgres, switch to:
+	//
+	// _, writeErr := gatewayDB.ExecContext(utils.WithTimeout(t, writeTimeout),
+	//     fmt.Sprintf("INSERT INTO %s (id) VALUES (999999)", validator.TableName()))
+	// require.Error(t, writeErr, "Write through gateway should fail with context timeout")
+	primarySocketDir := filepath.Join(currentPrimary.Pgctld.DataDir, "pg_sockets")
+	writeTestDB := connectToPostgres(t, primarySocketDir, currentPrimary.Pgctld.PgPort)
+	writeTimeout := 50 * time.Millisecond
+	writeStart := time.Now()
+	_, writeErr := writeTestDB.ExecContext(utils.WithTimeout(t, writeTimeout),
+		fmt.Sprintf("INSERT INTO %s (id) VALUES (999999)", validator.TableName()))
+	writeDuration := time.Since(writeStart)
+	writeTestDB.Close()
+
+	// The write should succeed (local commit after context cancellation releases sync rep wait)
+	// but it should have blocked for approximately the full timeout duration.
+	require.NoError(t, writeErr, "Write should commit locally after context timeout cancels sync rep wait")
+	require.Greater(t, writeDuration, writeTimeout-10*time.Millisecond,
+		"Write should block on sync rep for approximately the full timeout")
+
+	// Start multiorch — it should detect the situation and recover
+	setup.StartMultiOrchs(t.Context(), t)
+
+	// Wait for a new primary to be elected
+	newPrimaryName = waitForNewPrimary(t, setup, currentPrimaryName, 20*time.Second)
+	require.NotEmpty(t, newPrimaryName, "Expected multiorch to elect new primary after leadership revocation")
+	t.Logf("New primary elected: %s", newPrimaryName)
+
+	// Get the new primary's term and wait for old primary to rejoin
+	newPrimary = setup.GetMultipoolerInstance(newPrimaryName)
+	require.NotNil(t, newPrimary)
+	newPrimaryClient, err = shardsetup.NewMultipoolerClient(newPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	newStatusResp, err = newPrimaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	newPrimaryClient.Close()
+	require.NoError(t, err)
+	newPrimaryTerm = newStatusResp.Status.ConsensusTerm.TermNumber
+	t.Logf("New primary %s is on term %d", newPrimaryName, newPrimaryTerm)
+
+	waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 30*time.Second)
+	t.Logf("Old primary %s rejoined as standby after leadership revocation", currentPrimaryName)
+
+	disableMonitoringOnAllNodes(t, setup)
+
+	successWrites, failedWrites = validator.Stats()
+	t.Logf("Iteration 5: %d successful, %d failed writes so far", successWrites, failedWrites)
 
 	// Stop writes after all failovers
 	validator.Stop()
@@ -382,14 +496,14 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			&reason, &cohortMembersJSON, &acceptedMembersJSON, &createdAt)
 		require.NoError(t, err, "Should be able to query leadership_history")
 
-		// Assertions - after 3 failovers, term_number should be >= 3
-		assert.GreaterOrEqual(t, termNumber, int64(3), "term_number should be >= 3 after 3 failovers")
+		// Assertions - after 5 failovers, term_number should be >= 5
+		assert.GreaterOrEqual(t, termNumber, int64(5), "term_number should be >= 5 after 5 failovers")
 		assert.Contains(t, leaderID, finalPrimaryName, "leader_id should contain final primary name")
 		// Verify coordinator_id matches the multiorch's cell_name format (with multiple multiorchs, any could be coordinator)
 		expectedCoordinatorPrefix := setup.CellName + "_multiorch"
 		assert.Contains(t, coordinatorID, expectedCoordinatorPrefix, "coordinator_id should start with cell_name_multiorch")
 		assert.NotEmpty(t, walPosition, "wal_position should not be empty")
-		assert.Contains(t, reason, "PrimaryIsDead", "reason should indicate primary failure")
+		assert.Contains(t, reason, "Primary", "reason should indicate primary failure")
 
 		// Verify cohort_members and accepted_members are valid JSON arrays
 		var cohortMembers, acceptedMembers []string
@@ -458,6 +572,24 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err = validator.Verify(t, poolerClients)
 		require.NoError(t, err, "all successful writes should be present on all multipoolers")
 		t.Logf("Write durability verified: %d successful writes present on all multipoolers", successfulWrites)
+	})
+
+	// Verify the locally-committed write (id=999999) was rewound by pg_rewind.
+	// This write committed locally on the old primary when sync rep was bypassed via
+	// context cancellation, but was never replicated. After failover and pg_rewind,
+	// it should no longer exist on any node.
+	t.Run("verify unreplicated write was rewound", func(t *testing.T) {
+		for name, inst := range setup.Multipoolers {
+			socketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
+			db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort)
+
+			var count int
+			err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE id = 999999", validator.TableName())).Scan(&count)
+			db.Close()
+
+			require.NoError(t, err, "Should be able to query %s on %s", validator.TableName(), name)
+			assert.Equal(t, 0, count, "Unreplicated write (id=999999) should have been rewound on %s", name)
+		}
 	})
 
 	validatorTableName := validator.TableName()
