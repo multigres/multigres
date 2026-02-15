@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -254,7 +255,9 @@ func (c *Coordinator) recruitNodes(ctx context.Context, cohort []*multiorchdatap
 				ShardId:     n.MultiPooler.Shard,
 				Action:      action,
 			}
-			resp, err := c.rpcClient.BeginTerm(ctx, n.MultiPooler, req)
+			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+			defer cancel()
+			resp, err := c.rpcClient.BeginTerm(rpcCtx, n.MultiPooler, req)
 			if err != nil {
 				results <- result{pooler: n, err: err}
 				return
@@ -351,7 +354,9 @@ func (c *Coordinator) EstablishLeadership(
 ) error {
 	// Get current WAL position before promotion (for validation)
 	statusReq := &consensusdatapb.StatusRequest{}
-	status, err := c.rpcClient.ConsensusStatus(ctx, candidate.MultiPooler, statusReq)
+	statusCtx, statusCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	defer statusCancel()
+	status, err := c.rpcClient.ConsensusStatus(statusCtx, candidate.MultiPooler, statusReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get candidate status before promotion")
 	}
@@ -374,7 +379,9 @@ func (c *Coordinator) EstablishLeadership(
 				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
 					TargetLsn: expectedLSN,
 				}
-				if _, err := c.rpcClient.WaitForLSN(ctx, candidate.MultiPooler, waitReq); err != nil {
+				waitCtx, waitCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+				defer waitCancel()
+				if _, err := c.rpcClient.WaitForLSN(waitCtx, candidate.MultiPooler, waitReq); err != nil {
 					return mterrors.Wrapf(err, "candidate failed to replay WAL to %s", expectedLSN)
 				}
 			}
@@ -412,6 +419,9 @@ func (c *Coordinator) EstablishLeadership(
 				"standby", s.MultiPooler.Id.Name,
 				"primary", candidate.MultiPooler.Id.Name)
 
+			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+			defer cancel()
+
 			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
 				Primary:               candidate.MultiPooler,
 				CurrentTerm:           term,
@@ -419,7 +429,7 @@ func (c *Coordinator) EstablishLeadership(
 				StartReplicationAfter: true, // Start streaming immediately so sync replication can proceed
 				Force:                 false,
 			}
-			if _, err := c.rpcClient.SetPrimaryConnInfo(ctx, s.MultiPooler, setPrimaryReq); err != nil {
+			if _, err := c.rpcClient.SetPrimaryConnInfo(rpcCtx, s.MultiPooler, setPrimaryReq); err != nil {
 				errChan <- mterrors.Wrapf(err, "failed to configure standby %s", s.MultiPooler.Id.Name)
 				return
 			}
@@ -459,7 +469,9 @@ func (c *Coordinator) EstablishLeadership(
 		CohortMembers:         cohortMembers,
 		AcceptedMembers:       acceptedMembers,
 	}
-	_, err = c.rpcClient.Promote(ctx, candidate.MultiPooler, promoteReq)
+	promoteCtx, promoteCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	defer promoteCancel()
+	_, err = c.rpcClient.Promote(promoteCtx, candidate.MultiPooler, promoteReq)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to promote candidate")
 	}
