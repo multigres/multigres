@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -40,6 +42,13 @@ type Executor interface {
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
+
+	// ReleaseAll releases all reserved connections, regardless of reservation reason.
+	// For transaction-reserved connections, a ROLLBACK is sent first.
+	// For COPY-reserved connections, the COPY is aborted.
+	// Any remaining reserved connections are force-cleared.
+	// Used for connection cleanup when a client disconnects.
+	ReleaseAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error
 }
 
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -64,6 +73,15 @@ func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 	return h.psc
 }
 
+// errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
+// PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
+var errAbortedTransaction = &mterrors.PgDiagnostic{
+	MessageType: 'E',
+	Severity:    "ERROR",
+	Code:        "25P02",
+	Message:     "current transaction is aborted, commands ignored until end of transaction block",
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
@@ -81,14 +99,47 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 	st := h.getConnectionState(conn)
 
-	for _, astStmt := range asts {
-		// Route the query through the executor which will eventually call multipooler
-		err = h.executor.StreamExecute(ctx, conn, st, queryStr, astStmt, callback)
-		if err != nil {
-			return err
+	// If the transaction is in an aborted state, reject all queries unless the
+	// first statement is ROLLBACK. This matches PostgreSQL's behavior: after an
+	// error in a transaction block, commands are rejected until ROLLBACK.
+	// Multi-statement batches starting with ROLLBACK are allowed (e.g.,
+	// "ROLLBACK; SELECT 1;") — ROLLBACK clears the aborted state and the
+	// remaining statements execute normally.
+	if conn.TxnStatus() == protocol.TxnStatusFailed {
+		if !h.startsWithRollback(asts) {
+			return errAbortedTransaction
 		}
 	}
+
+	// For multi-statement batches, use implicit transaction handling.
+	// This handles cases where transactions start/end mid-batch and ensures
+	// proper auto-rollback for implicit transaction segments on failure.
+	if len(asts) > 1 {
+		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
+			"statement_count", len(asts),
+			"already_in_transaction", conn.IsInTransaction())
+		return h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, callback)
+	}
+
+	// Single statement - execute normally
+	err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], callback)
+	if err != nil {
+		// If we're in an active transaction and the query failed,
+		// transition to aborted state. The client must ROLLBACK to recover.
+		if conn.TxnStatus() == protocol.TxnStatusInBlock {
+			conn.SetTxnStatus(protocol.TxnStatusFailed)
+		}
+		return err
+	}
 	return nil
+}
+
+// startsWithRollback returns true if the first statement is ROLLBACK,
+// allowing the client to exit an aborted transaction. Multi-statement
+// batches are permitted as long as the first statement is ROLLBACK
+// (matching PostgreSQL behavior).
+func (h *MultiGatewayHandler) startsWithRollback(asts []ast.Stmt) bool {
+	return len(asts) > 0 && ast.IsRollbackStatement(asts[0])
 }
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
@@ -147,13 +198,27 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// Get the connection state.
 	state := h.getConnectionState(conn)
 
+	// Reject queries in aborted transaction state (except ROLLBACK via simple query).
+	// In the extended query protocol, ROLLBACK is typically sent via simple query,
+	// so we reject all Execute messages when aborted.
+	if conn.TxnStatus() == protocol.TxnStatusFailed {
+		return errAbortedTransaction
+	}
+
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
 	}
 
-	return h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
+	err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
+	if err != nil {
+		if conn.TxnStatus() == protocol.TxnStatusInBlock {
+			conn.SetTxnStatus(protocol.TxnStatusFailed)
+		}
+		return err
+	}
+	return nil
 }
 
 // HandleDescribe processes a Describe message ('D').
@@ -211,9 +276,32 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 // HandleSync processes a Sync message ('S').
 func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	h.logger.DebugContext(ctx, "sync")
-
-	// TODO: Handle transaction state
 	return nil
+}
+
+// ConnectionClosed is called when a client connection is closed.
+// It releases all reserved connections (rolling back transactions, aborting COPYs)
+// and removes prepared statement state.
+func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
+	// Release reserved connections if connection state exists.
+	connState := conn.GetConnectionState()
+	if connState != nil {
+		state, ok := connState.(*MultiGatewayConnectionState)
+		if ok && state != nil && len(state.ShardStates) > 0 {
+			// Release all reserved connections regardless of reason (transaction, COPY, portal).
+			h.logger.Debug("releasing reserved connections on client disconnect",
+				"connection_id", conn.ConnectionID(),
+				"shard_states", len(state.ShardStates))
+			if err := h.executor.ReleaseAll(conn.Context(), conn, state); err != nil {
+				h.logger.Error("failed to release connections on client disconnect",
+					"connection_id", conn.ConnectionID(),
+					"error", err)
+			}
+		}
+	}
+
+	// Always clean up prepared statements for this connection.
+	h.psc.RemoveConnection(conn.ConnectionID())
 }
 
 // Ensure MultiGatewayHandler implements server.Handler interface.

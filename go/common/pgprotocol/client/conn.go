@@ -98,7 +98,7 @@ type Conn struct {
 	serverParams map[string]string
 
 	// txnStatus is the current transaction status.
-	txnStatus byte
+	txnStatus protocol.TransactionStatus
 
 	// state stores connection-specific information.
 	// Callers can store their own state here by calling SetConnectionState.
@@ -200,7 +200,7 @@ func (c *Conn) ServerParams() map[string]string {
 }
 
 // TxnStatus returns the current transaction status.
-func (c *Conn) TxnStatus() byte {
+func (c *Conn) TxnStatus() protocol.TransactionStatus {
 	return c.txnStatus
 }
 

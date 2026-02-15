@@ -97,11 +97,14 @@ const (
 	FieldRoutine          = 'R' // Source routine name
 )
 
+// TransactionStatus represents the transaction state sent in ReadyForQuery messages.
+type TransactionStatus byte
+
 // Transaction status indicators for ReadyForQuery
 const (
-	TxnStatusIdle    = 'I' // Idle (not in transaction)
-	TxnStatusInBlock = 'T' // In transaction block
-	TxnStatusFailed  = 'E' // In failed transaction block
+	TxnStatusIdle    TransactionStatus = 'I' // Idle (not in transaction)
+	TxnStatusInBlock TransactionStatus = 'T' // In transaction block
+	TxnStatusFailed  TransactionStatus = 'E' // In failed transaction block
 )
 
 // Format codes for data types

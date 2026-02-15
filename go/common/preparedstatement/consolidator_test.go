@@ -232,6 +232,49 @@ func TestNewPortalInfo(t *testing.T) {
 	require.Equal(t, psi, portalInfo.PreparedStatementInfo)
 }
 
+func TestConsolidator_RemoveConnection(t *testing.T) {
+	consolidator := NewConsolidator()
+	connID := uint32(1)
+	otherConnID := uint32(2)
+
+	// Add statements on two connections (some sharing the same query)
+	_, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+	_, err = consolidator.AddPreparedStatement(connID, "stmt2", "SELECT 2", nil)
+	require.NoError(t, err)
+	_, err = consolidator.AddPreparedStatement(otherConnID, "stmt3", "SELECT 1", nil) // same query as stmt1
+	require.NoError(t, err)
+
+	// Verify initial state
+	require.NotNil(t, consolidator.GetPreparedStatementInfo(connID, "stmt1"))
+	require.NotNil(t, consolidator.GetPreparedStatementInfo(connID, "stmt2"))
+
+	// Remove all statements for connID
+	consolidator.RemoveConnection(connID)
+
+	// connID statements should be gone
+	require.Nil(t, consolidator.GetPreparedStatementInfo(connID, "stmt1"))
+	require.Nil(t, consolidator.GetPreparedStatementInfo(connID, "stmt2"))
+
+	// otherConnID should still work (shared query "SELECT 1" still alive)
+	require.NotNil(t, consolidator.GetPreparedStatementInfo(otherConnID, "stmt3"))
+
+	// "SELECT 2" should be fully removed (only connID used it)
+	_, exists := consolidator.stmts["SELECT 2"]
+	require.False(t, exists)
+
+	// "SELECT 1" should still exist (otherConnID still references it)
+	_, exists = consolidator.stmts["SELECT 1"]
+	require.True(t, exists)
+}
+
+func TestConsolidator_RemoveConnection_NonExistent(t *testing.T) {
+	consolidator := NewConsolidator()
+
+	// Removing a non-existent connection should not panic
+	consolidator.RemoveConnection(999)
+}
+
 func TestConsolidator_Stats(t *testing.T) {
 	consolidator := NewConsolidator()
 

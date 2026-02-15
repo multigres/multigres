@@ -273,9 +273,9 @@ func TestConnWriteAndReadMessage(t *testing.T) {
 func TestConnReadMessage(t *testing.T) {
 	// Create a buffer with a complete message.
 	var buf bytes.Buffer
-	buf.WriteByte(protocol.MsgReadyForQuery)  // Message type
-	buf.Write([]byte{0x00, 0x00, 0x00, 0x05}) // Length = 5 (4 + 1 byte body)
-	buf.WriteByte(protocol.TxnStatusIdle)     // Body
+	buf.WriteByte(protocol.MsgReadyForQuery)    // Message type
+	buf.Write([]byte{0x00, 0x00, 0x00, 0x05})   // Length = 5 (4 + 1 byte body)
+	buf.WriteByte(byte(protocol.TxnStatusIdle)) // Body
 
 	conn := &Conn{
 		conn:           &mockNetConn{buf: &buf},
@@ -286,7 +286,7 @@ func TestConnReadMessage(t *testing.T) {
 	msgType, body, err := conn.readMessage()
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.MsgReadyForQuery), msgType)
-	assert.Equal(t, []byte{protocol.TxnStatusIdle}, body)
+	assert.Equal(t, []byte{byte(protocol.TxnStatusIdle)}, body)
 }
 
 // mockNetConn is a minimal implementation of net.Conn for testing.

@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
@@ -273,6 +274,71 @@ func TestConn_PortalReservation(t *testing.T) {
 
 		assert.False(t, conn.IsReservedForPortal())
 		assert.False(t, conn.HasPortal("p1"))
+	})
+}
+
+func TestConn_MultipleReasons(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQuery("BEGIN", &sqltypes.Result{})
+	server.AddQuery("COMMIT", &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	t.Run("transaction and portal concurrent reservation", func(t *testing.T) {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+		defer conn.Release(ReleaseError) // Safety net
+
+		// Begin a transaction.
+		err = conn.Begin(ctx)
+		require.NoError(t, err)
+		assert.True(t, conn.IsInTransaction())
+		assert.Equal(t, protoutil.ReasonTransaction, conn.RemainingReasons())
+
+		// Reserve for a portal while in a transaction.
+		conn.ReserveForPortal("p1")
+		assert.True(t, conn.IsInTransaction())
+		assert.True(t, conn.IsReservedForPortal())
+		assert.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonPortal, conn.RemainingReasons())
+
+		// Release the portal -- should NOT release the connection (still in transaction).
+		shouldRelease := conn.ReleasePortal("p1")
+		assert.False(t, shouldRelease)
+		assert.True(t, conn.IsInTransaction())
+		assert.False(t, conn.IsReservedForPortal())
+		assert.Equal(t, protoutil.ReasonTransaction, conn.RemainingReasons())
+
+		// Commit the transaction -- should allow release (no more reasons).
+		err = conn.Commit(ctx)
+		require.NoError(t, err)
+		assert.False(t, conn.IsInTransaction())
+		assert.Equal(t, uint32(0), conn.RemainingReasons())
+	})
+
+	t.Run("remove reservation reason directly", func(t *testing.T) {
+		conn, err := pool.NewConn(ctx, nil)
+		require.NoError(t, err)
+		defer conn.Release(ReleaseError) // Safety net
+
+		// Add multiple reasons.
+		conn.AddReservationReason(protoutil.ReasonTransaction)
+		conn.AddReservationReason(protoutil.ReasonTempTable)
+		assert.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, conn.RemainingReasons())
+
+		// Remove one reason -- should not release.
+		shouldRelease := conn.RemoveReservationReason(protoutil.ReasonTransaction)
+		assert.False(t, shouldRelease)
+		assert.Equal(t, protoutil.ReasonTempTable, conn.RemainingReasons())
+
+		// Remove the last reason -- should release.
+		shouldRelease = conn.RemoveReservationReason(protoutil.ReasonTempTable)
+		assert.True(t, shouldRelease)
+		assert.Equal(t, uint32(0), conn.RemainingReasons())
 	})
 }
 

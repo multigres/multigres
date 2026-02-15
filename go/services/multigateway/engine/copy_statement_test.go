@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -133,6 +134,20 @@ func (m *mockIExecute) CopyAbort(
 ) error {
 	m.copyAbortCalled.Add(1)
 	return m.copyAbortErr
+}
+
+func (m *mockIExecute) ConcludeTransaction(
+	context.Context,
+	*server.Conn,
+	*handler.MultiGatewayConnectionState,
+	multipoolerpb.TransactionConclusion,
+	func(context.Context, *sqltypes.Result) error,
+) error {
+	return nil
+}
+
+func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+	return nil
 }
 
 // Helper to create a CopyStatement for testing

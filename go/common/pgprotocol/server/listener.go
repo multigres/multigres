@@ -192,6 +192,13 @@ func (l *Listener) handleConnection(conn *Conn) {
 				"remote_addr", conn.RemoteAddr())
 		}
 
+		// Notify the handler so it can clean up connection-specific state
+		// (e.g., rollback active transactions, release reserved connections).
+		// This must run before conn.Close() which clears the connection state.
+		if conn.handler != nil {
+			conn.handler.ConnectionClosed(conn)
+		}
+
 		// Clean up connection resources.
 		if err := conn.Close(); err != nil {
 			conn.logger.Error("error closing connection", "error", err)

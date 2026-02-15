@@ -87,7 +87,7 @@ type Conn struct {
 	protocolVersion protocol.ProtocolVersion
 
 	// Current transaction state.
-	txnStatus byte
+	txnStatus protocol.TransactionStatus
 
 	// state holds handler-specific connection state.
 	// Handlers can store their own state here by calling SetConnectionState.
@@ -152,6 +152,26 @@ func (c *Conn) Close() error {
 	c.endWriterBuffering()
 
 	return c.conn.Close()
+}
+
+// SetTxnStatus sets the protocol-level transaction status indicator.
+// This value is sent in ReadyForQuery ('Z') messages to inform the client
+// of the current transaction state:
+//   - protocol.TxnStatusIdle ('I'): not in a transaction
+//   - protocol.TxnStatusInBlock ('T'): in a transaction block
+//   - protocol.TxnStatusFailed ('E'): in a failed transaction block
+func (c *Conn) SetTxnStatus(status protocol.TransactionStatus) {
+	c.txnStatus = status
+}
+
+// TxnStatus returns the current protocol-level transaction status.
+func (c *Conn) TxnStatus() protocol.TransactionStatus {
+	return c.txnStatus
+}
+
+// IsInTransaction returns true if the connection is currently in a transaction.
+func (c *Conn) IsInTransaction() bool {
+	return c.txnStatus == protocol.TxnStatusInBlock || c.txnStatus == protocol.TxnStatusFailed
 }
 
 // RemoteAddr returns the remote network address.

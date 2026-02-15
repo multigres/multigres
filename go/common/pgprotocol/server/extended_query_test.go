@@ -99,6 +99,8 @@ func (h *testHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
 }
 
+func (h *testHandler) ConnectionClosed(conn *Conn) {}
+
 // testConn wraps both read and write buffers for testing.
 type testConn struct {
 	readBuf  *bytes.Buffer

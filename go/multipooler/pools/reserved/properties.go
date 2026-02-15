@@ -14,50 +14,60 @@
 
 package reserved
 
-import "time"
+import (
+	"time"
 
-// ReservationReason indicates why a connection is reserved.
-type ReservationReason int
-
-const (
-	// ReservationTransaction indicates the connection is reserved for a transaction.
-	ReservationTransaction ReservationReason = iota
-
-	// ReservationPortal indicates the connection is reserved for a portal.
-	ReservationPortal
+	"github.com/multigres/multigres/go/common/protoutil"
 )
 
-// String returns a string representation of the reservation reason.
-func (r ReservationReason) String() string {
-	switch r {
-	case ReservationTransaction:
-		return "transaction"
-	case ReservationPortal:
-		return "portal"
-	default:
-		return "unknown"
-	}
-}
-
 // ReservationProperties tracks why a connection is reserved.
+// Reasons is a bitmask of protoutil.Reason* constants, allowing
+// a connection to be reserved for multiple concurrent reasons
+// (e.g., transaction AND portal).
 type ReservationProperties struct {
 	// StartTime is when the reservation started.
 	StartTime time.Time
 
-	// Reason is why the connection is reserved.
-	Reason ReservationReason
+	// Reasons is a bitmask of reservation reasons (protoutil.ReasonTransaction,
+	// protoutil.ReasonTempTable, protoutil.ReasonPortal).
+	Reasons uint32
 
 	// Portals tracks suspended portal names when reserved for portals.
 	// Multiple portals can be open on the same connection.
 	Portals map[string]struct{}
 }
 
-// NewReservationProperties creates new reservation properties.
-func NewReservationProperties(reason ReservationReason) *ReservationProperties {
+// NewReservationProperties creates new reservation properties with the given reasons bitmask.
+func NewReservationProperties(reasons uint32) *ReservationProperties {
 	return &ReservationProperties{
 		StartTime: time.Now(),
-		Reason:    reason,
+		Reasons:   reasons,
 	}
+}
+
+// AddReason adds a reason to the reservation bitmask.
+func (p *ReservationProperties) AddReason(reason uint32) {
+	p.Reasons = protoutil.AddReason(p.Reasons, reason)
+}
+
+// RemoveReason removes a reason from the reservation bitmask.
+func (p *ReservationProperties) RemoveReason(reason uint32) {
+	p.Reasons = protoutil.RemoveReason(p.Reasons, reason)
+}
+
+// HasReason returns true if the reservation includes the specified reason.
+func (p *ReservationProperties) HasReason(reason uint32) bool {
+	return protoutil.HasReason(p.Reasons, reason)
+}
+
+// IsEmpty returns true if no reservation reasons remain.
+func (p *ReservationProperties) IsEmpty() bool {
+	return protoutil.IsEmpty(p.Reasons)
+}
+
+// ReasonsString returns a human-readable string of the reasons bitmask.
+func (p *ReservationProperties) ReasonsString() string {
+	return protoutil.ReasonsString(p.Reasons)
 }
 
 // Duration returns how long the connection has been reserved.
@@ -65,14 +75,14 @@ func (p *ReservationProperties) Duration() time.Duration {
 	return time.Since(p.StartTime)
 }
 
-// IsForPortal returns true if the reservation is for a portal.
+// IsForPortal returns true if the reservation includes a portal reason.
 func (p *ReservationProperties) IsForPortal() bool {
-	return p.Reason == ReservationPortal
+	return p.HasReason(protoutil.ReasonPortal)
 }
 
-// IsForTransaction returns true if the reservation is for a transaction.
+// IsForTransaction returns true if the reservation includes a transaction reason.
 func (p *ReservationProperties) IsForTransaction() bool {
-	return p.Reason == ReservationTransaction
+	return p.HasReason(protoutil.ReasonTransaction)
 }
 
 // AddPortal adds a portal to the reservation.

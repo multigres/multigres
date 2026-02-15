@@ -55,7 +55,7 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 		return nil, fmt.Errorf("invalid address format: %s", addr)
 	}
 
-	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpc.NewClient("passthrough:///"+addr, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for multipooler at %s: %w", addr, err)
 	}
@@ -110,7 +110,7 @@ func (c *MultiPoolerTestClient) Address() string {
 // IsPrimary checks if the multipooler is the primary by calling the Status RPC.
 // Returns true if the pooler is PRIMARY, false otherwise.
 func IsPrimary(addr string) (bool, error) {
-	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpc.NewClient("passthrough:///"+addr, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return false, fmt.Errorf("failed to create client: %w", err)
 	}
@@ -138,7 +138,7 @@ func IsPrimary(addr string) (bool, error) {
 func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration) (clustermetadatapb.PoolerType, error) {
 	t.Helper()
 
-	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpc.NewClient("passthrough:///"+addr, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return clustermetadatapb.PoolerType_UNKNOWN, fmt.Errorf("failed to create client: %w", err)
 	}
@@ -555,7 +555,7 @@ func WaitForBootstrap(t *testing.T, addr string, timeout time.Duration, configDi
 
 	// Create gRPC connection directly without testing query
 	// (PostgreSQL may not be initialized yet during bootstrap)
-	conn, err := grpc.NewClient(addr, grpccommon.LocalClientDialOptions()...)
+	conn, err := grpc.NewClient("passthrough:///"+addr, grpccommon.LocalClientDialOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to create gRPC connection: %w", err)
 	}

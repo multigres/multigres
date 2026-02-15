@@ -264,7 +264,7 @@ func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, ca
 
 // TxnStatus returns the current transaction status.
 // Returns one of: 'I' (idle), 'T' (in transaction), 'E' (error).
-func (c *Conn) TxnStatus() byte {
+func (c *Conn) TxnStatus() protocol.TransactionStatus {
 	return c.conn.TxnStatus()
 }
 
