@@ -56,6 +56,7 @@ func TestPrimaryAndReplicasDeadAnalyzer_Analyze(t *testing.T) {
 			IsInitialized:                       false, // unreachable replicas have IsInitialized=false
 			PrimaryPoolerID:                     primaryID,
 			PrimaryReachable:                    false,
+			PrimaryTerm:                         2,
 			AllReplicasConfirmPrimaryAlive:      false,
 			CountReplicaPoolersInShard:          2,
 			CountReachableReplicaPoolersInShard: 0,
@@ -68,6 +69,24 @@ func TestPrimaryAndReplicasDeadAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemPrimaryAndReplicasDead, problem.Code)
 		require.Equal(t, types.PriorityNormal, problem.Priority)
 		require.IsType(t, &types.NoOpAction{}, problem.RecoveryAction, "non-actionable when no replicas reachable")
+	})
+
+	t.Run("does not trigger during bootstrap", func(t *testing.T) {
+		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
+		analysis := &store.ReplicationAnalysis{
+			PoolerID:                            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:                            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:                           false,
+			PrimaryPoolerID:                     primaryID,
+			PrimaryReachable:                    false,
+			PrimaryTerm:                         1, // initial bootstrap term
+			CountReplicaPoolersInShard:          2,
+			CountReachableReplicaPoolersInShard: 0,
+		}
+
+		problem, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
+		require.Nil(t, problem)
 	})
 
 	t.Run("does not trigger when some poolers reachable", func(t *testing.T) {

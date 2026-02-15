@@ -65,6 +65,11 @@ func (a *PrimaryAndReplicasDeadAnalyzer) Analyze(poolerAnalysis *store.Replicati
 		return nil, nil
 	}
 
+	// PrimaryTerm <= 1 means the shard is not fully bootstrapped yet.
+	if poolerAnalysis.PrimaryTerm <= 1 {
+		return nil, nil
+	}
+
 	// No replica poolers reachable — non-actionable, no viable failover candidate.
 	if poolerAnalysis.CountReachableReplicaPoolersInShard != 0 {
 		return nil, nil

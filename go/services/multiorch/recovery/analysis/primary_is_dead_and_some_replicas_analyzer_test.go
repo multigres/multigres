@@ -66,7 +66,7 @@ func TestPrimaryIsDeadAndSomeReplicasAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, problem)
 		require.Equal(t, types.ProblemPrimaryIsDeadAndSomeReplicas, problem.Code)
-		require.Equal(t, types.PriorityEmergency, problem.Priority)
+		require.Equal(t, types.PriorityCritical, problem.Priority)
 		require.NotNil(t, problem.RecoveryAction)
 	})
 

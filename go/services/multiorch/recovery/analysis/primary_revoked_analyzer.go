@@ -23,11 +23,18 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PrimaryRevokedAnalyzer detects when a primary is reachable but ALL replicas
-// have disconnected from it. This happens when standbys receive a BeginTerm
-// REVOKE with a higher term, causing them to stop WAL streaming. The primary
-// is alive but effectively stale — it cannot complete synchronous writes and
-// a new leader must be elected.
+// PrimaryRevokedAnalyzer detects when the primary is reachable but all replicas
+// have disconnected from it.
+//
+// This catches a rare but important edge case:
+// 1. The primary fails.
+// 2. multiorch recruits replicas but fails to appoint a new leader.
+// 3. The old primary comes back online. It is alive, but it has been revoked.
+// Other analyzers can short-circuit when the old primary is alive, so we need an
+// explicit check for the "alive but revoked" state.
+//
+// This also helps us test one of the core revocation mechanisms in our consensus
+// algorithm: revoke a primary by revoking all of its followers.
 type PrimaryRevokedAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -74,9 +81,9 @@ func (a *PrimaryRevokedAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalys
 	}
 
 	// Both conditions must hold to confirm a revoked primary:
-	// 1. This replica's consensus term exceeds the primary's primary term,
+	// 1. This replica's consensus term exceeds the primary's promotion term,
 	//    proving the replica received a BeginTerm REVOKE with a higher term.
-	if poolerAnalysis.ConsensusTerm <= poolerAnalysis.PrimaryConsensusTerm {
+	if poolerAnalysis.ConsensusTerm <= poolerAnalysis.PrimaryTerm {
 		return nil, nil
 	}
 

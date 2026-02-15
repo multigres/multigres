@@ -74,7 +74,7 @@ func (a *PrimaryIsDeadAndSomeReplicasAnalyzer) Analyze(poolerAnalysis *store.Rep
 		ShardKey:  poolerAnalysis.ShardKey,
 		Description: fmt.Sprintf("Primary for shard %s is dead/unreachable; some replicas unreachable and none of the reachable ones is connected (%d/%d reachable)",
 			poolerAnalysis.ShardKey, poolerAnalysis.CountReachableReplicaPoolersInShard, poolerAnalysis.CountReplicaPoolersInShard),
-		Priority:       types.PriorityEmergency,
+		Priority:       types.PriorityCritical,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
 		RecoveryAction: a.factory.NewAppointLeaderAction(),

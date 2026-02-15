@@ -26,17 +26,15 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
-const DefaultReplicaLagThreshold = 10 * time.Second
-
 // HeartbeatLagThreshold is the maximum acceptable heartbeat lag (3x write interval).
 // A heartbeat lag above this threshold indicates the primary may have stopped writing.
 const HeartbeatLagThreshold = 3 * constants.HeartbeatWriteInterval
 
-// ReplicaLagHeartbeatSkipThreshold is the replication lag above which we skip the heartbeat
-// check in isReplicaConnectedToPrimary. A lagging replica has a stale heartbeat because
-// replay hasn't caught up, not because the primary stopped writing.
-const ReplicaLagHeartbeatSkipThreshold = 3 * HeartbeatLagThreshold
+// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
+// Also used to skip the heartbeat check in isReplicaConnectedToPrimary: a lagging replica
+// has a stale heartbeat because replay hasn't caught up, not because the primary stopped.
+// Derives from HeartbeatLagThreshold so all thresholds scale together.
+const DefaultReplicaLagThreshold = 3 * HeartbeatLagThreshold
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
@@ -388,7 +386,7 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	analysis.PrimaryPoolerReachable = primary.IsLastCheckValid
 	analysis.PrimaryPostgresRunning = primary.IsPostgresRunning
 	if primary.ConsensusTerm != nil {
-		analysis.PrimaryConsensusTerm = primary.ConsensusTerm.PrimaryTerm
+		analysis.PrimaryTerm = primary.ConsensusTerm.PrimaryTerm
 	}
 
 	// Primary is reachable only if both pooler is reachable AND Postgres is running
@@ -515,7 +513,7 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 
 	// A lagging replica may have a stale heartbeat because replay hasn't caught
 	// up, not because the primary stopped writing. Skip the heartbeat check.
-	if replica.ReplicationStatus.Lag != nil && replica.ReplicationStatus.Lag.AsDuration() > ReplicaLagHeartbeatSkipThreshold {
+	if replica.ReplicationStatus.Lag != nil && replica.ReplicationStatus.Lag.AsDuration() > DefaultReplicaLagThreshold {
 		return true
 	}
 

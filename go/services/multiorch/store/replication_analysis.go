@@ -77,16 +77,16 @@ type ReplicationAnalysis struct {
 	WalReceiverStatus      string        // WAL receiver status: "streaming", "stopping", "starting", "waiting", or empty
 	HeartbeatLag           time.Duration // Time since primary last wrote a heartbeat, as observed via replicated row. -1 if unavailable.
 
-	// Stale primary detection: populated for PRIMARY nodes only
-	PrimaryTerm           int64          // This pooler's primary term (term when promoted)
+	// PrimaryTerm: for PRIMARY nodes, this is the term when promoted (stale primary detection).
+	// For REPLICA nodes, this is the shard primary's promotion term (revoked primary detection).
+	PrimaryTerm           int64
 	OtherPrimariesInShard []*PrimaryInfo // All other primaries detected in the shard
 	HighestTermPrimary    *PrimaryInfo   // Primary with highest PrimaryTerm (rewind source)
 	ConsensusTerm         int64          // This node's consensus term (from health check)
 
 	// Primary health details (for distinguishing pooler-down vs postgres-down)
-	PrimaryPoolerReachable bool  // True if primary pooler health check succeeded (IsLastCheckValid)
-	PrimaryPostgresRunning bool  // True if primary Postgres is running (IsPostgresRunning from health check)
-	PrimaryConsensusTerm   int64 // Primary's consensus term (for detecting revoked primary via term mismatch)
+	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
+	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)
 
 	// Total replica poolers in the shard (regardless of reachability).
 	CountReplicaPoolersInShard uint

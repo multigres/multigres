@@ -83,6 +83,11 @@ const (
 	// These must be fixed before anything else can proceed.
 	PriorityEmergency Priority = 1000
 
+	// PriorityCritical is for issues that likely require failover but with
+	// incomplete cluster visibility. For example, the primary is dead and some
+	// replicas are unreachable
+	PriorityCritical Priority = 750
+
 	// PriorityHigh is for serious issues that don't block everything.
 	// Examples: replica not replicating, replica pointing to wrong primary.
 	PriorityHigh Priority = 500
