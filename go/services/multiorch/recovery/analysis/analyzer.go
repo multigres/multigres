@@ -47,6 +47,9 @@ func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 			&ShardNeedsBootstrapAnalyzer{factory: factory},
 			&StalePrimaryAnalyzer{factory: factory},
 			&PrimaryIsDeadAnalyzer{factory: factory},
+			&PrimaryIsDeadAndSomeReplicasAnalyzer{factory: factory},
+			&PrimaryAndReplicasDeadAnalyzer{factory: factory},
+			&PrimaryRevokedAnalyzer{factory: factory},
 			&ReplicaNotReplicatingAnalyzer{factory: factory},
 			&ReplicaNotInStandbyListAnalyzer{factory: factory},
 		}

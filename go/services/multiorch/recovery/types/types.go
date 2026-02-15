@@ -37,9 +37,11 @@ const (
 	ProblemShardNeedsBootstrap ProblemCode = "ShardNeedsBootstrap"
 
 	// Primary problems (catastrophic - block everything else).
-	ProblemPrimaryIsDead      ProblemCode = "PrimaryIsDead"
-	ProblemPrimaryDiskStalled ProblemCode = "PrimaryDiskStalled"
-	ProblemStalePrimary       ProblemCode = "StalePrimary"
+	ProblemPrimaryIsDead                ProblemCode = "PrimaryIsDead"
+	ProblemPrimaryIsDeadAndSomeReplicas ProblemCode = "PrimaryIsDeadAndSomeReplicas"
+	ProblemPrimaryDiskStalled           ProblemCode = "PrimaryDiskStalled"
+	ProblemStalePrimary                 ProblemCode = "StalePrimary"
+	ProblemPrimaryRevoked               ProblemCode = "PrimaryRevoked"
 
 	// Primary configuration problems (can fix while primary alive).
 	ProblemPrimaryNotAcceptingWrites ProblemCode = "PrimaryNotAcceptingWrites"
@@ -80,6 +82,11 @@ const (
 	// PriorityEmergency is for catastrophic issues like dead primary.
 	// These must be fixed before anything else can proceed.
 	PriorityEmergency Priority = 1000
+
+	// PriorityCritical is for issues that likely require failover but with
+	// incomplete cluster visibility. For example, the primary is dead and some
+	// replicas are unreachable
+	PriorityCritical Priority = 750
 
 	// PriorityHigh is for serious issues that don't block everything.
 	// Examples: replica not replicating, replica pointing to wrong primary.
@@ -144,6 +151,16 @@ type RecoveryAction interface {
 	// Returns nil if no grace period is needed (action executes immediately).
 	GracePeriod() *GracePeriodConfig
 }
+
+// NoOpAction is a recovery action that does nothing. Used for non-actionable
+// problems (e.g., primary and all replicas dead — no viable failover candidate).
+type NoOpAction struct{}
+
+func (n *NoOpAction) Execute(_ context.Context, _ Problem) error { return nil }
+func (n *NoOpAction) Metadata() RecoveryMetadata                 { return RecoveryMetadata{Name: "NoOp"} }
+func (n *NoOpAction) RequiresHealthyPrimary() bool               { return false }
+func (n *NoOpAction) Priority() Priority                         { return 0 }
+func (n *NoOpAction) GracePeriod() *GracePeriodConfig            { return nil }
 
 // RecoveryMetadata describes the recovery action.
 type RecoveryMetadata struct {
