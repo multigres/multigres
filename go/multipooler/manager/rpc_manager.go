@@ -22,6 +22,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -650,8 +651,11 @@ func (pm *MultiPoolerManager) getStandbyStatusInternal(ctx context.Context) (*mu
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "replication tracker not initialized")
 	}
 
-	_, hbErr := pm.replTracker.HeartbeatReader().Status()
-	status.HeartbeatHealthy = hbErr == nil
+	hbLag, hbErr := pm.replTracker.HeartbeatReader().Status()
+	if hbErr == nil {
+		status.HeartbeatLag = durationpb.New(hbLag)
+	}
+	// HeartbeatLag is nil when the reader encountered an error.
 
 	return status, nil
 }

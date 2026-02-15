@@ -193,6 +193,24 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Nil(t, problem, "PrimaryIsDead requires all poolers reachable")
 	})
 
+	t.Run("does not trigger with zero replicas in shard", func(t *testing.T) {
+		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
+		analysis := &store.ReplicationAnalysis{
+			PoolerID:                            primaryID,
+			ShardKey:                            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:                           false,
+			IsInitialized:                       true,
+			PrimaryPoolerID:                     primaryID,
+			PrimaryReachable:                    false,
+			CountReplicaPoolersInShard:          0,
+			CountReachableReplicaPoolersInShard: 0,
+		}
+
+		problem, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
+		require.Nil(t, problem, "no replicas to failover to")
+	})
+
 	t.Run("does not trigger when no poolers reachable", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &store.ReplicationAnalysis{

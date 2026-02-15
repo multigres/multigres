@@ -53,7 +53,7 @@ func TestPrimaryAndReplicasDeadAnalyzer_Analyze(t *testing.T) {
 			PoolerID:                            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:                            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:                           false,
-			IsInitialized:                       true,
+			IsInitialized:                       false, // unreachable replicas have IsInitialized=false
 			PrimaryPoolerID:                     primaryID,
 			PrimaryReachable:                    false,
 			AllReplicasConfirmPrimaryAlive:      false,

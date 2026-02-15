@@ -50,6 +50,11 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, nil
 	}
 
+	// No replicas in shard — nothing to failover to.
+	if poolerAnalysis.CountReplicaPoolersInShard == 0 {
+		return nil, nil
+	}
+
 	// Full visibility required: all replica poolers must be reachable.
 	if poolerAnalysis.CountReachableReplicaPoolersInShard != poolerAnalysis.CountReplicaPoolersInShard {
 		return nil, nil

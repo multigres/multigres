@@ -759,7 +759,7 @@ func TestAllReplicasConfirmPrimaryAlive(t *testing.T) {
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 				LastReceiveLsn:    "0/1234567",
 				WalReceiverStatus: "streaming",
-				HeartbeatHealthy:  true,
+				HeartbeatLag:      durationpb.New(500 * time.Millisecond),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -784,7 +784,7 @@ func TestAllReplicasConfirmPrimaryAlive(t *testing.T) {
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 				LastReceiveLsn:    "0/1234567",
 				WalReceiverStatus: "streaming",
-				HeartbeatHealthy:  true,
+				HeartbeatLag:      durationpb.New(500 * time.Millisecond),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -1047,7 +1047,7 @@ func TestAllReplicasConfirmPrimaryAlive(t *testing.T) {
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 				LastReceiveLsn:    "0/1234567",
 				WalReceiverStatus: "stopped",
-				HeartbeatHealthy:  true,
+				HeartbeatLag:      durationpb.New(500 * time.Millisecond),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -1102,7 +1102,7 @@ func TestAllReplicasConfirmPrimaryAlive(t *testing.T) {
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 				LastReceiveLsn:    "0/1234567",
 				WalReceiverStatus: "streaming",
-				HeartbeatHealthy:  false, // Heartbeat unhealthy
+				// HeartbeatLag nil = heartbeat unavailable
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,
@@ -1114,7 +1114,7 @@ func TestAllReplicasConfirmPrimaryAlive(t *testing.T) {
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
-		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive, "should be false when heartbeat is unhealthy")
+		assert.False(t, analysis.AllReplicasConfirmPrimaryAlive, "should be false when heartbeat is unavailable")
 	})
 
 	t.Run("returns true when heartbeat unhealthy but replica is lagging", func(t *testing.T) {
@@ -1157,8 +1157,8 @@ func TestAllReplicasConfirmPrimaryAlive(t *testing.T) {
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 				LastReceiveLsn:    "0/1234567",
 				WalReceiverStatus: "streaming",
-				HeartbeatHealthy:  false,                            // Heartbeat unhealthy
-				Lag:               durationpb.New(10 * time.Second), // But replica is lagging
+				// HeartbeatLag nil = heartbeat unavailable, but replica is lagging
+				Lag: durationpb.New(10 * time.Second),
 				PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
 					Host: "primary-host",
 					Port: 5432,

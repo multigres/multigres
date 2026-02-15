@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -27,6 +28,15 @@ import (
 
 // DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
 const DefaultReplicaLagThreshold = 10 * time.Second
+
+// HeartbeatLagThreshold is the maximum acceptable heartbeat lag (3x write interval).
+// A heartbeat lag above this threshold indicates the primary may have stopped writing.
+const HeartbeatLagThreshold = 3 * constants.HeartbeatWriteInterval
+
+// ReplicaLagHeartbeatSkipThreshold is the replication lag above which we skip the heartbeat
+// check in isReplicaConnectedToPrimary. A lagging replica has a stale heartbeat because
+// replay hasn't caught up, not because the primary stopped writing.
+const ReplicaLagHeartbeatSkipThreshold = 3 * HeartbeatLagThreshold
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
@@ -227,7 +237,11 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 			analysis.IsWalReplayPaused = rs.IsWalReplayPaused
 			analysis.WalReplayPauseState = rs.WalReplayPauseState
 			analysis.WalReceiverStatus = rs.WalReceiverStatus
-			analysis.HeartbeatHealthy = rs.HeartbeatHealthy
+			if rs.GetHeartbeatLag() != nil {
+				analysis.HeartbeatLag = rs.GetHeartbeatLag().AsDuration()
+			} else {
+				analysis.HeartbeatLag = -1
+			}
 
 			// Extract primary connection info
 			if rs.PrimaryConnInfo != nil {
@@ -498,12 +512,13 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 
 	// A lagging replica may have a stale heartbeat because replay hasn't caught
 	// up, not because the primary stopped writing. Skip the heartbeat check.
-	if replica.ReplicationStatus.Lag != nil && replica.ReplicationStatus.Lag.AsDuration() > 5*time.Second {
+	if replica.ReplicationStatus.Lag != nil && replica.ReplicationStatus.Lag.AsDuration() > ReplicaLagHeartbeatSkipThreshold {
 		return true
 	}
 
-	// Replica must have a healthy heartbeat from the primary
-	if !replica.ReplicationStatus.HeartbeatHealthy {
+	// Heartbeat must be available and fresh (below staleness threshold).
+	hbLag := replica.ReplicationStatus.GetHeartbeatLag()
+	if hbLag == nil || hbLag.AsDuration() > HeartbeatLagThreshold {
 		return false
 	}
 

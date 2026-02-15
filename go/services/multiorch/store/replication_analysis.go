@@ -73,9 +73,9 @@ type ReplicationAnalysis struct {
 	PrimaryTimestamp       time.Time
 	PrimaryLSNStr          string
 	ReplicationLagBytes    int64
-	IsInPrimaryStandbyList bool   // Whether this replica is in the primary's synchronous_standby_names
-	WalReceiverStatus      string // WAL receiver status: "streaming", "stopping", "starting", "waiting", or empty
-	HeartbeatHealthy       bool   // Whether this replica's heartbeat from the primary is fresh and readable
+	IsInPrimaryStandbyList bool          // Whether this replica is in the primary's synchronous_standby_names
+	WalReceiverStatus      string        // WAL receiver status: "streaming", "stopping", "starting", "waiting", or empty
+	HeartbeatLag           time.Duration // Time since primary last wrote a heartbeat, as observed via replicated row. -1 if unavailable.
 
 	// Stale primary detection: populated for PRIMARY nodes only
 	PrimaryTerm           int64          // This pooler's primary term (term when promoted)

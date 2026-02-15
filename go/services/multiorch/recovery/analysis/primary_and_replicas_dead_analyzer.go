@@ -51,7 +51,17 @@ func (a *PrimaryAndReplicasDeadAnalyzer) Analyze(poolerAnalysis *store.Replicati
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	if !checkPrimaryUnreachable(poolerAnalysis) {
+	// Cannot use checkPrimaryUnreachable: it requires IsInitialized, but
+	// unreachable replicas have IsInitialized=false (IsLastCheckValid=false).
+	// In this analyzer's target scenario (all replicas unreachable), every
+	// analysis would be rejected.
+	if poolerAnalysis.IsPrimary {
+		return nil, nil
+	}
+	if poolerAnalysis.PrimaryPoolerID == nil {
+		return nil, nil
+	}
+	if poolerAnalysis.PrimaryReachable {
 		return nil, nil
 	}
 
@@ -65,7 +75,7 @@ func (a *PrimaryAndReplicasDeadAnalyzer) Analyze(poolerAnalysis *store.Replicati
 		CheckName: "PrimaryAndReplicasDead",
 		PoolerID:  poolerAnalysis.PoolerID,
 		ShardKey:  poolerAnalysis.ShardKey,
-		Description: fmt.Sprintf("Primary for shard %s is unreachable and none of its replicas is reachable (%d total)",
+		Description: fmt.Sprintf("Primary for shard %s is unreachable and no replica poolers are reachable (%d total); likely multiorch network partition — no failover candidates available",
 			poolerAnalysis.ShardKey, poolerAnalysis.CountReplicaPoolersInShard),
 		Priority:       types.PriorityNormal,
 		Scope:          types.ScopeShard,
