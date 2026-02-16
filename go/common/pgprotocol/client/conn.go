@@ -148,6 +148,10 @@ func Connect(ctx context.Context, poolCtx context.Context, config *Config) (*Con
 // config, and performs the PostgreSQL startup handshake. The Conn object
 // identity is preserved so callers (like pool wrappers) continue to work.
 //
+// Reconnect is not concurrency-safe. It relies on the pool's single-owner
+// model: the connection is checked out to exactly one goroutine, and only
+// that goroutine calls Reconnect (from the retry loop).
+//
 // The caller is responsible for re-applying any session state (settings,
 // prepared statements) after a successful reconnect.
 func (c *Conn) Reconnect(ctx context.Context) error {
