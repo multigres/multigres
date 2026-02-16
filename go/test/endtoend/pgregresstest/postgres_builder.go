@@ -281,26 +281,33 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	cmd.Stdout = io.MultiWriter(&stdout, os.Stdout)
 	cmd.Stderr = io.MultiWriter(&stderr, os.Stderr)
 
+	// The regression.out file is written incrementally by pg_regress to the build
+	// directory as tests complete. We use it as the primary source for parsing results
+	// because it contains partial results even if the process hangs or is killed.
+	buildRegressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
+	srcOut := filepath.Join(buildRegressDir, "regression.out")
+
 	startTime := time.Now()
 	err := cmd.Run()
 	duration := time.Since(startTime)
 
-	// Parse results even if command failed (some tests may have passed)
-	results, parseErr := pb.ParseTestResults(&stdout, &stderr)
+	t.Logf("Test execution completed in %v (err=%v)", duration, err)
+
+	// Parse results from the on-disk regression.out file.
+	// This file is written incrementally by pg_regress, so it contains partial
+	// results even when the command times out or is killed.
+	outData, readErr := os.ReadFile(srcOut)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read regression.out: %w", readErr)
+	}
+	results, parseErr := pb.ParseTestResults(string(outData))
 	if parseErr != nil {
-		return nil, fmt.Errorf("failed to parse test results: %w", parseErr)
+		return nil, fmt.Errorf("failed to parse regression.out: %w", parseErr)
 	}
 	results.Duration = duration
 
-	t.Logf("Test execution completed in %v", duration)
-
-	// Copy regression test result files from build directory to persistent OutputDir
-	// The make installcheck-tests target writes results to <builddir>/src/test/regress/
-	buildRegressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
-
 	// Define source and destination paths
 	srcDiffs := filepath.Join(buildRegressDir, "regression.diffs")
-	srcOut := filepath.Join(buildRegressDir, "regression.out")
 	regressionDiffs := filepath.Join(pb.OutputDir, "regression.diffs")
 	regressionOut := filepath.Join(pb.OutputDir, "regression.out")
 
@@ -354,22 +361,19 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 
 // ParseTestResults parses pg_regress TAP output to extract test results.
 // Returns an error if no TAP-formatted lines are found in the output.
-func (pb *PostgresBuilder) ParseTestResults(stdout, stderr *bytes.Buffer) (*TestResults, error) {
+func (pb *PostgresBuilder) ParseTestResults(output string) (*TestResults, error) {
 	results := &TestResults{
 		FailureDetails: []TestFailure{},
 		Tests:          []IndividualTestResult{},
 	}
 
-	output := stdout.String()
-	combinedOutput := output + "\n" + stderr.String()
-
 	// Parse TAP format output from pg_regress
 	// Example lines:
-	//   ok 1         - test_setup                                178 ms
-	//   ok 2         - boolean                                    61 ms
-	//   not ok 3     - char                                       39 ms
-	tapLine := regexp.MustCompile(`(?m)^(ok|not ok)\s+(\d+)\s+-\s+(\S+)\s+(\d+)\s+ms`)
-	for _, match := range tapLine.FindAllStringSubmatch(combinedOutput, -1) {
+	//   ok 1         - test_setup                                178 ms  (serial)
+	//   ok 2         + boolean                                    61 ms  (parallel)
+	//   not ok 3     + char                                       39 ms  (parallel)
+	tapLine := regexp.MustCompile(`(?m)^(ok|not ok)\s+(\d+)\s+[-+]\s+(\S+)\s+(\d+)\s+ms`)
+	for _, match := range tapLine.FindAllStringSubmatch(output, -1) {
 		status := "pass"
 		if match[1] == "not ok" {
 			status = "fail"
@@ -398,12 +402,12 @@ func (pb *PostgresBuilder) ParseTestResults(stdout, stderr *bytes.Buffer) (*Test
 	summaryPassPattern := regexp.MustCompile(`All (\d+) tests? passed`)
 	summaryFailPattern := regexp.MustCompile(`(\d+) of (\d+) tests? failed`)
 
-	if matches := summaryPassPattern.FindStringSubmatch(combinedOutput); len(matches) > 1 {
+	if matches := summaryPassPattern.FindStringSubmatch(output); len(matches) > 1 {
 		total, _ := strconv.Atoi(matches[1])
 		results.TotalTests = total
 		results.PassedTests = total
 		results.FailedTests = 0
-	} else if matches := summaryFailPattern.FindStringSubmatch(combinedOutput); len(matches) > 2 {
+	} else if matches := summaryFailPattern.FindStringSubmatch(output); len(matches) > 2 {
 		failed, _ := strconv.Atoi(matches[1])
 		total, _ := strconv.Atoi(matches[2])
 		results.TotalTests = total
