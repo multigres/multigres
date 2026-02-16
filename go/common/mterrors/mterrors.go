@@ -156,7 +156,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
+	"syscall"
 
 	"github.com/spf13/pflag"
 
@@ -461,3 +463,59 @@ func TruncateError(oldErr error, max int) error {
 
 func (f *fundamental) ErrorState() State       { return f.state }
 func (f *fundamental) ErrorCode() mtrpcpb.Code { return f.code }
+
+// IsConnectionError returns true if the error indicates a broken or lost
+// connection to PostgreSQL. It checks two categories:
+//
+//  1. Go I/O errors: EOF, connection reset, broken pipe, etc. These occur
+//     when the TCP/Unix socket is broken.
+//
+//  2. PostgreSQL SQLSTATE codes: When PostgreSQL shuts down or crashes, it may
+//     send a FATAL ErrorResponse before closing the connection. We check for
+//     Class 08 (Connection Exception) and specific Class 57 shutdown codes.
+//
+// This is the PostgreSQL equivalent of Vitess's sqlerror.IsConnErr, which
+// checks MySQL CR_* client error codes.
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check PostgreSQL SQLSTATE codes for server-initiated disconnection.
+	// When PostgreSQL shuts down or crashes, it sends a FATAL error with
+	// a specific SQLSTATE before closing the connection.
+	var diag *PgDiagnostic
+	if errors.As(err, &diag) {
+		// Class 08: Connection Exception (all codes in this class).
+		if diag.IsClass("08") {
+			return true
+		}
+		// Specific Class 57 (Operator Intervention) shutdown codes.
+		// Note: we intentionally exclude 57014 (query_canceled) and the
+		// generic 57000 since those don't indicate a lost connection.
+		switch diag.Code {
+		case "57P01", // admin_shutdown
+			"57P02", // crash_shutdown
+			"57P03": // cannot_connect_now
+			return true
+		}
+		return false
+	}
+
+	// Common I/O errors indicating connection loss.
+	if errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	// Syscall-level connection errors.
+	if errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ECONNABORTED) {
+		return true
+	}
+
+	return false
+}

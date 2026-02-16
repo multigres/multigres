@@ -164,6 +164,56 @@ func Connect(ctx context.Context, poolCtx context.Context, config *Config) (*Con
 	return c, nil
 }
 
+// Reconnect replaces the underlying network connection in-place.
+// It closes the old (broken) socket, dials a new connection using the stored
+// config, and performs the PostgreSQL startup handshake. The Conn object
+// identity is preserved so callers (like pool wrappers) continue to work.
+//
+// The caller is responsible for re-applying any session state (settings,
+// prepared statements) after a successful reconnect.
+func (c *Conn) Reconnect(ctx context.Context) error {
+	// Close the raw socket. Best-effort since the connection may already be broken.
+	// We intentionally don't call c.Close() because that cancels the lifetime
+	// context (derived from poolCtx) which we want to keep alive.
+	_ = c.conn.Close()
+
+	// Reset the closed flag so the connection is usable again.
+	c.closed.Store(false)
+
+	// Dial a new connection using the stored config.
+	dialer := &net.Dialer{
+		Timeout: c.config.DialTimeout,
+	}
+
+	var netConn net.Conn
+	var err error
+
+	if c.config.SocketFile != "" {
+		netConn, err = dialer.DialContext(ctx, "unix", c.config.SocketFile)
+	} else {
+		address := fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)
+		netConn, err = dialer.DialContext(ctx, "tcp", address)
+	}
+	if err != nil {
+		return fmt.Errorf("reconnect dial failed: %w", err)
+	}
+
+	// Replace connection internals with the new socket.
+	c.conn = netConn
+	c.bufferedReader = bufio.NewReaderSize(netConn, connBufferSize)
+	c.bufferedWriter = bufio.NewWriterSize(netConn, connBufferSize)
+	c.serverParams = make(map[string]string)
+	c.txnStatus = byte(protocol.TxnStatusIdle)
+
+	// Perform the startup handshake on the new connection.
+	if err := c.startup(ctx); err != nil {
+		c.Close()
+		return fmt.Errorf("reconnect startup failed: %w", err)
+	}
+
+	return nil
+}
+
 // Close closes the connection.
 func (c *Conn) Close() error {
 	if !c.closed.CompareAndSwap(false, true) {

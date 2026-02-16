@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -362,5 +364,105 @@ func assertContains(t *testing.T, s, substring string, contains bool) {
 func assertEquals(t *testing.T, a, b any) {
 	if a != b {
 		t.Fatalf("expected [%s] to be equal to [%s]", a, b)
+	}
+}
+
+func TestIsConnectionError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		// Nil.
+		{name: "nil error", err: nil, expected: false},
+
+		// Go I/O errors.
+		{name: "EOF", err: io.EOF, expected: true},
+		{name: "wrapped EOF", err: fmt.Errorf("read: %w", io.EOF), expected: true},
+		{name: "unexpected EOF", err: io.ErrUnexpectedEOF, expected: true},
+		{name: "net.ErrClosed", err: net.ErrClosed, expected: true},
+
+		// Syscall errors.
+		{name: "ECONNRESET", err: syscall.ECONNRESET, expected: true},
+		{name: "EPIPE", err: syscall.EPIPE, expected: true},
+		{name: "ECONNREFUSED", err: syscall.ECONNREFUSED, expected: true},
+		{name: "ECONNABORTED", err: syscall.ECONNABORTED, expected: true},
+		{name: "wrapped ECONNRESET", err: fmt.Errorf("write: %w", syscall.ECONNRESET), expected: true},
+
+		// PgDiagnostic: Class 08 (Connection Exception).
+		{
+			name:     "08003 connection_does_not_exist",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "08003"},
+			expected: true,
+		},
+		{
+			name:     "08006 connection_failure",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "08006"},
+			expected: true,
+		},
+
+		// PgDiagnostic: Specific Class 57 shutdown codes.
+		{
+			name:     "57P01 admin_shutdown",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P01"},
+			expected: true,
+		},
+		{
+			name:     "57P02 crash_shutdown",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P02"},
+			expected: true,
+		},
+		{
+			name:     "57P03 cannot_connect_now",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P03"},
+			expected: true,
+		},
+
+		// PgDiagnostic: Class 57 codes that are NOT connection errors.
+		{
+			name:     "57014 query_canceled",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "57014"},
+			expected: false,
+		},
+		{
+			name:     "57000 operator_intervention (generic)",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "57000"},
+			expected: false,
+		},
+
+		// PgDiagnostic: Non-connection classes.
+		{
+			name:     "42601 syntax_error",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "42601"},
+			expected: false,
+		},
+		{
+			name:     "23505 unique_violation",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "23505"},
+			expected: false,
+		},
+
+		// Wrapped PgDiagnostic.
+		{
+			name:     "wrapped 57P01",
+			err:      fmt.Errorf("query: %w", &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P01"}),
+			expected: true,
+		},
+		{
+			name:     "wrapped 42601 - not connection error",
+			err:      fmt.Errorf("query: %w", &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "42601"}),
+			expected: false,
+		},
+
+		// Generic errors - not connection errors.
+		{name: "generic error", err: errors.New("some error"), expected: false},
+		{name: "context.Canceled", err: context.Canceled, expected: false},
+		{name: "context.DeadlineExceeded", err: context.DeadlineExceeded, expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsConnectionError(tt.err))
+		})
 	}
 }

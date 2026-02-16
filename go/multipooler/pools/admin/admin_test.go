@@ -16,12 +16,15 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 )
 
@@ -350,4 +353,188 @@ func TestConn_GetRolPassword_SQLInjection(t *testing.T) {
 
 	// Verify the query was actually executed.
 	server.VerifyAllPatternsUsedOrFail()
+}
+
+// --- queryWithRetry tests ---
+
+// newTestDirectConn creates an admin.Conn directly (bypassing the pool)
+// for testing Conn-level methods like queryWithRetry.
+func newTestDirectConn(t *testing.T, server *fakepgserver.Server) *Conn {
+	t.Helper()
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	return NewConn(clientConn)
+}
+
+func TestQueryWithRetry_Success(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQuery("SELECT 1", fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}))
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	results, err := conn.queryWithRetry(context.Background(), "SELECT 1")
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Len(t, results[0].Rows, 1)
+	assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
+}
+
+func TestQueryWithRetry_NonConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// The server converts generic errors to PgDiagnostic{Code: "XX000"},
+	// which is NOT a connection error. queryWithRetry should not retry.
+	server.AddRejectedQuery("SELECT bad_query", errors.New("relation does not exist"))
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	_, err := conn.queryWithRetry(context.Background(), "SELECT bad_query")
+	require.Error(t, err)
+
+	// Verify it's not a connection error (no retry happened).
+	assert.False(t, mterrors.IsConnectionError(err))
+
+	// Connection should still be open (non-connection errors don't close it).
+	assert.False(t, conn.IsClosed())
+}
+
+func TestQueryWithRetry_ReconnectsOnConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: connection error (admin_shutdown).
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT 1",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "FATAL",
+			Code:        "57P01",
+			Message:     "terminating connection due to administrator command",
+		},
+	})
+
+	// Second attempt (after reconnect): success.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT 1",
+		QueryResult: fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}),
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	results, err := conn.queryWithRetry(context.Background(), "SELECT 1")
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "1", string(results[0].Rows[0].Values[0]))
+
+	server.VerifyAllExecutedOrFail()
+}
+
+func TestQueryWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	connErr := &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "FATAL",
+		Code:        "57P01",
+		Message:     "terminating connection due to administrator command",
+	}
+
+	// All 3 attempts fail with connection error.
+	for range maxQueryAttempts {
+		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+			Query: "SELECT 1",
+			Error: connErr,
+		})
+	}
+
+	conn := newTestDirectConn(t, server)
+
+	_, err := conn.queryWithRetry(context.Background(), "SELECT 1")
+	require.Error(t, err)
+	assert.True(t, mterrors.IsConnectionError(err))
+
+	// Connection should be closed after exhausting all attempts.
+	assert.True(t, conn.IsClosed())
+
+	server.VerifyAllExecutedOrFail()
+}
+
+// --- execBackendFunc retry tests (via TerminateBackend/CancelBackend) ---
+
+func TestTerminateBackend_ReconnectsOnConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: connection error.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT pg_terminate_backend(12345)",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "FATAL",
+			Code:        "57P01",
+			Message:     "terminating connection due to administrator command",
+		},
+	})
+
+	// Second attempt (after reconnect): success.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_terminate_backend(12345)",
+		QueryResult: fakepgserver.MakeResult([]string{"pg_terminate_backend"}, [][]any{{"t"}}),
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	success, err := conn.TerminateBackend(context.Background(), 12345)
+	require.NoError(t, err)
+	assert.True(t, success)
+
+	server.VerifyAllExecutedOrFail()
+}
+
+func TestCancelBackend_ReconnectsOnConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: connection error.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT pg_cancel_backend(12345)",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "FATAL",
+			Code:        "57P01",
+			Message:     "terminating connection due to administrator command",
+		},
+	})
+
+	// Second attempt (after reconnect): success.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_cancel_backend(12345)",
+		QueryResult: fakepgserver.MakeResult([]string{"pg_cancel_backend"}, [][]any{{"t"}}),
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	success, err := conn.CancelBackend(context.Background(), 12345)
+	require.NoError(t, err)
+	assert.True(t, success)
+
+	server.VerifyAllExecutedOrFail()
 }
