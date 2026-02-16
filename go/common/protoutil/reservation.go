@@ -15,10 +15,14 @@
 package protoutil
 
 import (
+	"fmt"
 	"strings"
 
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
+
+// validReasonsMask is the bitmask of all known reservation reasons.
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -28,6 +32,14 @@ const (
 	ReasonPortal      = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_PORTAL)      // 4
 	ReasonCopy        = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_COPY)        // 8
 )
+
+// ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
+func ValidateReasons(reasons uint32) error {
+	if reasons & ^validReasonsMask != 0 {
+		return fmt.Errorf("invalid reservation reasons: %032b", reasons)
+	}
+	return nil
+}
 
 // HasReason returns true if the reasons bitmask contains the specified reason.
 func HasReason(reasons uint32, reason uint32) bool {
