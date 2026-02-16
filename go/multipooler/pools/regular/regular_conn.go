@@ -31,7 +31,6 @@ import (
 
 // maxQueryAttempts is the maximum number of attempts for retrying queries.
 // On connection error, the connection is reconnected and the query retried.
-// Modeled after Vitess dbconn.Exec which retries on connection errors.
 const maxQueryAttempts = 3
 
 // Conn wraps a client.Conn with session state management.
@@ -359,8 +358,8 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 
 // --- Stateless query retry ---
 //
-// QueryWithRetry and QueryStreamingWithRetry execute queries with automatic
-// reconnection on connection errors, modeled after Vitess dbconn.Exec.
+// QueryWithRetry, QueryStreamingWithRetry and QueryArgsWithRetry execute queries
+// with automatic reconnection on connection errors.
 // On connection error the underlying socket is reconnected in-place and the
 // query is retried, up to maxQueryAttempts total attempts.
 //
@@ -371,28 +370,9 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 
 // QueryWithRetry executes a simple query with automatic retry on connection error.
 func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
-	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
-		results, err := execOnce(c, ctx, func() ([]*sqltypes.Result, error) {
-			return c.conn.Query(ctx, sql)
-		})
-		switch {
-		case err == nil:
-			return results, nil
-		case !mterrors.IsConnectionError(err):
-			return nil, err
-		case attempt == maxQueryAttempts:
-			c.conn.Close()
-			return nil, err
-		}
-		if ctx.Err() != nil {
-			return nil, context.Cause(ctx)
-		}
-		if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
-			c.conn.Close()
-			return nil, reconnectErr
-		}
-	}
-	panic("unreachable")
+	return retryOnConnectionError(c, ctx, func() ([]*sqltypes.Result, error) {
+		return c.conn.Query(ctx, sql)
+	})
 }
 
 // QueryStreamingWithRetry executes a streaming query with automatic retry on
@@ -400,28 +380,10 @@ func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 // before the retry; if streaming has already started sending results, the error
 // is returned without retry.
 func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
-	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
-		_, err := execOnce(c, ctx, func() (struct{}, error) {
-			return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
-		})
-		switch {
-		case err == nil:
-			return nil
-		case !mterrors.IsConnectionError(err):
-			return err
-		case attempt == maxQueryAttempts:
-			c.conn.Close()
-			return err
-		}
-		if ctx.Err() != nil {
-			return context.Cause(ctx)
-		}
-		if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
-			c.conn.Close()
-			return reconnectErr
-		}
-	}
-	panic("unreachable")
+	_, err := retryOnConnectionError(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
+	})
+	return err
 }
 
 // QueryArgsWithRetry executes a parameterized query (via the extended query
@@ -429,25 +391,37 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 // Safe to retry because QueryArgs uses PrepareAndExecute which is a single
 // atomic round trip with an unnamed statement—no multi-step state to lose.
 func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+	return retryOnConnectionError(c, ctx, func() ([]*sqltypes.Result, error) {
+		return c.conn.QueryArgs(ctx, sql, args...)
+	})
+}
+
+// retryOnConnectionError executes op with automatic retry on connection error.
+// On connection error the underlying socket is reconnected in-place and op is
+// retried, up to maxQueryAttempts total. The connection is closed after
+// exhausting all attempts or if reconnection fails.
+func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
 	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
-		results, err := execOnce(c, ctx, func() ([]*sqltypes.Result, error) {
-			return c.conn.QueryArgs(ctx, sql, args...)
-		})
+		val, err := execOnce(c, ctx, op)
 		switch {
 		case err == nil:
-			return results, nil
+			return val, nil
 		case !mterrors.IsConnectionError(err):
-			return nil, err
+			var zero T
+			return zero, err
 		case attempt == maxQueryAttempts:
 			c.conn.Close()
-			return nil, err
+			var zero T
+			return zero, err
 		}
 		if ctx.Err() != nil {
-			return nil, context.Cause(ctx)
+			var zero T
+			return zero, context.Cause(ctx)
 		}
 		if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
 			c.conn.Close()
-			return nil, reconnectErr
+			var zero T
+			return zero, reconnectErr
 		}
 	}
 	panic("unreachable")

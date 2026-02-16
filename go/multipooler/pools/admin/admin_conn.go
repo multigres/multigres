@@ -119,7 +119,6 @@ func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, err
 // If the first attempt fails with a connection error, it reconnects and retries
 // up to maxQueryAttempts total. This handles stale connections that occur when
 // PostgreSQL restarts while the pool holds old socket FDs.
-// Modeled after Vitess dbconn.Exec which retries on connection errors.
 func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
 		results, err := c.conn.Query(ctx, sql)
