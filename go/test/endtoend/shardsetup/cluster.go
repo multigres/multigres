@@ -390,8 +390,9 @@ func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 }
 
 // Cleanup cleans up the shared test infrastructure.
+// If testsFailed is true, preserves the temp directory with logs for debugging.
 // Follows the pattern from multipooler/setup_test.go:cleanupSharedTestSetup.
-func (s *ShardSetup) Cleanup() {
+func (s *ShardSetup) Cleanup(testsFailed bool) {
 	if s == nil {
 		return
 	}
@@ -432,85 +433,66 @@ func (s *ShardSetup) Cleanup() {
 		_ = s.EtcdCmd.Wait()
 	}
 
-	// Clean up temp directory
-	if s.TempDirCleanup != nil {
-		if os.Getenv("KEEP_TEMP_DIRS") == "" {
-			s.TempDirCleanup()
-		}
+	// Clean up temp directory only if tests passed
+	if s.TempDirCleanup != nil && !testsFailed {
+		s.TempDirCleanup()
 	}
 }
 
-// DumpServiceLogs prints service log files to help debug test failures.
+// PrintLogLocation prints the temp directory location for debugging.
+// If TEST_PRINT_LOGS env var is set, also prints all log contents from the temp directory.
+func PrintLogLocation(tempDir string) {
+	println("\n" + "=" + "=== TEST LOGS PRESERVED ===" + "=")
+	println("Logs available at: " + tempDir)
+
+	// Only print log contents if TEST_PRINT_LOGS is set
+	if os.Getenv("TEST_PRINT_LOGS") == "" {
+		println("Set TEST_PRINT_LOGS=1 to print log contents")
+		println("=" + "=========================" + "=")
+		return
+	}
+
+	// Print all .log files found in the temp directory
+	println("\n" + "=" + "=== SERVICE LOGS (test failure) ===" + "=")
+	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || filepath.Ext(path) != ".log" {
+			return nil
+		}
+
+		println("\n--- " + path + " ---")
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			println("  [error reading log: " + readErr.Error() + "]")
+			return nil //nolint:nilerr // Continue walking even if one file fails
+		}
+		if len(content) == 0 {
+			println("  [empty log file]")
+			return nil
+		}
+		println(string(content))
+		return nil
+	})
+	if err != nil {
+		println("  [error walking log directory: " + err.Error() + "]")
+	}
+
+	println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
+}
+
+// DumpServiceLogs prints the location of service log files to help debug test failures.
 // Call this before cleanup so logs are available.
+// Always prints the temp directory location. If TEST_PRINT_LOGS env var is set, also prints log contents.
 // Follows the pattern from multipooler/setup_test.go:dumpServiceLogs.
 func (s *ShardSetup) DumpServiceLogs() {
 	if s == nil {
 		return
 	}
 
-	println("\n" + "=" + "=== SERVICE LOGS (test failure) ===" + "=")
-
-	// Collect all instances
-	var instances []*ProcessInstance
-
-	// Add multigateway if present
-	if s.Multigateway != nil {
-		instances = append(instances, s.Multigateway)
-	}
-
-	for _, inst := range s.Multipoolers {
-		if inst.Pgctld != nil {
-			instances = append(instances, inst.Pgctld)
-		}
-		if inst.Multipooler != nil {
-			instances = append(instances, inst.Multipooler)
-		}
-	}
-
-	for _, mo := range s.MultiOrchInstances {
-		instances = append(instances, mo)
-	}
-
-	for _, inst := range instances {
-		if inst == nil || inst.LogFile == "" {
-			continue
-		}
-
-		println("\n--- " + inst.Name + " (" + inst.LogFile + ") ---")
-		content, err := os.ReadFile(inst.LogFile)
-		if err != nil {
-			println("  [error reading log: " + err.Error() + "]")
-			continue
-		}
-		if len(content) == 0 {
-			println("  [empty log file]")
-			continue
-		}
-		println(string(content))
-	}
-
-	// Dump PostgreSQL logs for each multipooler instance
-	for name, inst := range s.Multipoolers {
-		if inst.Pgctld == nil || inst.Pgctld.DataDir == "" {
-			continue
-		}
-
-		// PostgreSQL log file is in the data directory under pg_data/postgresql.log
-		pgLogPath := filepath.Join(inst.Pgctld.DataDir, "pg_data", "postgresql.log")
-		println("\n--- " + name + " PostgreSQL (" + pgLogPath + ") ---")
-		content, err := os.ReadFile(pgLogPath)
-		if err != nil {
-			println("  [error reading log: " + err.Error() + "]")
-			continue
-		}
-		if len(content) == 0 {
-			println("  [empty log file]")
-			continue
-		}
-		println(string(content))
-	}
-
-	println("\n" + "=" + "=== END SERVICE LOGS ===" + "=")
+	// Use the shared utility function which prints location and optionally all logs
+	PrintLogLocation(s.TempDir)
 }
 
 // CheckSharedProcesses verifies all shared test processes are still running.

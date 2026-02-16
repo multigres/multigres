@@ -26,7 +26,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	"github.com/multigres/multigres/go/services/multiorch/coordinator"
+	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -43,7 +43,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "test-coord",
 	}
-	coord := coordinator.NewCoordinator(coordID, ts, rpcClient, slog.Default())
+	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
 	factory := NewRecoveryActionFactory(nil, poolerStore, rpcClient, ts, coord, slog.Default())
 
 	analyzer := &PrimaryIsDeadAnalyzer{factory: factory}

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -75,7 +76,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute query: %w", err)
+			return nil, wrapQueryError(err)
 		}
 
 		if len(results) == 0 {
@@ -101,7 +102,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// with proper field info, rows, and command tags already populated
 	results, err := conn.Conn.Query(ctx, sql)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, wrapQueryError(err)
 	}
 
 	// Return first result (simple query returns single result)
@@ -141,7 +142,7 @@ func (e *Executor) StreamExecute(
 		}
 
 		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
-			return fmt.Errorf("query execution failed: %w", err)
+			return wrapQueryError(err)
 		}
 		return nil
 	}
@@ -161,7 +162,7 @@ func (e *Executor) StreamExecute(
 
 	// Use streaming query execution
 	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
-		return fmt.Errorf("query execution failed: %w", err)
+		return wrapQueryError(err)
 	}
 
 	return nil
@@ -269,7 +270,7 @@ func (e *Executor) portalExecuteWithReserved(
 	completed, err := reservedConn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
-		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+		return queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
 	// If portal is suspended (not completed), keep the reserved connection for continuation
@@ -315,7 +316,7 @@ func (e *Executor) portalExecuteWithRegular(
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
 	_, err = conn.Conn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, 0, callback)
 	if err != nil {
-		return queryservice.ReservedState{}, fmt.Errorf("failed to execute portal: %w", err)
+		return queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
 	// No reserved connection for regular execution
@@ -471,7 +472,7 @@ func (e *Executor) CopyReady(
 	format, columnFormats, err := conn.InitiateCopyFromStdin(ctx, copyQuery)
 	if err != nil {
 		// Connection is in bad state after failed COPY initiation - close it instead of recycling
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
 	}
 
@@ -559,7 +560,7 @@ func (e *Executor) CopyFinalize(
 		if err := conn.WriteCopyData(finalData); err != nil {
 			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
 			// Connection is in bad state - close it instead of recycling
-			reservedConn.Close()
+			reservedConn.Release(reserved.ReleaseError)
 			return nil, fmt.Errorf("failed to write final COPY data: %w", err)
 		}
 		e.logger.DebugContext(ctx, "sent final COPY data", "size", len(finalData))
@@ -569,7 +570,7 @@ func (e *Executor) CopyFinalize(
 	if err := conn.WriteCopyDone(); err != nil {
 		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
 		// Connection is in bad state - close it instead of recycling
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 		return nil, fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 
@@ -578,7 +579,7 @@ func (e *Executor) CopyFinalize(
 	if err != nil {
 		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
 		// Connection might be in bad state - close it instead of recycling
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 		return nil, fmt.Errorf("COPY operation failed: %w", err)
 	}
 
@@ -648,7 +649,7 @@ func (e *Executor) CopyAbort(
 
 	// If write or read failed, connection might be in bad state - close it
 	if writeFailed || readErr != nil {
-		reservedConn.Close()
+		reservedConn.Release(reserved.ReleaseError)
 	} else {
 		// Clean abort - release connection back to pool
 		reservedConn.Release(reserved.ReleasePortalComplete)
@@ -677,6 +678,16 @@ func int32ToInt16Slice(in []int32) []int16 {
 		out[i] = int16(v)
 	}
 	return out
+}
+
+// wrapQueryError wraps query execution errors with context.
+// PostgreSQL errors (*mterrors.PgDiagnostic) are wrapped like any other error;
+// the display boundary (writeError) extracts the underlying diagnostic via errors.As.
+func wrapQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return mterrors.Wrapf(err, "query execution failed")
 }
 
 // Ensure Executor implements queryservice.QueryService

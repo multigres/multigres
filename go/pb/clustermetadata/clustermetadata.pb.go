@@ -325,7 +325,7 @@ func (x ID_ComponentType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ID_ComponentType.Descriptor instead.
 func (ID_ComponentType) EnumDescriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{6, 0}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{9, 0}
 }
 
 // TopoConfig defines the connection parameters for a topology service.
@@ -469,8 +469,8 @@ type Database struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Name of the database
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Backups location
-	BackupLocation string `protobuf:"bytes,2,opt,name=backup_location,json=backupLocation,proto3" json:"backup_location,omitempty"`
+	// Backup location configuration
+	BackupLocation *BackupLocation `protobuf:"bytes,2,opt,name=backup_location,json=backupLocation,proto3" json:"backup_location,omitempty"`
 	// Durability policy used for consensus
 	DurabilityPolicy string `protobuf:"bytes,3,opt,name=durability_policy,json=durabilityPolicy,proto3" json:"durability_policy,omitempty"`
 	// List of cell identifiers where this database should be deployed
@@ -516,11 +516,11 @@ func (x *Database) GetName() string {
 	return ""
 }
 
-func (x *Database) GetBackupLocation() string {
+func (x *Database) GetBackupLocation() *BackupLocation {
 	if x != nil {
 		return x.BackupLocation
 	}
-	return ""
+	return nil
 }
 
 func (x *Database) GetDurabilityPolicy() string {
@@ -535,6 +535,224 @@ func (x *Database) GetCells() []string {
 		return x.Cells
 	}
 	return nil
+}
+
+// BackupLocation specifies where backups are stored
+type BackupLocation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Location:
+	//
+	//	*BackupLocation_Filesystem
+	//	*BackupLocation_S3
+	Location      isBackupLocation_Location `protobuf_oneof:"location"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupLocation) Reset() {
+	*x = BackupLocation{}
+	mi := &file_clustermetadata_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupLocation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupLocation) ProtoMessage() {}
+
+func (x *BackupLocation) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupLocation.ProtoReflect.Descriptor instead.
+func (*BackupLocation) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *BackupLocation) GetLocation() isBackupLocation_Location {
+	if x != nil {
+		return x.Location
+	}
+	return nil
+}
+
+func (x *BackupLocation) GetFilesystem() *FilesystemBackup {
+	if x != nil {
+		if x, ok := x.Location.(*BackupLocation_Filesystem); ok {
+			return x.Filesystem
+		}
+	}
+	return nil
+}
+
+func (x *BackupLocation) GetS3() *S3Backup {
+	if x != nil {
+		if x, ok := x.Location.(*BackupLocation_S3); ok {
+			return x.S3
+		}
+	}
+	return nil
+}
+
+type isBackupLocation_Location interface {
+	isBackupLocation_Location()
+}
+
+type BackupLocation_Filesystem struct {
+	Filesystem *FilesystemBackup `protobuf:"bytes,1,opt,name=filesystem,proto3,oneof"`
+}
+
+type BackupLocation_S3 struct {
+	S3 *S3Backup `protobuf:"bytes,2,opt,name=s3,proto3,oneof"`
+}
+
+func (*BackupLocation_Filesystem) isBackupLocation_Location() {}
+
+func (*BackupLocation_S3) isBackupLocation_Location() {}
+
+// FilesystemBackup stores backups on local filesystem
+type FilesystemBackup struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Absolute path to backup directory
+	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FilesystemBackup) Reset() {
+	*x = FilesystemBackup{}
+	mi := &file_clustermetadata_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilesystemBackup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilesystemBackup) ProtoMessage() {}
+
+func (x *FilesystemBackup) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FilesystemBackup.ProtoReflect.Descriptor instead.
+func (*FilesystemBackup) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *FilesystemBackup) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+// S3Backup stores backups in AWS S3 or S3-compatible storage
+type S3Backup struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// S3 bucket name (required)
+	Bucket string `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
+	// AWS region (required, e.g., "us-east-1")
+	Region string `protobuf:"bytes,2,opt,name=region,proto3" json:"region,omitempty"`
+	// Optional: S3-compatible endpoint URL (e.g., for s3mock testing)
+	// If empty, uses standard AWS S3 endpoint
+	Endpoint string `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// Optional: Key prefix within bucket (e.g., "multigres-prod/")
+	// Used to organize backups in shared buckets
+	KeyPrefix string `protobuf:"bytes,4,opt,name=key_prefix,json=keyPrefix,proto3" json:"key_prefix,omitempty"`
+	// If true, read AWS credentials from environment variables at runtime
+	// (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)
+	// pgbackrest config will use repo1-s3-key-type=shared with explicit credentials
+	//
+	// If false, use automatic credential detection via repo1-s3-key-type=auto
+	// (IRSA, EC2 metadata, etc.). This will only work when running on AWS.
+	UseEnvCredentials bool `protobuf:"varint,5,opt,name=use_env_credentials,json=useEnvCredentials,proto3" json:"use_env_credentials,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *S3Backup) Reset() {
+	*x = S3Backup{}
+	mi := &file_clustermetadata_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *S3Backup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*S3Backup) ProtoMessage() {}
+
+func (x *S3Backup) ProtoReflect() protoreflect.Message {
+	mi := &file_clustermetadata_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use S3Backup.ProtoReflect.Descriptor instead.
+func (*S3Backup) Descriptor() ([]byte, []int) {
+	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *S3Backup) GetBucket() string {
+	if x != nil {
+		return x.Bucket
+	}
+	return ""
+}
+
+func (x *S3Backup) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *S3Backup) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *S3Backup) GetKeyPrefix() string {
+	if x != nil {
+		return x.KeyPrefix
+	}
+	return ""
+}
+
+func (x *S3Backup) GetUseEnvCredentials() bool {
+	if x != nil {
+		return x.UseEnvCredentials
+	}
+	return false
 }
 
 // MultiPooler represents metadata about a running multipooler component instance in the cluster.
@@ -567,7 +785,7 @@ type MultiPooler struct {
 
 func (x *MultiPooler) Reset() {
 	*x = MultiPooler{}
-	mi := &file_clustermetadata_proto_msgTypes[3]
+	mi := &file_clustermetadata_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -579,7 +797,7 @@ func (x *MultiPooler) String() string {
 func (*MultiPooler) ProtoMessage() {}
 
 func (x *MultiPooler) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[3]
+	mi := &file_clustermetadata_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -592,7 +810,7 @@ func (x *MultiPooler) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiPooler.ProtoReflect.Descriptor instead.
 func (*MultiPooler) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{3}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *MultiPooler) GetId() *ID {
@@ -680,7 +898,7 @@ type MultiGateway struct {
 
 func (x *MultiGateway) Reset() {
 	*x = MultiGateway{}
-	mi := &file_clustermetadata_proto_msgTypes[4]
+	mi := &file_clustermetadata_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -692,7 +910,7 @@ func (x *MultiGateway) String() string {
 func (*MultiGateway) ProtoMessage() {}
 
 func (x *MultiGateway) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[4]
+	mi := &file_clustermetadata_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -705,7 +923,7 @@ func (x *MultiGateway) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiGateway.ProtoReflect.Descriptor instead.
 func (*MultiGateway) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{4}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MultiGateway) GetId() *ID {
@@ -744,7 +962,7 @@ type MultiOrch struct {
 
 func (x *MultiOrch) Reset() {
 	*x = MultiOrch{}
-	mi := &file_clustermetadata_proto_msgTypes[5]
+	mi := &file_clustermetadata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -756,7 +974,7 @@ func (x *MultiOrch) String() string {
 func (*MultiOrch) ProtoMessage() {}
 
 func (x *MultiOrch) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[5]
+	mi := &file_clustermetadata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -769,7 +987,7 @@ func (x *MultiOrch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiOrch.ProtoReflect.Descriptor instead.
 func (*MultiOrch) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{5}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MultiOrch) GetId() *ID {
@@ -809,7 +1027,7 @@ type ID struct {
 
 func (x *ID) Reset() {
 	*x = ID{}
-	mi := &file_clustermetadata_proto_msgTypes[6]
+	mi := &file_clustermetadata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -821,7 +1039,7 @@ func (x *ID) String() string {
 func (*ID) ProtoMessage() {}
 
 func (x *ID) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[6]
+	mi := &file_clustermetadata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +1052,7 @@ func (x *ID) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ID.ProtoReflect.Descriptor instead.
 func (*ID) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{6}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ID) GetComponent() ID_ComponentType {
@@ -871,7 +1089,7 @@ type KeyRange struct {
 
 func (x *KeyRange) Reset() {
 	*x = KeyRange{}
-	mi := &file_clustermetadata_proto_msgTypes[7]
+	mi := &file_clustermetadata_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -883,7 +1101,7 @@ func (x *KeyRange) String() string {
 func (*KeyRange) ProtoMessage() {}
 
 func (x *KeyRange) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[7]
+	mi := &file_clustermetadata_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -896,7 +1114,7 @@ func (x *KeyRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyRange.ProtoReflect.Descriptor instead.
 func (*KeyRange) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{7}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *KeyRange) GetStart() []byte {
@@ -935,7 +1153,7 @@ type DurabilityPolicy struct {
 
 func (x *DurabilityPolicy) Reset() {
 	*x = DurabilityPolicy{}
-	mi := &file_clustermetadata_proto_msgTypes[8]
+	mi := &file_clustermetadata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -947,7 +1165,7 @@ func (x *DurabilityPolicy) String() string {
 func (*DurabilityPolicy) ProtoMessage() {}
 
 func (x *DurabilityPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[8]
+	mi := &file_clustermetadata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -960,7 +1178,7 @@ func (x *DurabilityPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DurabilityPolicy.ProtoReflect.Descriptor instead.
 func (*DurabilityPolicy) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DurabilityPolicy) GetPolicyName() string {
@@ -1026,7 +1244,7 @@ type QuorumRule struct {
 
 func (x *QuorumRule) Reset() {
 	*x = QuorumRule{}
-	mi := &file_clustermetadata_proto_msgTypes[9]
+	mi := &file_clustermetadata_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1038,7 +1256,7 @@ func (x *QuorumRule) String() string {
 func (*QuorumRule) ProtoMessage() {}
 
 func (x *QuorumRule) ProtoReflect() protoreflect.Message {
-	mi := &file_clustermetadata_proto_msgTypes[9]
+	mi := &file_clustermetadata_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1051,7 +1269,7 @@ func (x *QuorumRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuorumRule.ProtoReflect.Descriptor instead.
 func (*QuorumRule) Descriptor() ([]byte, []int) {
-	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
+	return file_clustermetadata_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *QuorumRule) GetQuorumType() QuorumType {
@@ -1094,12 +1312,28 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x04Cell\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
 	"\x10server_addresses\x18\x02 \x03(\tR\x0fserverAddresses\x12\x12\n" +
-	"\x04root\x18\x03 \x01(\tR\x04root\"\x8a\x01\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\"\xab\x01\n" +
 	"\bDatabase\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
-	"\x0fbackup_location\x18\x02 \x01(\tR\x0ebackupLocation\x12+\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12H\n" +
+	"\x0fbackup_location\x18\x02 \x01(\v2\x1f.clustermetadata.BackupLocationR\x0ebackupLocation\x12+\n" +
 	"\x11durability_policy\x18\x03 \x01(\tR\x10durabilityPolicy\x12\x14\n" +
-	"\x05cells\x18\x04 \x03(\tR\x05cells\"\xf8\x03\n" +
+	"\x05cells\x18\x04 \x03(\tR\x05cells\"\x8e\x01\n" +
+	"\x0eBackupLocation\x12C\n" +
+	"\n" +
+	"filesystem\x18\x01 \x01(\v2!.clustermetadata.FilesystemBackupH\x00R\n" +
+	"filesystem\x12+\n" +
+	"\x02s3\x18\x02 \x01(\v2\x19.clustermetadata.S3BackupH\x00R\x02s3B\n" +
+	"\n" +
+	"\blocation\"&\n" +
+	"\x10FilesystemBackup\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"\xa5\x01\n" +
+	"\bS3Backup\x12\x16\n" +
+	"\x06bucket\x18\x01 \x01(\tR\x06bucket\x12\x16\n" +
+	"\x06region\x18\x02 \x01(\tR\x06region\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1d\n" +
+	"\n" +
+	"key_prefix\x18\x04 \x01(\tR\tkeyPrefix\x12.\n" +
+	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\xf8\x03\n" +
 	"\vMultiPooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1f\n" +
@@ -1197,7 +1431,7 @@ func file_clustermetadata_proto_rawDescGZIP() []byte {
 }
 
 var file_clustermetadata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_clustermetadata_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_clustermetadata_proto_goTypes = []any{
 	(PoolerType)(0),                   // 0: clustermetadata.PoolerType
 	(PoolerServingStatus)(0),          // 1: clustermetadata.PoolerServingStatus
@@ -1207,39 +1441,45 @@ var file_clustermetadata_proto_goTypes = []any{
 	(*GlobalTopoConfig)(nil),          // 5: clustermetadata.GlobalTopoConfig
 	(*Cell)(nil),                      // 6: clustermetadata.Cell
 	(*Database)(nil),                  // 7: clustermetadata.Database
-	(*MultiPooler)(nil),               // 8: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),              // 9: clustermetadata.MultiGateway
-	(*MultiOrch)(nil),                 // 10: clustermetadata.MultiOrch
-	(*ID)(nil),                        // 11: clustermetadata.ID
-	(*KeyRange)(nil),                  // 12: clustermetadata.KeyRange
-	(*DurabilityPolicy)(nil),          // 13: clustermetadata.DurabilityPolicy
-	(*QuorumRule)(nil),                // 14: clustermetadata.QuorumRule
-	nil,                               // 15: clustermetadata.MultiPooler.PortMapEntry
-	nil,                               // 16: clustermetadata.MultiGateway.PortMapEntry
-	nil,                               // 17: clustermetadata.MultiOrch.PortMapEntry
-	(*timestamppb.Timestamp)(nil),     // 18: google.protobuf.Timestamp
+	(*BackupLocation)(nil),            // 8: clustermetadata.BackupLocation
+	(*FilesystemBackup)(nil),          // 9: clustermetadata.FilesystemBackup
+	(*S3Backup)(nil),                  // 10: clustermetadata.S3Backup
+	(*MultiPooler)(nil),               // 11: clustermetadata.MultiPooler
+	(*MultiGateway)(nil),              // 12: clustermetadata.MultiGateway
+	(*MultiOrch)(nil),                 // 13: clustermetadata.MultiOrch
+	(*ID)(nil),                        // 14: clustermetadata.ID
+	(*KeyRange)(nil),                  // 15: clustermetadata.KeyRange
+	(*DurabilityPolicy)(nil),          // 16: clustermetadata.DurabilityPolicy
+	(*QuorumRule)(nil),                // 17: clustermetadata.QuorumRule
+	nil,                               // 18: clustermetadata.MultiPooler.PortMapEntry
+	nil,                               // 19: clustermetadata.MultiGateway.PortMapEntry
+	nil,                               // 20: clustermetadata.MultiOrch.PortMapEntry
+	(*timestamppb.Timestamp)(nil),     // 21: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
-	11, // 0: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	12, // 1: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
-	0,  // 2: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
-	1,  // 3: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	15, // 4: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	11, // 5: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	16, // 6: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	11, // 7: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	17, // 8: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
-	4,  // 9: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
-	14, // 10: clustermetadata.DurabilityPolicy.quorum_rule:type_name -> clustermetadata.QuorumRule
-	18, // 11: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
-	18, // 12: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 13: clustermetadata.QuorumRule.quorum_type:type_name -> clustermetadata.QuorumType
-	3,  // 14: clustermetadata.QuorumRule.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	8,  // 0: clustermetadata.Database.backup_location:type_name -> clustermetadata.BackupLocation
+	9,  // 1: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
+	10, // 2: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
+	14, // 3: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
+	15, // 4: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
+	0,  // 5: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
+	1,  // 6: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
+	18, // 7: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
+	14, // 8: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
+	19, // 9: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
+	14, // 10: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
+	20, // 11: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	4,  // 12: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
+	17, // 13: clustermetadata.DurabilityPolicy.quorum_rule:type_name -> clustermetadata.QuorumRule
+	21, // 14: clustermetadata.DurabilityPolicy.created_at:type_name -> google.protobuf.Timestamp
+	21, // 15: clustermetadata.DurabilityPolicy.updated_at:type_name -> google.protobuf.Timestamp
+	2,  // 16: clustermetadata.QuorumRule.quorum_type:type_name -> clustermetadata.QuorumType
+	3,  // 17: clustermetadata.QuorumRule.async_fallback:type_name -> clustermetadata.AsyncReplicationFallbackMode
+	18, // [18:18] is the sub-list for method output_type
+	18, // [18:18] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }
@@ -1247,13 +1487,17 @@ func file_clustermetadata_proto_init() {
 	if File_clustermetadata_proto != nil {
 		return
 	}
+	file_clustermetadata_proto_msgTypes[3].OneofWrappers = []any{
+		(*BackupLocation_Filesystem)(nil),
+		(*BackupLocation_S3)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_clustermetadata_proto_rawDesc), len(file_clustermetadata_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   13,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

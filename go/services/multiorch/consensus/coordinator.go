@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package coordinator
+package consensus
 
 import (
 	"context"
@@ -27,7 +27,6 @@ import (
 )
 
 // Coordinator orchestrates consensus-based leader election for shards.
-// It implements the consensus protocol from multigres-consensus-design-v2.md.
 type Coordinator struct {
 	coordinatorID *clustermetadatapb.ID
 	topoStore     topoclient.Store
@@ -48,15 +47,14 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 // AppointLeader orchestrates the full consensus protocol to appoint a new leader
 // for the given shard. It operates on a cohort of nodes (all nodes in the shard).
 //
-// The process achieves the following goals (from multigres-consensus-design-v2.md):
+// The process achieves the following goals:
 //
 //  1. Obtaining a term number: Discover max term from cached health state and increment
 //  2. Revocation, Candidacy, Discovery: BeginTerm recruits nodes under the new term,
 //     achieving revocation (no old leader can complete requests), candidacy (recruited
 //     nodes contain a suitable candidate), and discovery (identify most progressed node)
-//  3. Propagation: Make the timeline durable under the new term by configuring replication
+//  3. Propagation, Establishment: Make the timeline durable under the new term by configuring replication
 //     and promoting the candidate. Timeline becomes durable when quorum rules are satisfied.
-//  4. Establishment: Finalize the leader by starting heartbeat and enabling serving
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
@@ -89,13 +87,7 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	}
 	proposedTerm := maxTerm + 1
 
-	c.logger.InfoContext(ctx, "Obtained term number",
-		"shard", shardID,
-		"max_term", maxTerm,
-		"proposed_term", proposedTerm)
-
 	// PreVote - validate that leadership change is likely to succeed
-	c.logger.InfoContext(ctx, "Running pre-vote check", "shard", shardID)
 	canProceed, preVoteReason := c.preVote(ctx, cohort, quorumRule, proposedTerm)
 	if !canProceed {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
@@ -107,7 +99,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	// - Revocation: recruited nodes accept new term, preventing old leader from completing requests
 	// - Discovery: identify the most progressed node based on WAL position
 	// - Candidacy: validate recruited nodes satisfy quorum rules for the candidate
-	c.logger.InfoContext(ctx, "Recruiting nodes for new term", "shard", shardID)
 	candidate, standbys, term, err := c.BeginTerm(ctx, shardID, cohort, quorumRule, proposedTerm)
 	if err != nil {
 		return mterrors.Wrap(err, "BeginTerm failed")
@@ -118,12 +109,6 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"term", term,
 		"candidate", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
-
-	// Goal 3: Propagation
-	// Make the timeline durable under the new term by configuring replication
-	// and promoting the candidate. The timeline becomes durable when quorum rules
-	// are satisfied (synchronous replication configured, promotion completes).
-	c.logger.InfoContext(ctx, "Propagating leadership change", "shard", shardID)
 
 	// Reconstruct the recruited list (nodes that accepted the term).
 	// This is candidate + standbys.
@@ -136,66 +121,12 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 	recruited = append(recruited, candidate)
 	recruited = append(recruited, standbys...)
 
-	if err := c.Propagate(ctx, candidate, standbys, term, quorumRule, reason, cohort, recruited); err != nil {
-		return mterrors.Wrap(err, "Propagate failed")
+	// Propagation and Establishment
+	if err := c.EstablishLeadership(ctx, candidate, standbys, term, quorumRule, reason, cohort, recruited); err != nil {
+		return mterrors.Wrap(err, "EstablishLeadership failed")
 	}
 
-	c.logger.InfoContext(ctx, "Propagation succeeded", "shard", shardID)
-
-	// Goal 4: Establishment
-	// Finalize the leader by verifying heartbeat is running and serving is enabled.
-	// At this point, the candidate has become the new leader with the delegated term.
-	c.logger.InfoContext(ctx, "Establishing leader", "shard", shardID)
-	if err := c.EstablishLeader(ctx, candidate, term); err != nil {
-		return mterrors.Wrap(err, "EstablishLeader failed")
-	}
-
-	c.logger.InfoContext(ctx, "Establishment succeeded", "shard", shardID)
-
-	// Update topology to reflect new primary
-	if err := c.updateTopology(ctx, candidate, standbys); err != nil {
-		// Log but don't fail - the leader is established, topology is just metadata
-		c.logger.WarnContext(ctx, "Failed to update topology",
-			"shard", shardID,
-			"error", err)
-	}
-
-	c.logger.InfoContext(ctx, "Leadership change complete",
-		"shard", shardID,
-		"leader", candidate.MultiPooler.Id.Name,
-		"term", term)
-
-	// Async: Repair excluded nodes in this shard
-	// TODO: Implement RepairExcluded
-	// go c.RepairExcluded(context.Background(), candidate, shardID)
-
-	return nil
-}
-
-// updateTopology updates the topology store to reflect the new primary and standbys.
-func (c *Coordinator) updateTopology(ctx context.Context, candidate *multiorchdatapb.PoolerHealthState, standbys []*multiorchdatapb.PoolerHealthState) error {
-	// Update candidate to PRIMARY type
-	_, err := c.topoStore.UpdateMultiPoolerFields(ctx, candidate.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
-		mp.Type = clustermetadatapb.PoolerType_PRIMARY
-		return nil
-	})
-	if err != nil {
-		return mterrors.Wrap(err, "failed to update candidate to PRIMARY")
-	}
-
-	// Update standbys to REPLICA type
-	for _, standby := range standbys {
-		_, err := c.topoStore.UpdateMultiPoolerFields(ctx, standby.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
-			mp.Type = clustermetadatapb.PoolerType_REPLICA
-			return nil
-		})
-		if err != nil {
-			// Log but continue with other standbys
-			c.logger.WarnContext(ctx, "Failed to update standby type",
-				"node", standby.MultiPooler.Id.Name,
-				"error", err)
-		}
-	}
+	c.logger.InfoContext(ctx, "Leadership established", "shard", shardID)
 
 	return nil
 }

@@ -179,6 +179,22 @@ func (c *Conn) Database() string {
 	return c.database
 }
 
+// GetStartupParams returns the startup parameters sent by the client,
+// excluding 'user' and 'database' which are handled separately.
+func (c *Conn) GetStartupParams() map[string]string {
+	result := make(map[string]string, len(c.params))
+	for k, v := range c.params {
+		if k == "user" || k == "database" {
+			continue
+		}
+		result[k] = v
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 // Context returns the connection's context.
 func (c *Conn) Context() context.Context {
 	return c.ctx
@@ -285,7 +301,7 @@ func (c *Conn) serve() error {
 	if err := c.handleStartup(); err != nil {
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
-		_ = c.writeErrorResponse("FATAL", "08P01", "connection startup failed", err.Error(), "")
+		_ = c.writeSimpleErrorWithDetail("FATAL", "08P01", "connection startup failed", err.Error(), "")
 		_ = c.flush()
 		return err
 	}
@@ -313,7 +329,7 @@ func (c *Conn) serve() error {
 		if err := c.handleMessage(msgType); err != nil {
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
-			_ = c.writeErrorResponse("ERROR", "XX000", "internal error", err.Error(), "")
+			_ = c.writeSimpleErrorWithDetail("ERROR", "XX000", "internal error", err.Error(), "")
 			_ = c.writeReadyForQuery()
 			_ = c.flush()
 			// For now, close connection on any error.
@@ -391,6 +407,15 @@ func (c *Conn) handleQuery() error {
 			return c.writeEmptyQueryResponse()
 		}
 
+		// Send notices immediately (zero-buffering delivery).
+		// Notices may arrive as standalone Results (no rows/CommandTag) from the gRPC
+		// streaming path, or bundled with the final Result that has a CommandTag.
+		for _, notice := range result.Notices {
+			if err := c.writeNoticeResponse(notice); err != nil {
+				return fmt.Errorf("writing notice response: %w", err)
+			}
+		}
+
 		// On first callback with fields for this result set, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {
@@ -407,15 +432,7 @@ func (c *Conn) handleQuery() error {
 		}
 
 		// If CommandTag is set, this is the last packet of the current result set.
-		// Send notices (if any) before CommandComplete, then reset state for next result set.
 		if result.CommandTag != "" {
-			// Send any notices before CommandComplete.
-			for _, notice := range result.Notices {
-				if err := c.writeNoticeResponse(notice); err != nil {
-					return fmt.Errorf("writing notice response: %w", err)
-				}
-			}
-
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
@@ -427,12 +444,9 @@ func (c *Conn) handleQuery() error {
 		return nil
 	})
 	if err != nil {
-		// Send error response with the actual error in the message for better visibility.
-		// lib/pq and other clients often only show the message field, not the detail field.
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
-		errMsg := fmt.Sprintf("query execution failed: %v", err)
-		if err := c.writeErrorResponse("ERROR", "42000", errMsg, "", ""); err != nil {
-			return err
+		if writeErr := c.writeError(err); writeErr != nil {
+			return writeErr
 		}
 	}
 
@@ -499,7 +513,7 @@ func (c *Conn) handleParse() error {
 	// Call the handler to validate and prepare the statement.
 	// The handler is responsible for storing any state it needs.
 	if err := c.handler.HandleParse(c.ctx, c, stmtName, queryStr, paramTypes); err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "parse failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "parse failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -593,7 +607,7 @@ func (c *Conn) handleBind() error {
 
 	// Call the handler to create and bind the portal with parameters.
 	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -652,6 +666,13 @@ func (c *Conn) handleExecute() error {
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
 	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
+		// Send notices immediately (zero-buffering delivery).
+		for _, notice := range result.Notices {
+			if err := c.writeNoticeResponse(notice); err != nil {
+				return fmt.Errorf("writing notice response: %w", err)
+			}
+		}
+
 		// On first callback with fields, send RowDescription.
 		if !sentRowDescription && len(result.Fields) > 0 {
 			if err := c.writeRowDescription(result.Fields); err != nil {
@@ -668,15 +689,7 @@ func (c *Conn) handleExecute() error {
 		}
 
 		// If CommandTag is set, this is the last packet.
-		// Send notices (if any) before CommandComplete.
 		if result.CommandTag != "" {
-			// Send any notices before CommandComplete.
-			for _, notice := range result.Notices {
-				if err := c.writeNoticeResponse(notice); err != nil {
-					return fmt.Errorf("writing notice response: %w", err)
-				}
-			}
-
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
@@ -685,7 +698,7 @@ func (c *Conn) handleExecute() error {
 		return nil
 	})
 	if err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "execution failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -730,7 +743,7 @@ func (c *Conn) handleDescribe() error {
 	// Call the handler.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42P03", "describe failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "describe failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -793,7 +806,7 @@ func (c *Conn) handleClose() error {
 
 	// Call the handler.
 	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
-		if writeErr := c.writeErrorResponse("ERROR", "42P03", "close failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "close failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -824,7 +837,7 @@ func (c *Conn) handleSync() error {
 	// Call the handler.
 	if err := c.handler.HandleSync(c.ctx, c); err != nil {
 		// Even if handler returns error, we still send ReadyForQuery after Sync.
-		if writeErr := c.writeErrorResponse("ERROR", "42000", "sync failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "sync failed", err.Error(), ""); writeErr != nil {
 			return writeErr
 		}
 	}

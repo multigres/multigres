@@ -888,9 +888,9 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		return nil, err
 	}
 
-	// Drain & Checkpoint (Parallel)
+	// Drain write connections
 
-	if err := pm.drainAndCheckpoint(ctx, drainTimeout); err != nil {
+	if err := pm.drainWriteActivity(ctx, drainTimeout); err != nil {
 		return nil, err
 	}
 
@@ -984,6 +984,30 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 	}
 	defer pm.actionLock.Release(ctx)
 
+	// Check if already demoted by reading primary_term from disk.
+	// Invariant: primary_term > 0 if and only if postgres is (or was) in primary state.
+	// We set primary_term before promotion and clear it after demotion.
+	// If primary_term is 0, this node was already demoted (either by a previous call
+	// or by another multiorch instance). Return early to avoid redundant work.
+	// TODO (@rafael): This information should come from pooler state, instead of checking this
+	// invariant.
+	term, err := pm.consensusState.GetTerm(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to get current term")
+	}
+	if term.GetPrimaryTerm() == 0 {
+		pm.logger.InfoContext(ctx, "Pooler already demoted, skipping DemoteStalePrimary")
+		// Return success with rewind_performed=false since node is already in correct state
+		finalLSN := ""
+		if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
+			finalLSN = lsn
+		}
+		return &multipoolermanagerdatapb.DemoteStalePrimaryResponse{
+			RewindPerformed: false,
+			LsnPosition:     finalLSN,
+		}, nil
+	}
+
 	// Pause monitoring during this operation to prevent interference
 	resumeMonitor, err := pm.PausePostgresMonitor(ctx)
 	if err != nil {
@@ -1036,21 +1060,26 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
 	}
 
-	// Update topology to REPLICA
-	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
-		return nil, mterrors.Wrap(err, "failed to update topology")
-	}
-
 	// Clear primary_term since this node is no longer primary for any term.
 	// Note: consensusState can't be nil here because validateTerm passed.
 	if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
 		return nil, mterrors.Wrap(err, "failed to clear primary term")
 	}
 
+	// Update consensus term to match the correct primary's term after successful demotion
+	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
+		return nil, mterrors.Wrap(err, "failed to update consensus term")
+	}
+
 	// Get final LSN
 	finalLSN := ""
 	if lsn, err := pm.getStandbyReplayLSN(ctx); err == nil {
 		finalLSN = lsn
+	}
+
+	// Update topology to REPLICA
+	if err := pm.changeTypeLocked(ctx, clustermetadatapb.PoolerType_REPLICA); err != nil {
+		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
 	pm.logger.InfoContext(ctx, "DemoteStalePrimary completed successfully",
@@ -1141,10 +1170,10 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// Update topology if needed
-	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
-		return nil, err
-	}
+	// At this point, we can update the pooler type to primary
+	pm.mu.Lock()
+	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
+	pm.mu.Unlock()
 
 	// Configure sync replication if needed
 	if err := pm.configureReplicationAfterPromotion(ctx, state, syncReplicationConfig); err != nil {
@@ -1186,6 +1215,17 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 			"term", consensusTerm,
 			"error", err)
 		return nil, mterrors.Wrap(err, "promotion failed: could not write leadership history (sync replication may not be functioning)")
+	}
+
+	// Update heartbeat tracker to primary mode
+	if pm.replTracker != nil {
+		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
+		pm.replTracker.MakePrimary()
+	}
+
+	// Update topology if needed (best-effort, don't fail promotion)
+	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to update topology after promotion", "error", err)
 	}
 
 	pm.logger.InfoContext(ctx, "Promote completed successfully",
@@ -1454,6 +1494,15 @@ func (pm *MultiPoolerManager) stopPostgresIfRunning(ctx context.Context) error {
 	// Stop postgres (no-op if already stopped)
 	stopReq := &pgctldpb.StopRequest{Mode: "fast"}
 	if _, err := pm.pgctldClient.Stop(ctx, stopReq); err != nil {
+		// Treat "already stopped" errors as success to make this truly idempotent.
+		// This handles race conditions where postgres was stopped between our check and stop call.
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not running") ||
+			strings.Contains(errMsg, "no child processes") ||
+			strings.Contains(errMsg, "no such process") {
+			pm.logger.InfoContext(ctx, "Postgres already stopped, continuing", "error", errMsg)
+			return nil
+		}
 		return mterrors.Wrap(err, "failed to stop postgres")
 	}
 

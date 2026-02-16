@@ -392,8 +392,8 @@ func TestWriteCommandComplete(t *testing.T) {
 	}
 }
 
-// TestWriteErrorResponse tests encoding of ErrorResponse messages.
-func TestWriteErrorResponse(t *testing.T) {
+// TestWriteSimpleErrorWithDetail tests encoding of ErrorResponse messages.
+func TestWriteSimpleErrorWithDetail(t *testing.T) {
 	tests := []struct {
 		name     string
 		severity string
@@ -433,7 +433,7 @@ func TestWriteErrorResponse(t *testing.T) {
 			var buf bytes.Buffer
 			conn := createTestConn(t, &buf)
 
-			err := conn.writeErrorResponse(tt.severity, tt.sqlState, tt.message, tt.detail, tt.hint)
+			err := conn.writeSimpleErrorWithDetail(tt.severity, tt.sqlState, tt.message, tt.detail, tt.hint)
 			assert.NoError(t, err)
 
 			// Verify message type.

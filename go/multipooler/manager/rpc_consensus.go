@@ -71,44 +71,6 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 			"unknown BeginTerm action type: %v", req.Action)
 	}
 
-	// TEMPORARY: Check postgres health before accepting term with REVOKE action.
-	//
-	// This is a temporary measure while we fully unwind the coupling between term acceptance
-	// and revoke execution. The current code conflates "voting term" (the term a node has
-	// agreed to participate in) with "primary term" (the term the node is actually primary for).
-	//
-	// Without this check, an unhealthy node would accept a new term but fail to revoke its
-	// old primary status. This breaks operations like DemoteStalePrimary: if two multipoolers
-	// both report themselves as primary (one stale at term N, one fresh at term N+1), we
-	// currently lack a reliable way to determine which is the true primary.
-	//
-	// Proper fix: Track two distinct term numbers:
-	// - Voting term: highest term accepted for consensus participation
-	// - Primary term: specific term for which this node is executing as primary
-	//
-	// With separate terms, a node accepting term 6 while still primary for term 5 would
-	// correctly report primary_term=5, making it unambiguous which node holds current authority.
-	if req.Action == consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE {
-		if _, err := pm.query(ctx, "SELECT 1"); err != nil {
-			pm.logger.WarnContext(ctx, "Postgres unhealthy, rejecting term with REVOKE action",
-				"term", req.Term,
-				"error", err)
-			// Return current term with accepted=false
-			pm.mu.Lock()
-			cs := pm.consensusState
-			pm.mu.Unlock()
-			currentTerm, termErr := cs.GetCurrentTermNumber(ctx)
-			if termErr != nil {
-				currentTerm = 0
-			}
-			return &consensusdatapb.BeginTermResponse{
-				Term:     currentTerm,
-				Accepted: false,
-				PoolerId: pm.serviceID.GetName(),
-			}, nil
-		}
-	}
-
 	// ========================================================================
 	// Term Acceptance (Consensus Rules)
 	// ========================================================================
@@ -193,6 +155,10 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		return mterrors.Wrap(err, "failed to determine role for revoke")
 	}
 
+	response.WalPosition = &consensusdatapb.WALPosition{
+		Timestamp: timestamppb.Now(),
+	}
+
 	if isPrimary {
 		// Revoke primary: demote
 		// TODO: Implement graceful (non-emergency) demote for planned failovers.
@@ -203,21 +169,33 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		if err != nil {
 			return mterrors.Wrap(err, "failed to demote primary during revoke")
 		}
-		response.DemoteLsn = demoteResp.LsnPosition
+		response.WalPosition.CurrentLsn = demoteResp.LsnPosition
 		pm.logger.InfoContext(ctx, "Primary demoted", "lsn", demoteResp.LsnPosition, "term", term)
 	} else {
-		// Revoke standby: pause replication to break connection with old primary
+		// Revoke standby: stop receiver and wait for replay to catch up
 		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
 
-		// First, pause replication to break connection with old primary
+		// Stop WAL receiver and wait for it to fully disconnect
 		_, err := pm.pauseReplication(
 			ctx,
 			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-			false)
+			true /* wait */)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to pause replication during revoke")
 		}
-		pm.logger.InfoContext(ctx, "Standby replication paused", "term", term)
+
+		// Wait for replay to finish processing all WAL that is on disk
+		status, err := pm.waitForReplayStabilize(ctx)
+		if err != nil {
+			return mterrors.Wrap(err, "failed waiting for replay to stabilize during revoke")
+		}
+
+		response.WalPosition.LastReceiveLsn = status.LastReceiveLsn
+		response.WalPosition.LastReplayLsn = status.LastReplayLsn
+		pm.logger.InfoContext(ctx, "Standby revoke complete",
+			"term", term,
+			"last_receive_lsn", status.LastReceiveLsn,
+			"last_replay_lsn", status.LastReplayLsn)
 	}
 
 	return nil

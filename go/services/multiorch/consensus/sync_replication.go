@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package coordinator
+package consensus
 
 import (
 	"fmt"
@@ -28,7 +28,12 @@ import (
 // BuildSyncReplicationConfig creates synchronous replication configuration based on the quorum policy.
 // Returns nil if synchronous replication should not be configured (required_count=1 or no standbys).
 // For MULTI_CELL_ANY_N policies, excludes standbys in the same cell as the candidate (primary).
-func BuildSyncReplicationConfig(logger *slog.Logger, quorumRule *clustermetadatapb.QuorumRule, standbys []*multiorchdatapb.PoolerHealthState, candidate *multiorchdatapb.PoolerHealthState) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
+func BuildSyncReplicationConfig(
+	logger *slog.Logger,
+	quorumRule *clustermetadatapb.QuorumRule,
+	standbys []*multiorchdatapb.PoolerHealthState,
+	candidate *multiorchdatapb.PoolerHealthState,
+) (*multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, error) {
 	requiredCount := int(quorumRule.RequiredCount)
 
 	// Determine async fallback mode (default to REJECT if unset)
@@ -129,7 +134,7 @@ func BuildSyncReplicationConfig(logger *slog.Logger, quorumRule *clustermetadata
 		"total_standbys", len(eligibleStandbys))
 
 	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
+		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 		NumSync:           numSync,
 		StandbyIds:        standbyIDs,

@@ -259,10 +259,8 @@ type BeginTermResponse struct {
 	Accepted bool `protobuf:"varint,2,opt,name=accepted,proto3" json:"accepted,omitempty"`
 	// ID of the responding pooler
 	PoolerId string `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	// If this node was a primary and demoted itself, this contains the final LSN
-	// before demotion. Standbys should replicate up to this point before switching
-	// to a new primary. Empty if node was not a primary or didn't demote.
-	DemoteLsn     string `protobuf:"bytes,4,opt,name=demote_lsn,json=demoteLsn,proto3" json:"demote_lsn,omitempty"`
+	// WAL position for candidate selection
+	WalPosition   *WALPosition `protobuf:"bytes,4,opt,name=wal_position,json=walPosition,proto3" json:"wal_position,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -318,11 +316,11 @@ func (x *BeginTermResponse) GetPoolerId() string {
 	return ""
 }
 
-func (x *BeginTermResponse) GetDemoteLsn() string {
+func (x *BeginTermResponse) GetWalPosition() *WALPosition {
 	if x != nil {
-		return x.DemoteLsn
+		return x.WalPosition
 	}
-	return ""
+	return nil
 }
 
 // Status returns the current status of a node
@@ -781,13 +779,12 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\fcandidate_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\vcandidateId\x12\x19\n" +
 	"\bshard_id\x18\x03 \x01(\tR\ashardId\x12%\n" +
 	"\x0epolicy_version\x18\x04 \x01(\x03R\rpolicyVersion\x126\n" +
-	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\"\x7f\n" +
+	"\x06action\x18\x05 \x01(\x0e2\x1e.consensusdata.BeginTermActionR\x06action\"\x9f\x01\n" +
 	"\x11BeginTermResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x1b\n" +
-	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\x12\x1d\n" +
-	"\n" +
-	"demote_lsn\x18\x04 \x01(\tR\tdemoteLsn\">\n" +
+	"\tpooler_id\x18\x03 \x01(\tR\bpoolerId\x12=\n" +
+	"\fwal_position\x18\x04 \x01(\v2\x1a.consensusdata.WALPositionR\vwalPosition\">\n" +
 	"\rStatusRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x03R\x04term\x12\x19\n" +
 	"\bshard_id\x18\x02 \x01(\tR\ashardId\"\xdc\x02\n" +
@@ -857,14 +854,15 @@ var file_consensusdata_proto_depIdxs = []int32{
 	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
 	12, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
 	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
-	1,  // 3: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
-	10, // 4: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	11, // 5: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	6,  // [6:6] is the sub-list for method output_type
-	6,  // [6:6] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	1,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
+	1,  // 4: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
+	10, // 5: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
+	11, // 6: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	7,  // [7:7] is the sub-list for method output_type
+	7,  // [7:7] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }

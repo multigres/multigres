@@ -25,6 +25,7 @@ package multipoolerservice
 
 import (
 	context "context"
+	query "github.com/multigres/multigres/go/pb/query"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -55,7 +56,7 @@ type MultiPoolerServiceClient interface {
 	// otherwise StreamExecute should be used.
 	ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
-	StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamExecuteResponse], error)
+	StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[query.QueryResultPayload], error)
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results
 	// Returns reserved connection information for session affinity
 	PortalStreamExecute(ctx context.Context, in *PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PortalStreamExecuteResponse], error)
@@ -93,13 +94,13 @@ func (c *multiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *Execute
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamExecuteResponse], error) {
+func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[query.QueryResultPayload], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[0], MultiPoolerService_StreamExecute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[StreamExecuteRequest, StreamExecuteResponse]{ClientStream: stream}
+	x := &grpc.GenericClientStream[StreamExecuteRequest, query.QueryResultPayload]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -110,7 +111,7 @@ func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, in *Stream
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamExecuteClient = grpc.ServerStreamingClient[StreamExecuteResponse]
+type MultiPoolerService_StreamExecuteClient = grpc.ServerStreamingClient[query.QueryResultPayload]
 
 func (c *multiPoolerServiceClient) PortalStreamExecute(ctx context.Context, in *PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PortalStreamExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -175,7 +176,7 @@ type MultiPoolerServiceServer interface {
 	// otherwise StreamExecute should be used.
 	ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error)
 	// StreamExecute executes a SQL query and streams the results back
-	StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[StreamExecuteResponse]) error
+	StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[query.QueryResultPayload]) error
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results
 	// Returns reserved connection information for session affinity
 	PortalStreamExecute(*PortalStreamExecuteRequest, grpc.ServerStreamingServer[PortalStreamExecuteResponse]) error
@@ -206,7 +207,7 @@ type UnimplementedMultiPoolerServiceServer struct{}
 func (UnimplementedMultiPoolerServiceServer) ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecuteQuery not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[StreamExecuteResponse]) error {
+func (UnimplementedMultiPoolerServiceServer) StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[query.QueryResultPayload]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamExecute not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) PortalStreamExecute(*PortalStreamExecuteRequest, grpc.ServerStreamingServer[PortalStreamExecuteResponse]) error {
@@ -265,11 +266,11 @@ func _MultiPoolerService_StreamExecute_Handler(srv interface{}, stream grpc.Serv
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(MultiPoolerServiceServer).StreamExecute(m, &grpc.GenericServerStream[StreamExecuteRequest, StreamExecuteResponse]{ServerStream: stream})
+	return srv.(MultiPoolerServiceServer).StreamExecute(m, &grpc.GenericServerStream[StreamExecuteRequest, query.QueryResultPayload]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamExecuteServer = grpc.ServerStreamingServer[StreamExecuteResponse]
+type MultiPoolerService_StreamExecuteServer = grpc.ServerStreamingServer[query.QueryResultPayload]
 
 func _MultiPoolerService_PortalStreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(PortalStreamExecuteRequest)

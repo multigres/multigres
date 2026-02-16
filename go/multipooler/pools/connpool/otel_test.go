@@ -89,7 +89,7 @@ func TestOTelConnectionCount_GetAndRecycle(t *testing.T) {
 		MaxIdleCount:    2,
 		ConnectionCount: connCount,
 	})
-	pool.Open(func(ctx context.Context) (*mockConnection, error) {
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*mockConnection, error) {
 		return newMockConnection(), nil
 	}, nil)
 	defer pool.Close()
@@ -152,7 +152,7 @@ func TestOTelConnectionCount_MultipleConnections(t *testing.T) {
 		MaxIdleCount:    5,
 		ConnectionCount: connCount,
 	})
-	pool.Open(func(ctx context.Context) (*mockConnection, error) {
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*mockConnection, error) {
 		return newMockConnection(), nil
 	}, nil)
 	defer pool.Close()
@@ -206,7 +206,7 @@ func TestOTelConnectionCount_WaiterHandoff(t *testing.T) {
 		MaxIdleCount:    1,
 		ConnectionCount: connCount,
 	})
-	pool.Open(func(ctx context.Context) (*mockConnection, error) {
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*mockConnection, error) {
 		return newMockConnection(), nil
 	}, nil)
 	defer pool.Close()
@@ -274,7 +274,7 @@ func TestOTelConnectionCount_SetCapacityReduction(t *testing.T) {
 		MaxIdleCount:    5,
 		ConnectionCount: connCount,
 	})
-	pool.Open(func(ctx context.Context) (*mockConnection, error) {
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*mockConnection, error) {
 		return newMockConnection(), nil
 	}, nil)
 	defer pool.Close()

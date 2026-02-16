@@ -22,9 +22,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/safepath"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -109,9 +109,9 @@ type MultiPoolerManager struct {
 	// and broadcasts to all receivers) rather than sending to it.
 	readyChan chan struct{}
 
-	// Cached backup location from the database topology record.
+	// Cached backup config from the database topology record.
 	// This is loaded once during startup and cached for fast access.
-	backupLocation string
+	backupConfig *backup.Config
 
 	// pgMonitorRetryInterval is the interval between auto-restore retry attempts.
 	// Defaults to 1 second. Can be set to a shorter duration for testing.
@@ -191,7 +191,8 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 			logger.ErrorContext(ctx, "Failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
 			// Continue without client - operations that need it will fail gracefully
 		} else {
-			pgctldClient = pgctldpb.NewPgCtldClient(conn)
+			rawClient := pgctldpb.NewPgCtldClient(conn)
+			pgctldClient = NewProtectedPgctldClient(rawClient)
 			logger.InfoContext(ctx, "Created pgctld gRPC client", "addr", config.PgctldAddr)
 		}
 	}
@@ -457,24 +458,6 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	return pm.multipooler.Type
 }
 
-// backupLocationPath returns the full backup location path for a given database, table group,
-// and shard. The topology only stores the base path. Components are URL-encoded to prevent
-// path traversal and support UTF-8 identifiers without collisions.
-func (pm *MultiPoolerManager) backupLocationPath(baseBackupLocation string, database string, tableGroup string, shard string) (string, error) {
-	// Validate non-empty components
-	if database == "" {
-		return "", errors.New("database cannot be empty")
-	}
-	if tableGroup == "" {
-		return "", errors.New("table group cannot be empty")
-	}
-	if shard == "" {
-		return "", errors.New("shard cannot be empty")
-	}
-
-	return safepath.Join(baseBackupLocation, database, tableGroup, shard)
-}
-
 // checkReady returns an error if the manager is not in Ready state
 func (pm *MultiPoolerManager) checkReady() error {
 	pm.mu.Lock()
@@ -657,15 +640,22 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			return
 		}
 
-		// Compute full backup location: base path + database/tablegroup/shard
-		shardBackupLocation, err := pm.backupLocationPath(db.BackupLocation, database, pm.multipooler.TableGroup, pm.multipooler.Shard)
+		// Validate and parse backup configuration
+		backupConfig, err := backup.NewConfig(db.BackupLocation)
 		if err != nil {
-			pm.setStateError(fmt.Errorf("invalid backup location path: %w", err))
+			pm.setStateError(fmt.Errorf("invalid backup_location: %w", err))
+			return
+		}
+
+		// Verify we can compute the full backup path
+		_, err = backupConfig.FullPath(database, pm.multipooler.TableGroup, pm.multipooler.Shard)
+		if err != nil {
+			pm.setStateError(fmt.Errorf("failed to compute backup path: %w", err))
 			return
 		}
 
 		pm.mu.Lock()
-		pm.backupLocation = shardBackupLocation
+		pm.backupConfig = backupConfig
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
@@ -962,23 +952,6 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 	return nil
 }
 
-// runCheckpointAsync runs a CHECKPOINT in a background goroutine
-func (pm *MultiPoolerManager) runCheckpointAsync(ctx context.Context) chan error {
-	checkpointDone := make(chan error, 1)
-	go func() {
-		pm.logger.InfoContext(ctx, "Starting checkpoint")
-		err := pm.exec(ctx, "CHECKPOINT")
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Checkpoint failed", "error", err)
-			checkpointDone <- err
-		} else {
-			pm.logger.InfoContext(ctx, "Checkpoint completed")
-			checkpointDone <- nil
-		}
-	}()
-	return checkpointDone
-}
-
 // stopPostgresForEmergencyDemote stops PostgreSQL during emergency demotion without restarting.
 // This is used when a primary needs to step down immediately during consensus term changes.
 // The node will be left in a stopped state and will require pg_rewind to rejoin the cluster.
@@ -1125,13 +1098,10 @@ func (pm *MultiPoolerManager) terminateWriteConnections(ctx context.Context) (in
 	return int32(len(pids)), nil
 }
 
-// drainAndCheckpoint handles the drain timeout and checkpoint in parallel
-// During the drain, it monitors for write activity every 100ms
-// If 2 consecutive checks show no writes, exits early
-func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeout time.Duration) error {
-	// Start checkpoint in background
-	checkpointDone := pm.runCheckpointAsync(ctx)
-
+// drainWriteActivity monitors for write activity during emergency demotion.
+// During the drain, it monitors for write activity every 100ms.
+// If 2 consecutive checks show no writes, exits early.
+func (pm *MultiPoolerManager) drainWriteActivity(ctx context.Context, drainTimeout time.Duration) error {
 	// Monitor for write activity during drain
 	pm.logger.InfoContext(ctx, "Monitoring for write activity during drain", "duration", drainTimeout)
 	drainCtx, cancel := context.WithTimeout(ctx, drainTimeout)
@@ -1148,13 +1118,6 @@ func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeo
 		case <-drainCtx.Done():
 			pm.logger.InfoContext(ctx, "Drain timeout completed")
 			drainComplete = true
-
-		case err := <-checkpointDone:
-			if err != nil {
-				pm.logger.WarnContext(ctx, "Checkpoint completed with error during drain", "error", err)
-			} else {
-				pm.logger.InfoContext(ctx, "Checkpoint completed during drain")
-			}
 
 		case <-monitorTicker.C:
 			// Check for write activity
@@ -1176,18 +1139,6 @@ func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeo
 				}
 			}
 		}
-	}
-
-	// Wait for checkpoint if it's still running
-	select {
-	case err := <-checkpointDone:
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Checkpoint failed", "error", err)
-			// Don't fail - checkpoint is an optimization
-		}
-	default:
-		// Checkpoint still running, continue
-		pm.logger.InfoContext(ctx, "Checkpoint still running, continuing with demotion")
 	}
 
 	return nil

@@ -20,12 +20,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/multigres/multigres/config"
@@ -97,15 +97,22 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		}
 	}
 
-	// Validate backup location is set (requires topology to be loaded)
-	if pm.backupLocation == "" {
-		return "", errors.New("backup location not set; topology may not be loaded yet")
+	// Validate backup config is loaded from topology
+	if pm.backupConfig == nil {
+		return "", errors.New("backup config not loaded from topology")
 	}
 
 	// Generate pgbackrest config file from template
+	// TODO: Set process-max dynamically based on number of CPUs
 	tmpl, err := template.New("pgbackrest").Parse(config.PgBackRestConfigTmpl)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse pgbackrest config template: %w", err)
+	}
+
+	// Generate pgBackRest repo configuration
+	repoConfig, err := pm.backupConfig.PgBackRestConfig(pm.stanzaName())
+	if err != nil {
+		return "", fmt.Errorf("failed to generate repo config: %w", err)
 	}
 
 	templateData := struct {
@@ -113,7 +120,8 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		SpoolPath string
 		LockPath  string
 
-		Repo1Path string
+		// Dynamic repo configuration
+		RepoConfig map[string]string
 
 		Pg1SocketPath string
 		Pg1Port       int
@@ -124,6 +132,8 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		ServerCAFile   string
 		ServerPort     int
 		ServerAuths    []string
+
+		RepoCredentials map[string]string
 
 		Pg2Host string
 		Pg2Port int
@@ -138,7 +148,7 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		SpoolPath: spoolPath,
 		LockPath:  lockPath,
 
-		Repo1Path: pm.backupLocation,
+		RepoConfig: repoConfig,
 
 		Pg1SocketPath: filepath.Join(pm.multipooler.PoolerDir, "pg_sockets"),
 		Pg1Port:       func() int { return int(pm.multipooler.PortMap["postgres"]) }(),
@@ -150,6 +160,15 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		ServerCAFile:   pm.config.PgBackRestCAFile,
 		ServerPort:     pm.config.PgBackRestPort,
 		ServerAuths:    []string{"pgbackrest=*"},
+	}
+
+	// Add credentials to template data if using env credentials
+	if pm.backupConfig.UsesEnvCredentials() {
+		creds, err := pm.backupConfig.PgBackRestCredentials()
+		if err != nil {
+			return "", fmt.Errorf("failed to get credentials: %w", err)
+		}
+		templateData.RepoCredentials = creds
 	}
 
 	// We need a pg2 section only for backups. Other operations only need pg1.
@@ -177,7 +196,8 @@ func (pm *MultiPoolerManager) initPgBackRest(ctx context.Context, mode PgBackRes
 		return "", fmt.Errorf("failed to execute pgbackrest config template: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, []byte(configContent.String()), 0o644); err != nil {
+	// Use restrictive permissions (0600) since config may contain credentials
+	if err := os.WriteFile(configPath, []byte(configContent.String()), 0o600); err != nil {
 		return "", fmt.Errorf("failed to write pgbackrest config file: %w", err)
 	}
 
@@ -208,7 +228,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
-	pm.logger.InfoContext(ctx, "Starting backup operation", "backup_location", pm.backupLocation, "backup_type", backupType)
+	pm.logger.InfoContext(ctx, "Starting backup operation", "backup_type", pm.backupConfig.Type(), "job_type", backupType)
 
 	// Check if backup is allowed on primary
 	if err := pm.allowBackupOnPrimary(ctx, forcePrimary); err != nil {
@@ -238,7 +258,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	}
 
 	// Execute pgbackrest backup command
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute) // Backups can take a long time
+	ctx, cancel := context.WithTimeout(ctx, backup.BackupTimeout)
 	defer cancel()
 
 	args := []string{
@@ -280,7 +300,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	}
 
 	// Verify the backup to ensure it's valid
-	verifyCtx, verifyCancel := context.WithTimeout(ctx, 10*time.Minute)
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, backup.VerifyTimeout)
 	defer verifyCancel()
 
 	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
@@ -344,7 +364,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_location", pm.backupLocation, "backup_id", backupID)
+	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_type", pm.backupConfig.Type(), "backup_id", backupID)
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
@@ -413,7 +433,7 @@ func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, back
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
-	restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	restoreCtx, cancel := context.WithTimeout(ctx, backup.RestoreTimeout)
 	defer cancel()
 
 	args := []string{
@@ -523,12 +543,12 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
-	if pm.backupLocation == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup_location is required")
+	if pm.backupConfig == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config not loaded from topology")
 	}
 
 	// Execute pgbackrest info command with JSON output
-	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(queryCtx, "pgbackrest",
@@ -782,7 +802,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	}
 
 	// Execute pgbackrest info command with JSON output
-	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	infoCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(infoCtx, "pgbackrest",

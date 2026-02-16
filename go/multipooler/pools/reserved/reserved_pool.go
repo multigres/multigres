@@ -257,6 +257,8 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 		p.timeoutCount.Add(1)
 	case ReleaseKill:
 		p.killCount.Add(1)
+	case ReleaseError:
+		rc.pooled.Taint()
 	}
 
 	// Return the underlying connection to the pool.

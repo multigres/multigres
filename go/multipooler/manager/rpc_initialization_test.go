@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -33,6 +34,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 // NewTestMultiPoolerManager creates a MultiPoolerManager for testing with MultiPooler field populated
@@ -90,7 +92,7 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			// Create database in topology with backup location
 			err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
 				Name:           database,
-				BackupLocation: backupLocation,
+				BackupLocation: utils.FilesystemBackupLocation(backupLocation),
 			})
 			require.NoError(t, err)
 
@@ -118,10 +120,13 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
-			// Set manager to ready state with backup location so checkReady() passes
+			// Set manager to ready state with backup config so checkReady() passes
+			backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
+			require.NoError(t, err)
+
 			pm.mu.Lock()
 			pm.state = ManagerStateReady
-			pm.backupLocation = filepath.Join(backupLocation, database, constants.DefaultTableGroup, constants.DefaultShard)
+			pm.backupConfig = backupConfig
 			pm.topoLoaded = true
 			pm.mu.Unlock()
 

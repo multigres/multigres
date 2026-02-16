@@ -206,7 +206,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 	require.NoError(t, err, "BeginTerm should succeed")
 	require.True(t, beginTermResp.Accepted, "Primary should accept BeginTerm with higher term")
-	t.Logf("BeginTerm accepted by primary, emergency demotion triggered (demote_lsn=%s)", beginTermResp.DemoteLsn)
+	t.Logf("BeginTerm accepted by primary, emergency demotion triggered (current_lsn=%s)", beginTermResp.WalPosition.GetCurrentLsn())
 
 	// Wait for multiorch to detect failure and elect new primary
 	t.Logf("Waiting for multiorch to detect emergency demotion and elect new leader...")
@@ -256,23 +256,30 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.Eventually(t, func() bool {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 			if err != nil {
+				t.Logf("Multipooler %s: failed to create client: %v", name, err)
 				return false
 			}
 			defer client.Close()
 
 			status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 			if err != nil {
+				t.Logf("Multipooler %s: Status() call failed: %v", name, err)
 				return false
 			}
 
 			// Check if postgres is running
 			if !status.Status.PostgresRunning {
+				t.Logf("Multipooler %s: postgres not running", name)
 				return false
 			}
 
 			// For replicas, check replication is configured
 			if status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				if status.Status.ReplicationStatus == nil || status.Status.ReplicationStatus.PrimaryConnInfo == nil {
+					t.Logf("Multipooler %s: replication status missing (ReplicationStatus=%v, PrimaryConnInfo=%v)",
+						name,
+						status.Status.ReplicationStatus != nil,
+						status.Status.ReplicationStatus != nil && status.Status.ReplicationStatus.PrimaryConnInfo != nil)
 					return false
 				}
 			}
@@ -342,6 +349,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err := db.QueryRow("SHOW synchronous_standby_names").Scan(&syncStandbyNames)
 		require.NoError(t, err, "Should be able to query synchronous_standby_names")
 		require.NotEmpty(t, syncStandbyNames, "Final primary should have synchronous_standby_names configured after failovers")
+
+		var syncCommit string
+		err = db.QueryRow("SHOW synchronous_commit").Scan(&syncCommit)
+		require.NoError(t, err, "Should be able to query synchronous_commit")
+		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on' after failover")
 	})
 
 	// Verify leadership_history records all failovers
@@ -591,9 +603,9 @@ func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryNam
 	}
 }
 
-// checkRejoin checks if a multipooler has rejoined the cluster as a standby replica.
-// It verifies the node is on the correct consensus term and replicating from the expected primary.
-func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.MultipoolerInstance, expectedPrimaryName string, expectedTerm int64) bool {
+// checkReplicaIsHealthy verifies that a replica is healthy and properly configured.
+// It checks that postgres is running, replication is streaming, and the node is on the correct term.
+func checkReplicaIsHealthy(t *testing.T, multipoolerName string, inst *shardsetup.MultipoolerInstance, expectedPrimaryName string, expectedTerm int64) bool {
 	t.Helper()
 	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 	if err != nil {
@@ -639,8 +651,65 @@ func checkRejoin(t *testing.T, multipoolerName string, inst *shardsetup.Multipoo
 		return false
 	}
 
-	t.Logf("Multipooler %s successfully rejoined (term=%d, replicating from %s, state=%s)",
-		multipoolerName, status.Status.ConsensusTerm.TermNumber, expectedPrimaryName, status.Status.ReplicationStatus.WalReceiverStatus)
+	return true
+}
+
+// checkReplicaInPrimaryStandbyList verifies that a replica appears in the primary's synchronous_standby_names list.
+func checkReplicaInPrimaryStandbyList(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, expectedPrimaryName string) bool {
+	t.Helper()
+
+	primaryInst := setup.GetMultipoolerInstance(expectedPrimaryName)
+	if primaryInst == nil {
+		t.Logf("Primary %s not found", expectedPrimaryName)
+		return false
+	}
+
+	primaryClient, err := shardsetup.NewMultipoolerClient(primaryInst.Multipooler.GrpcPort)
+	if err != nil {
+		t.Logf("Failed to connect to primary %s: %v", expectedPrimaryName, err)
+		return false
+	}
+	defer primaryClient.Close()
+
+	primaryStatus, err := primaryClient.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
+		t.Logf("Failed to get status from primary %s: %v", expectedPrimaryName, err)
+		return false
+	}
+
+	if primaryStatus.Status.PrimaryStatus == nil || primaryStatus.Status.PrimaryStatus.SyncReplicationConfig == nil {
+		t.Logf("Primary %s has no synchronous replication config yet", expectedPrimaryName)
+		return false
+	}
+
+	// Check if replica is in the primary's standby list
+	for _, standby := range primaryStatus.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds {
+		if standby.Name == multipoolerName {
+			return true
+		}
+	}
+
+	t.Logf("Multipooler %s not yet in primary %s's standby list", multipoolerName, expectedPrimaryName)
+	return false
+}
+
+// checkRejoin checks if a multipooler has rejoined the cluster as a standby replica.
+// It verifies the node is healthy, properly configured, and appears in the primary's standby list.
+func checkRejoin(t *testing.T, setup *shardsetup.ShardSetup, multipoolerName string, inst *shardsetup.MultipoolerInstance, expectedPrimaryName string, expectedTerm int64) bool {
+	t.Helper()
+
+	// First check if replica itself is healthy
+	if !checkReplicaIsHealthy(t, multipoolerName, inst, expectedPrimaryName, expectedTerm) {
+		return false
+	}
+
+	// Then check if replica is in the primary's standby list
+	if !checkReplicaInPrimaryStandbyList(t, setup, multipoolerName, expectedPrimaryName) {
+		return false
+	}
+
+	t.Logf("Multipooler %s successfully rejoined (term=%d, replicating from %s, in standby list)",
+		multipoolerName, expectedTerm, expectedPrimaryName)
 	return true
 }
 
@@ -656,7 +725,7 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 	require.NotNil(t, inst, "multipooler %s should exist", multipoolerName)
 
 	// Check immediately
-	if checkRejoin(t, multipoolerName, inst, expectedPrimaryName, expectedTerm) {
+	if checkRejoin(t, setup, multipoolerName, inst, expectedPrimaryName, expectedTerm) {
 		return
 	}
 
@@ -669,7 +738,7 @@ func waitForNodeToRejoinAsStandby(t *testing.T, setup *shardsetup.ShardSetup, mu
 	for {
 		select {
 		case <-ticker.C:
-			if checkRejoin(t, multipoolerName, inst, expectedPrimaryName, expectedTerm) {
+			if checkRejoin(t, setup, multipoolerName, inst, expectedPrimaryName, expectedTerm) {
 				return
 			}
 
