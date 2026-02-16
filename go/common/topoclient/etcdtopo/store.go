@@ -43,6 +43,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 )
 
@@ -56,7 +57,7 @@ var _ topoclient.Conn = (*etcdtopo)(nil)
 
 // remoteOperationTimeout is used for operations where we have to
 // call out to etcd for initial data fetches (e.g., watch setup).
-const remoteOperationTimeout = 15 * time.Second
+const remoteOperationTimeout = timeouts.RemoteOperationTimeout
 
 // Factory is the etcd topoclient.Factory implementation.
 type Factory struct{}

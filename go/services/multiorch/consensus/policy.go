@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -31,8 +32,10 @@ import (
 // This uses the GetDurabilityPolicy RPC to fetch the policy from the node's local database.
 func (c *Coordinator) LoadQuorumRuleFromNode(ctx context.Context, node *multiorchdatapb.PoolerHealthState, database string) (*clustermetadatapb.QuorumRule, error) {
 	// Call GetDurabilityPolicy RPC
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	defer cancel()
 	req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
-	resp, err := c.rpcClient.GetDurabilityPolicy(ctx, node.MultiPooler, req)
+	resp, err := c.rpcClient.GetDurabilityPolicy(rpcCtx, node.MultiPooler, req)
 	if err != nil {
 		return nil, mterrors.Wrapf(err, "failed to get durability policy from node %s", node.MultiPooler.Id.Name)
 	}
@@ -120,8 +123,10 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 		wg.Add(1)
 		go func(n *multiorchdatapb.PoolerHealthState) {
 			defer wg.Done()
+			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+			defer cancel()
 			req := &multipoolermanagerdatapb.GetDurabilityPolicyRequest{}
-			resp, err := c.rpcClient.GetDurabilityPolicy(ctx, n.MultiPooler, req)
+			resp, err := c.rpcClient.GetDurabilityPolicy(rpcCtx, n.MultiPooler, req)
 			if err != nil {
 				results <- result{node: n, err: err}
 				return
@@ -236,12 +241,14 @@ func (c *Coordinator) CreateDefaultPolicy(ctx context.Context, node *multiorchda
 	}
 
 	// Call CreateDurabilityPolicy RPC
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
+	defer cancel()
 	req := &multipoolermanagerdatapb.CreateDurabilityPolicyRequest{
 		PolicyName: policyName,
 		QuorumRule: quorumRule,
 	}
 
-	_, err := c.rpcClient.CreateDurabilityPolicy(ctx, node.MultiPooler, req)
+	_, err := c.rpcClient.CreateDurabilityPolicy(rpcCtx, node.MultiPooler, req)
 	if err != nil {
 		return mterrors.Wrapf(err, "failed to create durability policy on node %s", node.MultiPooler.Id.Name)
 	}
