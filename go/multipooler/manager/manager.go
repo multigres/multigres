@@ -1643,6 +1643,17 @@ func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
+
+	// Reopen connections after postgres restart to replace stale socket FDs
+	if err := pm.reopenConnections(ctx); err != nil {
+		return fmt.Errorf("MonitorPostgres: failed to reopen connections after restart: %w", err)
+	}
+
+	// Wait for database connection to be ready
+	if err := pm.waitForDatabaseConnection(ctx); err != nil {
+		return fmt.Errorf("MonitorPostgres: database not ready after restart: %w", err)
+	}
+
 	return nil
 }
 
