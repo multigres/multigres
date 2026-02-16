@@ -119,41 +119,20 @@ type Conn struct {
 // poolCtx is used as the parent for the connection's lifetime context,
 // allowing pool-managed connections to be tied to the pool's lifecycle.
 func Connect(ctx context.Context, poolCtx context.Context, config *Config) (*Conn, error) {
-	dialer := &net.Dialer{
-		Timeout: config.DialTimeout,
-	}
-
-	var netConn net.Conn
-	var err error
-
-	if config.SocketFile != "" {
-		// Unix socket connection.
-		netConn, err = dialer.DialContext(ctx, "unix", config.SocketFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to Unix socket %s: %w", config.SocketFile, err)
-		}
-	} else {
-		// TCP connection.
-		address := fmt.Sprintf("%s:%d", config.Host, config.Port)
-		netConn, err = dialer.DialContext(ctx, "tcp", address)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
-		}
+	netConn, err := dial(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("connect failed: %w", err)
 	}
 
 	// Create the connection object.
 	// The connection's lifetime is tied to poolCtx, not the caller's ctx.
 	connCtx, cancel := context.WithCancel(poolCtx)
 	c := &Conn{
-		conn:           netConn,
-		bufferedReader: bufio.NewReaderSize(netConn, connBufferSize),
-		bufferedWriter: bufio.NewWriterSize(netConn, connBufferSize),
-		config:         config,
-		serverParams:   make(map[string]string),
-		txnStatus:      protocol.TxnStatusIdle,
-		ctx:            connCtx,
-		cancel:         cancel,
+		config: config,
+		ctx:    connCtx,
+		cancel: cancel,
 	}
+	c.resetConn(netConn)
 
 	// Perform the startup handshake.
 	if err := c.startup(ctx); err != nil {
@@ -180,30 +159,12 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 	// Reset the closed flag so the connection is usable again.
 	c.closed.Store(false)
 
-	// Dial a new connection using the stored config.
-	dialer := &net.Dialer{
-		Timeout: c.config.DialTimeout,
-	}
-
-	var netConn net.Conn
-	var err error
-
-	if c.config.SocketFile != "" {
-		netConn, err = dialer.DialContext(ctx, "unix", c.config.SocketFile)
-	} else {
-		address := fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)
-		netConn, err = dialer.DialContext(ctx, "tcp", address)
-	}
+	netConn, err := dial(ctx, c.config)
 	if err != nil {
 		return fmt.Errorf("reconnect dial failed: %w", err)
 	}
 
-	// Replace connection internals with the new socket.
-	c.conn = netConn
-	c.bufferedReader = bufio.NewReaderSize(netConn, connBufferSize)
-	c.bufferedWriter = bufio.NewWriterSize(netConn, connBufferSize)
-	c.serverParams = make(map[string]string)
-	c.txnStatus = byte(protocol.TxnStatusIdle)
+	c.resetConn(netConn)
 
 	// Perform the startup handshake on the new connection.
 	if err := c.startup(ctx); err != nil {
@@ -212,6 +173,29 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// dial establishes a network connection using the given config.
+// Uses Unix socket if config.SocketFile is set, otherwise TCP.
+func dial(ctx context.Context, config *Config) (net.Conn, error) {
+	dialer := &net.Dialer{
+		Timeout: config.DialTimeout,
+	}
+	if config.SocketFile != "" {
+		return dialer.DialContext(ctx, "unix", config.SocketFile)
+	}
+	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	return dialer.DialContext(ctx, "tcp", address)
+}
+
+// resetConn replaces the connection internals with a new network connection.
+// This resets the buffered reader/writer, server params, and transaction status.
+func (c *Conn) resetConn(netConn net.Conn) {
+	c.conn = netConn
+	c.bufferedReader = bufio.NewReaderSize(netConn, connBufferSize)
+	c.bufferedWriter = bufio.NewWriterSize(netConn, connBufferSize)
+	c.serverParams = make(map[string]string)
+	c.txnStatus = protocol.TxnStatusIdle
 }
 
 // Close closes the connection.
