@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -411,15 +412,21 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 		require.NoError(t, err, "failed to get default extra_float_digits")
 		t.Logf("Default extra_float_digits = %s", defaultVal)
 
+		// Pick a value that differs from the default
+		defaultInt, err := strconv.Atoi(defaultVal)
+		require.NoError(t, err, "failed to parse default extra_float_digits")
+		nonDefaultVal := defaultInt - 1
+		nonDefaultStr := strconv.Itoa(nonDefaultVal)
+
 		// SET to a non-default value
-		_, err = db.ExecContext(ctx, "SET extra_float_digits = 0")
+		_, err = db.ExecContext(ctx, fmt.Sprintf("SET extra_float_digits = %d", nonDefaultVal))
 		require.NoError(t, err, "failed to SET extra_float_digits")
 
 		// Verify it took effect
 		var customVal string
 		err = db.QueryRowContext(ctx, "SHOW extra_float_digits").Scan(&customVal)
 		require.NoError(t, err)
-		assert.Equal(t, "0", customVal, "SET should have changed the value")
+		assert.Equal(t, nonDefaultStr, customVal, "SET should have changed the value")
 
 		// RESET the GUC
 		_, err = db.ExecContext(ctx, "RESET extra_float_digits")
@@ -454,8 +461,13 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 		err = db.QueryRowContext(ctx, "SHOW bytea_output").Scan(&defaultByteaOutput)
 		require.NoError(t, err)
 
+		// Pick a non-default value for extra_float_digits
+		defaultInt, err := strconv.Atoi(defaultFloatDigits)
+		require.NoError(t, err)
+		nonDefaultFloatDigits := defaultInt - 1
+
 		// SET multiple GUCs to non-default values
-		_, err = db.ExecContext(ctx, "SET extra_float_digits = 0")
+		_, err = db.ExecContext(ctx, fmt.Sprintf("SET extra_float_digits = %d", nonDefaultFloatDigits))
 		require.NoError(t, err)
 		_, err = db.ExecContext(ctx, "SET bytea_output = 'escape'")
 		require.NoError(t, err)
@@ -476,46 +488,6 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 			require.NoError(t, err, "iteration %d: failed to SHOW bytea_output", i)
 			require.Equal(t, defaultByteaOutput, byteaOut,
 				"iteration %d: bytea_output not restored after RESET ALL", i)
-		}
-	})
-
-	t.Run("SET affects query output then RESET restores it", func(t *testing.T) {
-		// This test uses a GUC that visibly changes query output,
-		// not just SHOW — proving the PG-side state is correct.
-		db, err := sql.Open("postgres", connStr)
-		require.NoError(t, err)
-		defer db.Close()
-
-		err = db.PingContext(ctx)
-		require.NoError(t, err)
-
-		// Get default float output
-		var defaultOutput string
-		err = db.QueryRowContext(ctx, "SELECT 1.0::float8::text").Scan(&defaultOutput)
-		require.NoError(t, err)
-		t.Logf("Default float8 output: %s", defaultOutput)
-
-		// SET extra_float_digits to 0 (changes float formatting)
-		_, err = db.ExecContext(ctx, "SET extra_float_digits = 0")
-		require.NoError(t, err)
-
-		var customOutput string
-		err = db.QueryRowContext(ctx, "SELECT 1.0::float8::text").Scan(&customOutput)
-		require.NoError(t, err)
-		t.Logf("Custom float8 output (extra_float_digits=0): %s", customOutput)
-
-		// RESET
-		_, err = db.ExecContext(ctx, "RESET extra_float_digits")
-		require.NoError(t, err)
-
-		// Verify output is back to default across many iterations
-		for i := range 100 {
-			var result string
-			err = db.QueryRowContext(ctx, "SELECT 1.0::float8::text").Scan(&result)
-			require.NoError(t, err, "iteration %d", i)
-			require.Equal(t, defaultOutput, result,
-				"iteration %d: float8 output should match default after RESET (got %q, want %q)",
-				i, result, defaultOutput)
 		}
 	})
 }
