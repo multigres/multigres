@@ -76,6 +76,11 @@ type PreparedStatementInfo struct {
 	astStruct ast.Stmt
 }
 
+// AstStmt returns the parsed AST statement for this prepared statement.
+func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
+	return psi.astStruct
+}
+
 // NewPreparedStatementInfo parses the query in the prepared statement and stores it along with the
 // prepared statement information for future use.
 func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatementInfo, error) {

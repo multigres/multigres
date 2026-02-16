@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
@@ -198,17 +199,18 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// Get the connection state.
 	state := h.getConnectionState(conn)
 
-	// Reject queries in aborted transaction state (except ROLLBACK via simple query).
-	// In the extended query protocol, ROLLBACK is typically sent via simple query,
-	// so we reject all Execute messages when aborted.
-	if conn.TxnStatus() == protocol.TxnStatusFailed {
-		return errAbortedTransaction
-	}
-
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
 		return fmt.Errorf("portal \"%s\" does not exist", portalName)
+	}
+
+	// Reject queries in aborted transaction state, except ROLLBACK which is the
+	// only statement that can recover from an aborted transaction.
+	if conn.TxnStatus() == protocol.TxnStatusFailed {
+		if !ast.IsRollbackStatement(portalInfo.AstStmt()) {
+			return errAbortedTransaction
+		}
 	}
 
 	err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
@@ -289,11 +291,15 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 		state, ok := connState.(*MultiGatewayConnectionState)
 		if ok && state != nil && len(state.ShardStates) > 0 {
 			// Release all reserved connections regardless of reason (transaction, COPY, portal).
-			h.logger.Debug("releasing reserved connections on client disconnect",
+			// Add a timeout to bound cleanup duration — conn.Context() is still valid here
+			// (cancelled after ConnectionClosed returns) but we don't want cleanup to hang.
+			ctx, cancel := context.WithTimeout(conn.Context(), 5*time.Second)
+			defer cancel()
+			h.logger.DebugContext(ctx, "releasing reserved connections on client disconnect",
 				"connection_id", conn.ConnectionID(),
 				"shard_states", len(state.ShardStates))
-			if err := h.executor.ReleaseAll(conn.Context(), conn, state); err != nil {
-				h.logger.Error("failed to release connections on client disconnect",
+			if err := h.executor.ReleaseAll(ctx, conn, state); err != nil {
+				h.logger.ErrorContext(ctx, "failed to release connections on client disconnect",
 					"connection_id", conn.ConnectionID(),
 					"error", err)
 			}
