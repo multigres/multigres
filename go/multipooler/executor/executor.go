@@ -728,8 +728,13 @@ func (e *Executor) ReserveStreamExecute(
 	// If this is a transaction reservation, execute BEGIN first.
 	// The BEGIN result is not sent to the callback — it's an internal setup detail.
 	// The caller (multigateway) handles sending synthetic BEGIN results to the client.
+	// Use the original BEGIN query if provided to preserve isolation level and access mode.
 	if beginTx {
-		if err := reservedConn.Begin(ctx); err != nil {
+		beginQuery := "BEGIN"
+		if reservationOptions != nil && reservationOptions.BeginQuery != "" {
+			beginQuery = reservationOptions.BeginQuery
+		}
+		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
 			return queryservice.ReservedState{}, err
 		}

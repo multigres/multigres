@@ -288,6 +288,12 @@ message ReservationOptions {
   // reasons is a bitmask of ReservationReason values indicating why the connection is being reserved.
   // Multiple reasons can be ORed together (e.g., TRANSACTION | TEMP_TABLE).
   uint32 reasons = 1;
+
+  // begin_query is the original BEGIN statement text (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE"
+  // or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
+  // multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
+  // If empty and transaction reason is set, defaults to "BEGIN".
+  string begin_query = 2;
 }
 
 // TransactionConclusion specifies how to conclude a transaction.

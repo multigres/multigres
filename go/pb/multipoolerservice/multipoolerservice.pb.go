@@ -1108,7 +1108,12 @@ type ReservationOptions struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// reasons is a bitmask of ReservationReason values indicating why the connection is being reserved.
 	// Multiple reasons can be ORed together (e.g., TRANSACTION | TEMP_TABLE).
-	Reasons       uint32 `protobuf:"varint,1,opt,name=reasons,proto3" json:"reasons,omitempty"`
+	Reasons uint32 `protobuf:"varint,1,opt,name=reasons,proto3" json:"reasons,omitempty"`
+	// begin_query is the original BEGIN statement text (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE"
+	// or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
+	// multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
+	// If empty and transaction reason is set, defaults to "BEGIN".
+	BeginQuery    string `protobuf:"bytes,2,opt,name=begin_query,json=beginQuery,proto3" json:"begin_query,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1148,6 +1153,13 @@ func (x *ReservationOptions) GetReasons() uint32 {
 		return x.Reasons
 	}
 	return 0
+}
+
+func (x *ReservationOptions) GetBeginQuery() string {
+	if x != nil {
+		return x.BeginQuery
+	}
+	return ""
 }
 
 // ReserveStreamExecuteRequest represents a request to create a reserved connection and execute a query.
@@ -1603,9 +1615,11 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x04DATA\x10\x01\x12\n" +
 	"\n" +
 	"\x06RESULT\x10\x02\x12\t\n" +
-	"\x05ERROR\x10\x03\".\n" +
+	"\x05ERROR\x10\x03\"O\n" +
 	"\x12ReservationOptions\x12\x18\n" +
-	"\areasons\x18\x01 \x01(\rR\areasons\"\x92\x02\n" +
+	"\areasons\x18\x01 \x01(\rR\areasons\x12\x1f\n" +
+	"\vbegin_query\x18\x02 \x01(\tR\n" +
+	"beginQuery\"\x92\x02\n" +
 	"\x1bReserveStreamExecuteRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12,\n" +

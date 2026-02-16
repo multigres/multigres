@@ -121,6 +121,12 @@ func (sc *ScatterConn) StreamExecute(
 		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for transaction")
 
 		reservationOpts := protoutil.NewTransactionReservationOptions()
+		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
+		// so the multipooler preserves transaction options instead of using plain "BEGIN".
+		if state.PendingBeginQuery != "" {
+			reservationOpts.BeginQuery = state.PendingBeginQuery
+			state.PendingBeginQuery = ""
+		}
 		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		if err != nil {
 			return fmt.Errorf("reserve stream execute failed: %w", err)
@@ -327,8 +333,21 @@ func (sc *ScatterConn) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	// Collect shard state updates to apply after iteration.
+	// We cannot call ClearReservedConnection during iteration because it
+	// uses swap-and-truncate which mutates the underlying slice.
+	type shardUpdate struct {
+		target           *query.Target
+		clear            bool   // true = remove entry, false = update reasons
+		remainingReasons uint32 // only used when clear == false
+	}
+	var updates []shardUpdate
+	var errs []error
+	var callbackResult *sqltypes.Result
+
 	// Iterate over all shard states with reserved connections.
 	// Only conclude on shards that have the transaction reason.
+	// Continue on errors so all shards get concluded.
 	for _, ss := range state.ShardStates {
 		if ss.ReservedConnectionId == 0 {
 			continue
@@ -345,26 +364,47 @@ func (sc *ScatterConn) ConcludeTransaction(
 
 		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, ss.Target)
 		if err != nil {
-			// Connection lost — clear stale state
-			state.ClearReservedConnection(ss.Target)
-			return fmt.Errorf("conclude transaction: pooler lookup failed: %w", err)
+			// Connection lost — mark for clearing, continue to other shards
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			errs = append(errs, fmt.Errorf("conclude transaction: pooler lookup failed for %s: %w", ss.Target, err))
+			continue
 		}
 
 		result, remainingReasons, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
 		if err != nil {
-			state.ClearReservedConnection(ss.Target)
-			return fmt.Errorf("conclude transaction failed: %w", err)
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			errs = append(errs, fmt.Errorf("conclude transaction failed for %s: %w", ss.Target, err))
+			continue
 		}
 
 		if remainingReasons == 0 {
 			// Connection fully released by multipooler
-			state.ClearReservedConnection(ss.Target)
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 		} else {
 			// Connection still reserved for other reasons — update our local tracking
-			ss.ReservationReasons = remainingReasons
+			updates = append(updates, shardUpdate{target: ss.Target, remainingReasons: remainingReasons})
 		}
 
-		if err := callback(ctx, result); err != nil {
+		// Keep the last successful result for the callback
+		callbackResult = result
+	}
+
+	// Apply collected updates outside the iteration loop.
+	for _, u := range updates {
+		if u.clear {
+			state.ClearReservedConnection(u.target)
+		} else {
+			state.UpdateReservationReasons(u.target, u.remainingReasons)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	// Send the result to the client (COMMIT/ROLLBACK command tag)
+	if callbackResult != nil {
+		if err := callback(ctx, callbackResult); err != nil {
 			return err
 		}
 	}

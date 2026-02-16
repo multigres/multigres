@@ -64,7 +64,7 @@ func (t *TransactionPrimitive) StreamExecute(
 ) error {
 	switch t.Kind {
 	case ast.TRANS_STMT_BEGIN, ast.TRANS_STMT_START:
-		return t.executeBegin(ctx, conn, callback)
+		return t.executeBegin(ctx, conn, state, callback)
 
 	case ast.TRANS_STMT_COMMIT:
 		return t.executeCommit(ctx, exec, conn, state, callback)
@@ -81,13 +81,20 @@ func (t *TransactionPrimitive) StreamExecute(
 // executeBegin handles BEGIN/START TRANSACTION with deferred execution.
 // Sets transaction state but doesn't send to backend - the actual BEGIN
 // will be sent atomically with the first real query.
+// Stores the original query text so isolation level and access mode options
+// (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE") are preserved.
 func (t *TransactionPrimitive) executeBegin(
 	ctx context.Context,
 	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// Set transaction state (deferred - no backend call yet)
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	// Store the original BEGIN query so the multipooler can replay it with
+	// the correct isolation level and access mode when creating the reserved connection.
+	state.PendingBeginQuery = t.Query
 
 	// Return synthetic result to client
 	return callback(ctx, &sqltypes.Result{
@@ -103,6 +110,9 @@ func (t *TransactionPrimitive) executeCommit(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	// Clear pending begin query — transaction is ending.
+	state.PendingBeginQuery = ""
+
 	// If no reserved connections, just return synthetic result
 	// (empty transaction or deferred BEGIN that was never used)
 	if len(state.ShardStates) == 0 {
@@ -133,6 +143,9 @@ func (t *TransactionPrimitive) executeRollback(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	// Clear pending begin query — transaction is ending.
+	state.PendingBeginQuery = ""
+
 	// If no reserved connections, just return synthetic result
 	if len(state.ShardStates) == 0 {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)

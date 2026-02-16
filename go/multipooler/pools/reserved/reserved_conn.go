@@ -83,13 +83,20 @@ func (c *Conn) State() *connstate.ConnectionState {
 
 // --- Transaction lifecycle ---
 
-// Begin starts a transaction on this connection.
+// Begin starts a transaction on this connection with a plain "BEGIN".
 func (c *Conn) Begin(ctx context.Context) error {
+	return c.BeginWithQuery(ctx, "BEGIN")
+}
+
+// BeginWithQuery starts a transaction using the provided query string.
+// This allows preserving transaction options like isolation level and access mode
+// (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE" or "START TRANSACTION READ ONLY").
+func (c *Conn) BeginWithQuery(ctx context.Context, beginQuery string) error {
 	if c.IsInTransaction() {
 		return errors.New("transaction already in progress")
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "BEGIN")
+	_, err := c.pooled.Conn.Query(ctx, beginQuery)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

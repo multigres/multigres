@@ -53,6 +53,12 @@ type MultiGatewayConnectionState struct {
 	// pooled connection (with matching settings) is reused.
 	// Map keys are variable names, values are the string representation.
 	SessionSettings map[string]string
+
+	// PendingBeginQuery stores the original BEGIN/START TRANSACTION statement text
+	// (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE") when a transaction is started
+	// with deferred execution. This is consumed when creating the first reserved
+	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
+	PendingBeginQuery string
 }
 
 type ShardState struct {
@@ -178,6 +184,19 @@ func (m *MultiGatewayConnectionState) RemoveReservationReason(target *query.Targ
 				}
 				m.ShardStates = m.ShardStates[:lastIdx]
 			}
+			return
+		}
+	}
+}
+
+// UpdateReservationReasons sets the reservation reasons for a given target.
+// Used after ConcludeTransaction to update the bitmask without removing the entry.
+func (m *MultiGatewayConnectionState) UpdateReservationReasons(target *query.Target, reasons uint32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			ss.ReservationReasons = reasons
 			return
 		}
 	}
