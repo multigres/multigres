@@ -17,6 +17,7 @@ package pgregresstest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -398,7 +399,7 @@ func (pb *PostgresBuilder) ParseTestResults(stdout, stderr *bytes.Buffer) (*Test
 	}
 
 	if len(results.Tests) == 0 {
-		return nil, fmt.Errorf("no TAP-formatted test output found in pg_regress output")
+		return nil, errors.New("no TAP-formatted test output found in pg_regress output")
 	}
 
 	// Parse summary line
@@ -476,9 +477,10 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, results *TestResul
 
 	for i, test := range results.Tests {
 		status := "✅ ok"
-		if test.Status == "fail" {
+		switch test.Status {
+		case "fail":
 			status = "❌ FAIL"
-		} else if test.Status == "skip" {
+		case "skip":
 			status = "⏭️ skip"
 		}
 		duration := test.Duration
