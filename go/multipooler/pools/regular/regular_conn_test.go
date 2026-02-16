@@ -389,3 +389,88 @@ func TestQueryWithRetry_ReappliesSettingsAfterReconnect(t *testing.T) {
 
 	server.VerifyAllExecutedOrFail()
 }
+
+// --- QueryArgsWithRetry tests ---
+
+func TestQueryArgsWithRetry_Success(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQuery("SELECT $1", fakepgserver.MakeResult([]string{"col"}, [][]any{{"hello"}}))
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	results, err := conn.QueryArgsWithRetry(context.Background(), "SELECT $1", "hello")
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Len(t, results[0].Rows, 1)
+	assert.Equal(t, "hello", string(results[0].Rows[0].Values[0]))
+}
+
+func TestQueryArgsWithRetry_NonConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddRejectedQuery("SELECT $1", errors.New("relation does not exist"))
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	_, err := conn.QueryArgsWithRetry(context.Background(), "SELECT $1", "hello")
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionError(err))
+	assert.False(t, conn.IsClosed())
+}
+
+func TestQueryArgsWithRetry_ReconnectsOnConnectionError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: connection error.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT $1",
+		Error: connErrFATAL(),
+	})
+
+	// Second attempt (after reconnect): success.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT $1",
+		QueryResult: fakepgserver.MakeResult([]string{"col"}, [][]any{{"hello"}}),
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	results, err := conn.QueryArgsWithRetry(context.Background(), "SELECT $1", "hello")
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "hello", string(results[0].Rows[0].Values[0]))
+
+	server.VerifyAllExecutedOrFail()
+}
+
+func TestQueryArgsWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	for range maxQueryAttempts {
+		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+			Query: "SELECT $1",
+			Error: connErrFATAL(),
+		})
+	}
+
+	conn := newTestDirectConn(t, server)
+
+	_, err := conn.QueryArgsWithRetry(context.Background(), "SELECT $1", "hello")
+	require.Error(t, err)
+	assert.True(t, mterrors.IsConnectionError(err))
+	assert.True(t, conn.IsClosed())
+
+	server.VerifyAllExecutedOrFail()
+}

@@ -424,6 +424,35 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 	panic("unreachable")
 }
 
+// QueryArgsWithRetry executes a parameterized query (via the extended query
+// protocol) with automatic retry on connection error, like QueryWithRetry.
+// Safe to retry because QueryArgs uses PrepareAndExecute which is a single
+// atomic round trip with an unnamed statement—no multi-step state to lose.
+func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
+		results, err := execOnce(c, ctx, func() ([]*sqltypes.Result, error) {
+			return c.conn.QueryArgs(ctx, sql, args...)
+		})
+		switch {
+		case err == nil:
+			return results, nil
+		case !mterrors.IsConnectionError(err):
+			return nil, err
+		case attempt == maxQueryAttempts:
+			c.conn.Close()
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+		if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
+			c.conn.Close()
+			return nil, reconnectErr
+		}
+	}
+	panic("unreachable")
+}
+
 // --- Context-aware execution helpers ---
 
 // handleContextCancellation cancels the backend query if adminPool is available.
