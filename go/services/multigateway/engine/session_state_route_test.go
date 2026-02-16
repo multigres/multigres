@@ -212,6 +212,17 @@ func TestSessionStateRoute_GetQuery(t *testing.T) {
 	assert.Equal(t, "SET x = 1", ssr.GetQuery())
 }
 
+func TestSessionStateRoute_String(t *testing.T) {
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "work_mem",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
+	}
+	ssr := NewSessionStateRoute(nil, "SET work_mem = '256MB'", stmt)
+	result := ssr.String()
+	assert.Contains(t, result, "SessionStateRoute")
+}
+
 func TestExtractVariableValue(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -271,6 +282,13 @@ func TestExtractVariableValue(t *testing.T) {
 			}},
 			expected: "public, pg_catalog",
 		},
+		{
+			name: "fallback node uses SqlString",
+			args: &ast.NodeList{Items: []ast.Node{
+				&ast.Float{FVal: "2.5"},
+			}},
+			expected: "2.5",
+		},
 	}
 
 	for _, tc := range tests {
@@ -311,6 +329,11 @@ func TestExtractConstValue(t *testing.T) {
 			name:     "float val",
 			input:    &ast.A_Const{Val: &ast.Float{FVal: "1.5"}},
 			expected: "1.5",
+		},
+		{
+			name:     "fallback val uses SqlString",
+			input:    &ast.A_Const{Val: &ast.Boolean{BoolVal: true}},
+			expected: "TRUE",
 		},
 	}
 
