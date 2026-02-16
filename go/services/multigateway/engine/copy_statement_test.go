@@ -31,8 +31,11 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// mockIExecute is a mock implementation of IExecute for testing CopyStatement.
+// mockIExecute is a mock implementation of IExecute for testing.
 type mockIExecute struct {
+	// StreamExecute behavior
+	streamExecuteErr error
+
 	// CopyInitiate behavior
 	copyInitiateErr     error
 	copyInitiateFormat  int16
@@ -58,7 +61,7 @@ func (m *mockIExecute) StreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return nil
+	return m.streamExecuteErr
 }
 
 func (m *mockIExecute) PortalStreamExecute(
