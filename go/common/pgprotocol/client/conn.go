@@ -121,7 +121,7 @@ type Conn struct {
 func Connect(ctx context.Context, poolCtx context.Context, config *Config) (*Conn, error) {
 	netConn, err := dial(ctx, config)
 	if err != nil {
-		return nil, fmt.Errorf("connect failed: %w", err)
+		return nil, err
 	}
 
 	// Create the connection object.
@@ -182,10 +182,18 @@ func dial(ctx context.Context, config *Config) (net.Conn, error) {
 		Timeout: config.DialTimeout,
 	}
 	if config.SocketFile != "" {
-		return dialer.DialContext(ctx, "unix", config.SocketFile)
+		conn, err := dialer.DialContext(ctx, "unix", config.SocketFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to Unix socket %s: %w", config.SocketFile, err)
+		}
+		return conn, nil
 	}
 	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	return dialer.DialContext(ctx, "tcp", address)
+	conn, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)
+	}
+	return conn, nil
 }
 
 // resetConn replaces the connection internals with a new network connection.
