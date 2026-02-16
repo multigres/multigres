@@ -838,7 +838,12 @@ func TestGlobalPoolerDiscovery_RegisterListener_ReplaysExistingPoolers(t *testin
 	listener := &mockPoolerListener{}
 	gd.RegisterListener(listener)
 
-	// The listener should immediately receive OnPoolerChanged for all existing poolers
+	// Wait for replay notifications to be processed
+	waitForCondition(t, func() bool {
+		return len(listener.getChangedPoolers()) == 2
+	}, "Listener should receive replay of 2 existing poolers")
+
+	// The listener should have received OnPoolerChanged for all existing poolers
 	changedPoolers := listener.getChangedPoolers()
 	require.Len(t, changedPoolers, 2, "Listener should receive replay of existing poolers")
 
@@ -871,6 +876,11 @@ func TestGlobalPoolerDiscovery_RegisterListener_ReceivesSubsequentChanges(t *tes
 	// Register listener
 	listener := &mockPoolerListener{}
 	gd.RegisterListener(listener)
+
+	// Wait for replay notification to be processed
+	waitForCondition(t, func() bool {
+		return len(listener.getChangedPoolers()) == 1
+	}, "Listener should receive replay of 1 existing pooler")
 
 	// Should have replayed pooler1
 	changedPoolers := listener.getChangedPoolers()

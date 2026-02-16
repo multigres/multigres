@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -120,21 +121,6 @@ func (pg *PoolerGateway) StreamExecute(
 
 	// Delegate to the pooler's QueryService
 	return conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
-}
-
-func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *query.Target) (queryservice.QueryService, error) {
-	conn, err := pg.loadBalancer.GetConnection(target)
-	if err != nil {
-		return nil, err
-	}
-
-	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
-		"pooler_id", conn.ID())
-
-	return conn.QueryService(), nil
 }
 
 // ExecuteQuery implements queryservice.QueryService.
@@ -233,7 +219,7 @@ func (pg *PoolerGateway) getSystemServiceClient(ctx context.Context, database st
 	// Try PRIMARY first, fall back to REPLICA if not found.
 	target := &query.Target{
 		TableGroup: "default", // TODO: Make configurable or discover from database
-		Shard:      "0-inf",   // TODO: Use proper shard constant
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 
@@ -272,14 +258,20 @@ func (pg *PoolerGateway) CopyReady(
 	copyQuery string,
 	options *query.ExecuteOptions,
 ) (int16, []int16, queryservice.ReservedState, error) {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return 0, nil, queryservice.ReservedState{}, err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopyReady(ctx, target, copyQuery, options)
+	return conn.QueryService().CopyReady(ctx, target, copyQuery, options)
 }
 
 // CopySendData implements queryservice.QueryService.
@@ -290,14 +282,20 @@ func (pg *PoolerGateway) CopySendData(
 	data []byte,
 	options *query.ExecuteOptions,
 ) error {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopySendData(ctx, target, data, options)
+	return conn.QueryService().CopySendData(ctx, target, data, options)
 }
 
 // CopyFinalize implements queryservice.QueryService.
@@ -308,14 +306,20 @@ func (pg *PoolerGateway) CopyFinalize(
 	finalData []byte,
 	options *query.ExecuteOptions,
 ) (*sqltypes.Result, error) {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return nil, err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopyFinalize(ctx, target, finalData, options)
+	return conn.QueryService().CopyFinalize(ctx, target, finalData, options)
 }
 
 // CopyAbort implements queryservice.QueryService.
@@ -326,12 +330,18 @@ func (pg *PoolerGateway) CopyAbort(
 	errorMsg string,
 	options *query.ExecuteOptions,
 ) error {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopyAbort(ctx, target, errorMsg, options)
+	return conn.QueryService().CopyAbort(ctx, target, errorMsg, options)
 }

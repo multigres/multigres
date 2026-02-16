@@ -48,7 +48,8 @@ type CellPoolerDiscovery struct {
 	cancelFunc context.CancelFunc
 	wg         sync.WaitGroup
 
-	// State
+	// State (protected by mu)
+	// Lock order: acquire this AFTER GlobalPoolerDiscovery.mu (never before)
 	mu          sync.Mutex
 	poolers     map[string]*topoclient.MultiPoolerInfo // pooler ID -> pooler info
 	lastRefresh time.Time
@@ -395,6 +396,17 @@ type PoolerChangeListener interface {
 	OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler)
 }
 
+// poolerNotification represents a notification to be delivered to listeners.
+type poolerNotification struct {
+	pooler         *clustermetadatapb.MultiPooler
+	isRemoval      bool
+	targetListener PoolerChangeListener // nil = broadcast to all
+
+	// Special: listener registration
+	isListenerRegistration bool
+	newListener            PoolerChangeListener
+}
+
 // GlobalPoolerDiscovery orchestrates multiple CellPoolerDiscovery instances,
 // one per cell. It watches for cell changes from global etcd and creates/removes
 // cell watchers as cells appear/disappear.
@@ -409,13 +421,22 @@ type GlobalPoolerDiscovery struct {
 	cancelFunc context.CancelFunc
 	wg         sync.WaitGroup
 
-	// State
+	// State (protected by mu)
+	// Lock order: acquire this BEFORE CellPoolerDiscovery.mu
 	mu           sync.Mutex
 	cellWatchers map[string]*CellPoolerDiscovery // cell name -> cell watcher
 
-	// Listeners for pooler changes
+	// Listeners for pooler changes (protected by listenersMu)
+	// Lock order: can acquire notificationsMu while holding this
 	listenersMu sync.Mutex
 	listeners   []PoolerChangeListener
+
+	// Notification queue (protected by notificationsMu)
+	// LOCK ORDERING: This is the INNERMOST lock - never acquire other locks while holding it.
+	// It CAN be acquired while holding mu, listenersMu, or CellPoolerDiscovery.mu.
+	notificationsMu sync.Mutex
+	notifications   []poolerNotification
+	notifySignal    chan struct{} // buffered(1) to wake up processor goroutine
 }
 
 // NewGlobalPoolerDiscovery creates a new global pooler discovery service.
@@ -431,12 +452,16 @@ func NewGlobalPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, l
 		ctx:          discoveryCtx,
 		cancelFunc:   cancel,
 		cellWatchers: make(map[string]*CellPoolerDiscovery),
+		notifySignal: make(chan struct{}, 1),
 	}
 }
 
 // Start begins the discovery process by watching for cells and starting
 // a CellPoolerDiscovery for each cell.
 func (gd *GlobalPoolerDiscovery) Start() {
+	// Start notification processor goroutine
+	gd.wg.Go(gd.processNotifications)
+
 	gd.wg.Go(func() {
 		gd.logger.Info("Starting global pooler discovery")
 
@@ -512,48 +537,132 @@ func (gd *GlobalPoolerDiscovery) Stop() {
 	gd.wg.Wait()
 }
 
+// processNotifications runs in a background goroutine and processes queued notifications.
+func (gd *GlobalPoolerDiscovery) processNotifications() {
+	for {
+		select {
+		case <-gd.ctx.Done():
+			return
+
+		case <-gd.notifySignal:
+			// Drain and process all pending notifications
+			for {
+				gd.notificationsMu.Lock()
+				if len(gd.notifications) == 0 {
+					gd.notificationsMu.Unlock()
+					break // Buffer empty, go back to waiting
+				}
+
+				pending := gd.notifications
+				gd.notifications = nil
+				gd.notificationsMu.Unlock()
+
+				// Process notifications
+				for _, notif := range pending {
+					if notif.isListenerRegistration {
+						// Add listener in serial order with notifications
+						gd.listenersMu.Lock()
+						gd.listeners = append(gd.listeners, notif.newListener)
+						gd.listenersMu.Unlock()
+						continue
+					}
+
+					if notif.targetListener != nil {
+						// Targeted replay - only call specific listener
+						if notif.isRemoval {
+							notif.targetListener.OnPoolerRemoved(notif.pooler)
+						} else {
+							notif.targetListener.OnPoolerChanged(notif.pooler)
+						}
+					} else {
+						// Broadcast - re-read listeners to include recently-registered ones
+						gd.listenersMu.Lock()
+						currentListeners := gd.listeners
+						gd.listenersMu.Unlock()
+
+						for _, listener := range currentListeners {
+							if notif.isRemoval {
+								listener.OnPoolerRemoved(notif.pooler)
+							} else {
+								listener.OnPoolerChanged(notif.pooler)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// queueNotification adds a notification to the queue and signals the processor.
+func (gd *GlobalPoolerDiscovery) queueNotification(notif poolerNotification) {
+	gd.notificationsMu.Lock()
+	gd.notifications = append(gd.notifications, notif)
+	gd.notificationsMu.Unlock()
+
+	// Wake up processor (non-blocking - buffered channel)
+	select {
+	case gd.notifySignal <- struct{}{}:
+	default: // Already signaled, processor will drain buffer
+	}
+}
+
 // RegisterListener adds a listener for pooler change notifications.
 // The listener will immediately receive OnPoolerChanged for all currently
 // known poolers, then continue to receive updates as poolers change.
 func (gd *GlobalPoolerDiscovery) RegisterListener(listener PoolerChangeListener) {
-	gd.listenersMu.Lock()
-	defer gd.listenersMu.Unlock()
-
-	// Add listener to the list
-	gd.listeners = append(gd.listeners, listener)
-
-	// Replay current state to the new listener
+	// Collect current state and queue registration+replay atomically
+	// while holding gd.mu to prevent poolers from changing between
+	// collection and queuing
 	gd.mu.Lock()
+
+	// Collect replay notifications
+	var replay []poolerNotification
 	for _, watcher := range gd.cellWatchers {
 		watcher.mu.Lock()
 		for _, pooler := range watcher.poolers {
-			listener.OnPoolerChanged(pooler.MultiPooler)
+			replay = append(replay, poolerNotification{
+				pooler:         pooler.MultiPooler,
+				targetListener: listener,
+			})
 		}
 		watcher.mu.Unlock()
 	}
+
+	// Queue: (1) add listener, (2) replay state
+	// This must happen while still holding gd.mu to ensure atomicity
+	gd.notificationsMu.Lock()
+	gd.notifications = append(gd.notifications, poolerNotification{
+		isListenerRegistration: true,
+		newListener:            listener,
+	})
+	gd.notifications = append(gd.notifications, replay...)
+	gd.notificationsMu.Unlock()
+
 	gd.mu.Unlock()
+
+	// Signal processor outside locks
+	select {
+	case gd.notifySignal <- struct{}{}:
+	default:
+	}
 }
 
 // notifyPoolerChanged notifies all listeners that a pooler was added or updated.
 func (gd *GlobalPoolerDiscovery) notifyPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
-	gd.listenersMu.Lock()
-	listeners := gd.listeners
-	gd.listenersMu.Unlock()
-
-	for _, listener := range listeners {
-		listener.OnPoolerChanged(pooler)
-	}
+	gd.queueNotification(poolerNotification{
+		pooler:         pooler,
+		targetListener: nil, // Broadcast to all
+	})
 }
 
 // notifyPoolerRemoved notifies all listeners that a pooler was removed.
 func (gd *GlobalPoolerDiscovery) notifyPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
-	gd.listenersMu.Lock()
-	listeners := gd.listeners
-	gd.listenersMu.Unlock()
-
-	for _, listener := range listeners {
-		listener.OnPoolerRemoved(pooler)
-	}
+	gd.queueNotification(poolerNotification{
+		pooler:         pooler,
+		isRemoval:      true,
+		targetListener: nil, // Broadcast to all
+	})
 }
 
 // PoolerCount returns the total number of discovered poolers across all cells.

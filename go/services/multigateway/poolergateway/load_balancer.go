@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
@@ -62,7 +63,7 @@ func NewLoadBalancer(localCell string, logger *slog.Logger) *LoadBalancer {
 // This optimization is important during failover: when a replica is promoted to primary,
 // we want to reuse the existing gRPC connection rather than creating a new one.
 func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
-	poolerID := poolerIDString(pooler.Id)
+	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -100,7 +101,7 @@ func (lb *LoadBalancer) RemovePooler(poolerID *clustermetadatapb.ID) {
 		return
 	}
 
-	idStr := poolerIDString(poolerID)
+	idStr := topoclient.MultiPoolerIDString(poolerID)
 
 	lb.mu.Lock()
 	conn, exists := lb.connections[idStr]
@@ -167,7 +168,7 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 		return nil, errors.New("pooler ID cannot be nil")
 	}
 
-	idStr := poolerIDString(poolerID)
+	idStr := topoclient.MultiPoolerIDString(poolerID)
 
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -232,11 +233,6 @@ func matchesTarget(conn *PoolerConnection, target *query.Target) bool {
 	}
 }
 
-// poolerIDString returns the string ID for a pooler.
-func poolerIDString(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s/%s", id.GetCell(), id.GetName())
-}
-
 // ConnectionCount returns the number of active connections.
 func (lb *LoadBalancer) ConnectionCount() int {
 	lb.mu.Lock()
@@ -279,7 +275,7 @@ func NewLoadBalancerListener(lb *LoadBalancer) *LoadBalancerListener {
 func (l *LoadBalancerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
 	if err := l.lb.AddPooler(pooler); err != nil {
 		l.lb.logger.Error("failed to add pooler on change event",
-			"pooler_id", poolerIDString(pooler.Id),
+			"pooler_id", topoclient.MultiPoolerIDString(pooler.Id),
 			"error", err)
 	}
 }
