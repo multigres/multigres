@@ -41,24 +41,6 @@ const (
 	PostgresCacheDir = "/tmp/multigres_pg_cache"
 )
 
-// ValidatedRegressionTests lists the PostgreSQL regression tests that have been
-// validated to pass through multigres, following the order from
-// src/test/regress/parallel_schedule. This serves as a reference for which tests
-// are known to work. To run only these tests, set:
-//
-//	PGREGRESS_TESTS="test_setup boolean char name varchar text int2 int4 int8 oid float4 float8 bit numeric txid uuid enum money rangetypes pg_lsn regproc"
-var ValidatedRegressionTests = []string{
-	// Required setup
-	"test_setup",
-
-	// Group 1: basic types
-	"boolean", "char", "name", "varchar", "text",
-	"int2", "int4", "int8", "oid",
-	"float4", "float8",
-	"bit", "numeric", "txid", "uuid", "enum",
-	"money", "rangetypes", "pg_lsn", "regproc",
-}
-
 // PostgresBuilder manages PostgreSQL source checkout, build, and test execution
 type PostgresBuilder struct {
 	SourceDir  string // Shared source cache: /tmp/multigres_pg_cache/source/postgres
