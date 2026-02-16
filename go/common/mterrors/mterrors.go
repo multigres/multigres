@@ -499,7 +499,10 @@ func IsConnectionError(err error) bool {
 			"57P03": // cannot_connect_now
 			return true
 		}
-		return false
+		// Don't return false here — fall through to check for I/O errors.
+		// A wrapped error chain could contain both a PgDiagnostic and an
+		// underlying I/O error (e.g., EOF), and we don't want the
+		// non-connection SQLSTATE to mask the transport-level failure.
 	}
 
 	// Common I/O errors indicating connection loss.

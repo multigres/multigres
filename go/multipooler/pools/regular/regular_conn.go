@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -32,6 +33,15 @@ import (
 // maxQueryAttempts is the maximum number of attempts for retrying queries.
 // On connection error, the connection is reconnected and the query retried.
 const maxQueryAttempts = 3
+
+// retryBackoff is the delay between retry attempts. This gives PostgreSQL
+// time to finish starting up when the connection error is due to a restart.
+const retryBackoff = 100 * time.Millisecond
+
+// errStreamingAlreadyStarted is a sentinel used internally to signal that a
+// streaming query's callback was already invoked, so retrying would duplicate
+// rows. retryOnConnectionError treats it as a non-connection error and stops.
+var errStreamingAlreadyStarted = errors.New("streaming callback already invoked, cannot retry")
 
 // Conn wraps a client.Conn with session state management.
 // It implements the connpool.Connection interface for settings-based pool routing.
@@ -376,12 +386,23 @@ func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 }
 
 // QueryStreamingWithRetry executes a streaming query with automatic retry on
-// connection error. The callback must not have produced observable side effects
-// before the retry; if streaming has already started sending results, the error
-// is returned without retry.
+// connection error. If the callback has already been invoked (i.e., streaming
+// has started delivering results), the error is returned without retry to
+// avoid sending duplicate rows to the caller.
 func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
+	var callbackInvoked bool
+	wrappedCallback := func(ctx context.Context, result *sqltypes.Result) error {
+		callbackInvoked = true
+		return callback(ctx, result)
+	}
 	_, err := retryOnConnectionError(c, ctx, func() (struct{}, error) {
-		return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
+		if callbackInvoked {
+			// Callback was already called in a previous attempt — retrying
+			// would replay the query and send duplicate rows. Return the
+			// original connection error so the caller sees a clean failure.
+			return struct{}{}, errStreamingAlreadyStarted
+		}
+		return struct{}{}, c.conn.QueryStreaming(ctx, sql, wrappedCallback)
 	})
 	return err
 }
@@ -415,6 +436,14 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 			return zero, err
 		}
 		if ctx.Err() != nil {
+			var zero T
+			return zero, context.Cause(ctx)
+		}
+		// Brief backoff before reconnecting to give PostgreSQL time to
+		// finish starting up if the error is due to a restart.
+		select {
+		case <-time.After(retryBackoff):
+		case <-ctx.Done():
 			var zero T
 			return zero, context.Cause(ctx)
 		}

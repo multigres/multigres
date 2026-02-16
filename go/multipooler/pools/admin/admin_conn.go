@@ -32,6 +32,10 @@ import (
 // maxQueryAttempts is the maximum number of attempts for retrying queries.
 const maxQueryAttempts = 3
 
+// retryBackoff is the delay between retry attempts. This gives PostgreSQL
+// time to finish starting up when the connection error is due to a restart.
+const retryBackoff = 100 * time.Millisecond
+
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.
 // This is used when cancelling a backend query due to context cancellation.
 const DefaultCancelTimeout = 5 * time.Second
@@ -133,6 +137,13 @@ func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 		}
 		if ctx.Err() != nil {
 			return nil, err
+		}
+		// Brief backoff before reconnecting to give PostgreSQL time to
+		// finish starting up if the error is due to a restart.
+		select {
+		case <-time.After(retryBackoff):
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
 		}
 		if reconnectErr := c.conn.Reconnect(ctx); reconnectErr != nil {
 			c.conn.Close()
