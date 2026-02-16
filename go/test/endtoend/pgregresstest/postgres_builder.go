@@ -41,12 +41,13 @@ const (
 	PostgresCacheDir = "/tmp/multigres_pg_cache"
 )
 
-// RegressionTests is the list of PostgreSQL regression tests to run, following the
-// order from src/test/regress/parallel_schedule. Tests are added incrementally as
-// multigres compatibility improves.
+// ValidatedRegressionTests lists the PostgreSQL regression tests that have been
+// validated to pass through multigres, following the order from
+// src/test/regress/parallel_schedule. This serves as a reference for which tests
+// are known to work. To run only these tests, set:
 //
-// Group 1: basic types and operators
-var RegressionTests = []string{
+//	PGREGRESS_TESTS="test_setup boolean char name varchar text int2 int4 int8 oid float4 float8 bit numeric txid uuid enum money rangetypes pg_lsn regproc"
+var ValidatedRegressionTests = []string{
 	// Required setup
 	"test_setup",
 
@@ -268,11 +269,20 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	//
 	// Reference: https://github.com/postgres/postgres/blob/master/src/test/regress/GNUmakefile
 
-	cmd := exec.CommandContext(ctx, "make",
-		"-C", filepath.Join(pb.BuildDir, "src/test/regress"), // Regress directory
-		"installcheck-tests", // Target for running specific tests against existing server
-		"TESTS="+strings.Join(RegressionTests, " "),
-	)
+	regressDir := filepath.Join(pb.BuildDir, "src/test/regress")
+	makeArgs := []string{"-C", regressDir}
+
+	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {
+		// Run only the specified tests via installcheck-tests
+		makeArgs = append(makeArgs, "installcheck-tests", "TESTS="+testsEnv)
+		t.Logf("Running selective regression tests: %s", testsEnv)
+	} else {
+		// Run the full installcheck suite (parallel_schedule)
+		makeArgs = append(makeArgs, "installcheck")
+		t.Logf("Running full PostgreSQL regression test suite (installcheck)")
+	}
+
+	cmd := exec.CommandContext(ctx, "make", makeArgs...)
 
 	// Set environment variables for connection
 	cmd.Env = append(os.Environ(),

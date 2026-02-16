@@ -36,6 +36,8 @@ import (
 // 6. Reports results (logs failures but doesn't fail the test)
 //
 // The test is skipped by default. Set RUN_PGREGRESS=1 to run it.
+// By default it runs the full installcheck suite (parallel_schedule).
+// Set PGREGRESS_TESTS="boolean char" to run only specific tests.
 func TestPostgreSQLRegression(t *testing.T) {
 	// Skip unless explicitly enabled via environment variable
 	if os.Getenv("RUN_PGREGRESS") != "1" {
