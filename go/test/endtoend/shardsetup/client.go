@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
+	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -162,6 +163,38 @@ func NewPgctldClient(grpcPort int) (*PgctldClient, error) {
 
 // Close closes the underlying connection.
 func (c *PgctldClient) Close() error {
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}
+
+// MultiOrchClient wraps the multiorch gRPC client.
+type MultiOrchClient struct {
+	conn *grpc.ClientConn
+	multiorchpb.MultiOrchServiceClient
+}
+
+// NewMultiOrchClient creates a new MultiOrchClient connected to the given gRPC port.
+func NewMultiOrchClient(grpcPort int) (*MultiOrchClient, error) {
+	addr := fmt.Sprintf("localhost:%d", grpcPort)
+
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to multiorch: %w", err)
+	}
+
+	return &MultiOrchClient{
+		conn:                   conn,
+		MultiOrchServiceClient: multiorchpb.NewMultiOrchServiceClient(conn),
+	}, nil
+}
+
+// Close closes the underlying connection.
+func (c *MultiOrchClient) Close() error {
 	if c.conn != nil {
 		return c.conn.Close()
 	}

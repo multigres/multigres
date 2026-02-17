@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 
@@ -677,6 +679,10 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 	)
 
 	t.Logf("checkBootstrapStatus: primary=%s, initialized=%d/%d", primaryName, initializedCount, len(setup.Multipoolers))
+
+	// Query multiorch instances for status (best-effort diagnostic logging)
+	logMultiOrchStatus(ctx, t, setup)
+
 	return primaryName, allInitialized
 }
 
@@ -1327,4 +1333,105 @@ func (s *ShardSetup) saveBaselineGucs(t *testing.T) {
 
 		client.Close()
 	}
+}
+
+// logMultiOrchStatus queries each running multiorch and logs its view of the shard.
+// This includes pooler states and detected problems.
+// Best-effort diagnostic logging - failures don't fail the bootstrap check.
+func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup) {
+	t.Helper()
+
+	for name, inst := range setup.MultiOrchInstances {
+		if !inst.IsRunning() {
+			continue
+		}
+
+		client, err := NewMultiOrchClient(inst.GrpcPort)
+		if err != nil {
+			t.Logf("checkBootstrapStatus: multiorch %s: failed to connect: %v", name, err)
+			continue
+		}
+		defer client.Close()
+
+		// Query shard status for the default shard
+		// TODO: Handle multiple shards if needed
+		resp, err := client.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
+			Database:   "postgres",
+			TableGroup: constants.DefaultTableGroup, // "default" - must match multipooler registration
+			Shard:      constants.DefaultShard,      // "0-inf" - must match multipooler registration
+		})
+		if err != nil {
+			t.Logf("checkBootstrapStatus: multiorch %s: RPC failed: %v", name, err)
+			continue
+		}
+
+		// Format pooler health status
+		poolerSummary := formatPoolerHealth(resp.PoolerHealth)
+
+		// Format problems
+		problemSummary := ""
+		if len(resp.Problems) == 0 {
+			problemSummary = "0 problems"
+		} else {
+			problemSummary = fmt.Sprintf("%d problem", len(resp.Problems))
+			if len(resp.Problems) > 1 {
+				problemSummary += "s"
+			}
+			problemSummary += " " + formatProblemsCompact(resp.Problems)
+		}
+
+		t.Logf("checkBootstrapStatus: multiorch %s: %s, %s", name, poolerSummary, problemSummary)
+	}
+}
+
+// formatProblemsCompact creates a one-line summary: [code1@pooler1, code2@pooler2]
+func formatProblemsCompact(problems []*multiorchpb.DetectedProblem) string {
+	if len(problems) == 0 {
+		return "[]"
+	}
+
+	summaries := make([]string, 0, len(problems))
+	for _, p := range problems {
+		poolerName := ""
+		if p.PoolerId != nil {
+			poolerName = p.PoolerId.Name
+		}
+		summaries = append(summaries, fmt.Sprintf("%s@%s", p.Code, poolerName))
+	}
+
+	return "[" + strings.Join(summaries, ", ") + "]"
+}
+
+// formatPoolerHealth creates a detailed status: 3/3 reachable (pooler-1:PRIMARY/up, pooler-2:REPLICA/up, pooler-3:REPLICA/up)
+func formatPoolerHealth(healthList []*multiorchpb.PoolerHealth) string {
+	if len(healthList) == 0 {
+		return "0 poolers"
+	}
+
+	// Count reachable poolers
+	reachableCount := 0
+	for _, h := range healthList {
+		if h.Reachable {
+			reachableCount++
+		}
+	}
+
+	// Build individual pooler status strings
+	poolerStatuses := make([]string, 0, len(healthList))
+	for _, h := range healthList {
+		poolerName := ""
+		if h.PoolerId != nil {
+			poolerName = h.PoolerId.Name
+		}
+
+		// Format as: pooler-1:PRIMARY/up or pooler-1:UNKNOWN/down
+		status := "down"
+		if h.Reachable && h.PostgresRunning {
+			status = "up"
+		}
+
+		poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s:%s/%s", poolerName, h.PoolerType, status))
+	}
+
+	return fmt.Sprintf("%d/%d reachable (%s)", reachableCount, len(healthList), strings.Join(poolerStatuses, ", "))
 }
