@@ -513,12 +513,14 @@ func TestPgCtldService_StatusMethods(t *testing.T) {
 	assert.Empty(t, status.ErrorMessage)
 
 	// Test setting status
-	service.setPgBackRestStatus(true, "", 0)
+	service.setPgBackRestStatus(true, "", false)
 	status = service.getPgBackRestStatus()
 	assert.True(t, status.Running)
 
-	// Test with error
-	service.setPgBackRestStatus(false, "test error", 3)
+	// Test with error and increment restart count to 3
+	service.setPgBackRestStatus(false, "", true)           // 1
+	service.setPgBackRestStatus(false, "", true)           // 2
+	service.setPgBackRestStatus(false, "test error", true) // 3
 	status = service.getPgBackRestStatus()
 	assert.False(t, status.Running)
 	assert.Equal(t, "test error", status.ErrorMessage)
@@ -578,8 +580,11 @@ func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
 	require.NoError(t, err)
 	defer service.Close()
 
-	// Set a known status
-	service.setPgBackRestStatus(true, "", 5)
+	// Set a known status with restart count of 5
+	for range 5 {
+		service.setPgBackRestStatus(false, "", true)
+	}
+	service.setPgBackRestStatus(true, "", false)
 
 	// Call Status RPC
 	resp, err := service.Status(context.Background(), &pb.StatusRequest{})
@@ -600,14 +605,14 @@ func TestServerCommand_BackupConfigValidation(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:        "backup-path without backup-type",
+			name:        "backup-type not set",
 			backupType:  "",
 			backupPath:  "/backup",
 			wantErr:     true,
 			errContains: "--backup-type is required",
 		},
 		{
-			name:        "backup-type without backup-path",
+			name:        "backup-path not set",
 			backupType:  "s3",
 			backupPath:  "",
 			wantErr:     true,
@@ -617,12 +622,6 @@ func TestServerCommand_BackupConfigValidation(t *testing.T) {
 			name:       "both backup-type and backup-path set",
 			backupType: "filesystem",
 			backupPath: "/backup",
-			wantErr:    false,
-		},
-		{
-			name:       "neither backup-type nor backup-path set",
-			backupType: "",
-			backupPath: "",
 			wantErr:    false,
 		},
 	}

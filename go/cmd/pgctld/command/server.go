@@ -25,7 +25,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -138,11 +137,11 @@ func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string)
 	// Validate backup configuration flags
 	backupType := s.backupType.Get()
 	backupPath := s.backupPath.Get()
-	if backupType != "" && backupPath == "" {
-		return errors.New("--backup-path is required when --backup-type is specified")
+	if backupType == "" {
+		return errors.New("--backup-type is required")
 	}
-	if backupPath != "" && backupType == "" {
-		return errors.New("--backup-type is required when --backup-path is specified")
+	if backupPath == "" {
+		return errors.New("--backup-path is required")
 	}
 
 	// Then run our global validation (but not initialization validation -
@@ -170,10 +169,23 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 	cmd.Flags().String("pgbackrest-cert-dir", s.pgbackrestCertDir.Default(), "Directory containing ca.crt, pgbackrest.crt, pgbackrest.key")
 	viperutil.BindFlags(cmd.Flags(), s.pgbackrestPort, s.pgbackrestCertDir)
 
-	// Backup configuration flags (backup-type, backup-path, backup-bucket, backup-region,
-	// backup-endpoint, backup-key-prefix are already registered as persistent flags in root.go)
+	// Backup configuration flags (server command only)
+	cmd.Flags().String("backup-type", s.backupType.Default(), "Backup type: s3 or filesystem")
+	cmd.Flags().String("backup-path", s.backupPath.Default(), "Filesystem backup directory path")
+	cmd.Flags().String("backup-bucket", s.backupBucket.Default(), "S3 bucket name for backups")
+	cmd.Flags().String("backup-region", s.backupRegion.Default(), "S3 region for backups")
+	cmd.Flags().String("backup-endpoint", s.backupEndpoint.Default(), "S3 endpoint URL (optional, for S3-compatible services)")
+	cmd.Flags().String("backup-key-prefix", s.backupKeyPrefix.Default(), "S3 key prefix for backup objects (optional)")
 	cmd.Flags().Bool("backup-use-env-credentials", s.backupUseEnvCredentials.Default(), "Use AWS credentials from environment variables")
-	viperutil.BindFlags(cmd.Flags(), s.backupUseEnvCredentials)
+	viperutil.BindFlags(cmd.Flags(),
+		s.backupType,
+		s.backupPath,
+		s.backupBucket,
+		s.backupRegion,
+		s.backupEndpoint,
+		s.backupKeyPrefix,
+		s.backupUseEnvCredentials,
+	)
 
 	return cmd
 }
@@ -420,18 +432,24 @@ func NewPgCtldService(
 	}, nil
 }
 
-// setPgBackRestStatus updates the pgBackRest status thread-safely
-func (s *PgCtldService) setPgBackRestStatus(running bool, errorMessage string, restartCount int32) {
+// setPgBackRestStatus updates the pgBackRest status thread-safely and returns the current restart count
+func (s *PgCtldService) setPgBackRestStatus(running bool, errorMessage string, incrementRestart bool) int32 {
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
 
+	if incrementRestart {
+		s.restartCount++
+	}
+
 	s.pgBackRestStatus.Running = running
 	s.pgBackRestStatus.ErrorMessage = errorMessage
-	s.pgBackRestStatus.RestartCount = restartCount
+	s.pgBackRestStatus.RestartCount = s.restartCount
 
 	if running {
 		s.pgBackRestStatus.LastStarted = timestamppb.Now()
 	}
+
+	return s.restartCount
 }
 
 // getPgBackRestStatus returns a copy of the current status thread-safely
@@ -502,7 +520,7 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 	configPath := filepath.Join(s.poolerDir, "pgbackrest", "pgbackrest.conf")
 	if _, err := os.Stat(configPath); err != nil {
 		s.logger.InfoContext(ctx, "pgBackRest config not found, skipping pgBackRest server startup", "config_path", configPath)
-		s.setPgBackRestStatus(false, "config not found", 0)
+		s.setPgBackRestStatus(false, "config not found", false)
 		return
 	}
 
@@ -515,18 +533,18 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 		for attempt, err := range r.Attempts(ctx) {
 			if err != nil {
 				// Context cancelled during startup - clean shutdown
-				s.setPgBackRestStatus(false, fmt.Sprintf("context cancelled: %v", err), atomic.LoadInt32(&s.restartCount))
+				s.setPgBackRestStatus(false, fmt.Sprintf("context cancelled: %v", err), false)
 				return
 			}
 			if attempt >= 4 {
-				s.setPgBackRestStatus(false, "failed after 5 attempts", atomic.LoadInt32(&s.restartCount))
+				s.setPgBackRestStatus(false, "failed after 5 attempts", false)
 				return
 			}
 
 			var startErr error
 			cmd, startErr = s.startPgBackRest(ctx)
 			if startErr == nil {
-				s.setPgBackRestStatus(true, "", atomic.LoadInt32(&s.restartCount))
+				s.setPgBackRestStatus(true, "", false)
 				s.pgBackRestCmd = cmd
 				break // Success, exit retry loop
 			}
@@ -548,10 +566,8 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 		select {
 		case <-done:
 			// Process exited, restart
-			atomic.AddInt32(&s.restartCount, 1)
-			currentCount := atomic.LoadInt32(&s.restartCount)
+			currentCount := s.setPgBackRestStatus(false, "process exited, restarting", true)
 			s.logger.InfoContext(ctx, "pgBackRest exited, restarting", "restart_count", currentCount)
-			s.setPgBackRestStatus(false, "process exited, restarting", currentCount)
 
 		case <-ctx.Done():
 			// Shutdown requested, kill process

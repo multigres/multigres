@@ -182,14 +182,6 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
 
-	// Backup configuration flags
-	root.PersistentFlags().String("backup-type", pc.backupType.Default(), "Backup type: s3 or filesystem")
-	root.PersistentFlags().String("backup-path", pc.backupPath.Default(), "Filesystem backup directory path")
-	root.PersistentFlags().String("backup-bucket", pc.backupBucket.Default(), "S3 bucket name for backups")
-	root.PersistentFlags().String("backup-region", pc.backupRegion.Default(), "S3 region for backups")
-	root.PersistentFlags().String("backup-endpoint", pc.backupEndpoint.Default(), "S3 endpoint URL (optional, for S3-compatible services)")
-	root.PersistentFlags().String("backup-key-prefix", pc.backupKeyPrefix.Default(), "S3 key prefix for backup objects (optional)")
-
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
 
@@ -202,12 +194,6 @@ management for PostgreSQL servers.`,
 		pc.pgListenAddresses,
 		pc.pgHbaTemplate,
 		pc.postgresConfigTmpl,
-		pc.backupType,
-		pc.backupPath,
-		pc.backupBucket,
-		pc.backupRegion,
-		pc.backupEndpoint,
-		pc.backupKeyPrefix,
 	)
 
 	// Add all subcommands
