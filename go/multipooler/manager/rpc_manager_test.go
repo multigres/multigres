@@ -2285,9 +2285,6 @@ func TestMultiPoolerManager_Status_IncludesPgBackRestStatus(t *testing.T) {
 		status, err := pm.Status(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, status)
-
-		// Verify pgBackRest status is included
-		assert.True(t, status.PgbackrestServerRunning, "PgbackrestServerRunning should be true")
 	})
 }
 

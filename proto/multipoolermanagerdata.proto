@@ -227,9 +227,6 @@ message Status {
 
   // Shard ID that this pooler belongs to
   string shard_id = 10;
-
-  // Whether pgBackRest TLS server is running (propagated from pgctld)
-  bool pgbackrest_server_running = 11;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers

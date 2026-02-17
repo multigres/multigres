@@ -277,13 +277,12 @@ func (pm *MultiPoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.Status, error) {
 	// Build status with initialization fields (always available)
 	poolerStatus := &multipoolermanagerdatapb.Status{
-		PoolerType:              pm.getPoolerType(),
-		IsInitialized:           pm.isInitialized(ctx),
-		HasDataDirectory:        pm.hasDataDirectory(),
-		PostgresRunning:         pm.isPostgresRunning(ctx),
-		PostgresRole:            pm.getRole(ctx),
-		ShardId:                 pm.getShardID(),
-		PgbackrestServerRunning: pm.isPgBackRestServerRunning(ctx),
+		PoolerType:       pm.getPoolerType(),
+		IsInitialized:    pm.isInitialized(ctx),
+		HasDataDirectory: pm.hasDataDirectory(),
+		PostgresRunning:  pm.isPostgresRunning(ctx),
+		PostgresRole:     pm.getRole(ctx),
+		ShardId:          pm.getShardID(),
 	}
 
 	// Get consensus term if available (use inconsistent read for monitoring)

@@ -1320,11 +1320,9 @@ type Status struct {
 	// Current consensus term information
 	ConsensusTerm *ConsensusTerm `protobuf:"bytes,9,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
 	// Shard ID that this pooler belongs to
-	ShardId string `protobuf:"bytes,10,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
-	// Whether pgBackRest TLS server is running (propagated from pgctld)
-	PgbackrestServerRunning bool `protobuf:"varint,11,opt,name=pgbackrest_server_running,json=pgbackrestServerRunning,proto3" json:"pgbackrest_server_running,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	ShardId       string `protobuf:"bytes,10,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Status) Reset() {
@@ -1425,13 +1423,6 @@ func (x *Status) GetShardId() string {
 		return x.ShardId
 	}
 	return ""
-}
-
-func (x *Status) GetPgbackrestServerRunning() bool {
-	if x != nil {
-		return x.PgbackrestServerRunning
-	}
-	return false
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -4134,7 +4125,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
 	"\x16PrimaryPositionRequest\"<\n" +
 	"\x17PrimaryPositionResponse\x12!\n" +
-	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xe2\x04\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xa6\x04\n" +
 	"\x06Status\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +
@@ -4147,8 +4138,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\fwal_position\x18\b \x01(\tR\vwalPosition\x12L\n" +
 	"\x0econsensus_term\x18\t \x01(\v2%.multipoolermanagerdata.ConsensusTermR\rconsensusTerm\x12\x19\n" +
 	"\bshard_id\x18\n" +
-	" \x01(\tR\ashardId\x12:\n" +
-	"\x19pgbackrest_server_running\x18\v \x01(\bR\x17pgbackrestServerRunning\"\x0f\n" +
+	" \x01(\tR\ashardId\"\x0f\n" +
 	"\rStatusRequest\"H\n" +
 	"\x0eStatusResponse\x126\n" +
 	"\x06status\x18\x01 \x01(\v2\x1e.multipoolermanagerdata.StatusR\x06status\"\x98\x03\n" +
