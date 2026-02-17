@@ -171,15 +171,10 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 	cmd.Flags().String("pgbackrest-cert-dir", s.pgbackrestCertDir.Default(), "Directory containing ca.crt, pgbackrest.crt, pgbackrest.key")
 	viperutil.BindFlags(cmd.Flags(), s.pgbackrestPort, s.pgbackrestCertDir)
 
-	// Backup configuration flags
-	cmd.Flags().String("backup-type", s.backupType.Default(), "Backup type (s3 or filesystem)")
-	cmd.Flags().String("backup-path", s.backupPath.Default(), "Filesystem backup path")
-	cmd.Flags().String("backup-bucket", s.backupBucket.Default(), "S3 backup bucket")
-	cmd.Flags().String("backup-region", s.backupRegion.Default(), "S3 backup region")
-	cmd.Flags().String("backup-endpoint", s.backupEndpoint.Default(), "S3 backup endpoint")
-	cmd.Flags().String("backup-key-prefix", s.backupKeyPrefix.Default(), "S3 backup key prefix")
+	// Backup configuration flags (backup-type, backup-path, backup-bucket, backup-region,
+	// backup-endpoint, backup-key-prefix are already registered as persistent flags in root.go)
 	cmd.Flags().Bool("backup-use-env-credentials", s.backupUseEnvCredentials.Default(), "Use AWS credentials from environment variables")
-	viperutil.BindFlags(cmd.Flags(), s.backupType, s.backupPath, s.backupBucket, s.backupRegion, s.backupEndpoint, s.backupKeyPrefix, s.backupUseEnvCredentials)
+	viperutil.BindFlags(cmd.Flags(), s.backupUseEnvCredentials)
 
 	return cmd
 }
