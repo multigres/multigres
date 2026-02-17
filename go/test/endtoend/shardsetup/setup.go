@@ -41,6 +41,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 
 	// Register topo plugins
 	_ "github.com/multigres/multigres/go/common/plugins/topo"
@@ -1305,6 +1306,34 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	require.NoError(t, err, "Failed to kill postgres process %d for %s", pid, name)
 
 	t.Logf("Postgres killed with SIGKILL on %s - multipooler should detect failure", name)
+}
+
+// ShutdownPostgres gracefully shuts down postgres on the specified node using pgctld Stop RPC.
+// This is different from KillPostgres which uses SIGKILL for immediate termination.
+// Use this to test scenarios where postgres shuts down cleanly vs crash scenarios.
+func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) {
+	t.Helper()
+
+	inst := s.GetMultipoolerInstance(name)
+	require.NotNil(t, inst, "node %s not found", name)
+
+	t.Logf("Gracefully shutting down postgres on node %s via pgctld Stop RPC", name)
+
+	// Create pgctld client
+	client, err := NewPgctldClient(inst.Pgctld.GrpcPort)
+	require.NoError(t, err, "Failed to connect to pgctld for %s", name)
+	defer client.Close()
+
+	// Call Stop RPC with "fast" mode for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = client.Stop(ctx, &pgctldpb.StopRequest{
+		Mode: "fast",
+	})
+	require.NoError(t, err, "Failed to stop postgres on %s", name)
+
+	t.Logf("Postgres gracefully stopped on %s - multipooler should detect failure", name)
 }
 
 // baselineGucNames returns the GUC names to save/restore for baseline state.
