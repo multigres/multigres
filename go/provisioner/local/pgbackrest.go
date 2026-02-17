@@ -15,21 +15,10 @@
 package local
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"time"
-
-	"github.com/multigres/multigres/go/provisioner"
 )
-
-// PgbackRestProvisionResult contains the result of provisioning pgbackrest server
-type PgbackRestProvisionResult struct {
-	Port    int
-	LogFile string
-}
 
 // certDir returns the directory where pgBackRest certificates are stored
 func (p *localProvisioner) certDir() string {
@@ -72,70 +61,4 @@ func GeneratePgBackRestCerts(certDir string) (*PgBackRestCertPaths, error) {
 		ServerCertFile: certFile,
 		ServerKeyFile:  keyFile,
 	}, nil
-}
-
-// StartPgBackRestServer starts a pgBackRest server and waits for the config file to be generated.
-// This is a public function that can be reused by tests and other components.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - poolerDir: directory where multipooler will generate pgbackrest.conf
-//   - configTimeout: how long to wait for the config file to be generated
-//
-// Returns the started command or an error.
-// The caller is responsible for managing the process lifecycle (waiting, killing, etc.)
-func StartPgBackRestServer(ctx context.Context, poolerDir string, configTimeout time.Duration) (*exec.Cmd, error) {
-	// Find pgbackrest binary
-	pgbackrestBinary, err := exec.LookPath("pgbackrest")
-	if err != nil {
-		return nil, fmt.Errorf("pgbackrest binary not found in PATH: %w", err)
-	}
-
-	// Wait for multipooler to generate the pgbackrest config file
-	configFile := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
-
-	// Wait for config file with timeout
-	waitCtx, cancel := context.WithTimeout(ctx, configTimeout)
-	defer cancel()
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-waitCtx.Done():
-			return nil, fmt.Errorf("timeout waiting for pgbackrest config file: %s", configFile)
-		case <-ticker.C:
-			if _, err := os.Stat(configFile); err == nil {
-				goto ConfigReady
-			}
-		}
-	}
-
-ConfigReady:
-	// Start pgbackrest server
-	cmd := exec.CommandContext(ctx, pgbackrestBinary, "server")
-
-	// Set environment variables
-	cmd.Env = append(os.Environ(),
-		"PGBACKREST_CONFIG="+configFile,
-	)
-
-	return cmd, nil
-}
-
-// deprovisionPgbackRestServer deprovisions a pgbackrest server and cleans up certificates
-func (p *localProvisioner) deprovisionPgbackRestServer(ctx context.Context, req *provisioner.DeprovisionRequest) error {
-	// Delete certificate directory if cleaning
-	if req.Clean {
-		certDir := p.certDir()
-		if err := os.RemoveAll(certDir); err != nil {
-			fmt.Printf("Warning: failed to remove certificate directory %s: %v\n", certDir, err)
-		} else {
-			fmt.Printf("Cleaned up certificate directory: %s\n", certDir)
-		}
-	}
-
-	// Use standard deprovision logic for the rest
-	return p.deprovisionService(ctx, req)
 }

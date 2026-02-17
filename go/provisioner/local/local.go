@@ -1116,8 +1116,6 @@ func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.Dep
 		fallthrough
 	case constants.ServiceMultiadmin:
 		return p.deprovisionService(ctx, req)
-	case constants.ServicePgbackrest:
-		return p.deprovisionPgbackRestServer(ctx, req)
 	case constants.ServicePgctld:
 		// pgctld requires special handling to stop PostgreSQL first
 		service, err := p.loadServiceState(req)
@@ -1717,21 +1715,6 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 			}
 			resultsChan <- provisionResult{result: result}
 		}()
-
-		// REMOVED: pgbackrest server startup - now managed by pgctld
-		// pgctld starts and manages the pgBackRest TLS server lifecycle
-		// Certificate generation still happens separately via GeneratePgBackRestCerts()
-		//
-		// go func() {
-		// 	// Provision pgbackrest server for this cell
-		// 	_, err := p.provisionPgbackRestServer(ctx, databaseName, cell)
-		// 	if err != nil {
-		// 		resultsChan <- provisionResult{err: fmt.Errorf("failed to provision pgbackrest server for cell %s: %w", cell, err)}
-		// 		return
-		// 	}
-		// 	// pgbackrest doesn't return a ProvisionResult in the same format, so we send a nil result
-		// 	resultsChan <- provisionResult{result: nil}
-		// }()
 	}
 
 	// Collect all results
