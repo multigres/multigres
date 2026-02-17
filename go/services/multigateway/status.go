@@ -100,12 +100,17 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleReady serves the readiness check
+// handleReady serves the readiness check.
+// The gateway is ready only when both conditions are met:
+// 1. No init errors (topology registration succeeded)
+// 2. At least one pooler has been discovered (can actually serve queries)
 func (mg *MultiGateway) handleReady(w http.ResponseWriter, r *http.Request) {
 	mg.serverStatus.mu.Lock()
 	defer mg.serverStatus.mu.Unlock()
 
-	isReady := (len(mg.serverStatus.InitError) == 0)
+	hasNoInitError := len(mg.serverStatus.InitError) == 0
+	hasPoolers := mg.poolerDiscovery.PoolerCount() > 0
+	isReady := hasNoInitError && hasPoolers
 	if !isReady {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}

@@ -749,6 +749,37 @@ func TestPoolerDiscovery_EvictionCallsOnPoolerRemoved(t *testing.T) {
 	require.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(newPrimary.Id))
 }
 
+// TestGlobalPoolerDiscovery_RetriesOnEmptyCellsThenDiscovers tests the full scenario:
+// discovery starts with no cells, retries with backoff, and eventually discovers
+// poolers when cells are dynamically registered.
+// This is the core regression test for the bug where discovery blocked forever
+// on <-ctx.Done() when GetCellNames returned an empty list.
+func TestGlobalPoolerDiscovery_RetriesOnEmptyCellsThenDiscovers(t *testing.T) {
+	ctx := context.Background()
+	// Start with NO cells
+	store, factory := memorytopo.NewServerAndFactory(ctx)
+	defer store.Close()
+
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", slog.Default())
+	gd.Start()
+	defer gd.Stop()
+
+	// Initially no poolers — discovery retries on empty cells
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, 0, gd.PoolerCount(), "Should have 0 poolers with no cells")
+
+	// Dynamically add a cell (simulates multiorch registering cells after gateway start)
+	require.NoError(t, factory.AddCell(ctx, store, "zone1"))
+
+	// Create a pooler in the new cell
+	pooler := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler))
+
+	// Discovery should retry, find the cell, start a watcher, and discover the pooler
+	waitForGlobalPoolerCount(t, gd, 1)
+	assert.Equal(t, 1, gd.PoolerCount())
+}
+
 // TestCellPoolerDiscovery_ExtractPoolerIDFromPath tests the path parsing logic.
 func TestCellPoolerDiscovery_ExtractPoolerIDFromPath(t *testing.T) {
 	ctx := context.Background()
