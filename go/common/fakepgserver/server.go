@@ -110,6 +110,12 @@ type ExpectedExecuteFetch struct {
 	Query       string
 	QueryResult *sqltypes.Result
 	Error       error
+
+	// AfterCallbackError, when set alongside QueryResult, causes the handler
+	// to first deliver the result via callback and then return this error.
+	// This simulates mid-stream failures where partial data is delivered
+	// before the connection dies (e.g., rows sent then FATAL 57P01).
+	AfterCallbackError error
 }
 
 // New creates a new fake PostgreSQL server for testing.
@@ -489,6 +495,10 @@ func (s *Server) handleQueryOrdered(q string) (*sqltypes.Result, error) {
 
 	if entry.Error != nil {
 		return nil, entry.Error
+	}
+
+	if entry.AfterCallbackError != nil {
+		return entry.QueryResult, entry.AfterCallbackError
 	}
 
 	return entry.QueryResult, nil

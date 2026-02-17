@@ -287,6 +287,44 @@ func TestQueryStreamingWithRetry_PostSwapPreservesOriginalError(t *testing.T) {
 	assert.False(t, errors.Is(swapped, errStreamingAlreadyStarted))
 }
 
+func TestQueryStreamingWithRetry_MidStreamFailureNoRetry(t *testing.T) {
+	// Simulate a mid-stream failure: the server delivers rows (invoking the
+	// streaming callback), then the connection dies. QueryStreamingWithRetry
+	// must NOT retry (which would send duplicate rows) and must return the
+	// original PostgreSQL error.
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: server delivers rows then fails with FATAL.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:              "SELECT 1",
+		QueryResult:        fakepgserver.MakeResult([]string{"col"}, [][]any{{"1"}}),
+		AfterCallbackError: connErrFATAL(),
+	})
+
+	conn := newTestDirectConn(t, server)
+	defer conn.Close()
+
+	var callbackCount int
+	err := conn.QueryStreamingWithRetry(context.Background(), "SELECT 1", func(_ context.Context, r *sqltypes.Result) error {
+		callbackCount++
+		return nil
+	})
+
+	// Should return an error wrapping the original FATAL.
+	require.Error(t, err)
+	var diag *mterrors.PgDiagnostic
+	assert.True(t, errors.As(err, &diag), "error should contain the original PgDiagnostic")
+	assert.Equal(t, "57P01", diag.Code)
+
+	// Callback should have been invoked exactly once (no duplicate rows).
+	assert.Equal(t, 1, callbackCount, "callback should be invoked exactly once, no retry")
+
+	server.VerifyAllExecutedOrFail()
+}
+
 // --- Reconnect tests ---
 
 func TestReconnect_Success(t *testing.T) {
