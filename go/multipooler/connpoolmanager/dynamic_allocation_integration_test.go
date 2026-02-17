@@ -145,37 +145,29 @@ func TestDynamicAllocation_DifferentWorkloadPatterns(t *testing.T) {
 	// Start all goroutines simultaneously
 	close(ready)
 
-	// Hold connections while rebalancer runs multiple cycles
-	time.Sleep(150 * time.Millisecond)
+	// Wait for rebalancer to converge on expected allocations.
+	// Use Eventually instead of fixed sleep to handle slow CI machines.
+	var capA, capB, capC int64
+	require.Eventually(t, func() bool {
+		stats := manager.Stats()
+		if len(stats.UserPools) != 3 {
+			return false
+		}
+		capA = stats.UserPools["userA"].Regular.Capacity
+		capB = stats.UserPools["userB"].Regular.Capacity
+		capC = stats.UserPools["userC"].Regular.Capacity
+		totalCap := capA + capB + capC
+		return totalCap == 9
+	}, 5*time.Second, 50*time.Millisecond, "rebalancer should converge on total capacity = 9")
 
-	// Check allocations while demand is active
-	stats := manager.Stats()
-
-	// Verify all users have pools
-	assert.Equal(t, 3, manager.UserPoolCount())
-
-	capA := stats.UserPools["userA"].Regular.Capacity
-	capB := stats.UserPools["userB"].Regular.Capacity
-	capC := stats.UserPools["userC"].Regular.Capacity
-	totalCap := capA + capB + capC
-
-	// Check what demand the tracker actually saw
-	demandA := stats.UserPools["userA"].RegularDemand
-	demandB := stats.UserPools["userB"].RegularDemand
-	demandC := stats.UserPools["userC"].RegularDemand
-
-	t.Logf("Demands: A=%d, B=%d, C=%d", demandA, demandB, demandC)
 	t.Logf("Capacity: 9 regular connections")
-	t.Logf("Allocations: A=%d, B=%d, C=%d (total=%d)", capA, capB, capC, totalCap)
+	t.Logf("Allocations: A=%d, B=%d, C=%d (total=%d)", capA, capB, capC, capA+capB+capC)
 
 	// Max-min fairness with capacity=9, demands A=5, B=1, C=5:
 	// B gets exactly 1 (satisfied), A and C split remaining 8 = 4 each
 	assert.Equal(t, int64(1), capB, "userB (demand=1) should get exactly 1")
 	assert.Equal(t, int64(4), capA, "userA (demand=5) should get 4 (half of remaining 8)")
 	assert.Equal(t, int64(4), capC, "userC (demand=5) should get 4 (half of remaining 8)")
-
-	// Total should equal capacity
-	assert.Equal(t, int64(9), totalCap, "total should equal regular capacity")
 
 	// Release all connections
 	mu.Lock()
@@ -237,16 +229,21 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 	}
 	close(ready)
 
-	// Wait for rebalancer to run
-	time.Sleep(100 * time.Millisecond)
-
+	// Wait for rebalancer to converge on expected capacity split.
+	// Use Eventually instead of fixed sleep to handle slow CI machines.
+	require.Eventually(t, func() bool {
+		stats := manager.Stats()
+		if len(stats.UserPools) != 2 {
+			return false
+		}
+		for _, poolStats := range stats.UserPools {
+			if poolStats.Regular.Capacity != 6 {
+				return false
+			}
+		}
+		return true
+	}, 5*time.Second, 50*time.Millisecond, "both users should have half of total capacity (6)")
 	assert.Equal(t, 2, manager.UserPoolCount())
-	// Both users should have equal capacity
-	stats := manager.Stats()
-	for user, poolStats := range stats.UserPools {
-		assert.Equal(t, poolStats.Regular.Capacity, int64(6),
-			"user %s should have half of total capacity", user)
-	}
 
 	// Now add a 3rd user during load
 	for range 4 {
@@ -263,13 +260,13 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 	// They should get connections just as they are released from the other users
 	close(release)
 
-	// Wait for rebalancer to redistribute
-	time.Sleep(100 * time.Millisecond)
-
-	assert.Equal(t, 3, manager.UserPoolCount())
+	// Wait for rebalancer to redistribute and include the new user
+	require.Eventually(t, func() bool {
+		return manager.UserPoolCount() == 3
+	}, 5*time.Second, 50*time.Millisecond, "user3 should have a pool")
 
 	// All users should have capacity
-	stats = manager.Stats()
+	stats := manager.Stats()
 	for user, poolStats := range stats.UserPools {
 		assert.GreaterOrEqual(t, poolStats.Regular.Capacity, int64(1),
 			"user %s should have capacity after new user arrived", user)
@@ -349,12 +346,12 @@ func TestDynamicAllocation_UserDepartureDuringLoad(t *testing.T) {
 		}
 	}()
 
-	// Wait for GC to run and remove user3 (inactive timeout + some buffer)
-	time.Sleep(200 * time.Millisecond)
+	// Wait for GC to run and remove user3 (inactive timeout + GC cycle)
+	require.Eventually(t, func() bool {
+		return manager.UserPoolCount() == 2
+	}, 5*time.Second, 50*time.Millisecond, "user3 should be garbage collected")
 	close(done)
 
-	// user3 should be garbage collected
-	assert.Equal(t, 2, manager.UserPoolCount())
 	assert.True(t, manager.HasUserPool("user1"))
 	assert.True(t, manager.HasUserPool("user2"))
 	assert.False(t, manager.HasUserPool("user3"))
@@ -404,24 +401,28 @@ func TestDynamicAllocation_CapacityExhaustion(t *testing.T) {
 	close(ready)
 	wg.Wait()
 
-	// Wait for rebalancer
-	time.Sleep(100 * time.Millisecond)
-
-	// All 5 users should have pools
-	assert.Equal(t, 5, manager.UserPoolCount())
+	// Wait for rebalancer to converge on capacity constraints.
+	// Without rebalancing, initial capacity would be 8 per user (40 total),
+	// so we must wait for the rebalancer to reduce it to <= 8 total.
+	var totalCapacity int64
+	require.Eventually(t, func() bool {
+		stats := manager.Stats()
+		if len(stats.UserPools) != 5 {
+			return false
+		}
+		totalCapacity = 0
+		for _, poolStats := range stats.UserPools {
+			totalCapacity += poolStats.Regular.Capacity
+		}
+		return totalCapacity <= 8
+	}, 5*time.Second, 50*time.Millisecond, "total allocation should converge to <= regular capacity (8)")
 
 	// Each user should get at least 1 connection (minimum guarantee)
 	stats := manager.Stats()
-	var totalCapacity int64
 	for user, poolStats := range stats.UserPools {
 		assert.GreaterOrEqual(t, poolStats.Regular.Capacity, int64(1),
 			"user %s should have minimum 1 connection", user)
-		totalCapacity += poolStats.Regular.Capacity
 	}
-
-	// Total allocated should not exceed global regular capacity (8)
-	assert.LessOrEqual(t, totalCapacity, int64(8),
-		"total allocation should not exceed regular capacity")
 
 	t.Logf("Total demand: 15, Capacity: 8, Allocated: %d", totalCapacity)
 
@@ -505,14 +506,17 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 	close(ready)
 	wg.Wait()
 
-	// Wait for rebalancing with all 4 users
-	time.Sleep(100 * time.Millisecond)
-
-	// Record capacity with 4 users
-	stats := manager.Stats()
-	capacityMu.Lock()
-	user1Capacity = stats.UserPools["user1"].Regular.Capacity
-	capacityMu.Unlock()
+	// Wait for rebalancer to reduce user1's capacity (now shared with 3 other users).
+	// With 16 regular capacity split 4 ways, user1 should get ~4.
+	// Use Eventually instead of fixed sleep to handle slow CI machines where the
+	// rebalancer goroutine might not be scheduled promptly.
+	require.Eventually(t, func() bool {
+		stats := manager.Stats()
+		capacityMu.Lock()
+		user1Capacity = stats.UserPools["user1"].Regular.Capacity
+		capacityMu.Unlock()
+		return user1Capacity < 16
+	}, 5*time.Second, 50*time.Millisecond, "user1 capacity should decrease when shared with other users")
 	t.Logf("user1 capacity with 4 users: %d", user1Capacity)
 
 	// Release connections for users 2, 3, 4 (they go inactive)
@@ -525,18 +529,19 @@ func TestDynamicAllocation_CapacityRecovery(t *testing.T) {
 	mu.Unlock()
 
 	// Wait for GC to remove inactive users
-	time.Sleep(250 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return manager.UserPoolCount() == 1
+	}, 5*time.Second, 50*time.Millisecond, "inactive users should be garbage collected")
 
-	// user1 should be the only one remaining
-	assert.Equal(t, 1, manager.UserPoolCount())
-
-	// user1 should now have more capacity
-	stats = manager.Stats()
-	finalUser1Capacity := stats.UserPools["user1"].Regular.Capacity
+	// Wait for rebalancer to recover capacity for the remaining user.
+	// user1 should now get all available capacity (16) since it's the only user.
+	var finalUser1Capacity int64
+	require.Eventually(t, func() bool {
+		stats := manager.Stats()
+		finalUser1Capacity = stats.UserPools["user1"].Regular.Capacity
+		return finalUser1Capacity > user1Capacity
+	}, 5*time.Second, 50*time.Millisecond, "remaining user should get more capacity after others leave")
 	t.Logf("user1 capacity alone: %d (was %d with 4 users)", finalUser1Capacity, user1Capacity)
-
-	assert.Greater(t, finalUser1Capacity, user1Capacity,
-		"remaining user should get more capacity after others leave")
 
 	close(done)
 }
@@ -591,25 +596,29 @@ func TestDynamicAllocation_GracefulDegradation(t *testing.T) {
 	close(ready)
 	wg.Wait()
 
-	// Wait for rebalancer
-	time.Sleep(100 * time.Millisecond)
-
-	// All users should have pools
-	assert.Equal(t, numUsers, manager.UserPoolCount())
+	// Wait for rebalancer to converge on capacity constraints.
+	// Without rebalancing, initial capacity would be 8 per user (80 total for 10 users),
+	// so we must wait for the rebalancer to reduce total to <= 12.
+	regularCapacity := int64(float64(15) * 0.8)
+	var totalCapacity int64
+	require.Eventually(t, func() bool {
+		stats := manager.Stats()
+		if len(stats.UserPools) != numUsers {
+			return false
+		}
+		totalCapacity = 0
+		for _, poolStats := range stats.UserPools {
+			totalCapacity += poolStats.Regular.Capacity
+		}
+		return totalCapacity <= regularCapacity
+	}, 5*time.Second, 50*time.Millisecond, "total allocation should converge to <= regular capacity")
 
 	// Verify fair distribution - each should have at least 1 since capacity >= users
 	stats := manager.Stats()
-	var totalCapacity int64
 	for user, poolStats := range stats.UserPools {
 		assert.GreaterOrEqual(t, poolStats.Regular.Capacity, int64(1),
 			"user %s should have minimum 1 connection", user)
-		totalCapacity += poolStats.Regular.Capacity
 	}
-
-	// Total should not exceed regular capacity (12)
-	regularCapacity := int64(float64(15) * 0.8)
-	assert.LessOrEqual(t, totalCapacity, regularCapacity,
-		"total allocation should not exceed regular capacity")
 
 	// System should handle all users without deadlock
 	t.Logf("Total demand: 30, Capacity: %d, Allocated: %d to %d users", regularCapacity, totalCapacity, numUsers)
