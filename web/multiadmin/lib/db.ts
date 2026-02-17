@@ -3,10 +3,11 @@ import { Pool } from "pg";
 // PostgreSQL connection pool - connects via multigateway
 const pool = new Pool({
   host: process.env.POSTGRES_HOST || "localhost",
-  port: parseInt(process.env.POSTGRES_PORT || "15432"),
+  port: parseInt(process.env.POSTGRES_PORT || "15434"),
   database: process.env.POSTGRES_DATABASE || "postgres",
   user: process.env.POSTGRES_USER || "postgres",
-  password: process.env.POSTGRES_PASSWORD || "",
+  password: process.env.POSTGRES_PASSWORD || "postgres",
+  ssl: false,
   max: 5,
   idleTimeoutMillis: 30000,
 });

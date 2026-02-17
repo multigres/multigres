@@ -349,6 +349,11 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		err := db.QueryRow("SHOW synchronous_standby_names").Scan(&syncStandbyNames)
 		require.NoError(t, err, "Should be able to query synchronous_standby_names")
 		require.NotEmpty(t, syncStandbyNames, "Final primary should have synchronous_standby_names configured after failovers")
+
+		var syncCommit string
+		err = db.QueryRow("SHOW synchronous_commit").Scan(&syncCommit)
+		require.NoError(t, err, "Should be able to query synchronous_commit")
+		assert.Equal(t, "on", syncCommit, "synchronous_commit should be 'on' after failover")
 	})
 
 	// Verify leadership_history records all failovers

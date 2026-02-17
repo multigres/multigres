@@ -134,7 +134,7 @@ func BuildSyncReplicationConfig(
 		"total_standbys", len(eligibleStandbys))
 
 	return &multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest{
-		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_REMOTE_WRITE,
+		SynchronousCommit: multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,
 		SynchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 		NumSync:           numSync,
 		StandbyIds:        standbyIDs,

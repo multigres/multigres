@@ -970,23 +970,6 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 	return nil
 }
 
-// runCheckpointAsync runs a CHECKPOINT in a background goroutine
-func (pm *MultiPoolerManager) runCheckpointAsync(ctx context.Context) chan error {
-	checkpointDone := make(chan error, 1)
-	go func() {
-		pm.logger.InfoContext(ctx, "Starting checkpoint")
-		err := pm.exec(ctx, "CHECKPOINT")
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Checkpoint failed", "error", err)
-			checkpointDone <- err
-		} else {
-			pm.logger.InfoContext(ctx, "Checkpoint completed")
-			checkpointDone <- nil
-		}
-	}()
-	return checkpointDone
-}
-
 // stopPostgresForEmergencyDemote stops PostgreSQL during emergency demotion without restarting.
 // This is used when a primary needs to step down immediately during consensus term changes.
 // The node will be left in a stopped state and will require pg_rewind to rejoin the cluster.
@@ -1133,13 +1116,10 @@ func (pm *MultiPoolerManager) terminateWriteConnections(ctx context.Context) (in
 	return int32(len(pids)), nil
 }
 
-// drainAndCheckpoint handles the drain timeout and checkpoint in parallel
-// During the drain, it monitors for write activity every 100ms
-// If 2 consecutive checks show no writes, exits early
-func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeout time.Duration) error {
-	// Start checkpoint in background
-	checkpointDone := pm.runCheckpointAsync(ctx)
-
+// drainWriteActivity monitors for write activity during emergency demotion.
+// During the drain, it monitors for write activity every 100ms.
+// If 2 consecutive checks show no writes, exits early.
+func (pm *MultiPoolerManager) drainWriteActivity(ctx context.Context, drainTimeout time.Duration) error {
 	// Monitor for write activity during drain
 	pm.logger.InfoContext(ctx, "Monitoring for write activity during drain", "duration", drainTimeout)
 	drainCtx, cancel := context.WithTimeout(ctx, drainTimeout)
@@ -1156,13 +1136,6 @@ func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeo
 		case <-drainCtx.Done():
 			pm.logger.InfoContext(ctx, "Drain timeout completed")
 			drainComplete = true
-
-		case err := <-checkpointDone:
-			if err != nil {
-				pm.logger.WarnContext(ctx, "Checkpoint completed with error during drain", "error", err)
-			} else {
-				pm.logger.InfoContext(ctx, "Checkpoint completed during drain")
-			}
 
 		case <-monitorTicker.C:
 			// Check for write activity
@@ -1184,18 +1157,6 @@ func (pm *MultiPoolerManager) drainAndCheckpoint(ctx context.Context, drainTimeo
 				}
 			}
 		}
-	}
-
-	// Wait for checkpoint if it's still running
-	select {
-	case err := <-checkpointDone:
-		if err != nil {
-			pm.logger.WarnContext(ctx, "Checkpoint failed", "error", err)
-			// Don't fail - checkpoint is an optimization
-		}
-	default:
-		// Checkpoint still running, continue
-		pm.logger.InfoContext(ctx, "Checkpoint still running, continuing with demotion")
 	}
 
 	return nil
@@ -1372,7 +1333,8 @@ func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Con
 		syncReplicationConfig.SynchronousMethod,
 		syncReplicationConfig.NumSync,
 		syncReplicationConfig.StandbyIds,
-		syncReplicationConfig.ReloadConfig)
+		syncReplicationConfig.ReloadConfig,
+		syncReplicationConfig.Force)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to configure synchronous replication", "error", err)
 		return mterrors.Wrap(err, "promotion succeeded but failed to configure synchronous replication")
@@ -1699,6 +1661,21 @@ func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
+
+	// Reopen connections after postgres restart to replace stale socket FDs.
+	// Only when connection pool is initialized (the manager may not have
+	// connection infrastructure in unit tests with minimal setup).
+	if pm.connPoolMgr != nil {
+		if err := pm.reopenConnections(ctx); err != nil {
+			return fmt.Errorf("MonitorPostgres: failed to reopen connections after restart: %w", err)
+		}
+
+		// Wait for database connection to be ready
+		if err := pm.waitForDatabaseConnection(ctx); err != nil {
+			return fmt.Errorf("MonitorPostgres: database not ready after restart: %w", err)
+		}
+	}
+
 	return nil
 }
 

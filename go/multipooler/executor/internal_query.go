@@ -32,12 +32,16 @@ type InternalQueryService interface {
 	// Query executes a query and returns the result.
 	Query(ctx context.Context, query string) (*sqltypes.Result, error)
 
-	// Query executes a query with arguments and returns the result.
+	// QueryArgs executes a query with arguments and returns the result.
 	// This is a convenience method that accepts Go values as arguments and converts
 	// them to the appropriate text format for PostgreSQL.
 	// Supported argument types: nil, string, []byte, int, int32, int64, uint32, uint64,
 	// float32, float64, bool, and time.Time.
 	QueryArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error)
+
+	// QueryMultiStatement executes a multi-statement query (e.g. "BEGIN; ...; COMMIT;")
+	// using the simple query protocol. Unlike Query, it does not require exactly one result set.
+	QueryMultiStatement(ctx context.Context, query string) error
 }
 
 // Compile-time check that Executor implements InternalQueryService.
@@ -58,7 +62,7 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 	}
 	defer conn.Recycle()
 
-	results, err := conn.Conn.Query(ctx, queryStr)
+	results, err := conn.Conn.QueryWithRetry(ctx, queryStr)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +70,23 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 		return nil, errors.New("unexepected number of results")
 	}
 	return results[0], nil
+}
+
+// QueryMultiStatement implements InternalQueryService for multi-statement queries.
+// It executes a query using the simple query protocol and does not check the number of result sets.
+func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) error {
+	ctx = client.WithQueryTracing(ctx, client.QueryTracingConfig{
+		IncludeQueryText: true,
+	})
+
+	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
+	if err != nil {
+		return err
+	}
+	defer conn.Recycle()
+
+	_, err = conn.Conn.QueryWithRetry(ctx, queryStr)
+	return err
 }
 
 // QueryArgs implements InternalQueryService for simple internal queries.
@@ -86,7 +107,7 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sql
 	}
 	defer conn.Recycle()
 
-	results, err := conn.Conn.QueryArgs(ctx, sql, args...)
+	results, err := conn.Conn.QueryArgsWithRetry(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}

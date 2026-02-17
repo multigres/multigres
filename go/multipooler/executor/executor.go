@@ -98,9 +98,10 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	}
 	defer conn.Recycle()
 
-	// Execute the query - the regular.Conn.Query returns []*sqltypes.Result
-	// with proper field info, rows, and command tags already populated
-	results, err := conn.Conn.Query(ctx, sql)
+	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
+	// with proper field info, rows, and command tags already populated.
+	// Uses retry variant since this is a stateless pool query.
+	results, err := conn.Conn.QueryWithRetry(ctx, sql)
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
@@ -160,8 +161,8 @@ func (e *Executor) StreamExecute(
 	}
 	defer conn.Recycle()
 
-	// Use streaming query execution
-	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
+	// Use streaming query execution with retry since this is a stateless pool query.
+	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
 		return wrapQueryError(err)
 	}
 
@@ -170,7 +171,7 @@ func (e *Executor) StreamExecute(
 
 // Close closes the executor and releases resources.
 // Note: The poolManager is managed by the caller (QueryPoolerServer), not closed here.
-func (e *Executor) Close(_ context.Context) error {
+func (e *Executor) Close() error {
 	return nil
 }
 
@@ -680,21 +681,13 @@ func int32ToInt16Slice(in []int32) []int16 {
 	return out
 }
 
-// wrapQueryError handles error wrapping for query execution.
-// PostgreSQL errors (*mterrors.PgDiagnostic) pass through unchanged,
-// preserving the original error format. Non-PostgreSQL errors are wrapped with context.
+// wrapQueryError wraps query execution errors with context.
+// PostgreSQL errors (*mterrors.PgDiagnostic) are wrapped like any other error;
+// the display boundary (writeError) extracts the underlying diagnostic via errors.As.
 func wrapQueryError(err error) error {
 	if err == nil {
 		return nil
 	}
-
-	// PostgreSQL errors (*mterrors.PgDiagnostic) pass through unchanged
-	var diag *mterrors.PgDiagnostic
-	if errors.As(err, &diag) {
-		return diag
-	}
-
-	// Non-PostgreSQL errors get wrapped with context
 	return mterrors.Wrapf(err, "query execution failed")
 }
 

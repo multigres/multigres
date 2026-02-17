@@ -95,13 +95,7 @@ func (g *grpcQueryService) StreamExecute(
 	// Call the gRPC StreamExecute
 	stream, err := g.client.StreamExecute(ctx, req)
 	if err != nil {
-		// Convert gRPC error - if it's a PostgreSQL error, preserve it
-		grpcErr := mterrors.FromGRPC(err)
-		var pgDiag *mterrors.PgDiagnostic
-		if errors.As(grpcErr, &pgDiag) {
-			return grpcErr
-		}
-		return mterrors.Wrapf(grpcErr, "failed to start stream execute")
+		return mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start stream execute")
 	}
 
 	// Stream results back via callback
@@ -113,13 +107,7 @@ func (g *grpcQueryService) StreamExecute(
 			return nil
 		}
 		if err != nil {
-			// Convert gRPC error - if it's a PostgreSQL error, preserve it
-			grpcErr := mterrors.FromGRPC(err)
-			var pgDiag *mterrors.PgDiagnostic
-			if errors.As(grpcErr, &pgDiag) {
-				return grpcErr
-			}
-			return mterrors.Wrapf(grpcErr, "stream receive error")
+			return mterrors.Wrapf(mterrors.FromGRPC(err), "stream receive error")
 		}
 
 		// Handle the union type payload
@@ -208,13 +196,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 	// Call the gRPC PortalStreamExecute
 	stream, err := g.client.PortalStreamExecute(ctx, req)
 	if err != nil {
-		// Convert gRPC error - if it's a PostgreSQL error, preserve it
-		grpcErr := mterrors.FromGRPC(err)
-		var pgDiag *mterrors.PgDiagnostic
-		if errors.As(grpcErr, &pgDiag) {
-			return queryservice.ReservedState{}, grpcErr
-		}
-		return queryservice.ReservedState{}, mterrors.Wrapf(grpcErr, "failed to start portal stream execute")
+		return queryservice.ReservedState{}, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to start portal stream execute")
 	}
 
 	var reservedState queryservice.ReservedState
@@ -228,13 +210,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 			return reservedState, nil
 		}
 		if err != nil {
-			// Convert gRPC error - if it's a PostgreSQL error, preserve it
-			grpcErr := mterrors.FromGRPC(err)
-			var pgDiag *mterrors.PgDiagnostic
-			if errors.As(grpcErr, &pgDiag) {
-				return reservedState, grpcErr
-			}
-			return reservedState, mterrors.Wrapf(grpcErr, "portal stream receive error")
+			return reservedState, mterrors.Wrapf(mterrors.FromGRPC(err), "portal stream receive error")
 		}
 
 		// Extract reserved state if present
@@ -303,13 +279,7 @@ func (g *grpcQueryService) Describe(
 	// Call the gRPC Describe
 	response, err := g.client.Describe(ctx, req)
 	if err != nil {
-		// Convert gRPC error - if it's a PostgreSQL error, preserve it
-		grpcErr := mterrors.FromGRPC(err)
-		var pgDiag *mterrors.PgDiagnostic
-		if errors.As(grpcErr, &pgDiag) {
-			return nil, grpcErr
-		}
-		return nil, mterrors.Wrapf(grpcErr, "describe failed")
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "describe failed")
 	}
 
 	g.logger.DebugContext(ctx, "describe completed successfully", "pooler_id", g.poolerID)
@@ -317,8 +287,8 @@ func (g *grpcQueryService) Describe(
 }
 
 // Close closes the gRPC connection.
-func (g *grpcQueryService) Close(ctx context.Context) error {
-	g.logger.DebugContext(ctx, "closing gRPC query service", "pooler_id", g.poolerID)
+func (g *grpcQueryService) Close() error {
+	g.logger.Debug("closing gRPC query service", "pooler_id", g.poolerID)
 	if g.conn != nil {
 		return g.conn.Close()
 	}

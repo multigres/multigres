@@ -44,6 +44,10 @@ type MultiGatewayConnectionState struct {
 	// It keeps track of any reserved connections on each Shard currently open.
 	ShardStates []*ShardState
 
+	// StartupParams stores startup parameters from the client's StartupMessage.
+	// These are forwarded to the backend for every query.
+	StartupParams map[string]string
+
 	// SessionSettings stores session variables set via SET commands.
 	// These settings are propagated to multipooler to ensure the correct
 	// pooled connection (with matching settings) is reused.
@@ -174,19 +178,22 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.SessionSettings = make(map[string]string)
 }
 
-// GetSessionSettings returns a copy of the current session settings.
-// Returns nil if no settings have been set.
+// GetSessionSettings returns a merged view of startup parameters and session settings.
+// Session settings (from SET commands) take precedence over startup params for the same key.
+// When a variable is RESET (deleted from SessionSettings), the startup param value becomes visible again.
+// Returns nil if neither startup params nor session settings exist.
 // The copy prevents external mutation of the internal state.
 func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.SessionSettings) == 0 {
+	if len(m.StartupParams) == 0 && len(m.SessionSettings) == 0 {
 		return nil
 	}
-	// Return copy to prevent external mutation
-	settings := make(map[string]string, len(m.SessionSettings))
-	maps.Copy(settings, m.SessionSettings)
-	return settings
+	// Start with startup params, then overlay session settings (which take precedence)
+	merged := make(map[string]string, len(m.StartupParams)+len(m.SessionSettings))
+	maps.Copy(merged, m.StartupParams)
+	maps.Copy(merged, m.SessionSettings)
+	return merged
 }
 
 // GetSessionVariable returns the value of a specific session variable.
@@ -199,6 +206,19 @@ func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, b
 	}
 	value, exists := m.SessionSettings[name]
 	return value, exists
+}
+
+// GetStartupParams returns a copy of the startup parameters.
+// Returns nil if no startup params were set.
+func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.StartupParams) == 0 {
+		return nil
+	}
+	params := make(map[string]string, len(m.StartupParams))
+	maps.Copy(params, m.StartupParams)
+	return params
 }
 
 // RestoreSessionSettings replaces the current session settings with a new map.
