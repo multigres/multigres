@@ -110,6 +110,12 @@ type ExpectedExecuteFetch struct {
 	Query       string
 	QueryResult *sqltypes.Result
 	Error       error
+
+	// AfterCallbackError, when set alongside QueryResult, causes the handler
+	// to first deliver the result via callback and then return this error.
+	// This simulates mid-stream failures where partial data is delivered
+	// before the connection dies (e.g., rows sent then FATAL 57P01).
+	AfterCallbackError error
 }
 
 // New creates a new fake PostgreSQL server for testing.
@@ -202,6 +208,15 @@ func (s *Server) ClientConfig() *client.Config {
 func (s *Server) Close() {
 	if err := s.listener.Close(); err != nil {
 		s.t.Logf("fakepgserver: close error: %v", err)
+	}
+}
+
+// CloseListener closes only the TCP listener, preventing new connections
+// while keeping existing connections alive. Use this for testing scenarios
+// where the initial connection should work but reconnect attempts should fail.
+func (s *Server) CloseListener() {
+	if err := s.listener.CloseListener(); err != nil {
+		s.t.Logf("fakepgserver: close listener error: %v", err)
 	}
 }
 
@@ -489,6 +504,10 @@ func (s *Server) handleQueryOrdered(q string) (*sqltypes.Result, error) {
 
 	if entry.Error != nil {
 		return nil, entry.Error
+	}
+
+	if entry.AfterCallbackError != nil {
+		return entry.QueryResult, entry.AfterCallbackError
 	}
 
 	return entry.QueryResult, nil

@@ -62,7 +62,7 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 	}
 	defer conn.Recycle()
 
-	results, err := conn.Conn.Query(ctx, queryStr)
+	results, err := conn.Conn.QueryWithRetry(ctx, queryStr)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) err
 	}
 	defer conn.Recycle()
 
-	_, err = conn.Conn.Query(ctx, queryStr)
+	_, err = conn.Conn.QueryWithRetry(ctx, queryStr)
 	return err
 }
 
@@ -107,7 +107,7 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sql
 	}
 	defer conn.Recycle()
 
-	results, err := conn.Conn.QueryArgs(ctx, sql, args...)
+	results, err := conn.Conn.QueryArgsWithRetry(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
