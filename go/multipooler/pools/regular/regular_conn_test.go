@@ -145,6 +145,34 @@ func TestQueryWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
+func TestQueryWithRetry_ReconnectFails(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: connection error.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT 1",
+		Error: connErrFATAL(),
+	})
+
+	conn := newTestDirectConn(t, server)
+
+	// Close the listener so reconnect's dial will fail.
+	// Existing connections are not affected.
+	server.CloseListener()
+
+	_, err := conn.QueryWithRetry(context.Background(), "SELECT 1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reconnect dial failed")
+
+	// Connection should be closed after reconnect failure.
+	assert.True(t, conn.IsClosed())
+
+	server.VerifyAllExecutedOrFail()
+}
+
 func TestQueryWithRetry_StopsOnContextCancellation(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

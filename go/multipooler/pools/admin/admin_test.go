@@ -471,6 +471,39 @@ func TestQueryWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
+func TestQueryWithRetry_ReconnectFails(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.OrderMatters()
+
+	// First attempt: connection error.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT 1",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "FATAL",
+			Code:        "57P01",
+			Message:     "terminating connection due to administrator command",
+		},
+	})
+
+	conn := newTestDirectConn(t, server)
+
+	// Close the listener so reconnect's dial will fail.
+	// Existing connections are not affected.
+	server.CloseListener()
+
+	_, err := conn.queryWithRetry(context.Background(), "SELECT 1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reconnect dial failed")
+
+	// Connection should be closed after reconnect failure.
+	assert.True(t, conn.IsClosed())
+
+	server.VerifyAllExecutedOrFail()
+}
+
 // --- execBackendFunc retry tests (via TerminateBackend/CancelBackend) ---
 
 func TestTerminateBackend_ReconnectsOnConnectionError(t *testing.T) {

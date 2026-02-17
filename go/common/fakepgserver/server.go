@@ -211,6 +211,15 @@ func (s *Server) Close() {
 	}
 }
 
+// CloseListener closes only the TCP listener, preventing new connections
+// while keeping existing connections alive. Use this for testing scenarios
+// where the initial connection should work but reconnect attempts should fail.
+func (s *Server) CloseListener() {
+	if err := s.listener.CloseListener(); err != nil {
+		s.t.Logf("fakepgserver: close listener error: %v", err)
+	}
+}
+
 // OrderMatters sets the orderMatters flag.
 func (s *Server) OrderMatters() {
 	s.orderMatters.Store(true)
