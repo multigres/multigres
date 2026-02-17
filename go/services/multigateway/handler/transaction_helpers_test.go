@@ -40,12 +40,12 @@ type trackingMockExecutor struct {
 }
 
 func (m *trackingMockExecutor) StreamExecute(
-	_ context.Context,
+	ctx context.Context,
 	_ *server.Conn,
 	_ *MultiGatewayConnectionState,
 	_ string,
 	astStmt ast.Stmt,
-	_ func(context.Context, *sqltypes.Result) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.executedStmts = append(m.executedStmts, astStmt)
 	idx := m.callCount
@@ -53,7 +53,9 @@ func (m *trackingMockExecutor) StreamExecute(
 	if m.errOnCallIndex >= 0 && idx == m.errOnCallIndex {
 		return m.errToReturn
 	}
-	return nil
+	// Call the callback with a result that includes a CommandTag,
+	// mimicking real executor behavior.
+	return callback(ctx, &sqltypes.Result{CommandTag: astStmt.SqlString()})
 }
 
 func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, func(context.Context, *sqltypes.Result) error) error {
@@ -234,6 +236,64 @@ func TestExecuteWithImplicitTransaction_ErrorInExplicitTx(t *testing.T) {
 	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER"}, stmtDescriptions(mock.executedStmts))
 	// Explicit transaction should transition to aborted state
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+func TestExecuteWithImplicitTransaction_CommandTagDeferredUntilCommit(t *testing.T) {
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	stmts := parseStmts(t, "SELECT 1; SELECT 2")
+
+	// Track the order of CommandTags received by the callback.
+	var commandTags []string
+	err := h.executeWithImplicitTransaction(
+		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; SELECT 2", stmts,
+		func(_ context.Context, result *sqltypes.Result) error {
+			if result.CommandTag != "" {
+				commandTags = append(commandTags, result.CommandTag)
+			}
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER", "COMMIT"}, stmtDescriptions(mock.executedStmts))
+	// SELECT 1's CommandTag is sent immediately, SELECT 2's is deferred until after COMMIT.
+	// Both should be received by the callback.
+	require.Len(t, commandTags, 2, "both statements should produce CommandTags")
+	require.Contains(t, commandTags[0], "SELECT 1", "first statement CommandTag sent immediately")
+	require.Contains(t, commandTags[1], "SELECT 2", "last statement CommandTag sent after commit")
+}
+
+func TestExecuteWithImplicitTransaction_CommandTagNotSentOnCommitFailure(t *testing.T) {
+	mock := &trackingMockExecutor{
+		errOnCallIndex: 3, // error on COMMIT (index 3: BEGIN=0, SELECT1=1, SELECT2=2, COMMIT=3)
+		errToReturn:    errors.New("commit failed"),
+	}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	stmts := parseStmts(t, "SELECT 1; SELECT 2")
+
+	// Track CommandTags received by the callback.
+	var commandTags []string
+	err := h.executeWithImplicitTransaction(
+		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; SELECT 2", stmts,
+		func(_ context.Context, result *sqltypes.Result) error {
+			if result.CommandTag != "" {
+				commandTags = append(commandTags, result.CommandTag)
+			}
+			return nil
+		},
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "commit failed")
+	// BEGIN, SELECT 1, SELECT 2, COMMIT (fails), ROLLBACK
+	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER", "COMMIT", "ROLLBACK"}, stmtDescriptions(mock.executedStmts))
+	// SELECT 1's CommandTag was sent immediately, but SELECT 2's was held and never sent
+	// because the commit failed — matching PostgreSQL behavior.
+	require.Len(t, commandTags, 1, "only first statement's CommandTag should be sent")
+	require.Contains(t, commandTags[0], "SELECT 1")
 }
 
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *testing.T) {

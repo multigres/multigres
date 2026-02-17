@@ -34,6 +34,29 @@ import (
 //
 // If already in a transaction, it continues without injecting BEGIN but still
 // handles mid-batch COMMIT/ROLLBACK that may start new implicit segments.
+//
+// # CommandComplete deferral for the last statement
+//
+// When PostgreSQL executes a multi-statement simple query like "S1; S2; S3;",
+// it wraps them in an implicit transaction. It commits the transaction *before*
+// sending the last statement's CommandComplete. If the commit fails (e.g.,
+// deferred constraint violation, serialization failure), the last statement's
+// CommandComplete is replaced by an ErrorResponse:
+//
+//	→ CommandComplete (S1)
+//	→ CommandComplete (S2)
+//	→ ErrorResponse         ← replaces S3's CommandComplete; commit failed
+//	→ ReadyForQuery 'I'     ← back to idle, nothing committed
+//
+// We replicate this behavior by intercepting the callback for the last statement
+// in an implicit transaction. DataRow and RowDescription messages stream normally
+// (we can't and shouldn't hold back potentially millions of rows), but the
+// CommandComplete (identified by a non-empty CommandTag on the Result) is held
+// until the commit succeeds. If the commit fails, the held CommandComplete is
+// discarded and the client sees an ErrorResponse instead — exactly matching
+// PostgreSQL's wire protocol behavior.
+//
+// See exec_simple_query() in postgres.c (line ~1290) for PostgreSQL's implementation.
 func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	ctx context.Context,
 	conn *server.Conn,
@@ -56,7 +79,14 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	needsBegin := !conn.IsInTransaction()
 	isImplicitTx := false
 
-	for _, stmt := range stmts {
+	// heldCommandTag stores the CommandTag (e.g., "SELECT 42", "INSERT 0 1") from the
+	// last statement's final callback when we're in an implicit transaction. We hold it
+	// here instead of sending it immediately so we can attempt the commit first. If the
+	// commit succeeds, we flush it to the client. If the commit fails, we discard it —
+	// the client sees an ErrorResponse instead of a CommandComplete.
+	var heldCommandTag string
+
+	for i, stmt := range stmts {
 		// Inject BEGIN if needed (start of batch or after COMMIT/ROLLBACK)
 		if needsBegin {
 			if err := silentExecute(ast.NewBeginStmt()); err != nil {
@@ -86,8 +116,47 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			continue
 		}
 
-		// Regular statement - execute with error handling
-		if err := execute(stmt); err != nil {
+		// Regular statement execution.
+		//
+		// For the last statement in an implicit transaction, we use an intercepting
+		// callback that defers the CommandComplete. The streaming callback is invoked
+		// multiple times per statement:
+		//   - Intermediate calls: Fields + batched Rows, CommandTag="" → stream to client
+		//   - Final call: last batch of Rows + CommandTag="SELECT 42"  → hold CommandTag
+		//
+		// We detect the final call by checking CommandTag != "". When we see it, we
+		// save the CommandTag in heldCommandTag and forward the remaining rows/notices
+		// without it. This causes the server to write DataRow messages but NOT the
+		// CommandComplete message — that waits for the commit outcome.
+		var execErr error
+		if i == len(stmts)-1 && isImplicitTx {
+			execErr = h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
+				func(ctx context.Context, result *sqltypes.Result) error {
+					if result.CommandTag != "" {
+						// Hold the CommandTag — we'll send it after a successful commit,
+						// or discard it if the commit fails.
+						heldCommandTag = result.CommandTag
+
+						// The final callback may also carry the last batch of rows and
+						// any notices. Forward those immediately — only the CommandComplete
+						// (derived from CommandTag) should be deferred.
+						if len(result.Rows) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
+							return callback(ctx, &sqltypes.Result{
+								Fields:  result.Fields,
+								Rows:    result.Rows,
+								Notices: result.Notices,
+							})
+						}
+						return nil
+					}
+					// Intermediate callback (rows streaming) — forward as-is.
+					return callback(ctx, result)
+				},
+			)
+		} else {
+			execErr = execute(stmt)
+		}
+		if execErr != nil {
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure
 				_ = silentExecute(ast.NewRollbackStmt())
@@ -96,14 +165,34 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 				// The client must issue ROLLBACK to recover.
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
-			return err
+			return execErr
 		}
 	}
 
-	// Auto-commit if we ended in an implicit transaction
+	// Auto-commit if we ended in an implicit transaction.
+	//
+	// At this point, the last statement's DataRows have been streamed to the client,
+	// but its CommandComplete is held in heldCommandTag. We now attempt the commit:
+	//
+	//   Commit succeeds → flush heldCommandTag → client sees CommandComplete
+	//   Commit fails    → rollback, return error → client sees ErrorResponse
+	//
+	// This matches PostgreSQL's behavior in exec_simple_query(): the commit is
+	// attempted before the last statement's CommandComplete is sent to the client.
 	if isImplicitTx {
 		if err := silentExecute(ast.NewCommitStmt()); err != nil {
+			// Commit failed — rollback to clean up. The held CommandComplete is
+			// discarded; the caller will send an ErrorResponse instead.
+			_ = silentExecute(ast.NewRollbackStmt())
 			return err
+		}
+		// Commit succeeded — now send the deferred CommandComplete for the last
+		// statement. The client sees the full expected response sequence:
+		// DataRow... → CommandComplete → ReadyForQuery.
+		if heldCommandTag != "" {
+			if err := callback(ctx, &sqltypes.Result{CommandTag: heldCommandTag}); err != nil {
+				return err
+			}
 		}
 	}
 
