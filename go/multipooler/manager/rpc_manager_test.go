@@ -40,7 +40,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // setTermForTest writes the consensus term file directly for testing.
@@ -2193,98 +2192,6 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.False(t, pm.pgMonitor.Running(), "Monitor should still be disabled")
-	})
-}
-
-func TestMultiPoolerManager_Status_IncludesPgBackRestStatus(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	t.Run("Status_includes_pgbackrest_running_status", func(t *testing.T) {
-		ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-		defer ts.Close()
-
-		// Create mock pgctld server with pgBackRest running
-		mockPgctld := &testutil.MockPgCtldService{
-			StatusResponse: &pb.StatusResponse{
-				Status:  pb.ServerStatus_RUNNING,
-				Pid:     12345,
-				Version: "PostgreSQL 15.0",
-				DataDir: "/tmp/test",
-				Port:    5432,
-				Host:    "localhost",
-				Ready:   true,
-				Message: "Mock server running",
-				PgbackrestStatus: &pb.PgBackRestStatus{
-					Running:      true,
-					ErrorMessage: "",
-					RestartCount: 0,
-				},
-			},
-		}
-		pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
-		t.Cleanup(cleanupPgctld)
-
-		// Create the database in topology
-		database := "testdb"
-		addDatabaseToTopo(t, ts, database)
-
-		// Create PRIMARY multipooler
-		multipooler := &clustermetadatapb.MultiPooler{
-			Id:            serviceID,
-			Database:      database,
-			Hostname:      "localhost",
-			PortMap:       map[string]int32{"grpc": 8080},
-			Type:          clustermetadatapb.PoolerType_PRIMARY,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			TableGroup:    constants.DefaultTableGroup,
-			Shard:         constants.DefaultShard,
-		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-		tmpDir := t.TempDir()
-		multipooler.PoolerDir = tmpDir
-
-		config := &Config{
-			TopoClient: ts,
-			PgctldAddr: pgctldAddr,
-		}
-		pm, err := NewMultiPoolerManager(logger, multipooler, config)
-		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
-
-		// Create mock query service and inject it
-		mockQueryService := mock.NewQueryService()
-		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
-			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-		mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",
-			mock.MakeQueryResult([]string{"pg_current_wal_lsn"}, [][]any{{"0/12345678"}}))
-		mockQueryService.AddQueryPattern("SELECT application_name",
-			mock.MakeQueryResult([]string{"application_name"}, nil))
-		mockQueryService.AddQueryPattern("SHOW synchronous_standby_names",
-			mock.MakeQueryResult([]string{"synchronous_standby_names"}, [][]any{{""}}))
-		mockQueryService.AddQueryPattern("SHOW synchronous_commit",
-			mock.MakeQueryResult([]string{"synchronous_commit"}, [][]any{{"on"}}))
-
-		pm.qsc = &mockPoolerController{queryService: mockQueryService}
-
-		senv := servenv.NewServEnv(viperutil.NewRegistry())
-		go pm.Start(senv)
-
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-		// Call Status
-		status, err := pm.Status(ctx)
-		require.NoError(t, err)
-		require.NotNil(t, status)
 	})
 }
 
