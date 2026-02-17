@@ -263,6 +263,30 @@ func TestQueryStreamingWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
+func TestQueryStreamingWithRetry_SentinelIsNotConnectionError(t *testing.T) {
+	// The errStreamingAlreadyStarted sentinel is used internally to stop the
+	// retry loop. It must NOT be classified as a connection error, otherwise
+	// retryOnConnectionError would keep retrying instead of stopping.
+	assert.False(t, mterrors.IsConnectionError(errStreamingAlreadyStarted),
+		"errStreamingAlreadyStarted must not be classified as a connection error")
+}
+
+func TestQueryStreamingWithRetry_PostSwapPreservesOriginalError(t *testing.T) {
+	// After the retry loop stops via the sentinel, QueryStreamingWithRetry
+	// replaces it with mterrors.Wrapf(streamErr, ...) so that callers can
+	// inspect the original PostgreSQL error via errors.As.
+	originalErr := connErrFATAL()
+	swapped := mterrors.Wrapf(originalErr, "streaming already started, cannot retry")
+
+	// The swapped error should expose the original PgDiagnostic.
+	var diag *mterrors.PgDiagnostic
+	assert.True(t, errors.As(swapped, &diag), "callers should be able to extract PgDiagnostic")
+	assert.Equal(t, "57P01", diag.Code)
+
+	// The sentinel should NOT be in the chain (it was replaced).
+	assert.False(t, errors.Is(swapped, errStreamingAlreadyStarted))
+}
+
 // --- Reconnect tests ---
 
 func TestReconnect_Success(t *testing.T) {

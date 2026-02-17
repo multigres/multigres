@@ -391,6 +391,7 @@ func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 // avoid sending duplicate rows to the caller.
 func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
 	var callbackInvoked bool
+	var streamErr error
 	wrappedCallback := func(ctx context.Context, result *sqltypes.Result) error {
 		callbackInvoked = true
 		return callback(ctx, result)
@@ -399,11 +400,18 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 		if callbackInvoked {
 			// Callback was already called in a previous attempt — retrying
 			// would replay the query and send duplicate rows. Return the
-			// original connection error so the caller sees a clean failure.
+			// sentinel to stop the retry loop; we swap it for the real
+			// error below.
 			return struct{}{}, errStreamingAlreadyStarted
 		}
-		return struct{}{}, c.conn.QueryStreaming(ctx, sql, wrappedCallback)
+		streamErr = c.conn.QueryStreaming(ctx, sql, wrappedCallback)
+		return struct{}{}, streamErr
 	})
+	// Replace the internal sentinel with the actual PostgreSQL error so
+	// callers can inspect it via errors.As / errors.Is.
+	if errors.Is(err, errStreamingAlreadyStarted) {
+		return mterrors.Wrapf(streamErr, "streaming already started, cannot retry")
+	}
 	return err
 }
 
@@ -441,9 +449,11 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 		}
 		// Brief backoff before reconnecting to give PostgreSQL time to
 		// finish starting up if the error is due to a restart.
+		backoffTimer := time.NewTimer(retryBackoff)
 		select {
-		case <-time.After(retryBackoff):
+		case <-backoffTimer.C:
 		case <-ctx.Done():
+			backoffTimer.Stop()
 			var zero T
 			return zero, context.Cause(ctx)
 		}

@@ -136,15 +136,20 @@ func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 			return nil, err
 		}
 		if ctx.Err() != nil {
-			return nil, err
+			return nil, context.Cause(ctx)
 		}
 		// Brief backoff before reconnecting to give PostgreSQL time to
 		// finish starting up if the error is due to a restart.
+		backoffTimer := time.NewTimer(retryBackoff)
 		select {
-		case <-time.After(retryBackoff):
+		case <-backoffTimer.C:
 		case <-ctx.Done():
+			backoffTimer.Stop()
 			return nil, context.Cause(ctx)
 		}
+		// Admin connections are bare superuser connections with no session
+		// state to re-apply (Settings() returns nil, ApplySettings panics).
+		// A raw client.Conn.Reconnect is sufficient here.
 		if reconnectErr := c.conn.Reconnect(ctx); reconnectErr != nil {
 			c.conn.Close()
 			return nil, reconnectErr
