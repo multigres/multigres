@@ -48,7 +48,7 @@ func NewPlanner(defaultTableGroup string, logger *slog.Logger) *Planner {
 // with switch on NodeTag for extensibility.
 //
 // Supported statement types:
-// - VariableSetStmt: SET/RESET commands → Sequence[Route, ApplySessionState]
+// - VariableSetStmt: SET/RESET commands → SessionStateRoute
 // - Regular queries: Route only
 //
 // Future phases will add more statement handlers for:

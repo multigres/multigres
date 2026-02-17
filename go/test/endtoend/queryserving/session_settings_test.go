@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -370,6 +371,124 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 	t.Run("SET LOCAL behavior", func(t *testing.T) {
 		t.Skip("SET LOCAL requires transaction support (Phase 2)")
 		// TODO Phase 2: Implement transaction-scoped settings tracking
+	})
+}
+
+// TestMultiGateway_SetResetGUCRestoration verifies that RESET actually restores
+// the GUC value at the PostgreSQL level, not just in the gateway's session tracking.
+//
+// This catches a specific bug where:
+// 1. SET runs on connection A (pool tracks the setting)
+// 2. RESET removes from session tracking
+// 3. Connection A is returned to the "clean" pool — but PG-side GUC is still dirty
+// 4. Subsequent queries may get connection A with the stale GUC value
+func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping GUC restoration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping GUC restoration tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
+		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+
+	ctx := utils.WithTimeout(t, 120*time.Second)
+
+	t.Run("SET then RESET restores GUC on all pool connections", func(t *testing.T) {
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		err = db.PingContext(ctx)
+		require.NoError(t, err)
+
+		// Get the default value of extra_float_digits
+		var defaultVal string
+		err = db.QueryRowContext(ctx, "SHOW extra_float_digits").Scan(&defaultVal)
+		require.NoError(t, err, "failed to get default extra_float_digits")
+		t.Logf("Default extra_float_digits = %s", defaultVal)
+
+		// Pick a value that differs from the default
+		defaultInt, err := strconv.Atoi(defaultVal)
+		require.NoError(t, err, "failed to parse default extra_float_digits")
+		nonDefaultVal := defaultInt - 1
+		nonDefaultStr := strconv.Itoa(nonDefaultVal)
+
+		// SET to a non-default value
+		_, err = db.ExecContext(ctx, fmt.Sprintf("SET extra_float_digits = %d", nonDefaultVal))
+		require.NoError(t, err, "failed to SET extra_float_digits")
+
+		// Verify it took effect
+		var customVal string
+		err = db.QueryRowContext(ctx, "SHOW extra_float_digits").Scan(&customVal)
+		require.NoError(t, err)
+		assert.Equal(t, nonDefaultStr, customVal, "SET should have changed the value")
+
+		// RESET the GUC
+		_, err = db.ExecContext(ctx, "RESET extra_float_digits")
+		require.NoError(t, err, "failed to RESET extra_float_digits")
+
+		// Now verify across many iterations that the value is truly restored.
+		// The bug: connection A still has extra_float_digits=0 at the PG level
+		// even though the gateway thinks it's clean. If the pool hands us
+		// connection A, SHOW will return 0 instead of the default.
+		for i := range 100 {
+			var result string
+			err = db.QueryRowContext(ctx, "SHOW extra_float_digits").Scan(&result)
+			require.NoError(t, err, "iteration %d: failed to SHOW", i)
+			require.Equal(t, defaultVal, result,
+				"iteration %d: extra_float_digits should be restored to default %q but got %q (stale pool connection)",
+				i, defaultVal, result)
+		}
+	})
+
+	t.Run("SET then RESET ALL restores all GUCs on all pool connections", func(t *testing.T) {
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		err = db.PingContext(ctx)
+		require.NoError(t, err)
+
+		// Get defaults
+		var defaultFloatDigits, defaultByteaOutput string
+		err = db.QueryRowContext(ctx, "SHOW extra_float_digits").Scan(&defaultFloatDigits)
+		require.NoError(t, err)
+		err = db.QueryRowContext(ctx, "SHOW bytea_output").Scan(&defaultByteaOutput)
+		require.NoError(t, err)
+
+		// Pick a non-default value for extra_float_digits
+		defaultInt, err := strconv.Atoi(defaultFloatDigits)
+		require.NoError(t, err)
+		nonDefaultFloatDigits := defaultInt - 1
+
+		// SET multiple GUCs to non-default values
+		_, err = db.ExecContext(ctx, fmt.Sprintf("SET extra_float_digits = %d", nonDefaultFloatDigits))
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, "SET bytea_output = 'escape'")
+		require.NoError(t, err)
+
+		// RESET ALL
+		_, err = db.ExecContext(ctx, "RESET ALL")
+		require.NoError(t, err, "failed to RESET ALL")
+
+		// Verify both are restored across many iterations
+		for i := range 100 {
+			var floatDigits, byteaOut string
+			err = db.QueryRowContext(ctx, "SHOW extra_float_digits").Scan(&floatDigits)
+			require.NoError(t, err, "iteration %d: failed to SHOW extra_float_digits", i)
+			require.Equal(t, defaultFloatDigits, floatDigits,
+				"iteration %d: extra_float_digits not restored after RESET ALL", i)
+
+			err = db.QueryRowContext(ctx, "SHOW bytea_output").Scan(&byteaOut)
+			require.NoError(t, err, "iteration %d: failed to SHOW bytea_output", i)
+			require.Equal(t, defaultByteaOutput, byteaOut,
+				"iteration %d: bytea_output not restored after RESET ALL", i)
+		}
 	})
 }
 
