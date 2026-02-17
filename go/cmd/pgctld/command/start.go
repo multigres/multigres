@@ -133,7 +133,7 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, false)
+	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 }
 
 // StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information
-func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, skipWait bool) (*StartResult, error) {
+func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StartResult, error) {
 	result := &StartResult{}
 
 	// Check if PostgreSQL is already running
@@ -182,14 +182,10 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
-	// Wait for server to be ready (unless skip_wait is true)
-	if skipWait {
-		logger.Info("Skipping wait for PostgreSQL to be ready (skip_wait=true)")
-	} else {
-		logger.Info("Waiting for PostgreSQL to be ready")
-		if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
-			return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
-		}
+	// Wait for server to be ready
+	logger.Info("Waiting for PostgreSQL to be ready")
+	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
+		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
 	// Get PID of started instance
@@ -204,7 +200,7 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 
 // StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
 func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	result, err := StartPostgreSQLWithResult(logger, config, false)
+	result, err := StartPostgreSQLWithResult(logger, config)
 	if err != nil {
 		return err
 	}

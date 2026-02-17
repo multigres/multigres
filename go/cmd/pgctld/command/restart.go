@@ -97,11 +97,11 @@ Examples:
 }
 
 // RestartPostgreSQLWithResult restarts PostgreSQL with the given configuration and returns detailed result information
-func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string, asStandby, skipWait bool) (*RestartResult, error) {
+func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, mode string, asStandby bool) (*RestartResult, error) {
 	result := &RestartResult{}
 
 	if asStandby {
-		logger.Info("Restarting PostgreSQL server as standby", "data_dir", config.PostgresDataDir, "mode", mode, "skip_wait", skipWait)
+		logger.Info("Restarting PostgreSQL server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
 	} else {
 		logger.Info("Restarting PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
 	}
@@ -140,7 +140,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 		logger.Info("Starting PostgreSQL server")
 	}
 
-	startResult, err := StartPostgreSQLWithResult(logger, config, skipWait)
+	startResult, err := StartPostgreSQLWithResult(logger, config)
 	if err != nil {
 		// Enhanced error logging for standby mode
 		if asStandby {
@@ -170,7 +170,7 @@ func (r *PgCtlRestartCmd) runRestart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	result, err := RestartPostgreSQLWithResult(r.pgCtlCmd.lg.GetLogger(), config, r.mode.Get(), r.asStandby.Get(), false)
+	result, err := RestartPostgreSQLWithResult(r.pgCtlCmd.lg.GetLogger(), config, r.mode.Get(), r.asStandby.Get())
 	if err != nil {
 		return err
 	}

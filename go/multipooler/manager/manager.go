@@ -995,7 +995,6 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		Port:      0,   // Use default port
 		ExtraArgs: nil,
 		AsStandby: true, // Create standby.signal before restart
-		SkipWait:  true, // Don't wait for ready - postgres needs primary_conninfo configured
 	}
 
 	resp, err := pm.pgctldClient.Restart(ctx, req)

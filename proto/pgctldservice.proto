@@ -101,11 +101,6 @@ message RestartRequest {
 
   // If true, creates standby.signal before restart (for demotion to standby)
   bool as_standby = 5;
-
-  // If true, skips waiting for postgres to be ready after restart
-  // Used when restarting as standby after crash recovery - postgres needs
-  // primary_conninfo configured before it can accept connections
-  bool skip_wait = 6;
 }
 
 message RestartResponse {
