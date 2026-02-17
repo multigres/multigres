@@ -54,7 +54,6 @@ func intToInt32(v int) (int32, error) {
 	return int32(v), nil
 }
 
-// loadBackupConfigFromViper reads backup configuration from viper
 // PgCtldServerCmd holds the server command configuration
 type PgCtldServerCmd struct {
 	pgCtlCmd          *PgCtlCommand
