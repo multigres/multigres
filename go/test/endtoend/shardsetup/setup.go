@@ -671,12 +671,25 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 	allInitialized := initializedCount == len(setup.Multipoolers)
 
+	// Get latest backup ID from primary
+	var latestBackupID string
+	if primaryName != "" {
+		if primaryInst := setup.GetMultipoolerInstance(primaryName); primaryInst != nil {
+			if client, err := NewMultipoolerClient(primaryInst.Multipooler.GrpcPort); err == nil {
+				if backupResp, err := client.Manager.GetBackups(ctx, &multipoolermanagerdatapb.GetBackupsRequest{Limit: 1}); err == nil && len(backupResp.Backups) > 0 {
+					latestBackupID = backupResp.Backups[0].BackupId
+				}
+				client.Close()
+			}
+		}
+	}
+
 	// Set summary attributes and detailed pooler statuses
 	span.SetAttributes(
 		attribute.StringSlice("pooler.statuses", poolerStatuses),
 	)
 
-	t.Logf("checkBootstrapStatus: primary=%s, initialized=%d/%d", primaryName, initializedCount, len(setup.Multipoolers))
+	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q", primaryName, initializedCount, len(setup.Multipoolers), latestBackupID)
 	return primaryName, allInitialized
 }
 
