@@ -30,6 +30,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/servenv"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -588,6 +589,97 @@ func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
 	require.NotNil(t, resp.PgbackrestStatus)
 	assert.True(t, resp.PgbackrestStatus.Running)
 	assert.Equal(t, int32(5), resp.PgbackrestStatus.RestartCount)
+}
+
+func TestServerCommand_BackupConfigValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		backupType  string
+		backupPath  string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "backup-path without backup-type",
+			backupType:  "",
+			backupPath:  "/backup",
+			wantErr:     true,
+			errContains: "--backup-type is required",
+		},
+		{
+			name:        "backup-type without backup-path",
+			backupType:  "s3",
+			backupPath:  "",
+			wantErr:     true,
+			errContains: "--backup-path is required",
+		},
+		{
+			name:       "both backup-type and backup-path set",
+			backupType: "filesystem",
+			backupPath: "/backup",
+			wantErr:    false,
+		},
+		{
+			name:       "neither backup-type nor backup-path set",
+			backupType: "",
+			backupPath: "",
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for pooler-dir (required flag)
+			tmpDir := t.TempDir()
+
+			// Get root command and PgCtlCommand
+			rootCmd, pc := GetRootCommand()
+
+			// Set required pooler-dir
+			pc.poolerDir.Set(tmpDir)
+
+			// Create server command by adding it to root
+			AddServerCommand(rootCmd, pc)
+
+			// Find the server subcommand
+			serverCmd, _, err := rootCmd.Find([]string{"server"})
+			require.NoError(t, err)
+
+			// Get the PgCtldServerCmd from the command
+			// We need to create a new one with our test values
+			serverCmdImpl := &PgCtldServerCmd{
+				pgCtlCmd:   pc,
+				grpcServer: servenv.NewGrpcServer(pc.reg),
+				senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
+				backupType: viperutil.Configure(pc.reg, "backup.type.test", viperutil.Options[string]{
+					Default: "",
+				}),
+				backupPath: viperutil.Configure(pc.reg, "backup.path.test", viperutil.Options[string]{
+					Default: "",
+				}),
+				pgbackrestPort: viperutil.Configure(pc.reg, "pgbackrest-port.test", viperutil.Options[int]{
+					Default: 0,
+				}),
+				pgbackrestCertDir: viperutil.Configure(pc.reg, "pgbackrest-cert-dir.test", viperutil.Options[string]{
+					Default: "",
+				}),
+			}
+
+			// Set backup config values
+			serverCmdImpl.backupType.Set(tt.backupType)
+			serverCmdImpl.backupPath.Set(tt.backupPath)
+
+			// Run validation
+			err = serverCmdImpl.validateServerFlags(serverCmd, []string{})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // testLogger returns a no-op logger for testing

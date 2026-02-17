@@ -136,6 +136,16 @@ func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string)
 		return err
 	}
 
+	// Validate backup configuration flags
+	backupType := s.backupType.Get()
+	backupPath := s.backupPath.Get()
+	if backupType != "" && backupPath == "" {
+		return errors.New("--backup-path is required when --backup-type is specified")
+	}
+	if backupPath != "" && backupType == "" {
+		return errors.New("--backup-type is required when --backup-path is specified")
+	}
+
 	// Then run our global validation (but not initialization validation -
 	// the gRPC server should start and validate initialization per method)
 	return s.pgCtlCmd.validateGlobalFlags(cmd, args)
