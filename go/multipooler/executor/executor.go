@@ -171,7 +171,7 @@ func (e *Executor) StreamExecute(
 
 // Close closes the executor and releases resources.
 // Note: The poolManager is managed by the caller (QueryPoolerServer), not closed here.
-func (e *Executor) Close(_ context.Context) error {
+func (e *Executor) Close() error {
 	return nil
 }
 
