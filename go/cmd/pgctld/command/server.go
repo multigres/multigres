@@ -512,18 +512,16 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 		var cmd *exec.Cmd
 
 		// Try to start with retry policy (max 5 attempts)
-		attemptCount := 0
 		for attempt, err := range r.Attempts(ctx) {
 			if err != nil {
 				// Context cancelled during startup - clean shutdown
 				s.setPgBackRestStatus(false, fmt.Sprintf("context cancelled: %v", err), atomic.LoadInt32(&s.restartCount))
 				return
 			}
-			if attemptCount >= 5 {
+			if attempt >= 4 {
 				s.setPgBackRestStatus(false, "failed after 5 attempts", atomic.LoadInt32(&s.restartCount))
 				return
 			}
-			attemptCount = attempt + 1
 
 			var startErr error
 			cmd, startErr = s.startPgBackRest(ctx)
@@ -532,7 +530,7 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 				s.pgBackRestCmd = cmd
 				break // Success, exit retry loop
 			}
-			s.logger.WarnContext(ctx, "pgBackRest startup failed", "attempt", attemptCount, "error", startErr)
+			s.logger.WarnContext(ctx, "pgBackRest startup failed", "attempt", attempt+1, "error", startErr)
 		}
 
 		if cmd == nil {
