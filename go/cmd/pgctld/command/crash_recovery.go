@@ -17,6 +17,7 @@ package command
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -117,10 +118,12 @@ func runCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir string
 		return fmt.Errorf("failed to start postgres --single: %w", err)
 	}
 
-	// Give postgres a brief moment to attach to stdin before closing it.
-	// Without this, there's a race where stdin.Close() can execute before
-	// postgres has attached, causing postgres to wait indefinitely for input.
-	time.Sleep(50 * time.Millisecond)
+	// Write a newline to stdin. postgres --single reads commands line-by-line,
+	// so this acts as a no-op command. Unlike time.Sleep, this naturally blocks
+	// until postgres has attached to the pipe and consumed the input.
+	if _, err := io.WriteString(stdin, "\n"); err != nil {
+		return fmt.Errorf("failed to write to postgres stdin: %w", err)
+	}
 
 	// Close stdin to signal EOF (causes postgres to exit after recovery)
 	stdin.Close()
