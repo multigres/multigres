@@ -210,6 +210,10 @@ message PgRewindRequest {
 
   // Additional pg_rewind command line arguments
   repeated string extra_args = 4;
+
+  // Application name for replication connection (used with -R flag)
+  // This identifies the standby in pg_stat_replication and synchronous_standby_names
+  string application_name = 5;
 }
 
 message PgRewindResponse {

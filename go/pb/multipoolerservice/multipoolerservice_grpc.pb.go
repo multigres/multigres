@@ -25,7 +25,6 @@ package multipoolerservice
 
 import (
 	context "context"
-
 	query "github.com/multigres/multigres/go/pb/query"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"

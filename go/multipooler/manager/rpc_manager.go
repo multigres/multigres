@@ -17,6 +17,9 @@ package manager
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,7 +31,6 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -1035,38 +1037,12 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "pg_rewind failed")
 	}
 
-	// Configure primary_conninfo BEFORE restarting postgres
-	// After pg_rewind, postgres needs to stream WAL from the primary to reach consistent
-	// recovery state. If we try to configure primary_conninfo AFTER starting postgres,
-	// we hit a chicken-and-egg problem: postgres won't accept connections until it
-	// reaches consistent state, but it can't reach consistent state without streaming
-	// WAL, which requires primary_conninfo to be configured.
-	//
-	// Solution: Write primary_conninfo directly to postgresql.auto.conf before starting postgres.
-	pm.logger.InfoContext(ctx, "Configuring replication to source primary before restart",
-		"source", source.Id.Name,
-		"source_host", source.Hostname,
-		"source_port", port)
-
-	pm.mu.Lock()
-	database := pm.multipooler.Database
-	poolerDir := pm.multipooler.PoolerDir
-	pm.primaryPoolerID = source.Id
-	pm.primaryHost = source.Hostname
-	pm.primaryPort = port
-	pm.mu.Unlock()
-
-	appName := generateApplicationName(pm.serviceID)
-	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		source.Hostname, port, database, appName)
-
-	// Write primary_conninfo directly to postgresql.auto.conf
-	if err := pm.writePrimaryConnInfoToFile(ctx, poolerDir, connInfo); err != nil {
-		return nil, mterrors.Wrap(err, "failed to write primary_conninfo to file")
+	// Fix pgbackrest paths in postgresql.auto.conf after pg_rewind
+	// The config may have wrong paths copied from another pooler during initial setup
+	if err := pm.fixPgBackRestPaths(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths, continuing anyway", "error", err)
 	}
 
-	// Now restart postgres - it will read primary_conninfo from postgresql.auto.conf
-	// and immediately start streaming WAL from the primary
 	if err := pm.restartAsStandbyAfterRewind(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to restart as standby")
 	}
@@ -1075,41 +1051,22 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		pm.logger.WarnContext(ctx, "Failed to reset synchronous replication", "error", err)
 	}
 
-	// Wait for postgres to accept connections and verify replication is active
-	// Use exponential backoff with 30-second timeout
-	pm.logger.InfoContext(ctx, "Waiting for PostgreSQL to accept connections")
+	pm.logger.InfoContext(ctx, "Configuring replication to source primary",
+		"source", source.Id.Name,
+		"source_host", source.Hostname,
+		"source_port", port)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+	// Store primary pooler ID for tracking
+	pm.mu.Lock()
+	pm.primaryPoolerID = source.Id
+	pm.primaryHost = source.Hostname
+	pm.primaryPort = port
+	pm.mu.Unlock()
 
-	r := retry.New(10*time.Millisecond, 200*time.Millisecond)
-	var lastErr error
-	var lastAttempt int
-	connected := false
-	for attempt, err := range r.Attempts(waitCtx) {
-		lastAttempt = attempt
-		if err != nil {
-			// Context timeout or cancellation
-			msg := fmt.Sprintf("postgres did not accept connections after restart (timeout after %d attempts, last error: %v)", attempt, lastErr)
-			return nil, mterrors.Wrap(err, msg)
-		}
-
-		// Check if postgres is ready by querying pg_is_in_recovery
-		inRecovery, queryErr := pm.isInRecovery(ctx)
-		if queryErr == nil {
-			pm.logger.InfoContext(ctx, "PostgreSQL is now accepting connections",
-				"in_recovery", inRecovery,
-				"attempts", attempt)
-			connected = true
-			break
-		}
-		lastErr = queryErr
-		// Will automatically backoff before next attempt
-	}
-
-	if !connected {
-		msg := fmt.Sprintf("postgres did not accept connections after restart (tried %d attempts)", lastAttempt)
-		return nil, mterrors.Wrap(lastErr, msg)
+	// Call the locked version directly since we already hold the action lock
+	// (calling SetPrimaryConnInfo would deadlock trying to acquire the same lock)
+	if err := pm.setPrimaryConnInfoLocked(ctx, source.Hostname, port, false, false); err != nil {
+		return nil, mterrors.Wrap(err, "failed to configure replication to source primary")
 	}
 
 	// Clear primary_term since this node is no longer primary for any term.
@@ -1570,6 +1527,9 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
+	// Generate application name for replication connection
+	appName := generateApplicationName(pm.serviceID)
+
 	// Run crash recovery if needed before pg_rewind
 	pm.logger.InfoContext(ctx, "Checking if crash recovery needed before pg_rewind")
 	crashRecoveryResp, err := pm.pgctldClient.CrashRecovery(ctx, &pgctldpb.CrashRecoveryRequest{})
@@ -1591,9 +1551,10 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 
 	// Dry-run to check if rewind is needed
 	dryRunReq := &pgctldpb.PgRewindRequest{
-		SourceHost: sourceHost,
-		SourcePort: sourcePort,
-		DryRun:     true,
+		SourceHost:      sourceHost,
+		SourcePort:      sourcePort,
+		DryRun:          true,
+		ApplicationName: appName,
 	}
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
 	if err != nil {
@@ -1605,12 +1566,14 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 
 	// Check if servers diverged
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
-		pm.logger.InfoContext(ctx, "Servers diverged, running pg_rewind")
+		pm.logger.InfoContext(ctx, "Servers diverged, running pg_rewind with -R flag")
 
 		rewindReq := &pgctldpb.PgRewindRequest{
-			SourceHost: sourceHost,
-			SourcePort: sourcePort,
-			DryRun:     false,
+			SourceHost:      sourceHost,
+			SourcePort:      sourcePort,
+			DryRun:          false,
+			ApplicationName: appName,
+			ExtraArgs:       []string{"-R"},
 		}
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
 		if err != nil {
@@ -1626,6 +1589,52 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 
 	pm.logger.InfoContext(ctx, "No divergence, skipping rewind")
 	return false, nil
+}
+
+// fixPgBackRestPaths fixes the pgbackrest paths in postgresql.auto.conf
+// After pg_rewind, the restore_command and archive_command may have paths from another pooler
+// This function updates them to point to the current pooler's directories
+func (pm *MultiPoolerManager) fixPgBackRestPaths(ctx context.Context) error {
+	pm.mu.Lock()
+	poolerDir := pm.multipooler.PoolerDir
+	pm.mu.Unlock()
+
+	if poolerDir == "" {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pooler directory not set")
+	}
+
+	autoConfPath := filepath.Join(poolerDir, "pg_data", "postgresql.auto.conf")
+
+	pm.logger.InfoContext(ctx, "Fixing pgbackrest paths in postgresql.auto.conf", "file", autoConfPath)
+
+	// Read the file
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to read postgresql.auto.conf")
+	}
+
+	// Replace all occurrences of old pooler paths with current pooler paths
+	// We need to fix: --config, --lock-path, --log-path, --pg1-path
+	// These paths follow the pattern: /some/path/pooler-X/data/...
+	// We want to replace them with: /some/path/pooler-current/data/...
+
+	// Extract current pooler dir path pattern
+	// poolerDir is like: /tmp/test_12345/pooler-1/data
+	// We want to match patterns like: /tmp/test_12345/pooler-X/data
+	baseDir := filepath.Dir(filepath.Dir(poolerDir)) // Go up two levels to get base directory
+
+	// Use regex to replace pooler-X paths with current pooler paths
+	// Pattern matches: /path/to/pooler-<anything>/data
+	re := regexp.MustCompile(regexp.QuoteMeta(baseDir) + `/pooler-[^/]+/data`)
+	newContent := re.ReplaceAllString(string(content), poolerDir)
+
+	// Write the file back
+	if err := os.WriteFile(autoConfPath, []byte(newContent), 0o600); err != nil {
+		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
+	}
+
+	pm.logger.InfoContext(ctx, "Successfully fixed pgbackrest paths in postgresql.auto.conf")
+	return nil
 }
 
 // restartAsStandbyAfterRewind restarts postgres as standby after rewind.

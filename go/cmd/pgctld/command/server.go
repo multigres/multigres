@@ -416,8 +416,12 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}
 
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
+	// Include application_name if provided (used for replication identification)
 	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
 		req.GetSourceHost(), req.GetSourcePort())
+	if req.GetApplicationName() != "" {
+		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())
+	}
 
 	// Use the shared rewind function with detailed result, passing password separately
 	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
