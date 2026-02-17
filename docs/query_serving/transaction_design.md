@@ -179,6 +179,75 @@ COMMIT;                                  -- Synthetic (silent)
 | Already in transaction     | Set `TxnStatusFailed` | Same as explicit               |
 | After COMMIT, new implicit | Auto-ROLLBACK         | Committed data preserved       |
 
+### CommandComplete Deferral for Implicit Commit
+
+When PostgreSQL executes a multi-statement simple query, it commits the
+implicit transaction **before** sending the last statement's
+`CommandComplete`. If the commit fails (e.g., deferred constraint
+violation, serialization failure), the client never receives
+`CommandComplete` for the last statement — it sees an `ErrorResponse`
+instead. This is by design: it makes the commit error appear as if the
+last statement failed, which is the only way to surface the error
+without introducing an unexpected extra message into the protocol.
+
+#### PostgreSQL wire protocol on implicit commit failure
+
+```text
+Client sends: "INSERT INTO t1 ...; INSERT INTO t2 ...; SELECT * FROM big_table;"
+
+Commit succeeds:                    Commit fails:
+→ CommandComplete (INSERT 0 1)      → CommandComplete (INSERT 0 1)
+→ CommandComplete (INSERT 0 1)      → CommandComplete (INSERT 0 1)
+→ RowDescription                    → RowDescription
+→ DataRow ...                       → DataRow ...
+→ CommandComplete (SELECT 3)        → ErrorResponse        ← replaces CommandComplete
+→ ReadyForQuery 'I'                 → ReadyForQuery 'I'    ← nothing committed
+```
+
+Note that `DataRow` messages for the last statement are already sent
+to the client during execution — PostgreSQL streams rows via
+`printtup()` during `PortalRun()`, well before the commit attempt.
+Only the `CommandComplete` is withheld. If the commit fails, the rows
+traveled across the network for nothing, but the missing
+`CommandComplete` (replaced by `ErrorResponse`) tells client libraries
+to discard them.
+
+#### How multigres replicates this behavior
+
+We replicate PostgreSQL's behavior by intercepting the streaming
+callback for the **last statement** in an implicit transaction. The
+streaming callback is invoked multiple times per statement:
+
+1. **Intermediate callbacks** carry `Fields` and batched `Rows` with
+   `CommandTag=""` — these are forwarded to the client immediately
+   (DataRow messages stream normally)
+2. **Final callback** carries the last batch of `Rows` along with
+   `CommandTag="SELECT 42"` — we forward the rows but **hold the
+   CommandTag** in `heldCommandTag`
+
+After the last statement finishes executing, we attempt the implicit
+`COMMIT`:
+
+- **Commit succeeds**: we flush `heldCommandTag` via the callback →
+  the client sees `CommandComplete`
+- **Commit fails**: we `ROLLBACK`, discard `heldCommandTag`, and
+  return the error → the client sees `ErrorResponse` instead of
+  `CommandComplete`
+
+This matches PostgreSQL's wire protocol exactly. All statements before
+the last one have their `CommandComplete` sent immediately — those are
+misleading if the commit later fails (the changes didn't persist), but
+that is PostgreSQL's behavior too.
+
+#### Why only the CommandTag is deferred (not the rows)
+
+Holding back rows in memory is not feasible — a `SELECT` returning
+millions of rows would require unbounded buffering. PostgreSQL doesn't
+buffer them either; it streams rows during execution and only withholds
+the final `CommandComplete` message. Our approach mirrors this: rows
+stream to the client as they arrive, so memory usage stays bounded
+regardless of result set size.
+
 ## Deferred BEGIN Execution
 
 When `BEGIN` is received (explicit or synthetic), the
