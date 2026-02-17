@@ -57,8 +57,8 @@ type SessionStateRoute struct {
 	// VariableStmt is the SET/RESET statement from the AST.
 	VariableStmt *ast.VariableSetStmt
 
-	// SQL is the original SQL string.
-	SQL string
+	// Query is the original SQL string.
+	Query string
 }
 
 // NewSessionStateRoute creates a new SessionStateRoute primitive.
@@ -66,7 +66,7 @@ func NewSessionStateRoute(route *Route, sql string, stmt *ast.VariableSetStmt) *
 	return &SessionStateRoute{
 		Route:        route,
 		VariableStmt: stmt,
-		SQL:          sql,
+		Query:        sql,
 	}
 }
 
@@ -157,7 +157,7 @@ func (s *SessionStateRoute) GetTableGroup() string {
 
 // GetQuery returns the original SQL string.
 func (s *SessionStateRoute) GetQuery() string {
-	return s.SQL
+	return s.Query
 }
 
 // String returns a string representation for debugging.
