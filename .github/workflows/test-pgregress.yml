@@ -17,6 +17,8 @@ name: PostgreSQL Regression Tests
 on:
   schedule:
     - cron: "0 3 * * *" # Nightly at 3:00 AM UTC
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
 
 permissions: {}
@@ -24,6 +26,9 @@ permissions: {}
 jobs:
   test-pgregress:
     name: Run PostgreSQL regression tests
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'Run PgRegress Tests')
     runs-on: ubuntu-24.04
 
     steps:

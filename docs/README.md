@@ -16,5 +16,5 @@ to use Multigres for your applications, please refer to the
 
 multigres runs the official PostgreSQL regression test suite to track compatibility.
 
-- **Results:** See the [latest workflow run](https://github.com/haritabh17/multigres-clone/actions/workflows/test-pgregress.yml) for the detailed compatibility report in the Job Summary.
+- **Results:** See the [latest workflow run](https://github.com/multigres/multigres/actions/workflows/test-pgregress.yml) for the detailed compatibility report in the Job Summary.
 - **Artifacts:** Each run uploads `compatibility-report.md` and `regression.diffs` as downloadable artifacts.
