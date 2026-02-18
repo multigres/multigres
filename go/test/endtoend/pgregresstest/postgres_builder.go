@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -265,6 +266,15 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	}
 
 	cmd := exec.CommandContext(ctx, "make", makeArgs...)
+
+	// Start the process in its own process group so we can kill the entire tree
+	// (make → pg_regress → psql) when the context expires. Without this,
+	// exec.CommandContext only kills the direct child (make), leaving grandchildren
+	// like pg_regress and psql alive, which prevents cmd.Run() from returning.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 
 	// Set environment variables for connection
 	cmd.Env = append(os.Environ(),

@@ -52,7 +52,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Create PostgresBuilder for managing source and build
 	// We need to build PostgreSQL BEFORE setting up the cluster so that pgctld
 	// uses the same PostgreSQL version as the regression test library (regress.so)
-	ctx := utils.WithTimeout(t, 60*time.Minute)
+	ctx := utils.WithTimeout(t, 20*time.Minute)
 	builder := NewPostgresBuilder(t, t.TempDir())
 	t.Cleanup(func() {
 		builder.Cleanup()
