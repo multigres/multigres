@@ -53,6 +53,11 @@ type ShardSetup struct {
 	TopoServer     topoclient.Store
 	CellName       string
 
+	// Context for all processes started by this ShardSetup.
+	// Cancelled when Cleanup() is called to gracefully terminate all processes.
+	runningCtx context.Context
+	cancel     context.CancelFunc
+
 	// MultipoolerInstances indexed by name (e.g., "pooler-1", "pooler-2", "pooler-3")
 	Multipoolers map[string]*MultipoolerInstance
 
@@ -403,38 +408,16 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Stop multigateway first (before multipoolers it routes to)
-	if s.Multigateway != nil {
-		s.Multigateway.Stop()
+	// Cancel the context to gracefully terminate all processes (multigateway, multiorch,
+	// multipoolers, pgctld, etcd). The executil package will handle SIGTERM → SIGKILL
+	// escalation with the default grace period (10s).
+	if s.cancel != nil {
+		s.cancel()
 	}
 
-	// Stop multiorch instances (they orchestrate the shard)
-	for _, mo := range s.MultiOrchInstances {
-		if mo != nil {
-			mo.Stop()
-		}
-	}
-
-	// Stop multipooler instances (multipooler, then pgctld)
-	for _, inst := range s.Multipoolers {
-		if inst.Multipooler != nil {
-			inst.Multipooler.Stop()
-		}
-		if inst.Pgctld != nil {
-			inst.Pgctld.Stop()
-		}
-	}
-
-	// Close topology server
+	// Close topology server (can do this immediately since context cancellation is async)
 	if s.TopoServer != nil {
 		s.TopoServer.Close()
-	}
-
-	// Stop etcd
-	if s.EtcdCmd != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		_, _ = s.EtcdCmd.Stop(ctx)
-		cancel()
 	}
 
 	// Clean up temp directory only if tests passed
