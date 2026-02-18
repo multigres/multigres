@@ -175,7 +175,9 @@ timeout: 30
 			"--pooler-dir", dataDir,
 			"--grpc-port", strconv.Itoa(grpcPort),
 			"--pg-port", strconv.Itoa(pgPort),
-			"--config-file", pgctldConfigFile)
+			"--config-file", pgctldConfigFile,
+			"--backup-type", "filesystem",
+			"--backup-path", filepath.Join(tempDir, "backups"))
 
 		// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 		serverCmd.Env = append(os.Environ(),
@@ -1120,7 +1122,9 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 		"--pooler-dir", dataDir,
 		"--grpc-port", strconv.Itoa(grpcPort),
 		"--pg-port", strconv.Itoa(pgPort),
-		"--config-file", pgctldConfigFile)
+		"--config-file", pgctldConfigFile,
+		"--backup-type", "filesystem",
+		"--backup-path", filepath.Join(tempDir, "backups"))
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	// Add endtoend directory to PATH so run_command_if_parent_dies.sh can be found
