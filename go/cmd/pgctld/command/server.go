@@ -465,9 +465,12 @@ func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecovery
 	}
 
 	// Verify recovery completed successfully
-	_, stateAfter, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
+	stillNeedsRecovery, stateAfter, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify recovery: %w", err)
+	}
+	if stillNeedsRecovery {
+		return nil, fmt.Errorf("crash recovery completed but database still reports unclean state: %s", stateAfter.String())
 	}
 
 	s.logger.InfoContext(ctx, "Crash recovery completed successfully",

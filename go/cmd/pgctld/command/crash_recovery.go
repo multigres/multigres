@@ -41,6 +41,12 @@ func needsCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir stri
 	clusterStateStr := extractClusterState(outputStr)
 	clusterState := stringToClusterState(clusterStateStr)
 
+	// Guard against unknown/unspecified states - fail safely rather than assuming clean
+	if clusterState == pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_UNKNOWN ||
+		clusterState == pb.DatabaseClusterState_DATABASE_CLUSTER_STATE_UNSPECIFIED {
+		return false, clusterState, fmt.Errorf("unable to determine database cluster state from pg_controldata output (got: %q)", clusterStateStr)
+	}
+
 	// For PostgreSQL 17+, check database cluster state
 	// States that indicate need for crash recovery:
 	// - "in production" - was running when killed
