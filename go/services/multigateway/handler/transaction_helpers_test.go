@@ -296,6 +296,69 @@ func TestExecuteWithImplicitTransaction_CommandTagNotSentOnCommitFailure(t *test
 	require.Contains(t, commandTags[0], "SELECT 1")
 }
 
+func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitFailure(t *testing.T) {
+	// When COPY FROM STDIN is the last statement in an implicit transaction batch
+	// (e.g., "INSERT INTO t VALUES(1); COPY t FROM STDIN"), the COPY CommandTag
+	// ("COPY 3") should be deferred until commit succeeds — just like any other
+	// statement. If the commit fails, the COPY CommandTag must NOT be sent.
+	mock := &trackingMockExecutor{
+		errOnCallIndex: 3, // error on COMMIT (index 3: BEGIN=0, INSERT=1, COPY=2, COMMIT=3)
+		errToReturn:    errors.New("commit failed"),
+	}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COPY t FROM STDIN")
+
+	var commandTags []string
+	err := h.executeWithImplicitTransaction(
+		context.Background(), newImplicitTxTestConn(), state,
+		"INSERT INTO t VALUES(1); COPY t FROM STDIN", stmts,
+		func(_ context.Context, result *sqltypes.Result) error {
+			if result.CommandTag != "" {
+				commandTags = append(commandTags, result.CommandTag)
+			}
+			return nil
+		},
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "commit failed")
+	// BEGIN, INSERT, COPY, COMMIT (fails), ROLLBACK
+	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER", "COMMIT", "ROLLBACK"}, stmtDescriptions(mock.executedStmts))
+	// INSERT's CommandTag was sent immediately, but COPY's was held and never sent.
+	require.Len(t, commandTags, 1, "only INSERT CommandTag should be sent; COPY's was discarded")
+	require.Contains(t, commandTags[0], "INSERT")
+}
+
+func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitSuccess(t *testing.T) {
+	// When COPY FROM STDIN is the last statement and the implicit commit succeeds,
+	// the deferred COPY CommandTag should be flushed to the client.
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultiGatewayConnectionState()
+	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COPY t FROM STDIN")
+
+	var commandTags []string
+	err := h.executeWithImplicitTransaction(
+		context.Background(), newImplicitTxTestConn(), state,
+		"INSERT INTO t VALUES(1); COPY t FROM STDIN", stmts,
+		func(_ context.Context, result *sqltypes.Result) error {
+			if result.CommandTag != "" {
+				commandTags = append(commandTags, result.CommandTag)
+			}
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	// BEGIN, INSERT, COPY, COMMIT
+	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER", "COMMIT"}, stmtDescriptions(mock.executedStmts))
+	// Both CommandTags should be sent: INSERT immediately, COPY after successful commit.
+	require.Len(t, commandTags, 2, "both INSERT and COPY CommandTags should be sent")
+	require.Contains(t, commandTags[0], "INSERT")
+	require.Contains(t, commandTags[1], "COPY")
+}
+
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)

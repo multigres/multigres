@@ -484,6 +484,10 @@ func (e *Executor) CopyReady(
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
 	}
 
+	// Mark the connection as reserved for COPY. If the connection is also
+	// reserved for a transaction, this adds the COPY reason alongside it.
+	reservedConn.AddReservationReason(protoutil.ReasonCopy)
+
 	e.logger.DebugContext(ctx, "COPY INITIATE successful",
 		"conn_id", connID,
 		"format", format,
@@ -601,8 +605,11 @@ func (e *Executor) CopyFinalize(
 		RowsAffected: rowsAffected,
 	}
 
-	// Success - release connection back to pool for reuse
-	reservedConn.Release(reserved.ReleasePortalComplete)
+	// Remove the COPY reason. If other reasons remain (e.g., transaction),
+	// keep the connection reserved. Otherwise, release it back to the pool.
+	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+		reservedConn.Release(reserved.ReleasePortalComplete)
+	}
 
 	return result, nil
 }
@@ -655,12 +662,15 @@ func (e *Executor) CopyAbort(
 
 	e.logger.DebugContext(ctx, "COPY FAIL completed")
 
-	// If write or read failed, connection might be in bad state - close it
+	// If write or read failed, connection is in bad state — release regardless.
 	if writeFailed || readErr != nil {
 		reservedConn.Release(reserved.ReleaseError)
 	} else {
-		// Clean abort - release connection back to pool
-		reservedConn.Release(reserved.ReleasePortalComplete)
+		// Clean abort — remove the COPY reason. If other reasons remain
+		// (e.g., transaction), keep the connection reserved.
+		if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+			reservedConn.Release(reserved.ReleasePortalComplete)
+		}
 	}
 
 	return nil
