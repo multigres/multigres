@@ -236,12 +236,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	return pm, nil
 }
 
-func (pm *MultiPoolerManager) getPrimaryPoolerID() *clustermetadatapb.ID {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.primaryPoolerID
-}
-
 // internalQueryService returns the InternalQueryService for executing queries via the connection pool.
 func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryService {
 	if pm.qsc == nil {
@@ -1313,7 +1307,8 @@ func (pm *MultiPoolerManager) configureReplicationAfterPromotion(ctx context.Con
 		syncReplicationConfig.SynchronousMethod,
 		syncReplicationConfig.NumSync,
 		syncReplicationConfig.StandbyIds,
-		syncReplicationConfig.ReloadConfig)
+		syncReplicationConfig.ReloadConfig,
+		syncReplicationConfig.Force)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to configure synchronous replication", "error", err)
 		return mterrors.Wrap(err, "promotion succeeded but failed to configure synchronous replication")
@@ -1640,6 +1635,21 @@ func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
+
+	// Reopen connections after postgres restart to replace stale socket FDs.
+	// Only when connection pool is initialized (the manager may not have
+	// connection infrastructure in unit tests with minimal setup).
+	if pm.connPoolMgr != nil {
+		if err := pm.reopenConnections(ctx); err != nil {
+			return fmt.Errorf("MonitorPostgres: failed to reopen connections after restart: %w", err)
+		}
+
+		// Wait for database connection to be ready
+		if err := pm.waitForDatabaseConnection(ctx); err != nil {
+			return fmt.Errorf("MonitorPostgres: database not ready after restart: %w", err)
+		}
+	}
+
 	return nil
 }
 

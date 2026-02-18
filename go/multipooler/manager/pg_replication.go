@@ -310,6 +310,86 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	return nil
 }
 
+// waitForReplayStabilize waits, best effort, for WAL replay to stop making
+// observable progress. The intent is to approximate replay is idle given the WAL
+// that is currently available to this standby.
+//
+// WARNING: This function is not perfect and has some theoretical limitations.
+// See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md for more context.
+func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	// requiredStablePolls: number of consecutive polls showing the same replay_lsn
+	// before we declare stability. At 10ms per tick, 3 polls = 30ms of stability.
+	const requiredStablePolls = 3
+	var prevReplayLsn string
+	consecutive := 0
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			if waitCtx.Err() == context.DeadlineExceeded {
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to stabilize")
+			}
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay to stabilize")
+
+		case <-ticker.C:
+			replayLsn, isPaused, err := pm.queryReplayState(waitCtx)
+			if err != nil {
+				return nil, err
+			}
+
+			if isPaused {
+				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+					"WAL replay is paused during revoke — unexpected state")
+			}
+
+			if replayLsn == prevReplayLsn {
+				consecutive++
+			} else {
+				consecutive = 1
+			}
+			prevReplayLsn = replayLsn
+
+			if consecutive >= requiredStablePolls {
+				pm.logger.InfoContext(ctx, "WAL replay stabilized (maximally applied)",
+					"replay_lsn", replayLsn)
+
+				status, err := pm.queryReplicationStatus(waitCtx)
+				if err != nil {
+					return nil, err
+				}
+				return status, nil
+			}
+		}
+	}
+}
+
+// queryReplayState returns the current replay LSN and pause state.
+// Returns FAILED_PRECONDITION if the server is not in recovery (replay LSN is NULL).
+func (pm *MultiPoolerManager) queryReplayState(ctx context.Context) (replayLsn string, isPaused bool, err error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn(), pg_is_wal_replay_paused()")
+	if err != nil {
+		return "", false, mterrors.Wrap(err, "failed to query replay state")
+	}
+
+	var lsn *string
+	if err := executor.ScanSingleRow(result, &lsn, &isPaused); err != nil {
+		return "", false, mterrors.Wrap(err, "failed to scan replay state")
+	}
+	if lsn == nil {
+		return "", false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"pg_last_wal_replay_lsn is NULL (not in recovery) — unexpected during revoke")
+	}
+	return *lsn, isPaused, nil
+}
+
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
 // It polls pg_stat_wal_receiver to confirm the receiver has stopped.
 func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
@@ -877,6 +957,20 @@ func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatap
 }
 
 // ----------------------------------------------------------------------------
+// standbyUpdateOperationName maps a StandbyUpdateOperation enum to a short string for logging/history.
+func standbyUpdateOperationName(op multipoolermanagerdatapb.StandbyUpdateOperation) string {
+	switch op {
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+		return "add"
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+		return "remove"
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
+		return "replace"
+	default:
+		return "unknown"
+	}
+}
+
 // Standby List Operations
 // ----------------------------------------------------------------------------
 

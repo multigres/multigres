@@ -123,7 +123,8 @@ func (s *managerService) ConfigureSynchronousReplication(ctx context.Context, re
 		req.SynchronousMethod,
 		req.NumSync,
 		req.StandbyIds,
-		req.ReloadConfig)
+		req.ReloadConfig,
+		req.Force)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -137,7 +138,8 @@ func (s *managerService) UpdateSynchronousStandbyList(ctx context.Context, req *
 		req.StandbyIds,
 		req.ReloadConfig,
 		req.ConsensusTerm,
-		req.Force)
+		req.Force,
+		req.CoordinatorId)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -255,7 +257,7 @@ func (s *managerService) State(ctx context.Context, req *multipoolermanagerdatap
 
 // Backup performs a backup
 func (s *managerService) Backup(ctx context.Context, req *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
-	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.JobId)
+	backupID, err := s.manager.Backup(ctx, req.ForcePrimary, req.Type, req.JobId, req.Overrides)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

@@ -24,6 +24,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -639,9 +640,11 @@ type StatusResponse struct {
 	// Is server ready to accept connections
 	Ready bool `protobuf:"varint,8,opt,name=ready,proto3" json:"ready,omitempty"`
 	// Additional status information
-	Message       string `protobuf:"bytes,9,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Message string `protobuf:"bytes,9,opt,name=message,proto3" json:"message,omitempty"`
+	// pgBackRest TLS server status
+	PgbackrestStatus *PgBackRestStatus `protobuf:"bytes,10,opt,name=pgbackrest_status,json=pgbackrestStatus,proto3" json:"pgbackrest_status,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -737,6 +740,86 @@ func (x *StatusResponse) GetMessage() string {
 	return ""
 }
 
+func (x *StatusResponse) GetPgbackrestStatus() *PgBackRestStatus {
+	if x != nil {
+		return x.PgbackrestStatus
+	}
+	return nil
+}
+
+// pgBackRest TLS server status
+type PgBackRestStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether pgBackRest TLS server is currently running
+	Running bool `protobuf:"varint,1,opt,name=running,proto3" json:"running,omitempty"`
+	// Error message if startup failed or last crash reason
+	ErrorMessage string `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// Number of times pgBackRest has been restarted due to crashes
+	RestartCount int32 `protobuf:"varint,3,opt,name=restart_count,json=restartCount,proto3" json:"restart_count,omitempty"`
+	// Last successful startup timestamp
+	LastStarted   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_started,json=lastStarted,proto3" json:"last_started,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PgBackRestStatus) Reset() {
+	*x = PgBackRestStatus{}
+	mi := &file_pgctldservice_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PgBackRestStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PgBackRestStatus) ProtoMessage() {}
+
+func (x *PgBackRestStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PgBackRestStatus.ProtoReflect.Descriptor instead.
+func (*PgBackRestStatus) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PgBackRestStatus) GetRunning() bool {
+	if x != nil {
+		return x.Running
+	}
+	return false
+}
+
+func (x *PgBackRestStatus) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *PgBackRestStatus) GetRestartCount() int32 {
+	if x != nil {
+		return x.RestartCount
+	}
+	return 0
+}
+
+func (x *PgBackRestStatus) GetLastStarted() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastStarted
+	}
+	return nil
+}
+
 // Get server version information
 type VersionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -751,7 +834,7 @@ type VersionRequest struct {
 
 func (x *VersionRequest) Reset() {
 	*x = VersionRequest{}
-	mi := &file_pgctldservice_proto_msgTypes[10]
+	mi := &file_pgctldservice_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -763,7 +846,7 @@ func (x *VersionRequest) String() string {
 func (*VersionRequest) ProtoMessage() {}
 
 func (x *VersionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[10]
+	mi := &file_pgctldservice_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -776,7 +859,7 @@ func (x *VersionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VersionRequest.ProtoReflect.Descriptor instead.
 func (*VersionRequest) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{10}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *VersionRequest) GetHost() string {
@@ -819,7 +902,7 @@ type VersionResponse struct {
 
 func (x *VersionResponse) Reset() {
 	*x = VersionResponse{}
-	mi := &file_pgctldservice_proto_msgTypes[11]
+	mi := &file_pgctldservice_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -831,7 +914,7 @@ func (x *VersionResponse) String() string {
 func (*VersionResponse) ProtoMessage() {}
 
 func (x *VersionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[11]
+	mi := &file_pgctldservice_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -844,7 +927,7 @@ func (x *VersionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VersionResponse.ProtoReflect.Descriptor instead.
 func (*VersionResponse) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{11}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *VersionResponse) GetVersion() string {
@@ -876,7 +959,7 @@ type InitDataDirRequest struct {
 
 func (x *InitDataDirRequest) Reset() {
 	*x = InitDataDirRequest{}
-	mi := &file_pgctldservice_proto_msgTypes[12]
+	mi := &file_pgctldservice_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -888,7 +971,7 @@ func (x *InitDataDirRequest) String() string {
 func (*InitDataDirRequest) ProtoMessage() {}
 
 func (x *InitDataDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[12]
+	mi := &file_pgctldservice_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -901,7 +984,7 @@ func (x *InitDataDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitDataDirRequest.ProtoReflect.Descriptor instead.
 func (*InitDataDirRequest) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{12}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *InitDataDirRequest) GetAuthLocal() string {
@@ -935,7 +1018,7 @@ type InitDataDirResponse struct {
 
 func (x *InitDataDirResponse) Reset() {
 	*x = InitDataDirResponse{}
-	mi := &file_pgctldservice_proto_msgTypes[13]
+	mi := &file_pgctldservice_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -947,7 +1030,7 @@ func (x *InitDataDirResponse) String() string {
 func (*InitDataDirResponse) ProtoMessage() {}
 
 func (x *InitDataDirResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[13]
+	mi := &file_pgctldservice_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -960,7 +1043,7 @@ func (x *InitDataDirResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitDataDirResponse.ProtoReflect.Descriptor instead.
 func (*InitDataDirResponse) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{13}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *InitDataDirResponse) GetMessage() string {
@@ -990,7 +1073,7 @@ type PgRewindRequest struct {
 
 func (x *PgRewindRequest) Reset() {
 	*x = PgRewindRequest{}
-	mi := &file_pgctldservice_proto_msgTypes[14]
+	mi := &file_pgctldservice_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1002,7 +1085,7 @@ func (x *PgRewindRequest) String() string {
 func (*PgRewindRequest) ProtoMessage() {}
 
 func (x *PgRewindRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[14]
+	mi := &file_pgctldservice_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1015,7 +1098,7 @@ func (x *PgRewindRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PgRewindRequest.ProtoReflect.Descriptor instead.
 func (*PgRewindRequest) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{14}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PgRewindRequest) GetSourceHost() string {
@@ -1064,7 +1147,7 @@ type PgRewindResponse struct {
 
 func (x *PgRewindResponse) Reset() {
 	*x = PgRewindResponse{}
-	mi := &file_pgctldservice_proto_msgTypes[15]
+	mi := &file_pgctldservice_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1076,7 +1159,7 @@ func (x *PgRewindResponse) String() string {
 func (*PgRewindResponse) ProtoMessage() {}
 
 func (x *PgRewindResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[15]
+	mi := &file_pgctldservice_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1089,7 +1172,7 @@ func (x *PgRewindResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PgRewindResponse.ProtoReflect.Descriptor instead.
 func (*PgRewindResponse) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{15}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *PgRewindResponse) GetMessage() string {
@@ -1115,7 +1198,7 @@ type CrashRecoveryRequest struct {
 
 func (x *CrashRecoveryRequest) Reset() {
 	*x = CrashRecoveryRequest{}
-	mi := &file_pgctldservice_proto_msgTypes[16]
+	mi := &file_pgctldservice_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1127,7 +1210,7 @@ func (x *CrashRecoveryRequest) String() string {
 func (*CrashRecoveryRequest) ProtoMessage() {}
 
 func (x *CrashRecoveryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[16]
+	mi := &file_pgctldservice_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1140,7 +1223,7 @@ func (x *CrashRecoveryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CrashRecoveryRequest.ProtoReflect.Descriptor instead.
 func (*CrashRecoveryRequest) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{16}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{17}
 }
 
 type CrashRecoveryResponse struct {
@@ -1159,7 +1242,7 @@ type CrashRecoveryResponse struct {
 
 func (x *CrashRecoveryResponse) Reset() {
 	*x = CrashRecoveryResponse{}
-	mi := &file_pgctldservice_proto_msgTypes[17]
+	mi := &file_pgctldservice_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1171,7 +1254,7 @@ func (x *CrashRecoveryResponse) String() string {
 func (*CrashRecoveryResponse) ProtoMessage() {}
 
 func (x *CrashRecoveryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[17]
+	mi := &file_pgctldservice_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1184,7 +1267,7 @@ func (x *CrashRecoveryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CrashRecoveryResponse.ProtoReflect.Descriptor instead.
 func (*CrashRecoveryResponse) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{17}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CrashRecoveryResponse) GetRecoveryPerformed() bool {
@@ -1219,7 +1302,7 @@ var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\"A\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"A\n" +
 	"\fStartRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
@@ -1246,7 +1329,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x13ReloadConfigRequest\"0\n" +
 	"\x14ReloadConfigResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"\x0f\n" +
-	"\rStatusRequest\"\x97\x02\n" +
+	"\rStatusRequest\"\xe5\x02\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1b.pgctldservice.ServerStatusR\x06status\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x18\n" +
@@ -1256,7 +1339,14 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x04port\x18\x06 \x01(\x05R\x04port\x12\x12\n" +
 	"\x04host\x18\a \x01(\tR\x04host\x12\x14\n" +
 	"\x05ready\x18\b \x01(\bR\x05ready\x12\x18\n" +
-	"\amessage\x18\t \x01(\tR\amessage\"h\n" +
+	"\amessage\x18\t \x01(\tR\amessage\x12L\n" +
+	"\x11pgbackrest_status\x18\n" +
+	" \x01(\v2\x1f.pgctldservice.PgBackRestStatusR\x10pgbackrestStatus\"\xb5\x01\n" +
+	"\x10PgBackRestStatus\x12\x18\n" +
+	"\arunning\x18\x01 \x01(\bR\arunning\x12#\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12#\n" +
+	"\rrestart_count\x18\x03 \x01(\x05R\frestartCount\x12=\n" +
+	"\flast_started\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vlastStarted\"h\n" +
 	"\x0eVersionRequest\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x1a\n" +
@@ -1331,7 +1421,7 @@ func file_pgctldservice_proto_rawDescGZIP() []byte {
 }
 
 var file_pgctldservice_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_pgctldservice_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_pgctldservice_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_pgctldservice_proto_goTypes = []any{
 	(ServerStatus)(0),             // 0: pgctldservice.ServerStatus
 	(DatabaseClusterState)(0),     // 1: pgctldservice.DatabaseClusterState
@@ -1345,46 +1435,50 @@ var file_pgctldservice_proto_goTypes = []any{
 	(*ReloadConfigResponse)(nil),  // 9: pgctldservice.ReloadConfigResponse
 	(*StatusRequest)(nil),         // 10: pgctldservice.StatusRequest
 	(*StatusResponse)(nil),        // 11: pgctldservice.StatusResponse
-	(*VersionRequest)(nil),        // 12: pgctldservice.VersionRequest
-	(*VersionResponse)(nil),       // 13: pgctldservice.VersionResponse
-	(*InitDataDirRequest)(nil),    // 14: pgctldservice.InitDataDirRequest
-	(*InitDataDirResponse)(nil),   // 15: pgctldservice.InitDataDirResponse
-	(*PgRewindRequest)(nil),       // 16: pgctldservice.PgRewindRequest
-	(*PgRewindResponse)(nil),      // 17: pgctldservice.PgRewindResponse
-	(*CrashRecoveryRequest)(nil),  // 18: pgctldservice.CrashRecoveryRequest
-	(*CrashRecoveryResponse)(nil), // 19: pgctldservice.CrashRecoveryResponse
-	(*durationpb.Duration)(nil),   // 20: google.protobuf.Duration
+	(*PgBackRestStatus)(nil),      // 12: pgctldservice.PgBackRestStatus
+	(*VersionRequest)(nil),        // 13: pgctldservice.VersionRequest
+	(*VersionResponse)(nil),       // 14: pgctldservice.VersionResponse
+	(*InitDataDirRequest)(nil),    // 15: pgctldservice.InitDataDirRequest
+	(*InitDataDirResponse)(nil),   // 16: pgctldservice.InitDataDirResponse
+	(*PgRewindRequest)(nil),       // 17: pgctldservice.PgRewindRequest
+	(*PgRewindResponse)(nil),      // 18: pgctldservice.PgRewindResponse
+	(*CrashRecoveryRequest)(nil),  // 19: pgctldservice.CrashRecoveryRequest
+	(*CrashRecoveryResponse)(nil), // 20: pgctldservice.CrashRecoveryResponse
+	(*durationpb.Duration)(nil),   // 21: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 22: google.protobuf.Timestamp
 }
 var file_pgctldservice_proto_depIdxs = []int32{
-	20, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
-	20, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
+	21, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
+	21, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
 	0,  // 2: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
-	20, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
-	1,  // 4: pgctldservice.CrashRecoveryResponse.state_before:type_name -> pgctldservice.DatabaseClusterState
-	1,  // 5: pgctldservice.CrashRecoveryResponse.state_after:type_name -> pgctldservice.DatabaseClusterState
-	2,  // 6: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
-	4,  // 7: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
-	6,  // 8: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
-	8,  // 9: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
-	10, // 10: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
-	12, // 11: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
-	14, // 12: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
-	16, // 13: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
-	18, // 14: pgctldservice.PgCtld.CrashRecovery:input_type -> pgctldservice.CrashRecoveryRequest
-	3,  // 15: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
-	5,  // 16: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
-	7,  // 17: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
-	9,  // 18: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
-	11, // 19: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
-	13, // 20: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
-	15, // 21: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
-	17, // 22: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
-	19, // 23: pgctldservice.PgCtld.CrashRecovery:output_type -> pgctldservice.CrashRecoveryResponse
-	15, // [15:24] is the sub-list for method output_type
-	6,  // [6:15] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	21, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
+	12, // 4: pgctldservice.StatusResponse.pgbackrest_status:type_name -> pgctldservice.PgBackRestStatus
+	22, // 5: pgctldservice.PgBackRestStatus.last_started:type_name -> google.protobuf.Timestamp
+	1,  // 6: pgctldservice.CrashRecoveryResponse.state_before:type_name -> pgctldservice.DatabaseClusterState
+	1,  // 7: pgctldservice.CrashRecoveryResponse.state_after:type_name -> pgctldservice.DatabaseClusterState
+	2,  // 8: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
+	4,  // 9: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
+	6,  // 10: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
+	8,  // 11: pgctldservice.PgCtld.ReloadConfig:input_type -> pgctldservice.ReloadConfigRequest
+	10, // 12: pgctldservice.PgCtld.Status:input_type -> pgctldservice.StatusRequest
+	13, // 13: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
+	15, // 14: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
+	17, // 15: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
+	19, // 16: pgctldservice.PgCtld.CrashRecovery:input_type -> pgctldservice.CrashRecoveryRequest
+	3,  // 17: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
+	5,  // 18: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
+	7,  // 19: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
+	9,  // 20: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
+	11, // 21: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
+	14, // 22: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
+	16, // 23: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
+	18, // 24: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
+	20, // 25: pgctldservice.PgCtld.CrashRecovery:output_type -> pgctldservice.CrashRecoveryResponse
+	17, // [17:26] is the sub-list for method output_type
+	8,  // [8:17] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_pgctldservice_proto_init() }
@@ -1398,7 +1492,7 @@ func file_pgctldservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pgctldservice_proto_rawDesc), len(file_pgctldservice_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -82,12 +82,32 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 		"shard", req.Shard,
 		"force_primary", req.ForcePrimary)
 
+	// For replica backups in local mode (tests), we need to pass pg2_path override
+	// so pgBackRest can connect to the primary's postgres to get WAL files.
+	// In TLS mode (production), this override is not used.
+	overrides := make(map[string]string)
+	if pooler.Type == clustermetadatapb.PoolerType_REPLICA {
+		// Find the primary pooler to get its data directory
+		primary, err := s.findPoolerForBackup(ctx, req.Database, req.TableGroup, req.Shard, true)
+		if err != nil {
+			s.logger.WarnContext(ctx, "Failed to find primary pooler for pg2_path override",
+				"error", err)
+			// Continue without override - will work in TLS mode, fail in local mode
+		} else if primary.PoolerDir != "" {
+			// Construct primary's PGDATA path: ${pooler_dir}/pg_data
+			overrides["pg2_path"] = primary.PoolerDir + "/pg_data"
+			s.logger.DebugContext(ctx, "Added pg2_path override for replica backup",
+				"pg2_path", overrides["pg2_path"])
+		}
+	}
+
 	// Call backup on the pooler using the shared rpcClient
 	// The jobID was generated in Backup() and is passed to pgbackrest as an annotation
 	backupReq := &multipoolermanagerdata.BackupRequest{
 		Type:         req.Type,
 		ForcePrimary: req.ForcePrimary,
 		JobId:        jobID,
+		Overrides:    overrides,
 	}
 
 	resp, err := s.rpcClient.Backup(ctx, pooler, backupReq)

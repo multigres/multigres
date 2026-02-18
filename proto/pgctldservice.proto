@@ -17,6 +17,7 @@ syntax = "proto3";
 package pgctldservice;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/pgctldservice";
 
@@ -151,6 +152,24 @@ message StatusResponse {
 
   // Additional status information
   string message = 9;
+
+  // pgBackRest TLS server status
+  PgBackRestStatus pgbackrest_status = 10;
+}
+
+// pgBackRest TLS server status
+message PgBackRestStatus {
+  // Whether pgBackRest TLS server is currently running
+  bool running = 1;
+
+  // Error message if startup failed or last crash reason
+  string error_message = 2;
+
+  // Number of times pgBackRest has been restarted due to crashes
+  int32 restart_count = 3;
+
+  // Last successful startup timestamp
+  google.protobuf.Timestamp last_started = 4;
 }
 
 // Server status enumeration

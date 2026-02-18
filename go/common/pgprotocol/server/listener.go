@@ -210,6 +210,15 @@ func (l *Listener) handleConnection(conn *Conn) {
 	conn.logger.Info("connection closed")
 }
 
+// CloseListener closes only the TCP listener and stops accepting new connections.
+// Existing connections are not affected. This is useful for testing reconnection
+// failure scenarios where initial connections should keep working but new dial
+// attempts should fail.
+func (l *Listener) CloseListener() error {
+	l.cancel()
+	return l.listener.Close()
+}
+
 // Close closes the listener and waits for all connections to finish.
 func (l *Listener) Close() error {
 	l.cancel()

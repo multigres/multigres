@@ -170,6 +170,13 @@ func (m *QueryService) Query(ctx context.Context, queryStr string) (*sqltypes.Re
 	return matched.result, nil
 }
 
+// QueryMultiStatement implements executor.InternalQueryService.
+// For the mock, this delegates to Query (result is discarded).
+func (m *QueryService) QueryMultiStatement(ctx context.Context, queryStr string) error {
+	_, err := m.Query(ctx, queryStr)
+	return err
+}
+
 // QueryArgs implements executor.InternalQueryService.
 // For the mock, arguments are ignored and matching is done solely on the query string.
 func (m *QueryService) QueryArgs(ctx context.Context, queryStr string, args ...any) (*sqltypes.Result, error) {

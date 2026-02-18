@@ -21,11 +21,20 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
 	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 )
+
+// maxQueryAttempts is the maximum number of attempts for retrying queries.
+const maxQueryAttempts = 3
+
+// retryBackoff is the delay between retry attempts. This gives PostgreSQL
+// time to finish starting up when the connection error is due to a restart.
+const retryBackoff = 100 * time.Millisecond
 
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.
 // This is used when cancelling a backend query due to context cancellation.
@@ -91,7 +100,7 @@ func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, err
 	sql := fmt.Sprintf("SELECT rolpassword FROM pg_catalog.pg_authid WHERE rolname = %s LIMIT 1",
 		ast.QuoteStringLiteral(username))
 
-	results, err := c.conn.Query(ctx, sql)
+	results, err := c.queryWithRetry(ctx, sql)
 	if err != nil {
 		return "", fmt.Errorf("failed to query role password: %w", err)
 	}
@@ -108,6 +117,45 @@ func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, err
 	}
 
 	return scramHash, nil
+}
+
+// queryWithRetry executes a query with automatic retry on connection error.
+// If the first attempt fails with a connection error, it reconnects and retries
+// up to maxQueryAttempts total. This handles stale connections that occur when
+// PostgreSQL restarts while the pool holds old socket FDs.
+func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
+		results, err := c.conn.Query(ctx, sql)
+		switch {
+		case err == nil:
+			return results, nil
+		case !mterrors.IsConnectionError(err):
+			return nil, err
+		case attempt == maxQueryAttempts:
+			c.conn.Close()
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+		// Brief backoff before reconnecting to give PostgreSQL time to
+		// finish starting up if the error is due to a restart.
+		backoffTimer := time.NewTimer(retryBackoff)
+		select {
+		case <-backoffTimer.C:
+		case <-ctx.Done():
+			backoffTimer.Stop()
+			return nil, context.Cause(ctx)
+		}
+		// Admin connections are bare superuser connections with no session
+		// state to re-apply (Settings() returns nil, ApplySettings panics).
+		// A raw client.Conn.Reconnect is sufficient here.
+		if reconnectErr := c.conn.Reconnect(ctx); reconnectErr != nil {
+			c.conn.Close()
+			return nil, reconnectErr
+		}
+	}
+	panic("unreachable")
 }
 
 // TerminateBackend terminates a backend process using pg_terminate_backend().
@@ -141,12 +189,13 @@ type queryResult struct {
 
 // execBackendFunc executes a pg_*_backend() function with context cancellation support.
 // If the context is cancelled while the query is running, the connection is closed
-// to abort the operation.
+// to abort the operation. The underlying query uses queryWithRetry for automatic
+// reconnection on stale connections.
 func (c *Conn) execBackendFunc(ctx context.Context, sql, operation string, processID uint32) (bool, error) {
 	// Run query in goroutine so we can respect context cancellation.
 	ch := make(chan queryResult, 1)
 	go func() {
-		results, err := c.conn.Query(ctx, sql)
+		results, err := c.queryWithRetry(ctx, sql)
 		if err != nil {
 			ch <- queryResult{err: fmt.Errorf("failed to %s backend %d: %w", operation, processID, err)}
 			return

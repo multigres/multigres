@@ -8,6 +8,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type BreadcrumbEntry = { label: string; href?: string };
 
@@ -48,6 +49,9 @@ export function SiteHeader({
         ) : (
           <h1 className="text-base font-medium">Documents</h1>
         )}
+        <div className="ml-auto">
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   );
