@@ -74,8 +74,11 @@ func TestGeneratePgBackRestConfig(t *testing.T) {
 	assert.Contains(t, contentStr, "tls-server-key-file=/certs/pgbackrest.key")
 	assert.Contains(t, contentStr, "tls-server-ca-file=/certs/ca.crt")
 
-	// Should NOT contain pg2-* settings (those are for backup only)
-	assert.NotContains(t, contentStr, "pg2-host")
+	// Should NOT contain pg2-* settings as actual config lines (those are for backup only via CLI args)
+	// Note: The comment explaining pg2 behavior is expected and correct
+	assert.NotContains(t, contentStr, "pg2-host=")
+	assert.NotContains(t, contentStr, "pg2-port=")
+	assert.NotContains(t, contentStr, "pg2-path=")
 }
 
 func TestGeneratePgBackRestConfig_Filesystem(t *testing.T) {

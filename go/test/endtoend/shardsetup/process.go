@@ -124,6 +124,12 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 			args = append(args, "--backup-type", "s3")
 			args = append(args, "--backup-bucket", s3.Bucket)
 			args = append(args, "--backup-region", s3.Region)
+			// Repo path for S3 (default to /multigres, or with key prefix)
+			repoPath := "/multigres"
+			if s3.KeyPrefix != "" {
+				repoPath = "/" + strings.TrimSuffix(s3.KeyPrefix, "/") + "/multigres"
+			}
+			args = append(args, "--backup-path", repoPath)
 			if s3.Endpoint != "" {
 				args = append(args, "--backup-endpoint", s3.Endpoint)
 			}

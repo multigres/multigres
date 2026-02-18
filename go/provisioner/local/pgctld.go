@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -287,10 +288,16 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 			}
 		case "s3":
 			if p.config.Backup.S3 != nil {
+				// Construct repo path (default to /multigres, or with key prefix)
+				repoPath := "/multigres"
+				if p.config.Backup.S3.KeyPrefix != "" {
+					repoPath = "/" + strings.TrimSuffix(p.config.Backup.S3.KeyPrefix, "/") + "/multigres"
+				}
 				serverArgs = append(serverArgs,
 					"--backup-type", "s3",
 					"--backup-bucket", p.config.Backup.S3.Bucket,
 					"--backup-region", p.config.Backup.S3.Region,
+					"--backup-path", repoPath,
 				)
 				if p.config.Backup.S3.Endpoint != "" {
 					serverArgs = append(serverArgs, "--backup-endpoint", p.config.Backup.S3.Endpoint)
