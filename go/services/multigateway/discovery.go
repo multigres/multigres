@@ -423,8 +423,9 @@ type GlobalPoolerDiscovery struct {
 
 	// State (protected by mu)
 	// Lock order: acquire this BEFORE CellPoolerDiscovery.mu
-	mu           sync.Mutex
-	cellWatchers map[string]*CellPoolerDiscovery // cell name -> cell watcher
+	mu              sync.Mutex
+	cellWatchers    map[string]*CellPoolerDiscovery // cell name -> cell watcher
+	lastCellRefresh time.Time                       // when cells were last discovered/refreshed
 
 	// Listeners for pooler changes (protected by listenersMu)
 	// Lock order: can acquire notificationsMu while holding this
@@ -542,6 +543,7 @@ func (gd *GlobalPoolerDiscovery) processInitialCells(initial []*topoclient.Watch
 	for cell := range gd.cellWatchers {
 		cells = append(cells, cell)
 	}
+	gd.lastCellRefresh = time.Now()
 	gd.logger.Info("Initial cell discovery completed", "cells", cells)
 }
 
@@ -560,6 +562,7 @@ func (gd *GlobalPoolerDiscovery) processCellChange(event *topoclient.WatchDataRe
 				gd.logger.Info("Cell removed, stopping watcher", "cell", cell)
 				watcher.Stop()
 				delete(gd.cellWatchers, cell)
+				gd.lastCellRefresh = time.Now()
 			}
 			gd.mu.Unlock()
 		} else {
@@ -573,6 +576,7 @@ func (gd *GlobalPoolerDiscovery) processCellChange(event *topoclient.WatchDataRe
 	if _, exists := gd.cellWatchers[cell]; !exists {
 		gd.logger.Info("New cell discovered", "cell", cell)
 		gd.startCellWatcher(cell)
+		gd.lastCellRefresh = time.Now()
 	}
 	gd.mu.Unlock()
 }
@@ -742,6 +746,14 @@ func (gd *GlobalPoolerDiscovery) notifyPoolerRemoved(pooler *clustermetadatapb.M
 }
 
 // PoolerCount returns the total number of discovered poolers across all cells.
+// LastCellRefresh returns when cells were last discovered or refreshed.
+// Returns zero time if initial cell discovery has not completed yet.
+func (gd *GlobalPoolerDiscovery) LastCellRefresh() time.Time {
+	gd.mu.Lock()
+	defer gd.mu.Unlock()
+	return gd.lastCellRefresh
+}
+
 func (gd *GlobalPoolerDiscovery) PoolerCount() int {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
