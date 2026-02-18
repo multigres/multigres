@@ -92,5 +92,5 @@ func disallowDirectProcessTermination(m dsl.Matcher) {
 
 	m.Match(`$p.Signal(syscall.SIGTERM)`, `$p.Signal(syscall.SIGKILL)`, `$p.Kill()`).
 		Where(!m.File().PkgPath.Matches(`tools/executil$`)).
-		Report("use executil.StopProcess/StopPID (recommended) or executil.TerminateProcess/TerminatePID for graceful termination")
+		Report("use Cmd.Stop() if you have executil.Cmd, otherwise StopProcess/StopPID (graceful, preferred), or TerminateProcess/TerminatePID (SIGTERM only)")
 }

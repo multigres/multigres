@@ -15,14 +15,17 @@
 package testutil
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // TempDir creates a temporary directory for testing and returns a cleanup function
@@ -105,7 +108,9 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	// Register cleanup to kill the background process when test finishes
 	t.Cleanup(func() {
 		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+			killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, _ = executil.KillProcess(killCtx, cmd.Process)
+			cancel()
 		}
 	})
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
@@ -183,9 +188,9 @@ func cleanupMockProcesses(t *testing.T, tempDir string) {
 				pidStr := strings.TrimSpace(lines[0])
 				if pid, parseErr := strconv.Atoi(pidStr); parseErr == nil {
 					// Try to kill the process (ignore errors since process might already be dead)
-					if process, findErr := os.FindProcess(pid); findErr == nil {
-						_ = process.Kill()
-					}
+					killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_, _ = executil.KillPID(killCtx, pid)
+					cancel()
 				}
 			}
 		}

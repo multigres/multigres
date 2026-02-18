@@ -15,6 +15,7 @@
 package pgctld
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -33,6 +34,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/pathutil"
 )
 
@@ -189,7 +191,9 @@ timeout: 30
 		require.NoError(t, err)
 		defer func() {
 			if serverCmd.Process != nil {
-				_ = serverCmd.Process.Kill()
+				killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_, _ = executil.KillProcess(killCtx, serverCmd.Process)
+				cancel()
 				_ = serverCmd.Wait()
 			}
 		}()
@@ -1168,7 +1172,10 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	require.NoError(t, pgProcess.Signal(syscall.Signal(0)))
 
 	// Kill the pgctld server subprocess abruptly
-	require.NoError(t, serverCmd.Process.Kill())
+	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	killErr, _ := executil.KillProcess(killCtx, serverCmd.Process)
+	cancel()
+	require.NoError(t, killErr)
 	_, _ = serverCmd.Process.Wait()
 
 	// TODO(dweitzman): Start a process using sleep command and use that PID for orphan detection
