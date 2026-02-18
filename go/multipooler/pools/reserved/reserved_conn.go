@@ -204,14 +204,14 @@ func (c *Conn) AddReservationReason(reason uint32) {
 }
 
 // RemoveReservationReason removes a reason from the reservation bitmask.
-// If all reasons are removed and no portals remain, clears reservedProps.
+// If all reasons are removed, clears reservedProps.
 // Returns true if all reservation reasons are gone (connection should be released).
 func (c *Conn) RemoveReservationReason(reason uint32) bool {
 	if c.reservedProps == nil {
 		return true
 	}
 	c.reservedProps.RemoveReason(reason)
-	if c.reservedProps.IsEmpty() && !c.reservedProps.HasPortals() {
+	if c.reservedProps.IsEmpty() {
 		c.reservedProps = nil
 		return true
 	}
