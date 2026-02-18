@@ -475,10 +475,10 @@ func (s *PgCtldService) Close() {
 	s.cancel()
 
 	// Kill pgBackRest process if running
-	if s.pgBackRestCmd != nil && s.pgBackRestCmd.Process != nil {
-		s.logger.Info("Terminating pgBackRest server", "pid", s.pgBackRestCmd.Process.Pid)
+	if s.pgBackRestCmd != nil {
+		s.logger.Info("Terminating pgBackRest server")
 		killCtx, killCancel := context.WithTimeout(ctxutil.Detach(s.ctx), 100*time.Millisecond)
-		_, _ = executil.KillProcess(killCtx, s.pgBackRestCmd.Process)
+		_, _ = s.pgBackRestCmd.Stop(killCtx)
 		killCancel()
 	}
 
@@ -571,12 +571,10 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 			s.logger.InfoContext(ctx, "pgBackRest exited, restarting", "restart_count", currentCount)
 
 		case <-ctx.Done():
-			// Shutdown requested, kill process
-			if cmd.Process != nil {
-				killCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
-				defer cancel()
-				_, _ = executil.KillProcess(killCtx, cmd.Process) // Ignore error - process may already be dead
-			}
+			// Shutdown requested, stop process
+			killCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
+			_, _ = cmd.Stop(killCtx) // Ignore error - process may already be dead
+			cancel()
 			<-done // Wait for Wait() to complete
 			return
 		}

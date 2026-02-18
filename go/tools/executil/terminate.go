@@ -31,6 +31,11 @@ import (
 // Returns false if ctx expired - process may still be running, call KillProcess().
 //
 // Returns true immediately if process is nil or was already dead.
+//
+// NOTE: Prefer using Cmd.Stop() if you have an executil.Cmd for this process.
+// Only use TerminateProcess() when dealing with a process started by a different
+// process than the currently-running one (e.g., orphaned processes, processes
+// from PID files, or processes discovered via OS APIs).
 func TerminateProcess(ctx context.Context, process *os.Process) bool {
 	if process == nil {
 		return true
@@ -44,6 +49,11 @@ func TerminateProcess(ctx context.Context, process *os.Process) bool {
 // Returns (ctx.Err(), false) if the wait timed out (unexpected for SIGKILL).
 //
 // Returns (nil, true) immediately if process is nil or was already dead.
+//
+// NOTE: Prefer using Cmd.Stop() if you have an executil.Cmd for this process.
+// Only use KillProcess() when dealing with a process started by a different
+// process than the currently-running one (e.g., orphaned processes, processes
+// from PID files, or processes discovered via OS APIs).
 func KillProcess(ctx context.Context, process *os.Process) (error, bool) {
 	if process == nil {
 		return nil, true
@@ -57,6 +67,11 @@ func KillProcess(ctx context.Context, process *os.Process) (error, bool) {
 // Returns false if ctx expired - process may still be running, call KillPID().
 //
 // Returns true immediately if the process was already dead.
+//
+// NOTE: Prefer using Cmd.Stop() if you have an executil.Cmd for this process.
+// Only use TerminatePID() when dealing with a process started by a different
+// process than the currently-running one (e.g., orphaned processes, processes
+// from PID files, or processes discovered via OS APIs).
 func TerminatePID(ctx context.Context, pid int) bool {
 	process, err := os.FindProcess(pid)
 	if err != nil {
@@ -82,6 +97,11 @@ func TerminatePID(ctx context.Context, pid int) bool {
 // Returns (ctx.Err(), false) if the wait timed out (unexpected for SIGKILL).
 //
 // Returns (nil, true) immediately if the process was already dead.
+//
+// NOTE: Prefer using Cmd.Stop() if you have an executil.Cmd for this process.
+// Only use KillPID() when dealing with a process started by a different
+// process than the currently-running one (e.g., orphaned processes, processes
+// from PID files, or processes discovered via OS APIs).
 func KillPID(ctx context.Context, pid int) (error, bool) {
 	process, err := os.FindProcess(pid)
 	if err != nil {
