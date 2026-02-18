@@ -41,7 +41,6 @@ type MultipoolerInstance struct {
 	Name        string
 	Pgctld      *ProcessInstance
 	Multipooler *ProcessInstance
-	PgBackRest  *PgBackRestInstance
 }
 
 // ShardSetup holds shared test infrastructure for a single shard.
@@ -70,6 +69,9 @@ type ShardSetup struct {
 
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
+
+	// BackupLocation stores backup configuration from topology
+	BackupLocation *clustermetadatapb.BackupLocation
 
 	// BaselineGucs stores the GUC values captured after bootstrap completes.
 	// These are the "clean state" values that ValidateCleanState checks against
@@ -198,7 +200,8 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	pgbackrestPort := utils.GetFreePort(t)
 
 	// Create pgctld instance
-	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort)
+	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
+	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
@@ -218,7 +221,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort int) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -229,13 +232,16 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort i
 	require.NoError(t, err)
 
 	return &ProcessInstance{
-		Name:        name,
-		DataDir:     dataDir,
-		LogFile:     logFile,
-		GrpcPort:    grpcPort,
-		PgPort:      pgPort,
-		Binary:      "pgctld",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Name:              name,
+		DataDir:           dataDir,
+		LogFile:           logFile,
+		GrpcPort:          grpcPort,
+		PgPort:            pgPort,
+		Binary:            "pgctld",
+		PgBackRestPort:    pgbackrestPort,
+		PgBackRestCertDir: pgbackrestCertDir,
+		BackupLocation:    backupLocation,
+		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
 	}
 }
 
@@ -347,20 +353,27 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 // WaitForMultigatewayQueryServing waits for multigateway to be able to execute queries.
 // This verifies that multigateway has discovered poolers from topology and can route queries.
 // Should be called AFTER bootstrap completes.
+//
+// The timeout is generous (30s) because after bootstrap, the multigateway needs time to:
+// 1. Receive the topology watch notification that pooler-1 was promoted to PRIMARY
+// 2. Update its LoadBalancer with the new PRIMARY pooler
+// This typically takes a few seconds but can be longer under load or slow CI environments.
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
 		s.MultigatewayPgPort, TestPostgresPassword)
 
-	ctx := utils.WithTimeout(t, 5*time.Second)
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	startTime := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
-			t.Fatal("timeout waiting for multigateway to execute queries (may not have discovered poolers)")
+			elapsed := time.Since(startTime)
+			t.Fatalf("timeout waiting for multigateway to execute queries after %v (multigateway may not have discovered poolers from topology yet)", elapsed)
 		case <-ticker.C:
 			db, err := sql.Open("postgres", connStr)
 			if err != nil {
@@ -368,11 +381,14 @@ func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 			}
 
 			var result int
-			err = db.QueryRowContext(ctx, "SELECT 1").Scan(&result)
+			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			err = db.QueryRowContext(queryCtx, "SELECT 1").Scan(&result)
+			cancel()
 			db.Close()
 
 			if err == nil && result == 1 {
-				t.Log("Multigateway can execute queries")
+				elapsed := time.Since(startTime)
+				t.Logf("Multigateway can execute queries (ready after %v)", elapsed)
 				return
 			}
 		}
@@ -399,11 +415,8 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		}
 	}
 
-	// Stop multipooler instances (pgbackrest, multipooler, then pgctld)
+	// Stop multipooler instances (multipooler, then pgctld)
 	for _, inst := range s.Multipoolers {
-		if inst.PgBackRest != nil {
-			inst.PgBackRest.Stop()
-		}
 		if inst.Multipooler != nil {
 			inst.Multipooler.Stop()
 		}
@@ -509,9 +522,6 @@ func (s *ShardSetup) CheckSharedProcesses(t *testing.T) {
 		}
 		if inst.Multipooler != nil && !inst.Multipooler.IsRunning() {
 			dead = append(dead, name+"-multipooler")
-		}
-		if inst.PgBackRest != nil && !inst.PgBackRest.IsRunning() {
-			dead = append(dead, name+"-pgbackrest")
 		}
 	}
 

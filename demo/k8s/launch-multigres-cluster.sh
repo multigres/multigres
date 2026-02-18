@@ -31,9 +31,9 @@ kubectl apply -f k8s-multipooler-statefulset.yaml
 kubectl apply -f k8s-multiorch.yaml
 kubectl apply -f k8s-multigateway.yaml
 
-kubectl wait --for=condition=ready pod -l app=multipooler --timeout=180s
-kubectl wait --for=condition=ready pod -l app=multiorch --timeout=120s
-kubectl wait --for=condition=ready pod -l app=multigateway --timeout=120s
+kubectl rollout status statefulset/multipooler-zone1 --timeout=180s
+kubectl rollout status deployment/multiorch --timeout=120s
+kubectl rollout status deployment/multigateway --timeout=120s
 
 set +x
 echo ""

@@ -486,3 +486,155 @@ func TestChannelBindingData(t *testing.T) {
 		assert.Equal(t, "biws", base64.StdEncoding.EncodeToString(data))
 	})
 }
+
+func TestPasswordNormalization(t *testing.T) {
+	testSalt := []byte("saltsaltsalt1234")
+	testIterations := 4096
+
+	t.Run("ASCII passwords unchanged", func(t *testing.T) {
+		// ASCII passwords should pass through unchanged
+		password := "simplepassword123"
+		assert.Equal(t, password, normalizePassword(password))
+	})
+
+	t.Run("non-ASCII space normalized to ASCII space", func(t *testing.T) {
+		// U+00A0 (non-breaking space) should be normalized to U+0020 (space)
+		assert.Equal(t, "pass word", normalizePassword("pass\u00A0word"))
+	})
+
+	// RFC 4013 Test Cases
+	// The following tests are based on PostgreSQL's SASLprep test suite:
+	// src/test/authentication/t/002_saslprep.pl
+	// These tests verify that our SASLprep implementation matches PostgreSQL's behavior
+	// for the standard RFC 4013 examples and edge cases.
+
+	t.Run("soft hyphen mapped to nothing (RFC 4013 example 1)", func(t *testing.T) {
+		// RFC 4013 Example #1: I<U+00AD>X → IX (SOFT HYPHEN mapped to nothing)
+		assert.Equal(t, "IX", normalizePassword("I\u00ADX"))
+	})
+
+	t.Run("feminine ordinal normalized (RFC 4013 example 4)", func(t *testing.T) {
+		// RFC 4013 Example #4: <U+00AA> → a (NFKC normalization)
+		assert.Equal(t, "a", normalizePassword("\u00AA"))
+	})
+
+	t.Run("Roman numeral normalized (RFC 4013 example 5)", func(t *testing.T) {
+		// RFC 4013 Example #5: <U+2168> → IX (NFKC normalization, matches example 1)
+		assert.Equal(t, "IX", normalizePassword("\u2168"))
+	})
+
+	t.Run("prohibited character uses raw password (RFC 4013 example 6)", func(t *testing.T) {
+		// RFC 4013 Example #6: <U+0007> → Error (prohibited character)
+		// PostgreSQL allows passwords with prohibited characters by using raw password
+		passwordWithProhibited := "foo\u0007bar"
+		assert.Equal(t, passwordWithProhibited, normalizePassword(passwordWithProhibited),
+			"Password with prohibited character should be returned unchanged")
+
+		// Verify it's different from the version without the prohibited char
+		assert.NotEqual(t, "foobar", normalizePassword(passwordWithProhibited),
+			"Prohibited character should NOT be removed")
+	})
+
+	t.Run("bidirectional check failure uses raw password (RFC 4013 example 7)", func(t *testing.T) {
+		// RFC 4013 Example #7: <U+0627><U+0031> → Error (bidirectional check failure)
+		// PostgreSQL allows passwords that fail bidirectional checks by using raw password
+		//nolint:gosec // G101 false positive - test password for RFC 4013 bidi validation
+		passwordWithBidiViolation := "foo\u0627\u0031bar"
+		assert.Equal(t, passwordWithBidiViolation, normalizePassword(passwordWithBidiViolation),
+			"Password with bidi violation should be returned unchanged")
+
+		// Verify character order matters (different passwords produce different results)
+		passwordReversed := "foo\u0031\u0627bar"
+		assert.NotEqual(t, normalizePassword(passwordReversed), normalizePassword(passwordWithBidiViolation),
+			"Character order should matter when not normalized")
+	})
+
+	t.Run("Unicode combining characters normalized", func(t *testing.T) {
+		// é can be represented as:
+		// 1. U+00E9 (precomposed)
+		// 2. U+0065 U+0301 (e + combining acute accent)
+		// NFKC normalization should make these equivalent
+		passwordPrecomposed := "café"     // U+00E9
+		passwordCombining := "cafe\u0301" // e + U+0301
+
+		assert.Equal(t, normalizePassword(passwordPrecomposed), normalizePassword(passwordCombining),
+			"Precomposed and combining forms should normalize to the same result")
+	})
+
+	t.Run("invalid UTF-8 falls back to raw password", func(t *testing.T) {
+		// Invalid UTF-8 sequences should cause SASLprep to fail, triggering fallback to raw password
+		invalidUTF8 := "pass\xc3\x28word" // Invalid UTF-8 sequence
+
+		assert.Equal(t, invalidUTF8, normalizePassword(invalidUTF8),
+			"Invalid UTF-8 should be returned unchanged")
+	})
+
+	t.Run("empty password works", func(t *testing.T) {
+		// Empty passwords should be handled gracefully
+		assert.Equal(t, "", normalizePassword(""))
+	})
+
+	t.Run("normalization is idempotent", func(t *testing.T) {
+		// Normalizing an already-normalized password should give same result
+		password := "café"
+		normalized := normalizePassword(password)
+
+		assert.Equal(t, normalized, normalizePassword(normalized),
+			"Normalizing an already-normalized password should not change it")
+	})
+
+	t.Run("different normalization cases", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			password1   string
+			password2   string
+			shouldMatch bool
+		}{
+			{
+				name:        "different passwords remain different",
+				password1:   "password1",
+				password2:   "password2",
+				shouldMatch: false,
+			},
+			{
+				name:        "multiple non-ASCII spaces normalized",
+				password1:   "pass\u00A0\u2000word", // NBSP + EN QUAD
+				password2:   "pass  word",           // Two ASCII spaces
+				shouldMatch: true,
+			},
+			{
+				name:        "mixed case preserved",
+				password1:   "PassWord",
+				password2:   "password",
+				shouldMatch: false,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				result1 := normalizePassword(tc.password1)
+				result2 := normalizePassword(tc.password2)
+
+				if tc.shouldMatch {
+					assert.Equal(t, result1, result2)
+				} else {
+					assert.NotEqual(t, result1, result2)
+				}
+			})
+		}
+	})
+
+	t.Run("ComputeSaltedPassword uses normalization (integration test)", func(t *testing.T) {
+		// This test verifies that ComputeSaltedPassword actually calls normalizePassword
+		// by checking that two passwords that should normalize to the same value
+		// produce the same salted password.
+		passwordWithSoftHyphen := "I\u00ADX"
+		passwordNormalized := "IX"
+
+		resultWithSH := ComputeSaltedPassword(passwordWithSoftHyphen, testSalt, testIterations)
+		resultNormalized := ComputeSaltedPassword(passwordNormalized, testSalt, testIterations)
+
+		assert.Equal(t, resultNormalized, resultWithSH,
+			"ComputeSaltedPassword should normalize passwords before hashing")
+	})
+}

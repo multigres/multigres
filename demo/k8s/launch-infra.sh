@@ -41,13 +41,13 @@ done
 kind load docker-image multigres/multigres multigres/pgctld-postgres multigres/multiadmin-web --name=multidemo
 # This single etcd will be used for both the global topo and cell topo.
 kubectl apply -f k8s-etcd.yaml
-kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
+kubectl rollout status statefulset/etcd --timeout=120s
 
 # Deploy observability stack (Prometheus, Tempo, Loki, Grafana)
 # The otel-config, sampling-config, and grafana-datasources ConfigMaps must exist before services that reference them.
-kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=../demo/observability/grafana-dashboard.json --save-config
-kubectl create configmap grafana-datasources --from-file=datasources.yml=../demo/observability/grafana-datasources.yml --save-config
-kubectl create configmap sampling-config --from-file=sampling-config.yaml=../demo/observability/sampling-config.yaml --save-config
+kubectl create configmap grafana-dashboard-multigres --from-file=multigres.json=../observability/grafana-dashboard.json --save-config
+kubectl create configmap grafana-datasources --from-file=datasources.yml=../observability/grafana-datasources.yml --save-config
+kubectl create configmap sampling-config --from-file=sampling-config.yaml=../observability/sampling-config.yaml --save-config
 kubectl apply -f k8s-observability.yaml
 
 # We're launching this as a job. The operator will just invoke this CLI.
@@ -92,9 +92,9 @@ kubectl wait --for=condition=complete job/createclustermetadata --timeout=120s
 # Deploy multiadmin services
 kubectl apply -f k8s-multiadmin.yaml
 kubectl apply -f k8s-multiadmin-web.yaml
-kubectl wait --for=condition=ready pod -l app=multiadmin --timeout=120s
-kubectl wait --for=condition=ready pod -l app=multiadmin-web --timeout=120s
-kubectl wait --for=condition=ready pod -l app=observability --timeout=120s
+kubectl rollout status deployment/multiadmin --timeout=120s
+kubectl rollout status deployment/multiadmin-web --timeout=120s
+kubectl rollout status deployment/observability --timeout=120s
 
 set +x
 echo ""

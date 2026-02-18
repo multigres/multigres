@@ -521,6 +521,11 @@ message ConfigureSynchronousReplicationRequest {
 
   // Whether to reload configuration immediately
   bool reload_config = 5;
+
+  // Force configuration even if history record write times out.
+  // When true, treats write timeouts as warnings (useful for tests and emergency operations).
+  // When false, fails if history write blocks on sync replication (normal production behavior).
+  bool force = 6;
 }
 
 message ConfigureSynchronousReplicationResponse {
@@ -555,6 +560,9 @@ message UpdateSynchronousStandbyListRequest {
 
   // Force the operation even if the term doesn't match
   bool force = 5;
+
+  // Coordinator ID that initiated this operation (for audit trail)
+  clustermetadata.ID coordinator_id = 6;
 }
 
 message UpdateSynchronousStandbyListResponse {
@@ -628,6 +636,10 @@ message BackupRequest {
   // If empty, multipooler generates one using the same format.
   // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
   string job_id = 3;
+
+  // Runtime overrides for testing and debugging.
+  // Production should leave this empty.
+  map<string, string> overrides = 10;
 }
 
 // BackupResponse contains the result of a backup operation

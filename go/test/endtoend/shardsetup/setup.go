@@ -360,6 +360,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		CellName:           config.CellName,
 		Multipoolers:       make(map[string]*MultipoolerInstance),
 		MultiOrchInstances: make(map[string]*ProcessInstance),
+		BackupLocation:     backupLocation,
 	}
 
 	// Create all multipooler instances (but don't start yet)
@@ -415,10 +416,6 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	if config.EnableMultigateway {
 		setup.WaitForMultigatewayQueryServing(t)
 	}
-
-	// Start pgBackRest servers after initialization completes
-	// (multipooler generates config files during initialization)
-	setup.startPgBackRestServers(t)
 
 	t.Logf("Shard setup complete: %d multipoolers, %d multiorchs, multigateway: %v",
 		config.MultipoolerCount, config.MultiOrchCount, config.EnableMultigateway)
@@ -673,12 +670,25 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 	allInitialized := initializedCount == len(setup.Multipoolers)
 
+	// Get latest backup ID from primary
+	var latestBackupID string
+	if primaryName != "" {
+		if primaryInst := setup.GetMultipoolerInstance(primaryName); primaryInst != nil {
+			if client, err := NewMultipoolerClient(primaryInst.Multipooler.GrpcPort); err == nil {
+				if backupResp, err := client.Manager.GetBackups(ctx, &multipoolermanagerdatapb.GetBackupsRequest{Limit: 1}); err == nil && len(backupResp.Backups) > 0 {
+					latestBackupID = backupResp.Backups[0].BackupId
+				}
+				client.Close()
+			}
+		}
+	}
+
 	// Set summary attributes and detailed pooler statuses
 	span.SetAttributes(
 		attribute.StringSlice("pooler.statuses", poolerStatuses),
 	)
 
-	t.Logf("checkBootstrapStatus: primary=%s, initialized=%d/%d", primaryName, initializedCount, len(setup.Multipoolers))
+	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q", primaryName, initializedCount, len(setup.Multipoolers), latestBackupID)
 
 	// Query multiorch instances for status (best-effort diagnostic logging)
 	logMultiOrchStatus(ctx, t, setup)
@@ -688,7 +698,6 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 // startMultipoolerInstances starts pgctld and multipooler processes without initializing postgres.
 // Use this for bootstrap tests where multiorch will initialize the shard.
-// pgBackRest servers are started later via startPgBackRestServers() after initialization.
 //
 // TODO: Consider parallelizing Start() calls using a WaitGroup for faster startup.
 // Currently processes are started sequentially which adds latency.
@@ -738,21 +747,6 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 	}
 
 	t.Logf("Started %d processes without initialization (ready for bootstrap)", len(instances))
-}
-
-// startPgBackRestServers starts pgBackRest servers for all multipooler instances.
-// This must be called AFTER PostgreSQL initialization is complete, because multipooler
-// generates the pgbackrest config files during initialization (in configureArchiveMode).
-func (s *ShardSetup) startPgBackRestServers(t *testing.T) {
-	t.Helper()
-
-	for name, inst := range s.Multipoolers {
-		pgbackrest := s.startPgBackRestServer(t, name, inst.Pgctld.DataDir, inst.Multipooler.PgBackRestPort)
-		inst.PgBackRest = pgbackrest
-		t.Logf("Started pgBackRest for %s (port=%d)", name, pgbackrest.Port)
-	}
-
-	t.Logf("Started %d pgBackRest servers", len(s.Multipoolers))
 }
 
 // startEtcd starts etcd without registering t.Cleanup() handlers
@@ -1366,7 +1360,7 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup) {
 		}
 
 		// Format pooler health status
-		poolerSummary := formatPoolerHealth(resp.PoolerHealth)
+		poolerSummary := formatPoolerHealth(resp.PoolerHealths)
 
 		// Format problems
 		problemSummary := ""

@@ -957,6 +957,20 @@ func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatap
 }
 
 // ----------------------------------------------------------------------------
+// standbyUpdateOperationName maps a StandbyUpdateOperation enum to a short string for logging/history.
+func standbyUpdateOperationName(op multipoolermanagerdatapb.StandbyUpdateOperation) string {
+	switch op {
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
+		return "add"
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
+		return "remove"
+	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
+		return "replace"
+	default:
+		return "unknown"
+	}
+}
+
 // Standby List Operations
 // ----------------------------------------------------------------------------
 
