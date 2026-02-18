@@ -73,15 +73,11 @@ func NewMultipoolerClient(grpcPort int) (*MultipoolerClient, error) {
 // Close closes all underlying connections.
 func (c *MultipoolerClient) Close() error {
 	var errs []error
-	if c.Pooler != nil {
-		if err := c.Pooler.Close(); err != nil {
-			errs = append(errs, err)
-		}
+	if err := c.Pooler.Close(); err != nil {
+		errs = append(errs, err)
 	}
-	if c.conn != nil {
-		if err := c.conn.Close(); err != nil {
-			errs = append(errs, err)
-		}
+	if err := c.conn.Close(); err != nil {
+		errs = append(errs, err)
 	}
 	if len(errs) > 0 {
 		return errs[0]
@@ -163,10 +159,7 @@ func NewPgctldClient(grpcPort int) (*PgctldClient, error) {
 
 // Close closes the underlying connection.
 func (c *PgctldClient) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
+	return c.conn.Close()
 }
 
 // MultiOrchClient wraps the multiorch gRPC client.
@@ -195,8 +188,5 @@ func NewMultiOrchClient(grpcPort int) (*MultiOrchClient, error) {
 
 // Close closes the underlying connection.
 func (c *MultiOrchClient) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
+	return c.conn.Close()
 }
