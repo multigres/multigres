@@ -17,6 +17,7 @@ package handler
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -98,8 +99,31 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 
 		// User's BEGIN - skip execution (we already started), mark as explicit.
 		// Still send a result to the client so the response count matches their statements.
+		//
+		// If the user's BEGIN has transaction options (e.g., ISOLATION LEVEL SERIALIZABLE),
+		// we must preserve them. Two cases:
+		//   - PendingBeginQuery is set (deferred, no backend call yet): replace it with
+		//     the user's full BEGIN so the options are sent when the connection is created.
+		//   - PendingBeginQuery is empty (backend already has plain BEGIN + queries ran):
+		//     error out matching PostgreSQL behavior — SET TRANSACTION ISOLATION LEVEL
+		//     must be called before any query.
 		if ast.IsBeginStatement(stmt) {
 			isImplicitTx = false
+			if txStmt, ok := stmt.(*ast.TransactionStmt); ok && txStmt.Options != nil && len(txStmt.Options.Items) > 0 {
+				if state.PendingBeginQuery != "" {
+					// BEGIN still deferred — adopt the user's isolation level / access mode.
+					state.PendingBeginQuery = stmt.SqlString()
+				} else {
+					// Backend transaction already has queries executed.
+					// PostgreSQL rejects this with SQLSTATE 25001.
+					return &mterrors.PgDiagnostic{
+						MessageType: 'E',
+						Severity:    "ERROR",
+						Code:        "25001",
+						Message:     "SET TRANSACTION ISOLATION LEVEL must be called before any query",
+					}
+				}
+			}
 			if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
 				return err
 			}
