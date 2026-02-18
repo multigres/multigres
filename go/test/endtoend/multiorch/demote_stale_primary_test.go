@@ -29,12 +29,13 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestDemoteStalePrimary tests multiorch's ability to detect a stale primary
+// TestDemoteStalePrimary_SIGKILL tests multiorch's ability to detect a stale primary
 // after failover and demote it, then repair its diverged timeline using pg_rewind.
+// This variant uses SIGKILL to simulate a hard crash of postgres.
 //
 // Scenario:
 // 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with ANY_2 durability
-// 2. Kill P1's postgres to trigger failover
+// 2. Kill P1's postgres with SIGKILL to trigger failover
 // 3. Wait for multiorch to elect new primary (S1 becomes P2)
 // 4. Write data to new primary to ensure timeline has diverged
 // 5. Leave P1's postgres stopped (it's still marked PRIMARY in topology with old term)
@@ -48,7 +49,7 @@ import (
 // 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
 // 3. NotReplicatingAnalyzer detects the replica is not replicating
 // 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
-func TestDemoteStalePrimary(t *testing.T) {
+func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TestDemoteStalePrimary test in short mode")
 	}
@@ -121,7 +122,103 @@ func TestDemoteStalePrimary(t *testing.T) {
 	t.Log("Verifying data replication works after pg_rewind...")
 	verifyDataReplication(t, setup, oldPrimaryName, newPrimaryName)
 
-	t.Log("TestDemoteStalePrimary completed successfully")
+	t.Log("TestDemoteStalePrimary_SIGKILL completed successfully")
+}
+
+// TestDemoteStalePrimary_GracefulShutdown tests multiorch's ability to detect a stale primary
+// after failover and demote it, then repair its diverged timeline using pg_rewind.
+// This variant uses graceful shutdown to simulate a clean postgres stop.
+//
+// Scenario:
+// 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with ANY_2 durability
+// 2. Gracefully shutdown P1's postgres to trigger failover
+// 3. Wait for multiorch to elect new primary (S1 becomes P2)
+// 4. Write data to new primary to ensure timeline has diverged
+// 5. Leave P1's postgres stopped (it's still marked PRIMARY in topology with old term)
+// 6. Multiorch detects stale primary (both PRIMARY in topology, P1 has lower term)
+// 7. Multiorch calls DemoteStalePrimary which starts postgres, runs pg_rewind, restarts as standby
+// 8. Multiorch configures replication from P2
+// 9. Verify P1 rejoins as a replica of P2
+//
+// This test verifies the complete stale primary detection and timeline divergence repair flow:
+// 1. StalePrimaryAnalyzer detects when old primary comes back with a lower consensus term
+// 2. DemoteStalePrimaryAction demotes the stale primary using the correct primary's term
+// 3. NotReplicatingAnalyzer detects the replica is not replicating
+// 4. FixReplicationAction detects timeline divergence via pg_rewind and repairs the replica
+func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping TestDemoteStalePrimary_GracefulShutdown test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end stale primary demotion test (no postgres binaries)")
+	}
+
+	// Create 3-node cluster with multiorch
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+	)
+	defer cleanup()
+
+	setup.StartMultiOrchs(t.Context(), t)
+
+	// Get initial primary
+	oldPrimary := setup.GetPrimary(t)
+	require.NotNil(t, oldPrimary, "primary should exist")
+	oldPrimaryName := setup.PrimaryName
+	t.Logf("Initial primary: %s", oldPrimaryName)
+
+	// Disable monitoring on old primary so postgres is not restarted by pooler
+	oldPrimaryClient, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer oldPrimaryClient.Close()
+
+	_, err = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: false})
+	require.NoError(t, err)
+	defer func() {
+		_, _ = oldPrimaryClient.Manager.SetMonitor(t.Context(), &multipoolermanagerdatapb.SetMonitorRequest{Enabled: true})
+	}()
+
+	// Step 1: Gracefully shutdown postgres on primary to trigger failover
+	t.Log("Gracefully shutting down postgres on primary to trigger failover...")
+	setup.ShutdownPostgres(t, oldPrimaryName)
+
+	// Step 2: Wait for new primary election
+	t.Log("Waiting for new primary election...")
+	newPrimaryName := waitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
+	require.NotEmpty(t, newPrimaryName, "new primary should be elected")
+	t.Logf("New primary elected: %s", newPrimaryName)
+
+	// Step 3: Write data to new primary to ensure timeline has diverged
+	t.Log("Writing data to new primary to ensure timeline divergence...")
+	writeDataToNewPrimary(t, setup, newPrimaryName)
+
+	// Step 4: Leave postgres stopped on old primary
+	// Multiorch will detect split-brain based on topology (both PRIMARY) and consensus terms,
+	// then call DemoteStalePrimary which will handle starting postgres, pg_rewind, and restart
+	t.Log("Leaving postgres stopped on old primary - multiorch will handle restart...")
+
+	// Step 5: Wait for multiorch to detect and repair divergence
+	// This may take longer because multiorch needs to:
+	// 1. Detect the split-brain (both PRIMARY in topology, different terms)
+	// 2. Call DemoteStalePrimary RPC on the stale primary (lower term)
+	// 3. DemoteStalePrimary starts postgres, runs pg_rewind, restarts as standby
+	// 4. Configure replication to the new primary
+	// 5. Start WAL receiver
+	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 20*time.Second)
+
+	// Step 6: Verify old primary is now replicating from new primary
+	t.Log("Verifying old primary is now a replica...")
+	verifyReplicaReplicating(t, setup, oldPrimaryName, newPrimaryName)
+
+	// Step 7: Verify replication is actually working by writing data and checking it replicates
+	t.Log("Verifying data replication works after pg_rewind...")
+	verifyDataReplication(t, setup, oldPrimaryName, newPrimaryName)
+
+	t.Log("TestDemoteStalePrimary_GracefulShutdown completed successfully")
 }
 
 // writeDataToNewPrimary writes data to the new primary to ensure timeline divergence

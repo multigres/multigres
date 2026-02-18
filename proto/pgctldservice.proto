@@ -50,6 +50,10 @@ service PgCtld {
   // PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
   // This is used to resynchronize a server that diverged from the primary after a failback
   rpc PgRewind(PgRewindRequest) returns (PgRewindResponse);
+
+  // CrashRecovery performs crash recovery in single-user mode if needed
+  // This is used before pg_rewind when PostgreSQL was killed uncleanly (e.g., SIGKILL)
+  rpc CrashRecovery(CrashRecoveryRequest) returns (CrashRecoveryResponse);
 }
 
 // Start PostgreSQL server
@@ -225,10 +229,44 @@ message PgRewindRequest {
 
   // Additional pg_rewind command line arguments
   repeated string extra_args = 4;
+
+  // Application name for replication connection (used with -R flag)
+  // This identifies the standby in pg_stat_replication and synchronous_standby_names
+  string application_name = 5;
 }
 
 message PgRewindResponse {
   // Status message
   string message = 1;
   string output = 2;
+}
+
+// Database cluster state from pg_controldata
+enum DatabaseClusterState {
+  DATABASE_CLUSTER_STATE_UNSPECIFIED = 0;
+  DATABASE_CLUSTER_STATE_UNKNOWN = 1;
+  DATABASE_CLUSTER_STATE_SHUT_DOWN = 2;
+  DATABASE_CLUSTER_STATE_SHUT_DOWN_IN_RECOVERY = 3;
+  DATABASE_CLUSTER_STATE_IN_PRODUCTION = 4;
+  DATABASE_CLUSTER_STATE_SHUTTING_DOWN = 5;
+  DATABASE_CLUSTER_STATE_IN_CRASH_RECOVERY = 6;
+}
+
+// CrashRecovery performs single-user crash recovery if database is in unclean state
+message CrashRecoveryRequest {
+  // No parameters needed - operates on the configured data directory
+}
+
+message CrashRecoveryResponse {
+  // Whether recovery was needed and performed
+  bool recovery_performed = 1;
+
+  // Database cluster state before recovery
+  DatabaseClusterState state_before = 2;
+
+  // Database cluster state after recovery (should be shut down)
+  DatabaseClusterState state_after = 3;
+
+  // Status message
+  string message = 4;
 }
