@@ -117,7 +117,7 @@ type QueryService interface {
 
 	// Close closes the query service and releases resources.
 	// After Close is called, no other methods should be called.
-	Close(ctx context.Context) error
+	Close() error
 
 	// CopyReady initiates a COPY FROM STDIN operation and returns format information.
 	// Returns reserved connection state that must be stored and used for subsequent COPY calls

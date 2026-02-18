@@ -100,9 +100,10 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	}
 	defer conn.Recycle()
 
-	// Execute the query - the regular.Conn.Query returns []*sqltypes.Result
-	// with proper field info, rows, and command tags already populated
-	results, err := conn.Conn.Query(ctx, sql)
+	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
+	// with proper field info, rows, and command tags already populated.
+	// Uses retry variant since this is a stateless pool query.
+	results, err := conn.Conn.QueryWithRetry(ctx, sql)
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
@@ -162,8 +163,8 @@ func (e *Executor) StreamExecute(
 	}
 	defer conn.Recycle()
 
-	// Use streaming query execution
-	if err := conn.Conn.QueryStreaming(ctx, sql, callback); err != nil {
+	// Use streaming query execution with retry since this is a stateless pool query.
+	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
 		return wrapQueryError(err)
 	}
 
@@ -172,7 +173,7 @@ func (e *Executor) StreamExecute(
 
 // Close closes the executor and releases resources.
 // Note: The poolManager is managed by the caller (QueryPoolerServer), not closed here.
-func (e *Executor) Close(_ context.Context) error {
+func (e *Executor) Close() error {
 	return nil
 }
 

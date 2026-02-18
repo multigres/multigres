@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -128,7 +129,7 @@ func (e *Executor) PortalStreamExecute(
 	// support unsharded, we don't have to do much.
 	// We just send the query to the default table group.
 
-	return e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, maxRows, callback)
+	return e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
 }
 
 // Describe returns metadata about a prepared statement or portal.
@@ -149,7 +150,7 @@ func (e *Executor) Describe(
 	// support unsharded, we don't have to do much.
 	// We just send the query to the default table group.
 
-	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), "", conn, state, portalInfo, preparedStatementInfo)
+	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, preparedStatementInfo)
 }
 
 // ReleaseAll releases all reserved connections, regardless of reservation reason.
