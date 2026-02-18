@@ -740,25 +740,15 @@ func (e *Executor) ReserveStreamExecute(
 		}
 	}
 
-	// Execute the actual query
-	results, err := reservedConn.Query(ctx, sql)
-	if err != nil {
+	// Execute the actual query and stream results to the callback as they arrive,
+	// matching the non-reserved StreamExecute path. This avoids buffering the entire
+	// result set in memory for large queries inside transactions.
+	if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
 		if beginTx {
 			_ = reservedConn.Rollback(ctx)
 		}
 		reservedConn.Release(reserved.ReleaseError)
 		return queryservice.ReservedState{}, fmt.Errorf("query execution failed: %w", err)
-	}
-
-	// Send results to callback
-	for _, result := range results {
-		if err := callback(ctx, result); err != nil {
-			if beginTx {
-				_ = reservedConn.Rollback(ctx)
-			}
-			reservedConn.Release(reserved.ReleaseError)
-			return queryservice.ReservedState{}, err
-		}
 	}
 
 	reservedState := queryservice.ReservedState{
