@@ -50,8 +50,7 @@ type MultiPooler struct {
 	poolerDir           viperutil.Value[string]
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
-	pgBackRestStanza    viperutil.Value[string] // TODO(sougou): this is deprecated. It's now hardcoded to multigres.
-	// pgBackRest TLS certificate paths (used for both server and client authentication)
+	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
 	pgBackRestCertFile viperutil.Value[string]
 	pgBackRestKeyFile  viperutil.Value[string]
 	pgBackRestCAFile   viperutil.Value[string]
@@ -131,11 +130,6 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "heartbeat-interval-milliseconds",
 			Dynamic:  false,
 		}),
-		pgBackRestStanza: viperutil.Configure(reg, "pgbackrest-stanza", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "pgbackrest-stanza",
-			Dynamic:  false,
-		}),
 		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
 			Default:  "/certs/pgbackrest.crt",
 			FlagName: "pgbackrest-cert-file",
@@ -188,10 +182,9 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
-	flags.String("pgbackrest-stanza", mp.pgBackRestStanza.Default(), "pgBackRest stanza name (defaults to service ID if empty)")
-	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "pgBackRest TLS certificate file path (used for both server and client)")
-	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "pgBackRest TLS key file path (used for both server and client)")
-	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "pgBackRest TLS CA file path (used for both server and client)")
+	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
+	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
+	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 
 	viperutil.BindFlags(flags,
@@ -205,7 +198,6 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.poolerDir,
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
-		mp.pgBackRestStanza,
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
@@ -302,10 +294,10 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		PgctldAddr:          mp.pgctldAddr.Get(),
 		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
 		ConnPoolConfig:      mp.connPoolConfig,
-		PgBackRestCertFile:  mp.pgBackRestCertFile.Get(),
-		PgBackRestKeyFile:   mp.pgBackRestKeyFile.Get(),
-		PgBackRestCAFile:    mp.pgBackRestCAFile.Get(),
-		PgBackRestPort:      mp.pgBackRestPort.Get(),
+		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
+		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
+		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
+		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)

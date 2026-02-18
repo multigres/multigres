@@ -236,12 +236,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	return pm, nil
 }
 
-func (pm *MultiPoolerManager) getPrimaryPoolerID() *clustermetadatapb.ID {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.primaryPoolerID
-}
-
 // internalQueryService returns the InternalQueryService for executing queries via the connection pool.
 func (pm *MultiPoolerManager) internalQueryService() executor.InternalQueryService {
 	if pm.qsc == nil {
