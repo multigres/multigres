@@ -269,12 +269,14 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	cmd := executil.Command(ctx, "make", makeArgs...)
 
 	// Set environment variables for connection
-	cmd.AddEnv("PGHOST=localhost")
-	cmd.AddEnv(fmt.Sprintf("PGPORT=%d", multigatewayPort))
-	cmd.AddEnv("PGUSER=postgres")
-	cmd.AddEnv("PGPASSWORD=" + password)
-	cmd.AddEnv("PGDATABASE=postgres")
-	cmd.AddEnv("PGCONNECT_TIMEOUT=10")
+	cmd.AddEnv(
+		"PGHOST=localhost",
+		fmt.Sprintf("PGPORT=%d", multigatewayPort),
+		"PGUSER=postgres",
+		"PGPASSWORD="+password,
+		"PGDATABASE=postgres",
+		"PGCONNECT_TIMEOUT=10",
+	)
 
 	// Capture output
 	var stdout, stderr bytes.Buffer

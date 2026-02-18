@@ -29,7 +29,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -48,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
 
@@ -128,15 +128,13 @@ func killProcessByPID(pid int) error {
 		return fmt.Errorf("invalid PID: %d", pid)
 	}
 
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("failed to find process %d: %w", pid, err)
-	}
+	// Use SIGKILL to forcefully terminate with a short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	// Use kill -9 (SIGKILL) to forcefully terminate
-	err = process.Signal(syscall.SIGKILL)
-	if err != nil {
-		return fmt.Errorf("failed to kill process %d: %w", pid, err)
+	killErr, _ := executil.KillPID(ctx, pid)
+	if killErr != nil {
+		return fmt.Errorf("failed to kill process %d: %w", pid, killErr)
 	}
 
 	return nil
