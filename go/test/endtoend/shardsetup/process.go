@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -36,7 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
-	"github.com/multigres/multigres/go/tools/telemetry"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // ProcessInstance represents a process instance for testing (pgctld, multipooler, or multiorch).
@@ -51,7 +50,7 @@ type ProcessInstance struct {
 	PgctldAddr  string // Used by multipooler
 	EtcdAddr    string // Used by multipooler for topology
 	GlobalRoot  string // Topology global root path (used by multipooler, multiorch, multigateway)
-	Process     *exec.Cmd
+	Process     *executil.Cmd
 	Binary      string
 	Environment []string
 
@@ -145,12 +144,13 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		}
 	}
 
-	p.Process = exec.Command(p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-	p.Process.Env = append(p.Environment,
-		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
-	)
+	if len(p.Environment) > 0 {
+		p.Process.SetEnv(p.Environment)
+	}
+	p.Process.AddEnv("MULTIGRES_TESTDATA_DIR=" + filepath.Dir(p.DataDir))
 
 	t.Logf("Running server command: %v", p.Process.Args)
 	if err := p.waitForStartup(ctx, t, 20*time.Second, 50); err != nil {
@@ -202,12 +202,13 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	}
 
 	// Start the multipooler server
-	p.Process = exec.Command(p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-	p.Process.Env = append(p.Environment,
-		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
-	)
+	if len(p.Environment) > 0 {
+		p.Process.SetEnv(p.Environment)
+	}
+	p.Process.AddEnv("MULTIGRES_TESTDATA_DIR=" + filepath.Dir(p.DataDir))
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
 	return p.waitForStartup(ctx, t, 15*time.Second, 30)
@@ -244,9 +245,9 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		args = append(args, "--primary-failover-grace-period-max-jitter", p.PrimaryFailoverGracePeriodMaxJitter)
 	}
 
-	p.Process = exec.Command(p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...)
 	if p.DataDir != "" {
-		p.Process.Dir = p.DataDir
+		p.Process.SetDir(p.DataDir)
 	}
 
 	// Set up logging like multiorch_helpers.go does
@@ -255,12 +256,12 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		if err != nil {
 			return fmt.Errorf("failed to create log file: %w", err)
 		}
-		p.Process.Stdout = logF
-		p.Process.Stderr = logF
+		p.Process.SetStdout(logF)
+		p.Process.SetStderr(logF)
 	}
 
 	// Start the process with trace context propagation
-	if err := telemetry.StartCmd(ctx, p.Process); err != nil {
+	if err := p.Process.Start(); err != nil {
 		return fmt.Errorf("failed to start multiorch: %w", err)
 	}
 	t.Logf("Started multiorch (pid: %d, grpc: %d, http: %d, log: %s)",
@@ -292,12 +293,13 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--log-level", "debug",
 	}
 
-	p.Process = exec.Command(p.Binary, args...)
+	p.Process = executil.Command(ctx, p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-	p.Process.Env = append(p.Environment,
-		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.LogFile),
-	)
+	if len(p.Environment) > 0 {
+		p.Process.SetEnv(p.Environment)
+	}
+	p.Process.AddEnv("MULTIGRES_TESTDATA_DIR=" + filepath.Dir(p.LogFile))
 
 	// Set up logging
 	if p.LogFile != "" {
@@ -305,12 +307,12 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		if err != nil {
 			return fmt.Errorf("failed to create log file: %w", err)
 		}
-		p.Process.Stdout = logF
-		p.Process.Stderr = logF
+		p.Process.SetStdout(logF)
+		p.Process.SetStderr(logF)
 	}
 
 	// Start the process with trace context propagation
-	if err := telemetry.StartCmd(ctx, p.Process); err != nil {
+	if err := p.Process.Start(); err != nil {
 		return fmt.Errorf("failed to start multigateway: %w", err)
 	}
 	t.Logf("Started multigateway (pid: %d, pg: %d, grpc: %d, http: %d, log: %s)",
@@ -331,7 +333,7 @@ func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, time
 	t.Helper()
 
 	// Start the process in background with trace context propagation
-	err := telemetry.StartCmd(ctx, p.Process)
+	err := p.Process.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start %s: %w", p.Name, err)
 	}
@@ -418,8 +420,9 @@ func (p *ProcessInstance) Stop() {
 	}
 
 	// Then kill the process
-	_ = p.Process.Process.Kill()
-	_ = p.Process.Wait()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	_, _ = p.Process.Stop(ctx)
+	cancel()
 }
 
 // IsRunning checks if the process is still running.
@@ -475,31 +478,17 @@ func (p *ProcessInstance) TerminateGracefully(t *testing.T, timeout time.Duratio
 		return
 	}
 
-	// Try graceful shutdown with SIGTERM first
-	if err := p.Process.Process.Signal(os.Interrupt); err != nil {
-		t.Logf("Failed to send SIGTERM to %s: %v, forcing kill", p.Name, err)
-		_ = p.Process.Process.Kill()
-		_ = p.Process.Wait()
-		return
-	}
+	// Try graceful shutdown with SIGTERM first, with configurable timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-	// Wait for graceful shutdown with timeout
-	done := make(chan error, 1)
-	go func() {
-		done <- p.Process.Wait()
-	}()
-
-	select {
-	case <-time.After(timeout):
-		t.Logf("%s did not terminate gracefully within %v, forcing kill", p.Name, timeout)
-		_ = p.Process.Process.Kill()
-		<-done // Wait for process to actually die
-	case err := <-done:
-		if err != nil {
-			t.Logf("%s terminated with error: %v", p.Name, err)
-		} else {
-			t.Logf("%s terminated gracefully", p.Name)
-		}
+	exitErr, stopped := p.Process.Stop(ctx)
+	if !stopped {
+		t.Logf("%s did not terminate within %v (SIGKILL timeout - very rare)", p.Name, timeout)
+	} else if exitErr != nil {
+		t.Logf("%s terminated with error: %v", p.Name, exitErr)
+	} else {
+		t.Logf("%s terminated gracefully", p.Name)
 	}
 }
 

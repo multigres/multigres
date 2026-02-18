@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -33,6 +32,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // MultipoolerInstance represents a multipooler instance, which is a pair of pgctld + multipooler processes.
@@ -49,7 +49,7 @@ type ShardSetup struct {
 	TempDir        string
 	TempDirCleanup func()
 	EtcdClientAddr string
-	EtcdCmd        *exec.Cmd
+	EtcdCmd        *executil.Cmd
 	TopoServer     topoclient.Store
 	CellName       string
 
@@ -431,9 +431,10 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 	}
 
 	// Stop etcd
-	if s.EtcdCmd != nil && s.EtcdCmd.Process != nil {
-		_ = s.EtcdCmd.Process.Kill()
-		_ = s.EtcdCmd.Wait()
+	if s.EtcdCmd != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		_, _ = s.EtcdCmd.Stop(ctx)
+		cancel()
 	}
 
 	// Clean up temp directory only if tests passed

@@ -73,3 +73,24 @@ func requireGrpcCommonNewClient(m dsl.Matcher) {
 				!m.File().PkgPath.Matches(`/grpccommon$|/test/|/testutil/|testutil$`)).
 		Report("use grpccommon.NewClient() instead of grpc.NewClient() to ensure telemetry instrumentation")
 }
+
+// disallowDirectExecCommandContext enforces use of executil.Command() for
+// graceful termination support, proper environment variable handling, and
+// trace propagation.
+func disallowDirectExecCommandContext(m dsl.Matcher) {
+	m.Import("os/exec")
+
+	m.Match(`exec.CommandContext($*_)`).
+		Where(!m.File().PkgPath.Matches(`tools/executil$`)).
+		Report("use executil.Command() instead of exec.CommandContext() for graceful termination, proper env handling, and trace propagation")
+}
+
+// disallowDirectProcessTermination enforces use of executil functions
+// for consistent graceful SIGTERM -> SIGKILL termination.
+func disallowDirectProcessTermination(m dsl.Matcher) {
+	m.Import("syscall")
+
+	m.Match(`$p.Signal(syscall.SIGTERM)`, `$p.Signal(syscall.SIGKILL)`, `$p.Kill()`).
+		Where(!m.File().PkgPath.Matches(`tools/executil$`)).
+		Report("use executil.StopProcess/StopPID (recommended) or executil.TerminateProcess/TerminatePID for graceful termination")
+}

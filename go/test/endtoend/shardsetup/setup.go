@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -752,7 +753,7 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 // startEtcd starts etcd without registering t.Cleanup() handlers
 // since cleanup is handled manually by TestMain via Cleanup().
 // Follows the pattern from multipooler/setup_test.go:startEtcdForSharedSetup.
-func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec.Cmd, error) {
+func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *executil.Cmd, error) {
 	t.Helper()
 
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startEtcd")
@@ -781,7 +782,7 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	cmd := executil.Command(ctx, "run_in_test.sh", "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
@@ -791,11 +792,9 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 		"-data-dir", dataDir)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-	cmd.Env = append(os.Environ(),
-		"MULTIGRES_TESTDATA_DIR="+dataDir,
-	)
+	cmd.AddEnv("MULTIGRES_TESTDATA_DIR=" + dataDir)
 
-	if err := telemetry.StartCmd(ctx, cmd); err != nil {
+	if err := cmd.Start(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start etcd")
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
@@ -804,7 +803,10 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := etcdtopo.WaitForReady(waitCtx, clientAddr); err != nil {
-		_ = cmd.Process.Kill()
+		// Stop the etcd process if it's not ready
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		_, _ = cmd.Stop(stopCtx)
+		stopCancel()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "etcd not ready")
 		return "", nil, err

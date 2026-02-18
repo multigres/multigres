@@ -37,10 +37,9 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/provisioner"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/pathutil"
-	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/stringutil"
-	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -215,11 +214,11 @@ func (p *localProvisioner) provisionEtcd(ctx context.Context, req *provisioner.P
 	}
 
 	// Start etcd process
-	etcdCmd := exec.CommandContext(ctx, etcdBinary, args...)
+	etcdCmd := executil.Command(ctx, etcdBinary, args...)
 
 	fmt.Printf("▶️  - Launching etcd on port %d...", port)
 
-	if err := telemetry.StartCmd(ctx, etcdCmd); err != nil {
+	if err := etcdCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start etcd: %w", err)
 	}
 
@@ -477,11 +476,11 @@ func (p *localProvisioner) provisionMultigateway(ctx context.Context, req *provi
 	}
 
 	// Start multigateway process
-	multigatewayCmd := exec.CommandContext(ctx, multigatewayBinary, args...)
+	multigatewayCmd := executil.Command(ctx, multigatewayBinary, args...)
 
 	fmt.Printf("▶️  - Launching multigateway (HTTP:%d, gRPC:%d, pg:%d)...", httpPort, grpcPort, pgPort)
 
-	if err := telemetry.StartCmd(ctx, multigatewayCmd); err != nil {
+	if err := multigatewayCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multigateway: %w", err)
 	}
 
@@ -610,11 +609,11 @@ func (p *localProvisioner) provisionMultiadmin(ctx context.Context, req *provisi
 	}
 
 	// Start multiadmin process
-	multiadminCmd := exec.CommandContext(ctx, multiadminBinary, args...)
+	multiadminCmd := executil.Command(ctx, multiadminBinary, args...)
 
 	fmt.Printf("▶️  - Launching multiadmin (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := telemetry.StartCmd(ctx, multiadminCmd); err != nil {
+	if err := multiadminCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multiadmin: %w", err)
 	}
 
@@ -836,11 +835,11 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	)
 
 	// Start multipooler process
-	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
+	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := telemetry.StartCmd(ctx, multipoolerCmd); err != nil {
+	if err := multipoolerCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multipooler: %w", err)
 	}
 
@@ -993,11 +992,11 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Start multiorch process
-	multiorchCmd := exec.CommandContext(ctx, multiorchBinary, args...)
+	multiorchCmd := executil.Command(ctx, multiorchBinary, args...)
 
 	fmt.Printf("▶️  - Launching multiorch (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
-	if err := telemetry.StartCmd(ctx, multiorchCmd); err != nil {
+	if err := multiorchCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start multiorch: %w", err)
 	}
 
@@ -1179,94 +1178,20 @@ func (p *localProvisioner) stopProcessByPID(ctx context.Context, name string, pi
 	span.SetAttributes(attribute.String("service", name))
 	defer span.End()
 
-	// Check if process exists
-	process, err := os.FindProcess(pid)
+	// Use executil.StopPID for graceful termination with 2s grace period
+	stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	err, stopped := executil.StopPID(stopCtx, pid)
+	if !stopped {
+		return fmt.Errorf("failed to stop process %d within timeout", pid)
+	}
 	if err != nil {
-		// Process not found, assume already cleaned up
-		fmt.Printf("Process %d not found, assuming already stopped\n", pid)
-		return nil
+		// Process exited with error, but it's stopped - that's ok for cleanup
+		fmt.Printf("Process %d stopped with error: %v\n", pid, err)
 	}
-
-	// Send SIGTERM to gracefully stop the process
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		// Process might already be dead, check errno
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
-			fmt.Printf("Process %d already stopped\n", pid)
-			return nil
-		}
-
-		// If SIGTERM fails for other reasons, try SIGKILL
-		if err := process.Kill(); err != nil {
-			// If kill also fails and it's because process doesn't exist, that's ok
-			errMsg := err.Error()
-			if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
-				fmt.Printf("Process %d already stopped\n", pid)
-				return nil
-			}
-			return fmt.Errorf("failed to kill process %d: %w", pid, err)
-		}
-	}
-
-	// Wait for the process to actually exit
-	p.waitForProcessExit(ctx, process, 2*time.Second)
 
 	return nil
-}
-
-// waitForProcessExit waits for a process to exit by polling with Signal(0).
-// If the process doesn't exit within the timeout, it sends SIGKILL and waits again.
-func (p *localProvisioner) waitForProcessExit(ctx context.Context, process *os.Process, timeout time.Duration) {
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	r := retry.New(10*time.Millisecond, 1*time.Second)
-	for _, err := range r.Attempts(waitCtx) {
-		if err != nil {
-			// Timeout reached, escalate to SIGKILL
-			fmt.Printf("Process %d still running after SIGTERM, sending SIGKILL\n", process.Pid)
-			if killErr := process.Kill(); killErr != nil {
-				errMsg := killErr.Error()
-				if strings.Contains(errMsg, "no such process") || strings.Contains(errMsg, "process already finished") {
-					fmt.Printf("Process %d already stopped\n", process.Pid)
-					return
-				}
-				fmt.Printf("Failed to kill process %d: %v\n", process.Pid, killErr)
-				return
-			}
-			// Wait a bit more for SIGKILL to take effect
-			p.waitForProcessExitAfterKill(ctx, process, 5*time.Second)
-			return
-		}
-
-		// Send null signal to test if process exists
-		err := process.Signal(syscall.Signal(0))
-		if err != nil {
-			fmt.Printf("Process %d stopped successfully\n", process.Pid)
-			// Process has exited or doesn't exist
-			return
-		}
-	}
-}
-
-// waitForProcessExitAfterKill waits for a process to exit after SIGKILL.
-func (p *localProvisioner) waitForProcessExitAfterKill(ctx context.Context, process *os.Process, timeout time.Duration) {
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	r := retry.New(50*time.Millisecond, 1*time.Second)
-	for _, err := range r.Attempts(waitCtx) {
-		if err != nil {
-			fmt.Printf("Process %d still running after SIGKILL (timeout)\n", process.Pid)
-			return
-		}
-
-		err := process.Signal(syscall.Signal(0))
-		if err != nil {
-			fmt.Printf("Process %d stopped after SIGKILL\n", process.Pid)
-			return
-		}
-	}
 }
 
 // Bootstrap sets up etcd and creates the default database
