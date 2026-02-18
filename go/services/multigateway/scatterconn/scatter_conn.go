@@ -345,6 +345,20 @@ func (sc *ScatterConn) ConcludeTransaction(
 	var errs []error
 	var callbackResult *sqltypes.Result
 
+	// Count shards with a transaction reason — multi-shard transactions are not
+	// yet supported (distributed transactions). Log a warning as a sentinel so
+	// unexpected multi-shard cases are visible before DT is implemented.
+	var txnShardCount int
+	for _, ss := range state.ShardStates {
+		if ss.ReservedConnectionId != 0 && protoutil.HasTransactionReason(ss.ReservationReasons) {
+			txnShardCount++
+		}
+	}
+	if txnShardCount > 1 {
+		sc.logger.WarnContext(ctx, "multi-shard transaction detected — distributed transactions not yet supported",
+			"shard_count", txnShardCount)
+	}
+
 	// Iterate over all shard states with reserved connections.
 	// Only conclude on shards that have the transaction reason.
 	// Continue on errors so all shards get concluded.
@@ -399,7 +413,14 @@ func (sc *ScatterConn) ConcludeTransaction(
 	}
 
 	if len(errs) > 0 {
-		return errors.Join(errs...)
+		// Return only the first error. PostgreSQL clients expect a single ErrorResponse
+		// with a SQLSTATE — a joined multi-line error confuses ORMs and connection poolers.
+		if len(errs) > 1 {
+			sc.logger.ErrorContext(ctx, "multiple shard errors during conclude transaction",
+				"error_count", len(errs),
+				"errors", errors.Join(errs...))
+		}
+		return errs[0]
 	}
 
 	// Send the result to the client (COMMIT/ROLLBACK command tag)
@@ -619,13 +640,14 @@ func (sc *ScatterConn) CopyAbort(
 
 // ReleaseAllReservedConnections forcefully releases all reserved connections.
 // Iterates all shard states and calls ReleaseReservedConnection on the multipooler
-// for each one. Errors are logged but do not stop the iteration (best-effort).
-// After the loop, all local shard state is cleared.
+// for each one. Errors are logged and collected but do not stop the iteration
+// (best-effort). After the loop, all local shard state is cleared.
 func (sc *ScatterConn) ReleaseAllReservedConnections(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 ) error {
+	var errs []error
 	for _, ss := range state.ShardStates {
 		if ss.ReservedConnectionId == 0 {
 			continue
@@ -641,6 +663,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 		if err != nil {
 			sc.logger.ErrorContext(ctx, "release: pooler lookup failed",
 				"target", ss.Target, "error", err)
+			errs = append(errs, err)
 			continue
 		}
 
@@ -649,11 +672,12 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 				"target", ss.Target,
 				"reserved_conn_id", ss.ReservedConnectionId,
 				"error", err)
+			errs = append(errs, err)
 		}
 	}
 
 	state.ClearAllReservedConnections()
-	return nil
+	return errors.Join(errs...)
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.
