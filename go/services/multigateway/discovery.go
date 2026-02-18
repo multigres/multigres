@@ -582,13 +582,15 @@ func (gd *GlobalPoolerDiscovery) processCellChange(event *topoclient.WatchDataRe
 }
 
 // extractCellFromPath extracts the cell name from a cells watch path.
-// The path format is: "cells/<cellname>/Cell"
-func extractCellFromPath(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) >= 2 && parts[0] == topoclient.CellsPath {
-		return parts[1]
+// Handles both relative paths (memorytopo: "cells/zone1/Cell") and
+// absolute paths with root prefix (etcd: "/multigres/global/cells/zone1/Cell").
+func extractCellFromPath(watchPath string) string {
+	_, after, found := strings.Cut(watchPath, topoclient.CellsPath+"/")
+	if !found {
+		return ""
 	}
-	return ""
+	cell, _, _ := strings.Cut(after, "/")
+	return cell
 }
 
 // startCellWatcher starts a CellPoolerDiscovery for the given cell.

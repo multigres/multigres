@@ -851,6 +851,7 @@ func TestExtractCellFromPath(t *testing.T) {
 		path     string
 		expected string
 	}{
+		// Relative paths (memorytopo)
 		{"cells/zone1/Cell", "zone1"},
 		{"cells/us-east-1/Cell", "us-east-1"},
 		{"cells/zone1", "zone1"},
@@ -858,6 +859,9 @@ func TestExtractCellFromPath(t *testing.T) {
 		{"cells", ""},
 		{"other/zone1/Cell", ""},
 		{"", ""},
+		// Absolute paths with root prefix (real etcd)
+		{"/multigres/global/cells/zone1/Cell", "zone1"},
+		{"/multigres/global/cells/us-east-1/Cell", "us-east-1"},
 	}
 
 	for _, tc := range tests {
