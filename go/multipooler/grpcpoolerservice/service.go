@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
@@ -384,6 +385,13 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 // ReserveStreamExecute creates a reserved connection and executes a query.
 // Based on ReservationOptions.Reason, may execute BEGIN before the query.
 func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_ReserveStreamExecuteServer) error {
+	// Validate reservation reasons at the gRPC trust boundary.
+	if req.ReservationOptions != nil {
+		if err := protoutil.ValidateReasons(req.ReservationOptions.Reasons); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid reservation options: %v", err)
+		}
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
