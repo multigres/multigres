@@ -103,7 +103,7 @@ type ShardStatusResponse struct {
 	// Currently detected problems for this shard
 	Problems []*DetectedProblem `protobuf:"bytes,1,rep,name=problems,proto3" json:"problems,omitempty"`
 	// Per-pooler health details for this shard
-	PoolerHealth  []*PoolerHealth `protobuf:"bytes,2,rep,name=pooler_health,json=poolerHealth,proto3" json:"pooler_health,omitempty"`
+	PoolerHealths []*PoolerHealth `protobuf:"bytes,2,rep,name=pooler_healths,json=poolerHealths,proto3" json:"pooler_healths,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -145,9 +145,9 @@ func (x *ShardStatusResponse) GetProblems() []*DetectedProblem {
 	return nil
 }
 
-func (x *ShardStatusResponse) GetPoolerHealth() []*PoolerHealth {
+func (x *ShardStatusResponse) GetPoolerHealths() []*PoolerHealth {
 	if x != nil {
-		return x.PoolerHealth
+		return x.PoolerHealths
 	}
 	return nil
 }
@@ -353,10 +353,10 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
 	"\vtable_group\x18\x02 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
-	"\x05shard\x18\x03 \x01(\tR\x05shard\"\x8b\x01\n" +
+	"\x05shard\x18\x03 \x01(\tR\x05shard\"\x8d\x01\n" +
 	"\x13ShardStatusResponse\x126\n" +
-	"\bproblems\x18\x01 \x03(\v2\x1a.multiorch.DetectedProblemR\bproblems\x12<\n" +
-	"\rpooler_health\x18\x02 \x03(\v2\x17.multiorch.PoolerHealthR\fpoolerHealth\"\xda\x02\n" +
+	"\bproblems\x18\x01 \x03(\v2\x1a.multiorch.DetectedProblemR\bproblems\x12>\n" +
+	"\x0epooler_healths\x18\x02 \x03(\v2\x17.multiorch.PoolerHealthR\rpoolerHealths\"\xda\x02\n" +
 	"\x0fDetectedProblem\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1d\n" +
 	"\n" +
@@ -406,7 +406,7 @@ var file_multiorchservice_proto_goTypes = []any{
 }
 var file_multiorchservice_proto_depIdxs = []int32{
 	2, // 0: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
-	3, // 1: multiorch.ShardStatusResponse.pooler_health:type_name -> multiorch.PoolerHealth
+	3, // 1: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
 	4, // 2: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
 	5, // 3: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
 	4, // 4: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID

@@ -88,8 +88,8 @@ func (s *MultiOrchServer) GetShardStatus(
 	}
 
 	resp := &multiorchpb.ShardStatusResponse{
-		Problems:     shardProblems,
-		PoolerHealth: s.buildPoolerHealthList(req),
+		Problems:      shardProblems,
+		PoolerHealths: s.buildPoolerHealthList(req),
 	}
 
 	return resp, nil
