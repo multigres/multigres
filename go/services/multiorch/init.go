@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/grpcserver"
 	"github.com/multigres/multigres/go/services/multiorch/recovery"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -54,8 +55,9 @@ type MultiOrch struct {
 	serverStatus Status
 
 	// Orchestration components
-	cfg            *config.Config
-	recoveryEngine *recovery.Engine
+	cfg             *config.Config
+	recoveryEngine  *recovery.Engine
+	multiorchServer *grpcserver.MultiOrchServer
 }
 
 func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
@@ -177,6 +179,12 @@ func (mo *MultiOrch) Init() error {
 	if err := mo.recoveryEngine.Start(); err != nil {
 		return fmt.Errorf("failed to start recovery engine: %w", err)
 	}
+
+	// Register gRPC service after recovery engine is ready
+	mo.senv.OnRun(func() {
+		mo.multiorchServer = grpcserver.NewMultiOrchServer(mo.recoveryEngine, logger)
+		mo.multiorchServer.RegisterWithGRPCServer(mo.grpcServer.Server)
+	})
 
 	mo.senv.OnClose(func() {
 		mo.Shutdown()

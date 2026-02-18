@@ -21,18 +21,26 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/viperutil"
 
 	"github.com/spf13/cobra"
 
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -47,9 +55,20 @@ func intToInt32(v int) (int32, error) {
 
 // PgCtldServerCmd holds the server command configuration
 type PgCtldServerCmd struct {
-	pgCtlCmd   *PgCtlCommand
-	grpcServer *servenv.GrpcServer
-	senv       *servenv.ServEnv
+	pgCtlCmd          *PgCtlCommand
+	grpcServer        *servenv.GrpcServer
+	senv              *servenv.ServEnv
+	pgbackrestPort    viperutil.Value[int]
+	pgbackrestCertDir viperutil.Value[string]
+
+	// Backup configuration
+	backupType              viperutil.Value[string]
+	backupPath              viperutil.Value[string]
+	backupBucket            viperutil.Value[string]
+	backupRegion            viperutil.Value[string]
+	backupEndpoint          viperutil.Value[string]
+	backupKeyPrefix         viperutil.Value[string]
+	backupUseEnvCredentials viperutil.Value[bool]
 }
 
 // AddServerCommand adds the server subcommand to the root command
@@ -58,6 +77,51 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 		pgCtlCmd:   pc,
 		grpcServer: servenv.NewGrpcServer(pc.reg),
 		senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
+		pgbackrestPort: viperutil.Configure(pc.reg, "pgbackrest-port", viperutil.Options[int]{
+			Default:  0,
+			FlagName: "pgbackrest-port",
+			Dynamic:  false,
+		}),
+		pgbackrestCertDir: viperutil.Configure(pc.reg, "pgbackrest-cert-dir", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pgbackrest-cert-dir",
+			Dynamic:  false,
+		}),
+		backupType: viperutil.Configure(pc.reg, "backup.type", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "backup-type",
+			Dynamic:  false,
+		}),
+		backupPath: viperutil.Configure(pc.reg, "backup.path", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "backup-path",
+			Dynamic:  false,
+		}),
+		backupBucket: viperutil.Configure(pc.reg, "backup.bucket", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "backup-bucket",
+			Dynamic:  false,
+		}),
+		backupRegion: viperutil.Configure(pc.reg, "backup.region", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "backup-region",
+			Dynamic:  false,
+		}),
+		backupEndpoint: viperutil.Configure(pc.reg, "backup.endpoint", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "backup-endpoint",
+			Dynamic:  false,
+		}),
+		backupKeyPrefix: viperutil.Configure(pc.reg, "backup.key-prefix", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "backup-key-prefix",
+			Dynamic:  false,
+		}),
+		backupUseEnvCredentials: viperutil.Configure(pc.reg, "backup.use-env-credentials", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "backup-use-env-credentials",
+			Dynamic:  false,
+		}),
 	}
 	serverCmd.senv.InitServiceMap("grpc", constants.ServicePgctld)
 	root.AddCommand(serverCmd.createCommand())
@@ -68,6 +132,16 @@ func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string)
 	// First run the standard servenv validation
 	if err := s.senv.CobraPreRunE(cmd); err != nil {
 		return err
+	}
+
+	// Validate backup configuration flags
+	backupType := s.backupType.Get()
+	backupPath := s.backupPath.Get()
+	if backupType == "" {
+		return errors.New("--backup-type is required")
+	}
+	if backupPath == "" {
+		return errors.New("--backup-path is required")
 	}
 
 	// Then run our global validation (but not initialization validation -
@@ -89,6 +163,29 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 	// Don't register logger and viper config flags since they're already registered
 	// as persistent flags in the root command and we're sharing those instances
 	s.senv.RegisterFlagsWithoutLoggerAndConfig(cmd.Flags())
+
+	// pgBackRest TLS server flags (server command only)
+	cmd.Flags().Int("pgbackrest-port", s.pgbackrestPort.Default(), "pgBackRest TLS server port")
+	cmd.Flags().String("pgbackrest-cert-dir", s.pgbackrestCertDir.Default(), "Directory containing ca.crt, pgbackrest.crt, pgbackrest.key")
+	viperutil.BindFlags(cmd.Flags(), s.pgbackrestPort, s.pgbackrestCertDir)
+
+	// Backup configuration flags (server command only)
+	cmd.Flags().String("backup-type", s.backupType.Default(), "Backup type: s3 or filesystem")
+	cmd.Flags().String("backup-path", s.backupPath.Default(), "Filesystem backup directory path")
+	cmd.Flags().String("backup-bucket", s.backupBucket.Default(), "S3 bucket name for backups")
+	cmd.Flags().String("backup-region", s.backupRegion.Default(), "S3 region for backups")
+	cmd.Flags().String("backup-endpoint", s.backupEndpoint.Default(), "S3 endpoint URL (optional, for S3-compatible services)")
+	cmd.Flags().String("backup-key-prefix", s.backupKeyPrefix.Default(), "S3 key prefix for backup objects (optional)")
+	cmd.Flags().Bool("backup-use-env-credentials", s.backupUseEnvCredentials.Default(), "Use AWS credentials from environment variables")
+	viperutil.BindFlags(cmd.Flags(),
+		s.backupType,
+		s.backupPath,
+		s.backupBucket,
+		s.backupRegion,
+		s.backupEndpoint,
+		s.backupKeyPrefix,
+		s.backupUseEnvCredentials,
+	)
 
 	return cmd
 }
@@ -112,7 +209,60 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
-	pgctldService, err := NewPgCtldService(logger, s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), poolerDir, s.pgCtlCmd.pgListenAddresses.Get())
+	pgbackrestPort := s.pgbackrestPort.Get()
+	pgbackrestCertDir := s.pgbackrestCertDir.Get()
+
+	// Build backup configuration from viperutil values
+	var backupConfig *backup.Config
+	if backupType := s.backupType.Get(); backupType != "" {
+		var loc *clustermetadatapb.BackupLocation
+		switch backupType {
+		case "s3":
+			loc = &clustermetadatapb.BackupLocation{
+				Location: &clustermetadatapb.BackupLocation_S3{
+					S3: &clustermetadatapb.S3Backup{
+						Bucket:            s.backupBucket.Get(),
+						Region:            s.backupRegion.Get(),
+						Endpoint:          s.backupEndpoint.Get(),
+						KeyPrefix:         s.backupKeyPrefix.Get(),
+						UseEnvCredentials: s.backupUseEnvCredentials.Get(),
+					},
+				},
+			}
+		case "filesystem":
+			loc = &clustermetadatapb.BackupLocation{
+				Location: &clustermetadatapb.BackupLocation_Filesystem{
+					Filesystem: &clustermetadatapb.FilesystemBackup{
+						Path: s.backupPath.Get(),
+					},
+				},
+			}
+		default:
+			logger.Error("Invalid backup type", "type", backupType)
+		}
+
+		if loc != nil {
+			var err error
+			backupConfig, err = backup.NewConfig(loc)
+			if err != nil {
+				logger.Error("Failed to create backup config", "error", err)
+				backupConfig = nil
+			}
+		}
+	}
+
+	pgctldService, err := NewPgCtldService(
+		logger,
+		s.pgCtlCmd.pgPort.Get(),
+		s.pgCtlCmd.pgUser.Get(),
+		s.pgCtlCmd.pgDatabase.Get(),
+		s.pgCtlCmd.timeout.Get(),
+		poolerDir,
+		s.pgCtlCmd.pgListenAddresses.Get(),
+		pgbackrestPort,
+		pgbackrestCertDir,
+		backupConfig,
+	)
 	if err != nil {
 		return err
 	}
@@ -121,6 +271,9 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		logger.Info("pgctld server starting up",
 			"grpc_port", s.grpcServer.Port(),
 		)
+
+		// Start pgBackRest management
+		pgctldService.StartPgBackRestManagement()
 
 		// Register gRPC service with the global GRPCServer
 		if s.grpcServer.CheckServiceMap(constants.ServicePgctld, s.senv) {
@@ -131,7 +284,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 
 	s.senv.OnClose(func() {
 		logger.Info("pgctld server shutting down")
-		// TODO: add closing hooks
+		pgctldService.Close()
 	})
 
 	return s.senv.RunDefault(s.grpcServer)
@@ -172,6 +325,15 @@ type PgCtldService struct {
 	timeout    int
 	poolerDir  string
 	config     *pgctld.PostgresCtlConfig
+
+	// pgBackRest management
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	pgBackRestCmd    *exec.Cmd
+	pgBackRestStatus *pb.PgBackRestStatus
+	statusMu         sync.RWMutex
+	restartCount     int32
 }
 
 // validatePortConsistency is no longer needed because port, listen_addresses, and unix_socket_directories
@@ -179,7 +341,18 @@ type PgCtldService struct {
 // This makes backups portable across different environments.
 
 // NewPgCtldService creates a new PgCtldService with validation
-func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase string, timeout int, poolerDir string, listenAddresses string) (*PgCtldService, error) {
+func NewPgCtldService(
+	logger *slog.Logger,
+	pgPort int,
+	pgUser string,
+	pgDatabase string,
+	timeout int,
+	poolerDir string,
+	listenAddresses string,
+	pgbackrestPort int,
+	pgbackrestCertDir string,
+	backupConfig *backup.Config,
+) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
 	// because the server should be able to start even with uninitialized data directory
@@ -218,6 +391,31 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 		return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
 	}
 
+	// Generate pgbackrest.conf if backup config and cert dir provided
+	if pgbackrestPort > 0 && pgbackrestCertDir != "" {
+		if backupConfig == nil {
+			return nil, errors.New("pgBackRest server enabled but no backup configuration provided")
+		}
+
+		pgbrCfg := pgctld.PgBackRestConfig{
+			PoolerDir:     poolerDir,
+			CertDir:       pgbackrestCertDir,
+			Port:          pgbackrestPort,
+			Pg1Port:       pgPort,
+			Pg1SocketPath: pgctld.PostgresSocketDir(poolerDir),
+			Pg1Path:       pgctld.PostgresDataDir(poolerDir),
+		}
+
+		configPath, err := pgctld.GeneratePgBackRestConfig(pgbrCfg, backupConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate pgbackrest.conf: %w", err)
+		}
+		logger.Info("Generated pgbackrest.conf", "path", configPath)
+	}
+
+	//nolint:gocritic // Background context for pgBackRest lifecycle management
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &PgCtldService{
 		logger:     logger,
 		pgPort:     pgPort,
@@ -226,7 +424,167 @@ func NewPgCtldService(logger *slog.Logger, pgPort int, pgUser string, pgDatabase
 		timeout:    timeout,
 		poolerDir:  poolerDir,
 		config:     config,
+		ctx:        ctx,
+		cancel:     cancel,
+		pgBackRestStatus: &pb.PgBackRestStatus{
+			Running: false,
+		},
 	}, nil
+}
+
+// setPgBackRestStatus updates the pgBackRest status thread-safely and returns the current restart count
+func (s *PgCtldService) setPgBackRestStatus(running bool, errorMessage string, incrementRestart bool) int32 {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+
+	if incrementRestart {
+		s.restartCount++
+	}
+
+	s.pgBackRestStatus.Running = running
+	s.pgBackRestStatus.ErrorMessage = errorMessage
+	s.pgBackRestStatus.RestartCount = s.restartCount
+
+	if running {
+		s.pgBackRestStatus.LastStarted = timestamppb.Now()
+	}
+
+	return s.restartCount
+}
+
+// getPgBackRestStatus returns a copy of the current status thread-safely
+func (s *PgCtldService) getPgBackRestStatus() *pb.PgBackRestStatus {
+	s.statusMu.RLock()
+	defer s.statusMu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	return &pb.PgBackRestStatus{
+		Running:      s.pgBackRestStatus.Running,
+		ErrorMessage: s.pgBackRestStatus.ErrorMessage,
+		RestartCount: s.pgBackRestStatus.RestartCount,
+		LastStarted:  s.pgBackRestStatus.LastStarted,
+	}
+}
+
+// Close shuts down the pgctld service gracefully
+func (s *PgCtldService) Close() {
+	s.logger.Info("Shutting down pgctld service")
+
+	// Signal managePgBackRest goroutine to stop
+	s.cancel()
+
+	// Kill pgBackRest process if running
+	if s.pgBackRestCmd != nil && s.pgBackRestCmd.Process != nil {
+		s.logger.Info("Terminating pgBackRest server", "pid", s.pgBackRestCmd.Process.Pid)
+		if err := s.pgBackRestCmd.Process.Kill(); err != nil {
+			s.logger.Warn("Failed to kill pgBackRest process", "error", err)
+		}
+	}
+
+	// Wait for goroutines to fully exit
+	s.wg.Wait()
+	s.logger.Info("pgctld service shutdown complete")
+}
+
+// startPgBackRest starts the pgBackRest TLS server process
+// Returns the command on success, or error on failure
+func (s *PgCtldService) startPgBackRest(ctx context.Context) (*exec.Cmd, error) {
+	configPath := filepath.Join(s.poolerDir, "pgbackrest", "pgbackrest.conf")
+
+	// Verify config exists
+	if _, err := os.Stat(configPath); err != nil {
+		return nil, fmt.Errorf("pgbackrest.conf not found at %s: %w", configPath, err)
+	}
+
+	// Build command: pgbackrest server
+	// Note: Config is passed via PGBACKREST_CONFIG environment variable
+	cmd := exec.CommandContext(ctx, "pgbackrest", "server")
+	cmd.Env = append(os.Environ(), "PGBACKREST_CONFIG="+configPath)
+
+	// Start the process
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start pgbackrest server: %w", err)
+	}
+
+	logPath := filepath.Join(s.poolerDir, "pgbackrest", "log")
+	s.logger.InfoContext(ctx, "pgBackRest TLS server started",
+		"pid", cmd.Process.Pid,
+		"config", configPath,
+		"logs", logPath)
+	return cmd, nil
+}
+
+// managePgBackRest manages the pgBackRest TLS server lifecycle with retry and restart logic
+func (s *PgCtldService) managePgBackRest(ctx context.Context) {
+	// Check if pgbackrest config exists before attempting to start
+	configPath := filepath.Join(s.poolerDir, "pgbackrest", "pgbackrest.conf")
+	if _, err := os.Stat(configPath); err != nil {
+		s.logger.InfoContext(ctx, "pgBackRest config not found, skipping pgBackRest server startup", "config_path", configPath)
+		s.setPgBackRestStatus(false, "config not found", false)
+		return
+	}
+
+	r := retry.New(1*time.Second, 10*time.Second)
+
+	for {
+		var cmd *exec.Cmd
+
+		// Try to start with retry policy (max 5 attempts)
+		for attempt, err := range r.Attempts(ctx) {
+			if err != nil {
+				// Context cancelled during startup - clean shutdown
+				s.setPgBackRestStatus(false, fmt.Sprintf("context cancelled: %v", err), false)
+				return
+			}
+			if attempt >= 4 {
+				s.setPgBackRestStatus(false, "failed after 5 attempts", false)
+				return
+			}
+
+			var startErr error
+			cmd, startErr = s.startPgBackRest(ctx)
+			if startErr == nil {
+				s.setPgBackRestStatus(true, "", false)
+				s.pgBackRestCmd = cmd
+				break // Success, exit retry loop
+			}
+			s.logger.WarnContext(ctx, "pgBackRest startup failed", "attempt", attempt+1, "error", startErr)
+		}
+
+		if cmd == nil {
+			// Failed to start after retries
+			return
+		}
+
+		// Wait for exit OR context cancellation
+		done := make(chan struct{})
+		go func() {
+			_ = cmd.Wait() // Ignore error - process exit is expected
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Process exited, restart
+			currentCount := s.setPgBackRestStatus(false, "process exited, restarting", true)
+			s.logger.InfoContext(ctx, "pgBackRest exited, restarting", "restart_count", currentCount)
+
+		case <-ctx.Done():
+			// Shutdown requested, kill process
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill() // Ignore error - process may already be dead
+			}
+			<-done // Wait for Wait() to complete
+			return
+		}
+	}
+}
+
+// StartPgBackRestManagement begins pgBackRest management in background
+func (s *PgCtldService) StartPgBackRestManagement() {
+	s.wg.Go(func() {
+		s.managePgBackRest(s.ctx)
+	})
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -331,10 +689,11 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			return nil, fmt.Errorf("invalid port: %w", err)
 		}
 		return &pb.StatusResponse{
-			Status:  pb.ServerStatus_NOT_INITIALIZED,
-			DataDir: pgctld.PostgresDataDir(s.poolerDir),
-			Port:    port,
-			Message: "Data directory is not initialized",
+			Status:           pb.ServerStatus_NOT_INITIALIZED,
+			DataDir:          pgctld.PostgresDataDir(s.poolerDir),
+			Port:             port,
+			Message:          "Data directory is not initialized",
+			PgbackrestStatus: s.getPgBackRestStatus(),
 		}, nil
 	}
 
@@ -365,14 +724,15 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	}
 
 	return &pb.StatusResponse{
-		Status:  status,
-		Pid:     pid,
-		Version: result.Version,
-		Uptime:  durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
-		DataDir: result.DataDir,
-		Port:    port,
-		Ready:   result.Ready,
-		Message: result.Message,
+		Status:           status,
+		Pid:              pid,
+		Version:          result.Version,
+		Uptime:           durationpb.New(time.Duration(result.UptimeSeconds) * time.Second),
+		DataDir:          result.DataDir,
+		Port:             port,
+		Ready:            result.Ready,
+		Message:          result.Message,
+		PgbackrestStatus: s.getPgBackRestStatus(),
 	}, nil
 }
 
@@ -416,8 +776,12 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}
 
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
+	// Include application_name if provided (used for replication identification)
 	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
 		req.GetSourceHost(), req.GetSourcePort())
+	if req.GetApplicationName() != "" {
+		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())
+	}
 
 	// Use the shared rewind function with detailed result, passing password separately
 	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
@@ -429,5 +793,54 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	return &pb.PgRewindResponse{
 		Message: result.Message,
 		Output:  result.Output,
+	}, nil
+}
+
+func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecoveryRequest) (*pb.CrashRecoveryResponse, error) {
+	s.logger.InfoContext(ctx, "gRPC CrashRecovery request")
+
+	// Check if crash recovery is needed
+	needsRecovery, stateBefore, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if crash recovery needed: %w", err)
+	}
+
+	if !needsRecovery {
+		s.logger.InfoContext(ctx, "Database is already clean, no crash recovery needed",
+			"state", stateBefore.String())
+		return &pb.CrashRecoveryResponse{
+			RecoveryPerformed: false,
+			StateBefore:       stateBefore,
+			StateAfter:        stateBefore,
+			Message:           "Database is already in clean state",
+		}, nil
+	}
+
+	s.logger.InfoContext(ctx, "Database requires crash recovery, running single-user recovery",
+		"state_before", stateBefore.String())
+
+	// Run crash recovery
+	if err := runCrashRecovery(ctx, s.logger, s.poolerDir); err != nil {
+		return nil, fmt.Errorf("crash recovery failed: %w", err)
+	}
+
+	// Verify recovery completed successfully
+	stillNeedsRecovery, stateAfter, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify recovery: %w", err)
+	}
+	if stillNeedsRecovery {
+		return nil, fmt.Errorf("crash recovery completed but database still reports unclean state: %s", stateAfter.String())
+	}
+
+	s.logger.InfoContext(ctx, "Crash recovery completed successfully",
+		"state_before", stateBefore.String(),
+		"state_after", stateAfter.String())
+
+	return &pb.CrashRecoveryResponse{
+		RecoveryPerformed: true,
+		StateBefore:       stateBefore,
+		StateAfter:        stateAfter,
+		Message:           "Crash recovery completed successfully",
 	}, nil
 }

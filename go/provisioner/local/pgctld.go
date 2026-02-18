@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -261,6 +262,54 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	// Add socket file if configured
 	if socketFile != "" {
 		serverArgs = append(serverArgs, "--grpc-socket-file", socketFile)
+	}
+
+	// Add pgBackRest configuration if certificates are available
+	if p.pgBackRestCertPaths != nil {
+		// Get pgbackrest port from config or use default
+		pgbackrestPort := ports.DefaultPgbackRestPort
+		if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
+			pgbackrestPort = port
+		}
+
+		serverArgs = append(serverArgs,
+			"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
+			"--pgbackrest-cert-dir", p.certDir(),
+		)
+
+		// Add backup configuration based on config type
+		switch p.config.Backup.Type {
+		case "local":
+			if p.config.Backup.Local != nil && p.config.Backup.Local.Path != "" {
+				serverArgs = append(serverArgs,
+					"--backup-type", "filesystem",
+					"--backup-path", p.config.Backup.Local.Path,
+				)
+			}
+		case "s3":
+			if p.config.Backup.S3 != nil {
+				// Construct repo path (default to /multigres, or with key prefix)
+				repoPath := "/multigres"
+				if p.config.Backup.S3.KeyPrefix != "" {
+					repoPath = "/" + strings.TrimSuffix(p.config.Backup.S3.KeyPrefix, "/") + "/multigres"
+				}
+				serverArgs = append(serverArgs,
+					"--backup-type", "s3",
+					"--backup-bucket", p.config.Backup.S3.Bucket,
+					"--backup-region", p.config.Backup.S3.Region,
+					"--backup-path", repoPath,
+				)
+				if p.config.Backup.S3.Endpoint != "" {
+					serverArgs = append(serverArgs, "--backup-endpoint", p.config.Backup.S3.Endpoint)
+				}
+				if p.config.Backup.S3.KeyPrefix != "" {
+					serverArgs = append(serverArgs, "--backup-key-prefix", p.config.Backup.S3.KeyPrefix)
+				}
+				if p.config.Backup.S3.UseEnvCredentials {
+					serverArgs = append(serverArgs, "--backup-use-env-credentials")
+				}
+			}
+		}
 	}
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
