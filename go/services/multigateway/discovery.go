@@ -456,8 +456,9 @@ func NewGlobalPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, l
 	}
 }
 
-// Start begins the discovery process by watching for cells and starting
-// a CellPoolerDiscovery for each cell.
+// Start begins the discovery process by watching the cells directory in the
+// global topology. When cells are created or removed, it starts or stops
+// the corresponding CellPoolerDiscovery watchers.
 func (gd *GlobalPoolerDiscovery) Start() {
 	// Start notification processor goroutine
 	gd.wg.Go(gd.processNotifications)
@@ -479,42 +480,111 @@ func (gd *GlobalPoolerDiscovery) Start() {
 
 			// Watch for cells and manage cell watchers
 			func() {
-				// Get initial list of cells
-				cells, err := gd.topoStore.GetCellNames(gd.ctx)
+				conn, err := gd.topoStore.ConnForCell(gd.ctx, topoclient.GlobalCell)
 				if err != nil {
-					gd.logger.Error("Failed to get cell names", "error", err)
+					gd.logger.Error("Failed to get global topo connection", "error", err)
 					return
 				}
 
-				gd.logger.Info("Discovered cells", "cells", cells)
-
-				// No cells found yet — retry with backoff instead of blocking forever
-				if len(cells) == 0 {
-					gd.logger.Warn("No cells discovered, will retry")
+				initial, changes, err := conn.WatchRecursive(gd.ctx, topoclient.CellsPath)
+				if err != nil {
+					gd.logger.Error("Failed to start watch on cells", "error", err)
 					return
 				}
 
-				// Start watchers for each cell
-				gd.mu.Lock()
-				for _, cell := range cells {
-					if _, exists := gd.cellWatchers[cell]; !exists {
-						gd.startCellWatcher(cell)
-					}
-				}
-				gd.mu.Unlock()
+				// Process initial cells
+				gd.processInitialCells(initial)
 
-				// Reset backoff after stable for 30s
+				// Reset backoff after watch has been stable for 30s
 				resetTimer := time.AfterFunc(30*time.Second, func() {
 					r.Reset()
 				})
 				defer resetTimer.Stop()
 
-				// TODO: Watch for cell changes (cells being added/removed)
-				// For now, just wait for context cancellation
-				<-gd.ctx.Done()
+				// Watch for cell changes (additions/removals)
+				for {
+					select {
+					case <-gd.ctx.Done():
+						return
+					case event, ok := <-changes:
+						if !ok {
+							gd.logger.Info("Cell watch channel closed, will reconnect")
+							return
+						}
+						gd.processCellChange(event)
+					}
+				}
 			}()
 		}
 	})
+}
+
+// processInitialCells processes the initial set of cells from the watch.
+func (gd *GlobalPoolerDiscovery) processInitialCells(initial []*topoclient.WatchDataRecursive) {
+	gd.mu.Lock()
+	defer gd.mu.Unlock()
+
+	for _, event := range initial {
+		if event.Err != nil {
+			continue
+		}
+		cell := extractCellFromPath(event.Path)
+		if cell == "" {
+			continue
+		}
+		if _, exists := gd.cellWatchers[cell]; !exists {
+			gd.startCellWatcher(cell)
+		}
+	}
+
+	// Log discovered cells
+	cells := make([]string, 0, len(gd.cellWatchers))
+	for cell := range gd.cellWatchers {
+		cells = append(cells, cell)
+	}
+	gd.logger.Info("Initial cell discovery completed", "cells", cells)
+}
+
+// processCellChange handles a single cell change event from the watch.
+func (gd *GlobalPoolerDiscovery) processCellChange(event *topoclient.WatchDataRecursive) {
+	cell := extractCellFromPath(event.Path)
+	if cell == "" {
+		return
+	}
+
+	// Deletion: NoNode error signals the cell was removed
+	if event.Err != nil {
+		if errors.Is(event.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			gd.mu.Lock()
+			if watcher, exists := gd.cellWatchers[cell]; exists {
+				gd.logger.Info("Cell removed, stopping watcher", "cell", cell)
+				watcher.Stop()
+				delete(gd.cellWatchers, cell)
+			}
+			gd.mu.Unlock()
+		} else {
+			gd.logger.Warn("Cell watch error received", "error", event.Err, "path", event.Path)
+		}
+		return
+	}
+
+	// Addition: start a watcher if we don't have one
+	gd.mu.Lock()
+	if _, exists := gd.cellWatchers[cell]; !exists {
+		gd.logger.Info("New cell discovered", "cell", cell)
+		gd.startCellWatcher(cell)
+	}
+	gd.mu.Unlock()
+}
+
+// extractCellFromPath extracts the cell name from a cells watch path.
+// The path format is: "cells/<cellname>/Cell"
+func extractCellFromPath(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) >= 2 && parts[0] == topoclient.CellsPath {
+		return parts[1]
+	}
+	return ""
 }
 
 // startCellWatcher starts a CellPoolerDiscovery for the given cell.

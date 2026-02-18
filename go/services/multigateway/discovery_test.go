@@ -749,14 +749,13 @@ func TestPoolerDiscovery_EvictionCallsOnPoolerRemoved(t *testing.T) {
 	require.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(newPrimary.Id))
 }
 
-// TestGlobalPoolerDiscovery_RetriesOnEmptyCellsThenDiscovers tests the full scenario:
-// discovery starts with no cells, retries with backoff, and eventually discovers
-// poolers when cells are dynamically registered.
-// This is the core regression test for the bug where discovery blocked forever
-// on <-ctx.Done() when GetCellNames returned an empty list.
-func TestGlobalPoolerDiscovery_RetriesOnEmptyCellsThenDiscovers(t *testing.T) {
+// TestGlobalPoolerDiscovery_WatchDiscoversNewCells tests that the watch-based
+// cell discovery detects cells added after the gateway has started. This is the
+// core regression test for the bug where discovery blocked forever on
+// <-ctx.Done() and never discovered new cells.
+func TestGlobalPoolerDiscovery_WatchDiscoversNewCells(t *testing.T) {
 	ctx := context.Background()
-	// Start with NO cells
+	// Start with NO cells — watch returns empty initial set
 	store, factory := memorytopo.NewServerAndFactory(ctx)
 	defer store.Close()
 
@@ -764,7 +763,7 @@ func TestGlobalPoolerDiscovery_RetriesOnEmptyCellsThenDiscovers(t *testing.T) {
 	gd.Start()
 	defer gd.Stop()
 
-	// Initially no poolers — discovery retries on empty cells
+	// Initially no poolers — watch sees empty cells directory
 	time.Sleep(300 * time.Millisecond)
 	assert.Equal(t, 0, gd.PoolerCount(), "Should have 0 poolers with no cells")
 
@@ -775,9 +774,32 @@ func TestGlobalPoolerDiscovery_RetriesOnEmptyCellsThenDiscovers(t *testing.T) {
 	pooler := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, store.CreateMultiPooler(ctx, pooler))
 
-	// Discovery should retry, find the cell, start a watcher, and discover the pooler
+	// Watch should fire an event for the new cell, start a watcher, and discover the pooler
 	waitForGlobalPoolerCount(t, gd, 1)
 	assert.Equal(t, 1, gd.PoolerCount())
+}
+
+// TestExtractCellFromPath tests the path parsing logic for cell watch events.
+func TestExtractCellFromPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"cells/zone1/Cell", "zone1"},
+		{"cells/us-east-1/Cell", "us-east-1"},
+		{"cells/zone1", "zone1"},
+		{"cells/", ""},
+		{"cells", ""},
+		{"other/zone1/Cell", ""},
+		{"", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			result := extractCellFromPath(tc.path)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }
 
 // TestCellPoolerDiscovery_ExtractPoolerIDFromPath tests the path parsing logic.
