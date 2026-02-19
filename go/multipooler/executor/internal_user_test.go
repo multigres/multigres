@@ -26,7 +26,7 @@ func TestNewExecutor(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	// Test that NewExecutor creates an executor without caching internal user
-	executor := NewExecutor(logger, nil)
+	executor := NewExecutor(logger, nil, nil)
 
 	assert.NotNil(t, executor)
 	assert.NotNil(t, executor.logger)

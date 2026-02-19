@@ -29,7 +29,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Creating with nil pool manager should work but executor will be nil
-	pooler := NewQueryPoolerServer(logger, nil)
+	pooler := NewQueryPoolerServer(logger, nil, nil)
 
 	assert.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -42,7 +42,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 
 func TestIsHealthy_NotInitialized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil)
+	pooler := NewQueryPoolerServer(logger, nil, nil)
 
 	// IsHealthy should fail since the pool manager is not initialized
 	err := pooler.IsHealthy()
@@ -87,7 +87,7 @@ func TestNewQueryPoolerServer_CustomInternalUser(t *testing.T) {
 				internalUser: tt.internalUser,
 			}
 
-			pooler := NewQueryPoolerServer(logger, mockMgr)
+			pooler := NewQueryPoolerServer(logger, mockMgr, nil)
 
 			require.NotNil(t, pooler)
 			assert.Equal(t, logger, pooler.logger)
@@ -115,7 +115,7 @@ func TestNewQueryPoolerServer_InternalUserPassthrough(t *testing.T) {
 		internalUser: customUser,
 	}
 
-	pooler := NewQueryPoolerServer(logger, mockMgr)
+	pooler := NewQueryPoolerServer(logger, mockMgr, nil)
 
 	require.NotNil(t, pooler)
 

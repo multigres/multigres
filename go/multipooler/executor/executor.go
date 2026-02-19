@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -42,14 +43,16 @@ type Executor struct {
 	logger       *slog.Logger
 	poolManager  connpoolmanager.PoolManager
 	consolidator *preparedstatement.Consolidator
+	poolerID     *clustermetadatapb.ID
 }
 
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager) *Executor {
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *Executor {
 	return &Executor{
 		logger:       logger,
 		poolManager:  poolManager,
 		consolidator: preparedstatement.NewConsolidator(),
+		poolerID:     poolerID,
 	}
 }
 
@@ -291,6 +294,7 @@ func (e *Executor) portalExecuteWithReserved(
 
 	return queryservice.ReservedState{
 		ReservedConnectionId: uint64(reservedConn.ConnID),
+		PoolerID:             e.poolerID,
 	}, nil
 }
 
@@ -487,7 +491,7 @@ func (e *Executor) CopyReady(
 
 	reservedState := queryservice.ReservedState{
 		ReservedConnectionId: uint64(connID),
-		PoolerID:             nil, // TODO: implement pooler ID retrieval
+		PoolerID:             e.poolerID,
 	}
 
 	return format, columnFormats, reservedState, nil
@@ -754,6 +758,7 @@ func (e *Executor) ReserveStreamExecute(
 
 	reservedState := queryservice.ReservedState{
 		ReservedConnectionId: uint64(reservedConn.ConnID),
+		PoolerID:             e.poolerID,
 	}
 
 	e.logger.DebugContext(ctx, "reserve stream execute completed",
