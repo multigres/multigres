@@ -75,5 +75,5 @@ If the summary already says everything, you can omit the extra section entirely.
 ### 3. Guidelines
 
 - **Title** must follow [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `build`, `ci`, `perf`. Keep it under 72 characters.
-- **Summary** should be concise — focus on *what* and *why*, not implementation minutiae.
+- **Summary** should be concise — focus on _what_ and _why_, not implementation minutiae.
 - Do not pad the description with filler. Shorter is better.
