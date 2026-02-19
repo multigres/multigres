@@ -62,9 +62,6 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 	// determine role (standby)
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// disableRestoreCommand: prevent archive-get from fetching divergent WAL
-	m.AddQueryPatternOnce("ALTER SYSTEM SET restore_command", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 	// pauseReplication: resetPrimaryConnInfo
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))

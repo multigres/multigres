@@ -178,13 +178,6 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 		// Revoke standby: stop receiver and wait for replay to catch up
 		pm.logger.InfoContext(ctx, "Revoking standby", "term", term)
 
-		// Disable restore_command before pausing replication. Once the WAL
-		// receiver disconnects, the recovery process falls back to archive-get.
-		// The old primary may still archive divergent WAL after demotion.
-		if err := pm.disableRestoreCommand(ctx); err != nil {
-			return mterrors.Wrap(err, "failed to disable restore_command during revoke")
-		}
-
 		// Stop WAL receiver and wait for it to fully disconnect
 		_, err := pm.pauseReplication(
 			ctx,

@@ -299,10 +299,6 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		t.Logf("Standby %s accepted BeginTerm (term=%d, revoked)", name, revokedTerm)
 	}
 
-	// Verify writes are blocked when sync standbys are disconnected.
-	// The context timeout cancels the sync rep wait, but PostgreSQL commits the data
-	// locally (known PG limitation: CancelRequest releases the sync rep wait, not the txn).
-	// After failover, pg_rewind will undo this locally-committed write.
 	//
 	// TODO(query-serving): This should go through the gateway instead of direct postgres.
 	// Currently lib/pq's CancelRequest doesn't propagate through multigateway, so writes
@@ -312,6 +308,13 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// _, writeErr := gatewayDB.ExecContext(utils.WithTimeout(t, writeTimeout),
 	//     fmt.Sprintf("INSERT INTO %s (id) VALUES (999999)", validator.TableName()))
 	// require.Error(t, writeErr, "Write through gateway should fail with context timeout")
+	//
+	//
+	//
+	// Verify writes are blocked when sync standbys are disconnected.
+	// The context timeout cancels the sync rep wait, but PostgreSQL commits the data
+	// locally (known PG limitation: CancelRequest releases the sync rep wait, not the txn).
+	// After failover, pg_rewind will undo this locally-committed write.
 	primarySocketDir := filepath.Join(currentPrimary.Pgctld.DataDir, "pg_sockets")
 	writeTestDB := connectToPostgres(t, primarySocketDir, currentPrimary.Pgctld.PgPort)
 	writeTimeout := 50 * time.Millisecond
