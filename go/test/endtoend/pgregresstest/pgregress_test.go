@@ -15,6 +15,7 @@
 package pgregresstest
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,13 +59,14 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Skipf("Build dependencies not available: %v", err)
 	}
 
-	// Create PostgresBuilder for managing source and build.
-	// Use a longer timeout when isolation tests are enabled (lock waits).
-	timeout := 20 * time.Minute
-	if runIsolation {
-		timeout = 45 * time.Minute
-	}
-	ctx := utils.WithTimeout(t, timeout)
+	// Each test suite gets its own sub-context so one suite hanging cannot
+	// starve the other. The build phase uses a separate 10-minute budget.
+	const (
+		buildTimeout = 10 * time.Minute
+		suiteTimeout = 25 * time.Minute
+	)
+
+	buildCtx := utils.WithTimeout(t, buildTimeout)
 	builder := NewPostgresBuilder(t)
 	t.Cleanup(func() {
 		builder.Cleanup()
@@ -72,20 +74,20 @@ func TestPostgreSQLRegression(t *testing.T) {
 
 	// Phase 1: Setup PostgreSQL source
 	t.Logf("Phase 1: Setting up PostgreSQL source...")
-	if err := builder.EnsureSource(t, ctx); err != nil {
+	if err := builder.EnsureSource(t, buildCtx); err != nil {
 		t.Fatalf("Failed to setup PostgreSQL source: %v", err)
 	}
 
 	// Phase 2: Build PostgreSQL
 	t.Logf("Phase 2: Building PostgreSQL...")
-	if err := builder.Build(t, ctx); err != nil {
+	if err := builder.Build(t, buildCtx); err != nil {
 		t.Fatalf("Failed to build PostgreSQL: %v", err)
 	}
 
 	// Phase 2b: Build isolation test tools (only when needed)
 	if runIsolation {
 		t.Logf("Phase 2b: Building isolation test tools...")
-		if err := builder.BuildIsolation(t, ctx); err != nil {
+		if err := builder.BuildIsolation(t, buildCtx); err != nil {
 			t.Fatalf("Failed to build isolation test tools: %v", err)
 		}
 	}
@@ -113,7 +115,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Phase 5: Run regression tests
 	if runRegress {
 		t.Run("regression", func(t *testing.T) {
-			results, err := builder.RunRegressionTests(t, ctx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
+			defer cancel()
+			results, err := builder.RunRegressionTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Test harness failed to execute: %v", err)
@@ -139,7 +143,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Phase 6: Run isolation tests
 	if runIsolation {
 		t.Run("isolation", func(t *testing.T) {
-			results, err := builder.RunIsolationTests(t, ctx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			suiteCtx, cancel := context.WithTimeout(context.Background(), suiteTimeout)
+			defer cancel()
+			results, err := builder.RunIsolationTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Isolation test harness failed to execute: %v", err)
