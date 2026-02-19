@@ -5,7 +5,7 @@ description: "Generate a PR title and description from the current branch diff a
 
 # PR Description Generator
 
-Generates a PR title and description based on the diff between the current branch and `main`, and writes it to `pr-description.md` in the repo root.
+Generates a PR title and description based on the diff between the current branch and `upstream/main`, and writes it to `pr-description.md` in the repo root.
 
 ## Usage
 
@@ -26,13 +26,13 @@ Run these commands to understand the changes:
 git branch --show-current
 
 # Get the commit log for this branch (commits not on main)
-git log --oneline main..HEAD
+git log --oneline upstream/main..HEAD
 
 # Get the full diff against main
-git diff main...HEAD
+git diff upstream/main...HEAD
 ```
 
-If the diff is large, also run `git diff --stat main...HEAD` first for an overview, then read specific files as needed.
+If the diff is large, also run `git diff --stat upstream/main...HEAD` first for an overview, then read specific files as needed.
 
 ### 2. Write the PR description
 
