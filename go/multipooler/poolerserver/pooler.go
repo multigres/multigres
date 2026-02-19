@@ -53,10 +53,10 @@ type QueryPoolerServer struct {
 // and health provider.
 // The pool manager must already be opened before calling this function.
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, healthProvider HealthProvider) *QueryPoolerServer {
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
-		exec = executor.NewExecutor(logger, poolManager)
+		exec = executor.NewExecutor(logger, poolManager, poolerID)
 	}
 
 	return &QueryPoolerServer{

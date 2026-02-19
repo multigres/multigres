@@ -278,7 +278,7 @@ func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, ca
 
 // TxnStatus returns the current transaction status.
 // Returns one of: 'I' (idle), 'T' (in transaction), 'E' (error).
-func (c *Conn) TxnStatus() byte {
+func (c *Conn) TxnStatus() protocol.TransactionStatus {
 	return c.conn.TxnStatus()
 }
 
@@ -470,15 +470,25 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 
 // handleContextCancellation cancels the backend query if adminPool is available.
 // This is called when the context is cancelled while a query is in progress.
+// If cancellation fails (e.g. admin pool unavailable, PostgreSQL unreachable),
+// the connection is force-closed to unblock the goroutine that is mid-read/write.
+//
+// ForceClose is used instead of Close because the op goroutine may be holding
+// bufmu and writing to the buffered writer; Close would race by also writing
+// a Terminate message to the same writer without the lock.
 func (c *Conn) handleContextCancellation() {
 	if c.adminPool == nil {
+		c.conn.ForceClose()
 		return
 	}
 	// Use the connection's context with a timeout for the cancel operation.
 	// If the connection is closed, there's no need to cancel the query.
 	cancelCtx, cancel := context.WithTimeout(c.conn.Context(), admin.DefaultCancelTimeout)
 	defer cancel()
-	_, _ = c.adminPool.CancelBackend(cancelCtx, c.ProcessID())
+	ok, err := c.adminPool.CancelBackend(cancelCtx, c.ProcessID())
+	if err != nil || !ok {
+		c.conn.ForceClose()
+	}
 }
 
 // execOnce executes an operation with context cancellation support.

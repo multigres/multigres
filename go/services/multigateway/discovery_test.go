@@ -480,6 +480,35 @@ func TestGlobalPoolerDiscovery_MultiCell(t *testing.T) {
 	assert.Equal(t, 2, gd.PoolerCount())
 }
 
+// TestGlobalPoolerDiscovery_PoolerAddedAfterStart tests that a pooler created
+// after global discovery is already running gets picked up through the full
+// path: GlobalPoolerDiscovery → CellPoolerDiscovery → watch event.
+func TestGlobalPoolerDiscovery_PoolerAddedAfterStart(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer store.Close()
+
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", slog.Default())
+	gd.Start()
+	defer gd.Stop()
+
+	// Wait for cell discovery with no poolers
+	waitForGlobalPoolerCount(t, gd, 0)
+
+	// Add a pooler after discovery is running
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
+
+	// Should be picked up by the cell watcher
+	waitForGlobalPoolerCount(t, gd, 1)
+
+	// Add a second pooler
+	pooler2 := createTestPooler("pooler2", "zone1", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	waitForGlobalPoolerCount(t, gd, 2)
+}
+
 func TestGlobalPoolerDiscovery_GetCellStatusesForAdmin(t *testing.T) {
 	ctx := context.Background()
 	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
@@ -747,6 +776,100 @@ func TestPoolerDiscovery_EvictionCallsOnPoolerRemoved(t *testing.T) {
 	// Verify OnPoolerChanged was called for the new primary
 	changedPoolers := listener.getChangedPoolers()
 	require.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(newPrimary.Id))
+}
+
+// TestGlobalPoolerDiscovery_WatchDiscoversNewCells tests that the watch-based
+// cell discovery detects cells added after the gateway has started. This is the
+// core regression test for the bug where discovery blocked forever on
+// <-ctx.Done() and never discovered new cells.
+func TestGlobalPoolerDiscovery_WatchDiscoversNewCells(t *testing.T) {
+	ctx := context.Background()
+	// Start with NO cells — watch returns empty initial set
+	store, factory := memorytopo.NewServerAndFactory(ctx)
+	defer store.Close()
+
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", slog.Default())
+	gd.Start()
+	defer gd.Stop()
+
+	// Wait for the watch to start and process the empty initial cell set.
+	// This ensures AddCell arrives as a watch event (processCellChange),
+	// not as part of the initial snapshot (processInitialCells).
+	waitForCondition(t, func() bool {
+		return !gd.LastCellRefresh().IsZero()
+	}, "Initial cell discovery should complete")
+
+	// Dynamically add a cell (simulates multiorch registering cells after gateway start)
+	require.NoError(t, factory.AddCell(ctx, store, "zone1"))
+
+	// Create a pooler in the new cell
+	pooler := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler))
+
+	// Watch should fire an event for the new cell, start a watcher, and discover the pooler
+	waitForGlobalPoolerCount(t, gd, 1)
+	assert.Equal(t, 1, gd.PoolerCount())
+}
+
+// TestGlobalPoolerDiscovery_CellRemovalStopsWatcher tests that when a cell is
+// deleted from the topology, the corresponding CellPoolerDiscovery watcher is
+// stopped and its poolers are no longer reported.
+func TestGlobalPoolerDiscovery_CellRemovalStopsWatcher(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+
+	// Create a pooler in each cell
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	pooler2 := createTestPooler("pooler2", "zone2", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", slog.Default())
+	gd.Start()
+	defer gd.Stop()
+
+	// Both cells discovered with one pooler each
+	waitForGlobalPoolerCount(t, gd, 2)
+	assert.Len(t, gd.GetCellStatusesForAdmin(), 2)
+
+	// Delete zone2
+	require.NoError(t, store.DeleteCell(ctx, "zone2", true))
+
+	// zone2's watcher should stop, dropping its pooler
+	waitForGlobalPoolerCount(t, gd, 1)
+
+	// Only zone1 should remain
+	statuses := gd.GetCellStatusesForAdmin()
+	require.Len(t, statuses, 1)
+	assert.Equal(t, "zone1", statuses[0].Cell)
+}
+
+// TestExtractCellFromPath tests the path parsing logic for cell watch events.
+func TestExtractCellFromPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		// Relative paths (memorytopo)
+		{"cells/zone1/Cell", "zone1"},
+		{"cells/us-east-1/Cell", "us-east-1"},
+		{"cells/zone1", "zone1"},
+		{"cells/", ""},
+		{"cells", ""},
+		{"other/zone1/Cell", ""},
+		{"", ""},
+		// Absolute paths with root prefix (real etcd)
+		{"/multigres/global/cells/zone1/Cell", "zone1"},
+		{"/multigres/global/cells/us-east-1/Cell", "us-east-1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			result := extractCellFromPath(tc.path)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }
 
 // TestCellPoolerDiscovery_ExtractPoolerIDFromPath tests the path parsing logic.

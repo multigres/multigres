@@ -17,6 +17,7 @@ package poolergateway
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -25,6 +26,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -70,11 +74,46 @@ func (m *mockBidiStream) RecvMsg(msg any) error        { return nil }
 // Ensure mockBidiStream implements the interface
 var _ grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse] = (*mockBidiStream)(nil)
 
+// mockReserveStream is a mock implementation of grpc.ServerStreamingClient for ReserveStreamExecute.
+type mockReserveStream struct {
+	responses []*multipoolerservice.ReserveStreamExecuteResponse
+	index     int
+	recvErr   error
+	grpc.ClientStream
+}
+
+func (m *mockReserveStream) Recv() (*multipoolerservice.ReserveStreamExecuteResponse, error) {
+	if m.recvErr != nil {
+		return nil, m.recvErr
+	}
+	if m.index >= len(m.responses) {
+		return nil, io.EOF
+	}
+	resp := m.responses[m.index]
+	m.index++
+	return resp, nil
+}
+
+func (m *mockReserveStream) Header() (metadata.MD, error) { return nil, nil }
+func (m *mockReserveStream) Trailer() metadata.MD         { return nil }
+func (m *mockReserveStream) Context() context.Context     { return context.Background() }
+func (m *mockReserveStream) SendMsg(msg any) error        { return nil }
+func (m *mockReserveStream) RecvMsg(msg any) error        { return nil }
+func (m *mockReserveStream) CloseSend() error             { return nil }
+
 // mockMultiPoolerServiceClient is a mock implementation of MultiPoolerServiceClient.
 type mockMultiPoolerServiceClient struct {
 	// CopyBidiExecute behavior
 	bidiStream    *mockBidiStream
 	bidiStreamErr error
+
+	// ReserveStreamExecute behavior
+	reserveStream    *mockReserveStream
+	reserveStreamErr error
+
+	// ConcludeTransaction behavior
+	concludeResponse *multipoolerservice.ConcludeTransactionResponse
+	concludeErr      error
 }
 
 func (m *mockMultiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
@@ -107,6 +146,24 @@ func (m *mockMultiPoolerServiceClient) GetAuthCredentials(ctx context.Context, i
 
 func (m *mockMultiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *multipoolerservice.StreamPoolerHealthRequest, opts ...grpc.CallOption) (multipoolerservice.MultiPoolerService_StreamPoolerHealthClient, error) {
 	return nil, nil
+}
+
+func (m *mockMultiPoolerServiceClient) ReserveStreamExecute(ctx context.Context, in *multipoolerservice.ReserveStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.ReserveStreamExecuteResponse], error) {
+	if m.reserveStreamErr != nil {
+		return nil, m.reserveStreamErr
+	}
+	return m.reserveStream, nil
+}
+
+func (m *mockMultiPoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
+	if m.concludeErr != nil {
+		return nil, m.concludeErr
+	}
+	return m.concludeResponse, nil
+}
+
+func (m *mockMultiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *multipoolerservice.ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*multipoolerservice.ReleaseReservedConnectionResponse, error) {
+	return &multipoolerservice.ReleaseReservedConnectionResponse{}, nil
 }
 
 // Ensure mockMultiPoolerServiceClient implements the interface
@@ -297,4 +354,170 @@ func TestCopyReady_Success(t *testing.T) {
 	require.Len(t, svc.copyStreams, 1)
 	_, exists := svc.copyStreams[12345]
 	require.True(t, exists, "Stream should be stored in copyStreams with reserved connection ID")
+}
+
+// --- ReserveStreamExecute tests ---
+
+func TestReserveStreamExecute_Success(t *testing.T) {
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	mockClient := &mockMultiPoolerServiceClient{
+		reserveStream: &mockReserveStream{
+			responses: []*multipoolerservice.ReserveStreamExecuteResponse{
+				{
+					Result:               (&sqltypes.Result{CommandTag: "SELECT 1"}).ToProto(),
+					ReservedConnectionId: 42,
+					PoolerId:             poolerID,
+				},
+			},
+		},
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	var callbackResults []*sqltypes.Result
+	reservedState, err := svc.ReserveStreamExecute(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"SELECT 1",
+		&query.ExecuteOptions{User: "testuser"},
+		protoutil.NewTransactionReservationOptions(),
+		func(_ context.Context, r *sqltypes.Result) error {
+			callbackResults = append(callbackResults, r)
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), reservedState.ReservedConnectionId)
+	require.Equal(t, poolerID.Cell, reservedState.PoolerID.Cell)
+	require.Len(t, callbackResults, 1)
+	require.Equal(t, "SELECT 1", callbackResults[0].CommandTag)
+}
+
+func TestReserveStreamExecute_StreamError(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		reserveStreamErr: errors.New("rpc failed"),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, err := svc.ReserveStreamExecute(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"SELECT 1",
+		&query.ExecuteOptions{},
+		protoutil.NewTransactionReservationOptions(),
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to start reserve stream execute")
+}
+
+func TestReserveStreamExecute_RecvError(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		reserveStream: &mockReserveStream{
+			recvErr: errors.New("recv failed"),
+		},
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, err := svc.ReserveStreamExecute(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		"SELECT 1",
+		&query.ExecuteOptions{},
+		protoutil.NewTransactionReservationOptions(),
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reserve stream receive error")
+}
+
+// --- ConcludeTransaction tests ---
+
+func TestConcludeTransaction_Commit(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
+			Result:           (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
+			RemainingReasons: 0,
+		},
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	result, remainingReasons, err := svc.ConcludeTransaction(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "COMMIT", result.CommandTag)
+	require.Equal(t, uint32(0), remainingReasons)
+}
+
+func TestConcludeTransaction_Rollback(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
+			Result:           (&sqltypes.Result{CommandTag: "ROLLBACK"}).ToProto(),
+			RemainingReasons: 0,
+		},
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	result, remainingReasons, err := svc.ConcludeTransaction(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "ROLLBACK", result.CommandTag)
+	require.Equal(t, uint32(0), remainingReasons)
+}
+
+func TestConcludeTransaction_StillReserved(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
+			Result:           (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
+			RemainingReasons: protoutil.ReasonPortal,
+		},
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	result, remainingReasons, err := svc.ConcludeTransaction(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "COMMIT", result.CommandTag)
+	require.NotEqual(t, uint32(0), remainingReasons, "connection should still be reserved")
+}
+
+func TestConcludeTransaction_Error(t *testing.T) {
+	mockClient := &mockMultiPoolerServiceClient{
+		concludeErr: errors.New("conclude failed"),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, _, err := svc.ConcludeTransaction(
+		context.Background(),
+		&query.Target{TableGroup: "test"},
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "conclude transaction failed")
 }

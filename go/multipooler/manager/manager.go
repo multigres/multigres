@@ -236,15 +236,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 
 	// Create the query service controller with the pool manager
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, pm)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm)
 
 	return pm, nil
-}
-
-func (pm *MultiPoolerManager) getPrimaryPoolerID() *clustermetadatapb.ID {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.primaryPoolerID
 }
 
 // internalQueryService returns the InternalQueryService for executing queries via the connection pool.
@@ -1003,8 +997,6 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	}
 
 	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby")
-	// Call pgctld to restart as standby
-	// This will create standby.signal and restart the server
 	req := &pgctldpb.RestartRequest{
 		Mode:      "fast",
 		Timeout:   nil, // Use default timeout
@@ -1018,7 +1010,7 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.Wrap(err, "failed to restart as standby")
 	}
 
-	// Reopen connections after postgres restart without changing isOpen state or restarting monitor
+	// Reopen connections after restart
 	if err := pm.reopenConnections(ctx); err != nil {
 		return mterrors.Wrap(err, "failed to reopen connections")
 	}

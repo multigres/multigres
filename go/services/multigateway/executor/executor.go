@@ -153,5 +153,18 @@ func (e *Executor) Describe(
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, preparedStatementInfo)
 }
 
+// ReleaseAll releases all reserved connections, regardless of reservation reason.
+// Delegates to ReleaseAllReservedConnections which calls ReleaseReservedConnection
+// on the multipooler for each reserved connection. The multipooler handles
+// rollback, COPY abort, and portal release internally.
+// Used for connection cleanup when a client disconnects.
+func (e *Executor) ReleaseAll(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+) error {
+	return e.exec.ReleaseAllReservedConnections(ctx, conn, state)
+}
+
 // Ensure Executor implements handler.Executor interface.
 var _ handler.Executor = (*Executor)(nil)

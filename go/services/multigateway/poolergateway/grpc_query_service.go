@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -546,6 +547,170 @@ func (g *grpcQueryService) CopyAbort(
 	}
 
 	g.logger.DebugContext(ctx, "COPY aborted",
+		"pooler_id", g.poolerID,
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	return nil
+}
+
+// ReserveStreamExecute creates a reserved connection and executes a query.
+// Based on reservationOptions.Reasons bitmask, may execute BEGIN before the query.
+func (g *grpcQueryService) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	reservationOptions *multipoolerservice.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (queryservice.ReservedState, error) {
+	reasons := protoutil.GetReasons(reservationOptions)
+
+	g.logger.DebugContext(ctx, "reserve stream execute",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"reasons", protoutil.ReasonsString(reasons),
+		"query", sql)
+
+	// Create the request
+	req := &multipoolerservice.ReserveStreamExecuteRequest{
+		Query:              sql,
+		Target:             target,
+		Options:            options,
+		ReservationOptions: reservationOptions,
+	}
+
+	// Call the gRPC ReserveStreamExecute
+	stream, err := g.client.ReserveStreamExecute(ctx, req)
+	if err != nil {
+		// Convert gRPC error - if it's a PostgreSQL error, preserve it
+		grpcErr := mterrors.FromGRPC(err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(grpcErr, &pgDiag) {
+			return queryservice.ReservedState{}, grpcErr
+		}
+		return queryservice.ReservedState{}, mterrors.Wrapf(grpcErr, "failed to start reserve stream execute")
+	}
+
+	var reservedState queryservice.ReservedState
+
+	// Stream results back via callback
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			g.logger.DebugContext(ctx, "reserve stream completed", "pooler_id", g.poolerID)
+			return reservedState, nil
+		}
+		if err != nil {
+			// Convert gRPC error - if it's a PostgreSQL error, preserve it
+			grpcErr := mterrors.FromGRPC(err)
+			var pgDiag *mterrors.PgDiagnostic
+			if errors.As(grpcErr, &pgDiag) {
+				return reservedState, grpcErr
+			}
+			return reservedState, mterrors.Wrapf(grpcErr, "reserve stream receive error")
+		}
+
+		// Extract reserved state from response
+		if response.ReservedConnectionId != 0 && reservedState.ReservedConnectionId == 0 {
+			reservedState.ReservedConnectionId = response.ReservedConnectionId
+			reservedState.PoolerID = response.PoolerId
+			g.logger.DebugContext(ctx, "received reserved connection",
+				"reserved_connection_id", response.ReservedConnectionId)
+		}
+
+		// Extract result from response
+		if response.Result == nil {
+			continue
+		}
+
+		result := sqltypes.ResultFromProto(response.Result)
+		if err := callback(ctx, result); err != nil {
+			return reservedState, err
+		}
+	}
+}
+
+// ConcludeTransaction concludes a transaction on a reserved connection.
+// Returns the result and the remaining reservation reasons (0 if released).
+func (g *grpcQueryService) ConcludeTransaction(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	conclusion multipoolerservice.TransactionConclusion,
+) (*sqltypes.Result, uint32, error) {
+	g.logger.DebugContext(ctx, "conclude transaction",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"conclusion", conclusion.String(),
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	// Create the request
+	req := &multipoolerservice.ConcludeTransactionRequest{
+		Target:     target,
+		Options:    options,
+		Conclusion: conclusion,
+	}
+
+	// Call the gRPC ConcludeTransaction
+	response, err := g.client.ConcludeTransaction(ctx, req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("conclude transaction failed: %w", err)
+	}
+
+	result := sqltypes.ResultFromProto(response.Result)
+	remainingReasons := response.RemainingReasons
+
+	if remainingReasons == 0 {
+		g.logger.DebugContext(ctx, "transaction concluded, connection released",
+			"pooler_id", g.poolerID,
+			"command_tag", result.CommandTag)
+	} else {
+		g.logger.DebugContext(ctx, "transaction concluded, connection still reserved",
+			"pooler_id", g.poolerID,
+			"command_tag", result.CommandTag,
+			"remaining_reasons", protoutil.ReasonsString(remainingReasons))
+	}
+
+	return result, remainingReasons, nil
+}
+
+// ReleaseReservedConnection forcefully releases a reserved connection.
+func (g *grpcQueryService) ReleaseReservedConnection(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil
+	}
+
+	g.logger.DebugContext(ctx, "releasing reserved connection",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	// Clean up any stale COPY stream for this connection.
+	g.copyStreamsMu.Lock()
+	if stream, ok := g.copyStreams[options.ReservedConnectionId]; ok {
+		delete(g.copyStreams, options.ReservedConnectionId)
+		_ = stream.CloseSend()
+	}
+	g.copyStreamsMu.Unlock()
+
+	req := &multipoolerservice.ReleaseReservedConnectionRequest{
+		Target:  target,
+		Options: options,
+	}
+
+	_, err := g.client.ReleaseReservedConnection(ctx, req)
+	if err != nil {
+		return fmt.Errorf("release reserved connection failed: %w", err)
+	}
+
+	g.logger.DebugContext(ctx, "reserved connection released",
 		"pooler_id", g.poolerID,
 		"reserved_conn_id", options.ReservedConnectionId)
 

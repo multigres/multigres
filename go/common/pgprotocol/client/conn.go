@@ -98,7 +98,7 @@ type Conn struct {
 	serverParams map[string]string
 
 	// txnStatus is the current transaction status.
-	txnStatus byte
+	txnStatus protocol.TransactionStatus
 
 	// state stores connection-specific information.
 	// Callers can store their own state here by calling SetConnectionState.
@@ -225,6 +225,22 @@ func (c *Conn) Close() error {
 	return c.conn.Close()
 }
 
+// ForceClose closes the underlying network connection without writing a
+// Terminate message. This is safe to call concurrently with ongoing
+// reads/writes — it will cause them to fail with an I/O error.
+//
+// Use this instead of Close when you need to unblock a goroutine that is
+// mid-read/write on the connection, since Close writes to the buffered
+// writer and would race with the concurrent operation.
+func (c *Conn) ForceClose() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil // Already closed.
+	}
+
+	c.cancel()
+	return c.conn.Close()
+}
+
 // IsClosed returns true if the connection has been closed.
 func (c *Conn) IsClosed() bool {
 	return c.closed.Load()
@@ -246,7 +262,7 @@ func (c *Conn) ServerParams() map[string]string {
 }
 
 // TxnStatus returns the current transaction status.
-func (c *Conn) TxnStatus() byte {
+func (c *Conn) TxnStatus() protocol.TransactionStatus {
 	return c.txnStatus
 }
 
