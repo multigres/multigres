@@ -295,7 +295,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 
 		case protocol.MsgReadyForQuery:
 			// Query complete. Return any error that was captured.
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			return firstErr
 
 		case protocol.MsgErrorResponse:

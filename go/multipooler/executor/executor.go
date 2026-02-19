@@ -25,11 +25,14 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/multipooler/pools/reserved"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -40,14 +43,16 @@ type Executor struct {
 	logger       *slog.Logger
 	poolManager  connpoolmanager.PoolManager
 	consolidator *preparedstatement.Consolidator
+	poolerID     *clustermetadatapb.ID
 }
 
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager) *Executor {
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *Executor {
 	return &Executor{
 		logger:       logger,
 		poolManager:  poolManager,
 		consolidator: preparedstatement.NewConsolidator(),
+		poolerID:     poolerID,
 	}
 }
 
@@ -278,16 +283,18 @@ func (e *Executor) portalExecuteWithReserved(
 	if !completed {
 		reservedConn.ReserveForPortal(portal.Name)
 	} else {
-		// Portal completed, release this portal's reservation
+		// Portal completed, release this portal's reservation.
+		// ReleasePortal returns true only when all reservation reasons are gone.
 		shouldRelease := reservedConn.ReleasePortal(portal.Name)
-		// If no more portal reservations and not in a transaction, release the connection
-		if shouldRelease && !reservedConn.IsInTransaction() {
+		if shouldRelease {
 			reservedConn.Release(reserved.ReleasePortalComplete)
+			return queryservice.ReservedState{}, nil
 		}
 	}
 
 	return queryservice.ReservedState{
 		ReservedConnectionId: uint64(reservedConn.ConnID),
+		PoolerID:             e.poolerID,
 	}, nil
 }
 
@@ -484,7 +491,7 @@ func (e *Executor) CopyReady(
 
 	reservedState := queryservice.ReservedState{
 		ReservedConnectionId: uint64(connID),
-		PoolerID:             nil, // TODO: implement pooler ID retrieval
+		PoolerID:             e.poolerID,
 	}
 
 	return format, columnFormats, reservedState, nil
@@ -689,6 +696,211 @@ func wrapQueryError(err error) error {
 		return nil
 	}
 	return mterrors.Wrapf(err, "query execution failed")
+}
+
+// ReserveStreamExecute creates a reserved connection and executes a query.
+// Based on reservationOptions.Reasons bitmask, it may execute setup commands (e.g., BEGIN for transactions).
+func (e *Executor) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (queryservice.ReservedState, error) {
+	user := e.getUserFromOptions(options)
+	var settings map[string]string
+	if options != nil {
+		settings = options.SessionSettings
+	}
+
+	// Get the reasons bitmask and determine if we need to execute BEGIN
+	reasons := protoutil.GetReasons(reservationOptions)
+	beginTx := protoutil.RequiresBegin(reasons)
+
+	e.logger.DebugContext(ctx, "reserve stream execute",
+		"user", user,
+		"reasons", protoutil.ReasonsString(reasons),
+		"begin_tx", beginTx,
+		"query", sql)
+
+	// Create a reserved connection
+	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
+	if err != nil {
+		return queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection: %w", err)
+	}
+
+	// If this is a transaction reservation, execute BEGIN first.
+	// The BEGIN result is not sent to the callback — it's an internal setup detail.
+	// The caller (multigateway) handles sending synthetic BEGIN results to the client.
+	// Use the original BEGIN query if provided to preserve isolation level and access mode.
+	if beginTx {
+		beginQuery := "BEGIN"
+		if reservationOptions != nil && reservationOptions.BeginQuery != "" {
+			beginQuery = reservationOptions.BeginQuery
+		}
+		if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return queryservice.ReservedState{}, err
+		}
+	}
+
+	// Execute the actual query and stream results to the callback as they arrive,
+	// matching the non-reserved StreamExecute path. This avoids buffering the entire
+	// result set in memory for large queries inside transactions.
+	if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
+		if beginTx {
+			_ = reservedConn.Rollback(ctx)
+		}
+		reservedConn.Release(reserved.ReleaseError)
+		return queryservice.ReservedState{}, fmt.Errorf("query execution failed: %w", err)
+	}
+
+	reservedState := queryservice.ReservedState{
+		ReservedConnectionId: uint64(reservedConn.ConnID),
+		PoolerID:             e.poolerID,
+	}
+
+	e.logger.DebugContext(ctx, "reserve stream execute completed",
+		"reserved_conn_id", reservedState.ReservedConnectionId)
+
+	return reservedState, nil
+}
+
+// ConcludeTransaction concludes a transaction on a reserved connection.
+// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+func (e *Executor) ConcludeTransaction(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	conclusion multipoolerpb.TransactionConclusion,
+) (*sqltypes.Result, uint32, error) {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil, 0, errors.New("reserved_connection_id is required")
+	}
+
+	user := e.getUserFromOptions(options)
+
+	e.logger.DebugContext(ctx, "conclude transaction",
+		"user", user,
+		"reserved_conn_id", options.ReservedConnectionId,
+		"conclusion", conclusion.String())
+
+	// Get the reserved connection
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok {
+		return nil, 0, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
+	}
+
+	// Execute COMMIT or ROLLBACK using the reserved connection's methods,
+	// which handle both the SQL execution and reason removal.
+	var commandTag string
+	var releaseReason reserved.ReleaseReason
+	switch conclusion {
+	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT:
+		commandTag = "COMMIT"
+		releaseReason = reserved.ReleaseCommit
+		if err := reservedConn.Commit(ctx); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, 0, err
+		}
+	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
+		commandTag = "ROLLBACK"
+		releaseReason = reserved.ReleaseRollback
+		if err := reservedConn.Rollback(ctx); err != nil {
+			reservedConn.Release(reserved.ReleaseError)
+			return nil, 0, err
+		}
+	default:
+		return nil, 0, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
+	}
+
+	result := &sqltypes.Result{CommandTag: commandTag}
+
+	// Commit/Rollback already removed the transaction reason.
+	// If other reasons remain (e.g., temp tables, portals), the connection stays reserved.
+	remainingReasons := reservedConn.RemainingReasons()
+	shouldRelease := remainingReasons == 0
+
+	if shouldRelease {
+		reservedConn.Release(releaseReason)
+	}
+
+	e.logger.DebugContext(ctx, "transaction concluded",
+		"reserved_conn_id", options.ReservedConnectionId,
+		"command_tag", commandTag,
+		"released", shouldRelease,
+		"remaining_reasons", protoutil.ReasonsString(remainingReasons))
+
+	return result, remainingReasons, nil
+}
+
+// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+// Used during client disconnect cleanup. Handles transaction rollback, COPY abort,
+// and portal release internally. If any cleanup step fails, the connection is
+// tainted and closed so the pool creates a fresh one.
+func (e *Executor) ReleaseReservedConnection(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) error {
+	if options == nil || options.ReservedConnectionId == 0 {
+		return nil // Nothing to release
+	}
+
+	user := e.getUserFromOptions(options)
+
+	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
+	if !ok || reservedConn == nil {
+		// Already cleaned up or timed out
+		return nil
+	}
+
+	e.logger.DebugContext(ctx, "releasing reserved connection",
+		"user", user,
+		"reserved_conn_id", options.ReservedConnectionId,
+		"reasons", protoutil.ReasonsString(reservedConn.RemainingReasons()))
+
+	cleanupFailed := false
+
+	// Step 1: If there's a transaction, rollback.
+	if reservedConn.IsInTransaction() {
+		if err := reservedConn.Rollback(ctx); err != nil {
+			e.logger.ErrorContext(ctx, "rollback failed during release",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		}
+	}
+
+	// Step 2: If there's a COPY reason, send CopyFail and read the response.
+	if !cleanupFailed && protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
+		conn := reservedConn.Conn()
+		if err := conn.WriteCopyFail("connection closing"); err != nil {
+			e.logger.ErrorContext(ctx, "CopyFail write failed during release",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		} else if _, _, err := conn.ReadCopyDoneResponse(ctx); err != nil {
+			e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		}
+	}
+
+	// Step 3: Release all portals (in-memory only, always succeeds).
+	reservedConn.ReleaseAllPortals()
+
+	// Step 4: Release or close the connection.
+	if cleanupFailed {
+		reservedConn.Release(reserved.ReleaseError)
+	} else {
+		reservedConn.Release(reserved.ReleaseRollback)
+	}
+
+	e.logger.DebugContext(ctx, "reserved connection released",
+		"reserved_conn_id", options.ReservedConnectionId,
+		"cleanup_failed", cleanupFailed)
+
+	return nil
 }
 
 // Ensure Executor implements queryservice.QueryService

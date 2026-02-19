@@ -50,10 +50,10 @@ type QueryPoolerServer struct {
 
 // NewQueryPoolerServer creates a new QueryPoolerServer instance with the given pool manager.
 // The pool manager must already be opened before calling this function.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager) *QueryPoolerServer {
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
-		exec = executor.NewExecutor(logger, poolManager)
+		exec = executor.NewExecutor(logger, poolManager, poolerID)
 	}
 
 	return &QueryPoolerServer{

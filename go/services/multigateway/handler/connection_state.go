@@ -53,6 +53,12 @@ type MultiGatewayConnectionState struct {
 	// pooled connection (with matching settings) is reused.
 	// Map keys are variable names, values are the string representation.
 	SessionSettings map[string]string
+
+	// PendingBeginQuery stores the original BEGIN/START TRANSACTION statement text
+	// (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE") when a transaction is started
+	// with deferred execution. This is consumed when creating the first reserved
+	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
+	PendingBeginQuery string
 }
 
 type ShardState struct {
@@ -66,6 +72,12 @@ type ShardState struct {
 
 	// ReservedConnectionId is the connection ID of the reserved connection being held.
 	ReservedConnectionId int64
+
+	// ReservationReasons is a bitmask of protoutil.Reason* constants tracking why
+	// this connection is reserved. A connection can be reserved for multiple reasons
+	// simultaneously (e.g., transaction AND temp table). The connection should only
+	// be fully released when all reasons are cleared.
+	ReservationReasons uint32
 }
 
 // NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.
@@ -117,19 +129,24 @@ func (m *MultiGatewayConnectionState) GetMatchingShardState(target *query.Target
 }
 
 // StoreReservedConnection stores a new reserved connection that has been created.
-func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Target, rs queryservice.ReservedState) {
+// The reasons parameter is a bitmask of protoutil.Reason* constants indicating why the
+// connection is reserved. If a shard state already exists for this target, the reasons
+// are OR'd together (added) and the connection ID is updated.
+func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Target, rs queryservice.ReservedState, reasons uint32) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ss := range m.ShardStates {
 		if protoutil.TargetEquals(ss.Target, target) {
 			ss.PoolerID = rs.PoolerID
 			ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
+			ss.ReservationReasons |= reasons
 			return
 		}
 	}
 	ss := NewShardState(target)
 	ss.PoolerID = rs.PoolerID
 	ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
+	ss.ReservationReasons = reasons
 	m.ShardStates = append(m.ShardStates, ss)
 }
 
@@ -149,6 +166,48 @@ func (m *MultiGatewayConnectionState) ClearReservedConnection(target *query.Targ
 			return
 		}
 	}
+}
+
+// RemoveReservationReason removes a reason from a shard's reservation bitmask.
+// If no reasons remain after removal, the shard state entry is cleared entirely.
+func (m *MultiGatewayConnectionState) RemoveReservationReason(target *query.Target, reason uint32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			ss.ReservationReasons &^= reason
+			if ss.ReservationReasons == 0 {
+				// No reasons left — remove the entry
+				lastIdx := len(m.ShardStates) - 1
+				if i != lastIdx {
+					m.ShardStates[i] = m.ShardStates[lastIdx]
+				}
+				m.ShardStates = m.ShardStates[:lastIdx]
+			}
+			return
+		}
+	}
+}
+
+// UpdateReservationReasons sets the reservation reasons for a given target.
+// Used after ConcludeTransaction to update the bitmask without removing the entry.
+func (m *MultiGatewayConnectionState) UpdateReservationReasons(target *query.Target, reasons uint32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if protoutil.TargetEquals(ss.Target, target) {
+			ss.ReservationReasons = reasons
+			return
+		}
+	}
+}
+
+// ClearAllReservedConnections removes all reserved connection entries.
+// Called after COMMIT or ROLLBACK to clean up stale shard state.
+func (m *MultiGatewayConnectionState) ClearAllReservedConnections() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ShardStates = nil
 }
 
 // SetSessionVariable sets a session variable (from SET command).

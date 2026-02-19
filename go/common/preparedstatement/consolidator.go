@@ -76,6 +76,11 @@ type PreparedStatementInfo struct {
 	astStruct ast.Stmt
 }
 
+// AstStmt returns the parsed AST statement for this prepared statement.
+func (psi *PreparedStatementInfo) AstStmt() ast.Stmt {
+	return psi.astStruct
+}
+
 // NewPreparedStatementInfo parses the query in the prepared statement and stores it along with the
 // prepared statement information for future use.
 func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatementInfo, error) {
@@ -173,6 +178,27 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 		}
 		delete(psc.incoming[connId], name)
 	}
+}
+
+// RemoveConnection removes all prepared statements associated with a connection.
+// This should be called when a client connection is closed.
+func (psc *Consolidator) RemoveConnection(connId uint32) {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+
+	connStmts, exists := psc.incoming[connId]
+	if !exists {
+		return
+	}
+
+	for _, psi := range connStmts {
+		psc.usageCount[psi]--
+		if psc.usageCount[psi] == 0 {
+			delete(psc.stmts, psi.Query)
+			delete(psc.usageCount, psi)
+		}
+	}
+	delete(psc.incoming, connId)
 }
 
 // Stats returns statistics about the consolidator's current state.

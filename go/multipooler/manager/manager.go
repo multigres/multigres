@@ -231,7 +231,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 
 	// Create the query service controller with the pool manager
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
 
 	return pm, nil
 }

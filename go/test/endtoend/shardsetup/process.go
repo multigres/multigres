@@ -449,7 +449,7 @@ func (p *ProcessInstance) StopPostgres(t *testing.T) {
 // Copied from multipooler/setup_test.go.
 func (p *ProcessInstance) stopPostgreSQL() {
 	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", p.GrpcPort),
+		fmt.Sprintf("passthrough:///localhost:%d", p.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {

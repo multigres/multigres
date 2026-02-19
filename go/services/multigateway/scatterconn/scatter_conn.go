@@ -30,9 +30,11 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -58,10 +60,11 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 
 // StreamExecute executes a query on the specified tablegroup and streams results.
 // This is the implementation of engine.IExecute.StreamExecute().
-// - Creates Target with tablegroup, shard, and PRIMARY pooler type
-// - Uses PoolerGateway to select matching pooler
-// - Executes query via gRPC to the pooler
-// - Streams actual results back via callback
+//
+// Implements 3-case reservation logic for transactions:
+//   - Case 1: Has reserved connection → use it
+//   - Case 2: In transaction, no reserved conn → call ReserveStreamExecute with BEGIN
+//   - Case 3: Not in transaction → use regular pooled connection
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -77,7 +80,8 @@ func (sc *ScatterConn) StreamExecute(
 		"query", sql,
 		"user", conn.User(),
 		"database", conn.Database(),
-		"connection_id", conn.ConnectionID())
+		"connection_id", conn.ConnectionID(),
+		"in_transaction", conn.IsInTransaction())
 
 	// Create target for routing
 	// TODO: Add query analysis to determine if this is a read or write query
@@ -93,30 +97,61 @@ func (sc *ScatterConn) StreamExecute(
 		SessionSettings: state.GetSessionSettings(),
 	}
 
-	var qs queryservice.QueryService = sc.gateway
-	var err error
-
 	ss := state.GetMatchingShardState(target)
-	// If we have a reserved connection, we have to ensure
-	// we are routing the query to the pooler where we got the reserved
-	// connection from. If a reparent happened, then we will get an error
-	// back.
+
+	// Case 1: Already have reserved connection - use it
 	if ss != nil && ss.ReservedConnectionId != 0 {
+		sc.logger.DebugContext(ctx, "using existing reserved connection",
+			"reserved_conn_id", ss.ReservedConnectionId)
+
 		eo.ReservedConnectionId = uint64(ss.ReservedConnectionId)
-		qs, err = sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
-	}
-	if err != nil {
-		return err
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
+		if err != nil {
+			return err
+		}
+
+		if err := qs.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+			return fmt.Errorf("query execution failed: %w", err)
+		}
+		return nil
 	}
 
-	// Execute query via QueryService (PoolerGateway) and stream results
-	// PoolerGateway will use the target to find the right pooler
-	sc.logger.DebugContext(ctx, "executing query via query service",
+	// Case 2: In transaction but no reserved connection - create one with BEGIN
+	if conn.IsInTransaction() {
+		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for transaction")
+
+		reservationOpts := protoutil.NewTransactionReservationOptions()
+		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
+		// so the multipooler preserves transaction options instead of using plain "BEGIN".
+		if state.PendingBeginQuery != "" {
+			reservationOpts.BeginQuery = state.PendingBeginQuery
+			// NOTE: PendingBeginQuery is consumed by the first shard. In a future
+			// multi-shard transaction, subsequent shards would get a plain BEGIN
+			// instead of preserving the isolation level. When we add distributed
+			// transactions, preserve this for the transaction lifetime and only
+			// clear on commit/rollback.
+			state.PendingBeginQuery = ""
+		}
+		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
+		if err != nil {
+			return fmt.Errorf("reserve stream execute failed: %w", err)
+		}
+
+		// Store the reserved connection for subsequent queries with transaction reason
+		state.StoreReservedConnection(target, reservedState, protoutil.ReasonTransaction)
+
+		sc.logger.DebugContext(ctx, "reserved connection created",
+			"reserved_conn_id", reservedState.ReservedConnectionId)
+		return nil
+	}
+
+	// Case 3: Not in transaction - use regular pooled connection
+	sc.logger.DebugContext(ctx, "executing query via regular pooled connection",
 		"tablegroup", tableGroup,
 		"shard", shard,
 		"pooler_type", target.PoolerType.String())
 
-	if err := qs.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+	if err := sc.gateway.StreamExecute(ctx, target, sql, eo, callback); err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -199,7 +234,14 @@ func (sc *ScatterConn) PortalStreamExecute(
 		}
 		return fmt.Errorf("portal execution failed: %w", err)
 	}
-	state.StoreReservedConnection(target, reservedState)
+	if reservedState.ReservedConnectionId != 0 {
+		// Portal is suspended (not all rows fetched) - store reservation
+		state.StoreReservedConnection(target, reservedState, protoutil.ReasonPortal)
+	} else {
+		// Portal completed - remove portal reason (if any previous suspension was stored).
+		// If no other reasons remain (no transaction, no COPY), the entry is cleaned up.
+		state.RemoveReservationReason(target, protoutil.ReasonPortal)
+	}
 
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
@@ -284,6 +326,118 @@ func (sc *ScatterConn) Describe(
 	return description, nil
 }
 
+// ConcludeTransaction concludes a transaction on reserved connections that have
+// the transaction reason set. Shards reserved for other reasons only (e.g., temp
+// tables, portals) are left untouched. Based on the returned remainingReasons from
+// the multipooler, shard state entries are either cleared (connection fully released)
+// or updated with the new reason bitmask.
+func (sc *ScatterConn) ConcludeTransaction(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	conclusion multipoolerpb.TransactionConclusion,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	// Collect shard state updates to apply after iteration.
+	// We cannot call ClearReservedConnection during iteration because it
+	// uses swap-and-truncate which mutates the underlying slice.
+	type shardUpdate struct {
+		target           *query.Target
+		clear            bool   // true = remove entry, false = update reasons
+		remainingReasons uint32 // only used when clear == false
+	}
+	var updates []shardUpdate
+	var errs []error
+	var callbackResult *sqltypes.Result
+
+	// Count shards with a transaction reason — multi-shard transactions are not
+	// yet supported (distributed transactions). Log a warning as a sentinel so
+	// unexpected multi-shard cases are visible before DT is implemented.
+	var txnShardCount int
+	for _, ss := range state.ShardStates {
+		if ss.ReservedConnectionId != 0 && protoutil.HasTransactionReason(ss.ReservationReasons) {
+			txnShardCount++
+		}
+	}
+	if txnShardCount > 1 {
+		sc.logger.WarnContext(ctx, "multi-shard transaction detected — distributed transactions not yet supported",
+			"shard_count", txnShardCount)
+	}
+
+	// Iterate over all shard states with reserved connections.
+	// Only conclude on shards that have the transaction reason.
+	// Continue on errors so all shards get concluded.
+	for _, ss := range state.ShardStates {
+		if ss.ReservedConnectionId == 0 {
+			continue
+		}
+		if !protoutil.HasTransactionReason(ss.ReservationReasons) {
+			continue
+		}
+
+		eo := &query.ExecuteOptions{
+			User:                 conn.User(),
+			SessionSettings:      state.GetSessionSettings(),
+			ReservedConnectionId: uint64(ss.ReservedConnectionId),
+		}
+
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, ss.Target)
+		if err != nil {
+			// Connection lost — mark for clearing, continue to other shards
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			errs = append(errs, fmt.Errorf("conclude transaction: pooler lookup failed for %s: %w", ss.Target, err))
+			continue
+		}
+
+		result, remainingReasons, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
+		if err != nil {
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			errs = append(errs, fmt.Errorf("conclude transaction failed for %s: %w", ss.Target, err))
+			continue
+		}
+
+		if remainingReasons == 0 {
+			// Connection fully released by multipooler
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+		} else {
+			// Connection still reserved for other reasons — update our local tracking
+			updates = append(updates, shardUpdate{target: ss.Target, remainingReasons: remainingReasons})
+		}
+
+		// Keep the last successful result for the callback
+		callbackResult = result
+	}
+
+	// Apply collected updates outside the iteration loop.
+	for _, u := range updates {
+		if u.clear {
+			state.ClearReservedConnection(u.target)
+		} else {
+			state.UpdateReservationReasons(u.target, u.remainingReasons)
+		}
+	}
+
+	if len(errs) > 0 {
+		// Return only the first error. PostgreSQL clients expect a single ErrorResponse
+		// with a SQLSTATE — a joined multi-line error confuses ORMs and connection poolers.
+		if len(errs) > 1 {
+			sc.logger.ErrorContext(ctx, "multiple shard errors during conclude transaction",
+				"error_count", len(errs),
+				"errors", errors.Join(errs...))
+		}
+		return errs[0]
+	}
+
+	// Send the result to the client (COMMIT/ROLLBACK command tag)
+	if callbackResult != nil {
+		if err := callback(ctx, callbackResult); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // --- COPY FROM STDIN methods ---
 
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
@@ -324,8 +478,8 @@ func (sc *ScatterConn) CopyInitiate(
 		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
-	// Store reserved connection in ShardStates (same pattern as regular queries)
-	state.StoreReservedConnection(target, reservedState)
+	// Store reserved connection with COPY reason. The reason is removed by CopyFinalize/CopyAbort.
+	state.StoreReservedConnection(target, reservedState, protoutil.ReasonCopy)
 
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",
 		"reserved_conn_id", reservedState.ReservedConnectionId,
@@ -419,8 +573,8 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// Clear state even on error - the reserved connection has been released/closed on the server side
-		state.ClearReservedConnection(target)
+		// Remove COPY reason on error. If no other reasons remain, the entry is cleared.
+		state.RemoveReservationReason(target, protoutil.ReasonCopy)
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
@@ -431,13 +585,12 @@ func (sc *ScatterConn) CopyFinalize(
 	// Call callback with result
 	if err := callback(ctx, result); err != nil {
 		sc.logger.ErrorContext(ctx, "callback error in CopyFinalize", "error", err)
-		// Clear state even on callback error - the reserved connection has already been released
-		state.ClearReservedConnection(target)
+		state.RemoveReservationReason(target, protoutil.ReasonCopy)
 		return err
 	}
 
-	// Clear reserved connection since it's been released
-	state.ClearReservedConnection(target)
+	// Remove COPY reason. If the connection is also reserved for a transaction, it stays.
+	state.RemoveReservationReason(target, protoutil.ReasonCopy)
 
 	return nil
 }
@@ -482,12 +635,54 @@ func (sc *ScatterConn) CopyAbort(
 		sc.logger.WarnContext(ctx, "error during COPY abort", "error", err)
 	}
 
-	// Clear reserved connection since it's been released
-	state.ClearReservedConnection(target)
+	// Remove COPY reason. If the connection is also reserved for a transaction, it stays.
+	state.RemoveReservationReason(target, protoutil.ReasonCopy)
 
 	sc.logger.DebugContext(ctx, "COPY aborted")
 
 	return nil
+}
+
+// ReleaseAllReservedConnections forcefully releases all reserved connections.
+// Iterates all shard states and calls ReleaseReservedConnection on the multipooler
+// for each one. Errors are logged and collected but do not stop the iteration
+// (best-effort). After the loop, all local shard state is cleared.
+func (sc *ScatterConn) ReleaseAllReservedConnections(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+) error {
+	var errs []error
+	for _, ss := range state.ShardStates {
+		if ss.ReservedConnectionId == 0 {
+			continue
+		}
+
+		eo := &query.ExecuteOptions{
+			User:                 conn.User(),
+			SessionSettings:      state.GetSessionSettings(),
+			ReservedConnectionId: uint64(ss.ReservedConnectionId),
+		}
+
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, ss.Target)
+		if err != nil {
+			sc.logger.ErrorContext(ctx, "release: pooler lookup failed",
+				"target", ss.Target, "error", err)
+			errs = append(errs, err)
+			continue
+		}
+
+		if err := qs.ReleaseReservedConnection(ctx, ss.Target, eo); err != nil {
+			sc.logger.ErrorContext(ctx, "release: RPC failed",
+				"target", ss.Target,
+				"reserved_conn_id", ss.ReservedConnectionId,
+				"error", err)
+			errs = append(errs, err)
+		}
+	}
+
+	state.ClearAllReservedConnections()
+	return errors.Join(errs...)
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.

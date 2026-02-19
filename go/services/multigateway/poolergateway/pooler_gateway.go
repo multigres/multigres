@@ -345,3 +345,75 @@ func (pg *PoolerGateway) CopyAbort(
 	// Delegate to the pooler's QueryService
 	return conn.QueryService().CopyAbort(ctx, target, errorMsg, options)
 }
+
+// ReserveStreamExecute implements queryservice.QueryService.
+// It creates a reserved connection and executes the query.
+func (pg *PoolerGateway) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (queryservice.ReservedState, error) {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return queryservice.ReservedState{}, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	// Delegate to the pooler's QueryService
+	return conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+}
+
+// ConcludeTransaction implements queryservice.QueryService.
+// It concludes a transaction with COMMIT or ROLLBACK.
+func (pg *PoolerGateway) ConcludeTransaction(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	conclusion multipoolerpb.TransactionConclusion,
+) (*sqltypes.Result, uint32, error) {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	// Delegate to the pooler's QueryService
+	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
+}
+
+// ReleaseReservedConnection implements queryservice.QueryService.
+// It forcefully releases a reserved connection regardless of reason.
+func (pg *PoolerGateway) ReleaseReservedConnection(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) error {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
+}

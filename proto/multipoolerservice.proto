@@ -56,6 +56,24 @@ service MultiPoolerService {
   // The gateway sends the initial command and then streams data/messages.
   // The pooler responds with protocol-specific messages and final result.
   rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
+
+  // ReserveStreamExecute creates a reserved connection and executes a query.
+  // Based on ReservationOptions.reason, may execute BEGIN before the query (for transactions).
+  // Returns the reserved connection ID for subsequent queries.
+  rpc ReserveStreamExecute(ReserveStreamExecuteRequest) returns (stream ReserveStreamExecuteResponse);
+
+  // ConcludeTransaction concludes a transaction on a reserved connection with COMMIT or ROLLBACK.
+  // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+  // Returns the reserved state - if non-empty, the connection is still reserved.
+  rpc ConcludeTransaction(ConcludeTransactionRequest) returns (ConcludeTransactionResponse);
+
+  // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+  // Used during client disconnect to clean up all reserved connections on the multipooler.
+  // If the connection has a transaction, ROLLBACK is executed.
+  // If the connection has an active COPY, CopyFail is sent.
+  // If the connection has portals, they are released.
+  // If any cleanup step fails, the connection is tainted and closed.
+  rpc ReleaseReservedConnection(ReleaseReservedConnectionRequest) returns (ReleaseReservedConnectionResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -246,4 +264,120 @@ message CopyBidiExecuteResponse {
 
   // error contains the error message (for ERROR phase)
   string error = 7;
+}
+
+// ReservationReason indicates why a connection needs to be reserved.
+// Values are powers of 2 to allow combining multiple reasons via bitwise OR.
+// A connection can be reserved for multiple reasons simultaneously (e.g., transaction + temp table).
+// The connection is only released when all reasons are cleared.
+enum ReservationReason {
+  RESERVATION_REASON_UNSPECIFIED = 0;
+  // Connection is reserved for a transaction - execute BEGIN before the query
+  RESERVATION_REASON_TRANSACTION = 1;  // 0b001
+  // Connection is reserved due to temporary tables - no BEGIN needed
+  RESERVATION_REASON_TEMP_TABLE = 2;   // 0b010
+  // Connection is reserved for portal/cursor operations
+  RESERVATION_REASON_PORTAL = 4;       // 0b0100
+  // Connection is reserved for an active COPY operation
+  RESERVATION_REASON_COPY = 8;         // 0b1000
+}
+
+// ReservationOptions specifies options when creating a reserved connection.
+// This is extensible for future options (e.g., isolation level, read-only mode).
+message ReservationOptions {
+  // reasons is a bitmask of ReservationReason values indicating why the connection is being reserved.
+  // Multiple reasons can be ORed together (e.g., TRANSACTION | TEMP_TABLE).
+  uint32 reasons = 1;
+
+  // begin_query is the original BEGIN statement text (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE"
+  // or "START TRANSACTION READ ONLY"). When set and the transaction reason is present, the
+  // multipooler uses this instead of a plain "BEGIN" to preserve isolation level and access mode.
+  // If empty and transaction reason is set, defaults to "BEGIN".
+  string begin_query = 2;
+}
+
+// TransactionConclusion specifies how to conclude a transaction.
+enum TransactionConclusion {
+  TRANSACTION_CONCLUSION_UNSPECIFIED = 0;
+  // Execute COMMIT to commit the transaction
+  TRANSACTION_CONCLUSION_COMMIT = 1;
+  // Execute ROLLBACK to rollback the transaction
+  TRANSACTION_CONCLUSION_ROLLBACK = 2;
+}
+
+// ReserveStreamExecuteRequest represents a request to create a reserved connection and execute a query.
+message ReserveStreamExecuteRequest {
+  // query is the SQL query to execute
+  string query = 1;
+
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 2;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 3;
+
+  // options contains execution options including session state
+  query.ExecuteOptions options = 4;
+
+  // reservation_options specifies why the connection is being reserved and what setup to perform
+  ReservationOptions reservation_options = 5;
+}
+
+// ReserveStreamExecuteResponse represents a response in the stream of query results.
+message ReserveStreamExecuteResponse {
+  // result contains the query result data (rows, fields, etc.)
+  query.QueryResult result = 1;
+
+  // reserved_connection_id is the ID of the reserved connection
+  // This is returned in the first response and should be used for subsequent queries
+  uint64 reserved_connection_id = 2;
+
+  // pooler_id identifies which multipooler instance owns the reserved connection
+  clustermetadata.ID pooler_id = 3;
+}
+
+// ConcludeTransactionRequest represents a request to conclude a transaction on a reserved connection.
+// The connection may or may not be released back to the pool depending on whether there are
+// other reasons to keep it reserved (e.g., temporary tables).
+message ConcludeTransactionRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection
+  query.ExecuteOptions options = 3;
+
+  // conclusion specifies whether to COMMIT or ROLLBACK the transaction
+  TransactionConclusion conclusion = 4;
+}
+
+// ConcludeTransactionResponse represents the response from concluding a transaction.
+message ConcludeTransactionResponse {
+  // result contains the result of the COMMIT or ROLLBACK command
+  query.QueryResult result = 1;
+
+  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
+  // is still reserved. Zero means the connection was released and ScatterConn should clear its state.
+  uint32 remaining_reasons = 2;
+}
+
+// ReleaseReservedConnectionRequest requests forceful release of a reserved connection.
+// The multipooler will handle all cleanup internally (rollback, COPY abort, portal release).
+// If any cleanup step fails, the connection is tainted and closed so the pool creates a fresh one.
+message ReleaseReservedConnectionRequest {
+  // target specifies the routing destination (tablegroup, shard, pooler type)
+  query.Target target = 1;
+
+  // caller_id identifies the caller
+  mtrpc.CallerID caller_id = 2;
+
+  // options must include reserved_connection_id to identify the connection
+  query.ExecuteOptions options = 3;
+}
+
+// ReleaseReservedConnectionResponse is the response from releasing a reserved connection.
+// Intentionally minimal since this is a forceful cleanup operation.
+message ReleaseReservedConnectionResponse {
 }

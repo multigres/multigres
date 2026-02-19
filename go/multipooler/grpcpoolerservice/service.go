@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/poolerserver"
@@ -379,4 +380,84 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 			return status.Errorf(codes.InvalidArgument, "unexpected phase: %v", req.Phase)
 		}
 	}
+}
+
+// ReserveStreamExecute creates a reserved connection and executes a query.
+// Based on ReservationOptions.Reason, may execute BEGIN before the query.
+func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_ReserveStreamExecuteServer) error {
+	// Validate reservation reasons at the gRPC trust boundary.
+	if req.ReservationOptions != nil {
+		if err := protoutil.ValidateReasons(req.ReservationOptions.Reasons); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid reservation options: %v", err)
+		}
+	}
+
+	// Get the executor from the pooler
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return err
+	}
+
+	// Execute and stream results
+	reservedState, err := executor.ReserveStreamExecute(
+		stream.Context(),
+		req.Target,
+		req.Query,
+		req.Options,
+		req.ReservationOptions,
+		func(ctx context.Context, result *sqltypes.Result) error {
+			response := &multipoolerpb.ReserveStreamExecuteResponse{
+				Result: result.ToProto(),
+			}
+			return stream.Send(response)
+		},
+	)
+	if err != nil {
+		return mterrors.ToGRPC(err)
+	}
+
+	// Send final response with reserved connection ID
+	if reservedState.ReservedConnectionId > 0 {
+		return stream.Send(&multipoolerpb.ReserveStreamExecuteResponse{
+			ReservedConnectionId: reservedState.ReservedConnectionId,
+			PoolerId:             reservedState.PoolerID,
+		})
+	}
+
+	return nil
+}
+
+// ConcludeTransaction concludes a transaction on a reserved connection.
+// Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
+func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
+	// Get the executor from the pooler
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return nil, errors.New("executor not initialized")
+	}
+
+	// Conclude the transaction
+	result, remainingReasons, err := executor.ConcludeTransaction(ctx, req.Target, req.Options, req.Conclusion)
+	if err != nil {
+		return nil, err
+	}
+
+	return &multipoolerpb.ConcludeTransactionResponse{
+		Result:           result.ToProto(),
+		RemainingReasons: remainingReasons,
+	}, nil
+}
+
+// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
+func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
+	executor, err := s.pooler.Executor()
+	if err != nil {
+		return nil, errors.New("executor not initialized")
+	}
+
+	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
+		return nil, err
+	}
+
+	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil
 }
