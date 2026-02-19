@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"net"
 	"time"
@@ -58,11 +59,16 @@ func NewTestConn(readBuf *bytes.Buffer) *TestConn {
 	writeBuf := &bytes.Buffer{}
 	netConn := &exportedTestNetConn{readBuf: readBuf, writeBuf: writeBuf}
 
+	ctx, cancel := context.WithCancel(context.TODO())
+	_ = cancel // caller can cancel via conn.Close() if needed
+
 	conn := &Conn{
 		conn:           netConn,
 		bufferedReader: bufio.NewReader(readBuf),
 		bufferedWriter: bufio.NewWriter(writeBuf),
 		txnStatus:      protocol.TxnStatusIdle,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	return &TestConn{

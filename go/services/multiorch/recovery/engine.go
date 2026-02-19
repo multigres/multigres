@@ -240,9 +240,9 @@ type Engine struct {
 	recentPollCache   map[string]time.Time
 	recentPollCacheMu sync.Mutex
 
-	// Detected problems tracking for metrics (replaced each cycle)
+	// Detected problems tracking (replaced each cycle)
 	detectedProblemsMu sync.Mutex
-	detectedProblems   []DetectedProblemData
+	detectedProblems   []types.Problem // For metrics and gRPC diagnostics
 
 	// Metrics
 	metrics *Metrics
@@ -283,7 +283,6 @@ func NewEngine(
 		healthCheckQueue:       NewQueue(logger, config),
 		shardWatchTargets:      shardWatchTargets,
 		recentPollCache:        make(map[string]time.Time),
-		detectedProblems:       nil,
 		shutdownCtx:            ctx,
 		cancel:                 cancel,
 		bookkeepingRunner:      timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
@@ -473,19 +472,14 @@ func shardWatchTargetsToStrings(targets []config.WatchTarget) []string {
 }
 
 // collectDetectedProblemsData returns the current detected problems for metrics.
-// This is called by the observable gauge callback.
+// This is called by the observable gauge callback. Converts types.Problem to
+// DetectedProblemData on-demand.
 func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
 	re.detectedProblemsMu.Lock()
 	defer re.detectedProblemsMu.Unlock()
-	return re.detectedProblems
-}
 
-// updateDetectedProblems replaces the detected problems slice with current problems.
-// Called each recovery cycle - the slice is replaced entirely rather than incrementally updated
-// for simplicity.
-func (re *Engine) updateDetectedProblems(problems []types.Problem) {
-	data := make([]DetectedProblemData, 0, len(problems))
-	for _, p := range problems {
+	data := make([]DetectedProblemData, 0, len(re.detectedProblems))
+	for _, p := range re.detectedProblems {
 		data = append(data, DetectedProblemData{
 			AnalysisType: string(p.CheckName),
 			DBNamespace:  p.ShardKey.Database,
@@ -493,8 +487,64 @@ func (re *Engine) updateDetectedProblems(problems []types.Problem) {
 			PoolerID:     topoclient.MultiPoolerIDString(p.PoolerID),
 		})
 	}
+	return data
+}
 
+// updateDetectedProblems replaces the detected problems slice with current problems.
+// Called each recovery cycle - the slice is replaced entirely rather than incrementally updated
+// for simplicity.
+func (re *Engine) updateDetectedProblems(problems []types.Problem) {
 	re.detectedProblemsMu.Lock()
-	re.detectedProblems = data
+	re.detectedProblems = problems
 	re.detectedProblemsMu.Unlock()
+}
+
+// GetDetectedProblems returns a snapshot of currently detected problems.
+// Thread-safe for concurrent access from gRPC handlers.
+func (re *Engine) GetDetectedProblems() []types.Problem {
+	re.detectedProblemsMu.Lock()
+	defer re.detectedProblemsMu.Unlock()
+
+	// Return a copy to prevent external mutation
+	problems := make([]types.Problem, len(re.detectedProblems))
+	copy(problems, re.detectedProblems)
+	return problems
+}
+
+// IsWatchingShard returns true if the engine is configured to watch the specified shard.
+// Uses hierarchical matching: watching entire database matches all shards,
+// watching specific tablegroup matches all shards in that tablegroup.
+// Thread-safe for concurrent access from gRPC handlers.
+func (re *Engine) IsWatchingShard(database, tableGroup, shard string) bool {
+	re.mu.Lock()
+	defer re.mu.Unlock()
+
+	for _, target := range re.shardWatchTargets {
+		if target.MatchesShard(database, tableGroup, shard) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetPoolerHealthForShard returns health information for all poolers in a shard.
+// Thread-safe for concurrent access from gRPC handlers.
+func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []*multiorchdatapb.PoolerHealthState {
+	var poolers []*multiorchdatapb.PoolerHealthState
+
+	re.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+		if pooler == nil || pooler.MultiPooler == nil {
+			return true // continue
+		}
+
+		if pooler.MultiPooler.Database == database &&
+			pooler.MultiPooler.TableGroup == tableGroup &&
+			pooler.MultiPooler.Shard == shard {
+			poolers = append(poolers, pooler)
+		}
+
+		return true // continue
+	})
+
+	return poolers
 }

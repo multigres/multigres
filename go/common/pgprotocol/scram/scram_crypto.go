@@ -20,6 +20,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 
+	"github.com/xdg-go/stringprep"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -34,14 +35,50 @@ const (
 	serverKeyLiteral = "Server Key"
 )
 
+// normalizePassword normalizes a password using SASLprep (RFC 4013).
+//
+// SASLprep applies stringprep with the SASLprep profile, which includes:
+// - Character mapping (e.g., soft hyphens removed, non-ASCII spaces → ASCII space)
+// - NFKC normalization (compatibility normalization)
+// - Prohibited character checks
+// - Bidirectional text validation
+//
+// If normalization fails (invalid UTF-8, prohibited characters, bidirectional check
+// failures, etc.), the raw password is returned unchanged. This matches PostgreSQL's
+// lenient behavior where invalid passwords are allowed to pass through without
+// normalization.
+//
+// Implementation choice: We use xdg-go/stringprep (RFC 4013 SASLprep) instead of the
+// more modern golang.org/x/text/secure/precis (RFC 7613 PRECIS OpaqueString) to maximize
+// compatibility with PostgreSQL. While PRECIS supersedes SASLprep in the standards,
+// PostgreSQL still uses the older SASLprep implementation. The key difference is
+// normalization form: SASLprep uses NFKC while PRECIS uses NFC, which can produce
+// different results for certain Unicode characters (e.g., U+00AA FEMININE ORDINAL → 'a'
+// in NFKC but unchanged in NFC). We prioritize PostgreSQL compatibility over using the
+// newer standard.
+//
+// Returns the normalized password (or raw password if normalization fails).
+func normalizePassword(password string) string {
+	normalized, err := stringprep.SASLprep.Prepare(password)
+	if err != nil {
+		// PostgreSQL allows passwords invalid according to SASLprep.
+		// Return raw password to maintain compatibility.
+		return password
+	}
+	return normalized
+}
+
 // ComputeSaltedPassword computes the SCRAM SaltedPassword using PBKDF2.
 // SaltedPassword = Hi(Normalize(password), salt, iterations)
 // Where Hi is PBKDF2 with HMAC-SHA-256.
 //
-// Note: This implementation does not perform SASLprep normalization of the password.
-// PostgreSQL also does not enforce strict SASLprep, so this is compatible.
+// Passwords are normalized using SASLprep (RFC 4013), which applies stringprep with
+// NFKC normalization and character mapping. If normalization fails (invalid UTF-8,
+// prohibited characters, bidirectional check failures), the raw password is used
+// unchanged, matching PostgreSQL's lenient behavior.
 func ComputeSaltedPassword(password string, salt []byte, iterations int) []byte {
-	return pbkdf2.Key([]byte(password), salt, iterations, sha256Size, sha256.New)
+	normalizedPassword := normalizePassword(password)
+	return pbkdf2.Key([]byte(normalizedPassword), salt, iterations, sha256Size, sha256.New)
 }
 
 // ComputeClientKey computes ClientKey = HMAC(SaltedPassword, "Client Key").

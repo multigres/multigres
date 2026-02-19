@@ -20,24 +20,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/protoutil"
 )
-
-func TestReservationReason_String(t *testing.T) {
-	tests := []struct {
-		reason   ReservationReason
-		expected string
-	}{
-		{ReservationTransaction, "transaction"},
-		{ReservationPortal, "portal"},
-		{ReservationReason(999), "unknown"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.reason.String())
-		})
-	}
-}
 
 func TestReleaseReason_String(t *testing.T) {
 	tests := []struct {
@@ -63,27 +48,74 @@ func TestReleaseReason_String(t *testing.T) {
 func TestReservationProperties_New(t *testing.T) {
 	t.Run("transaction reservation", func(t *testing.T) {
 		before := time.Now()
-		props := NewReservationProperties(ReservationTransaction)
+		props := NewReservationProperties(protoutil.ReasonTransaction)
 		after := time.Now()
 
 		assert.True(t, props.IsForTransaction())
 		assert.False(t, props.IsForPortal())
+		assert.False(t, props.IsEmpty())
 		assert.True(t, props.StartTime.After(before) || props.StartTime.Equal(before))
 		assert.True(t, props.StartTime.Before(after) || props.StartTime.Equal(after))
 		assert.False(t, props.HasPortals())
 	})
 
 	t.Run("portal reservation", func(t *testing.T) {
-		props := NewReservationProperties(ReservationPortal)
+		props := NewReservationProperties(protoutil.ReasonPortal)
 
 		assert.False(t, props.IsForTransaction())
 		assert.True(t, props.IsForPortal())
+		assert.False(t, props.IsEmpty())
 		assert.False(t, props.HasPortals())
 	})
 }
 
+func TestReservationProperties_MultipleReasons(t *testing.T) {
+	t.Run("add multiple reasons", func(t *testing.T) {
+		props := NewReservationProperties(protoutil.ReasonTransaction)
+		props.AddReason(protoutil.ReasonPortal)
+
+		assert.True(t, props.IsForTransaction())
+		assert.True(t, props.IsForPortal())
+		assert.False(t, props.IsEmpty())
+	})
+
+	t.Run("remove one reason keeps other", func(t *testing.T) {
+		props := NewReservationProperties(protoutil.ReasonTransaction | protoutil.ReasonPortal)
+		props.RemoveReason(protoutil.ReasonTransaction)
+
+		assert.False(t, props.IsForTransaction())
+		assert.True(t, props.IsForPortal())
+		assert.False(t, props.IsEmpty())
+	})
+
+	t.Run("remove all reasons", func(t *testing.T) {
+		props := NewReservationProperties(protoutil.ReasonTransaction | protoutil.ReasonPortal)
+		props.RemoveReason(protoutil.ReasonTransaction)
+		props.RemoveReason(protoutil.ReasonPortal)
+
+		assert.False(t, props.IsForTransaction())
+		assert.False(t, props.IsForPortal())
+		assert.True(t, props.IsEmpty())
+	})
+
+	t.Run("has reason", func(t *testing.T) {
+		props := NewReservationProperties(protoutil.ReasonTransaction | protoutil.ReasonTempTable)
+
+		assert.True(t, props.HasReason(protoutil.ReasonTransaction))
+		assert.True(t, props.HasReason(protoutil.ReasonTempTable))
+		assert.False(t, props.HasReason(protoutil.ReasonPortal))
+	})
+
+	t.Run("reasons string", func(t *testing.T) {
+		props := NewReservationProperties(protoutil.ReasonTransaction | protoutil.ReasonPortal)
+		s := props.ReasonsString()
+		assert.Contains(t, s, "transaction")
+		assert.Contains(t, s, "portal")
+	})
+}
+
 func TestReservationProperties_Duration(t *testing.T) {
-	props := NewReservationProperties(ReservationTransaction)
+	props := NewReservationProperties(protoutil.ReasonTransaction)
 
 	// Sleep briefly to ensure Duration returns a non-zero value.
 	time.Sleep(10 * time.Millisecond)
@@ -93,7 +125,7 @@ func TestReservationProperties_Duration(t *testing.T) {
 }
 
 func TestReservationProperties_PortalManagement(t *testing.T) {
-	props := NewReservationProperties(ReservationPortal)
+	props := NewReservationProperties(protoutil.ReasonPortal)
 
 	t.Run("initial state", func(t *testing.T) {
 		assert.False(t, props.HasPortals())
@@ -141,7 +173,7 @@ func TestReservationProperties_PortalManagement(t *testing.T) {
 
 func TestReservationProperties_HasPortal_NilMap(t *testing.T) {
 	props := &ReservationProperties{
-		Reason:  ReservationPortal,
+		Reasons: protoutil.ReasonPortal,
 		Portals: nil,
 	}
 
@@ -150,7 +182,7 @@ func TestReservationProperties_HasPortal_NilMap(t *testing.T) {
 
 func TestReservationProperties_RemovePortal_NilMap(t *testing.T) {
 	props := &ReservationProperties{
-		Reason:  ReservationPortal,
+		Reasons: protoutil.ReasonPortal,
 		Portals: nil,
 	}
 
@@ -160,7 +192,7 @@ func TestReservationProperties_RemovePortal_NilMap(t *testing.T) {
 
 func TestReservationProperties_AddPortal_InitializesMap(t *testing.T) {
 	props := &ReservationProperties{
-		Reason:  ReservationPortal,
+		Reasons: protoutil.ReasonPortal,
 		Portals: nil,
 	}
 

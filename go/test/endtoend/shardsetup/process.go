@@ -33,6 +33,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -62,9 +63,13 @@ type ProcessInstance struct {
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (e.g., "0s", "10s")
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
 
-	// PgBackRest-specific fields (used by multipooler)
-	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths
-	PgBackRestPort      int                        // pgBackRest server port
+	// PgBackRest-specific fields (used by multipooler and pgctld)
+	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
+	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
+	PgBackRestCertDir   string                     // pgBackRest TLS certificate directory (pgctld)
+
+	// BackupLocation stores backup configuration from topology (used by pgctld)
+	BackupLocation *clustermetadatapb.BackupLocation
 }
 
 // Start starts the process instance (pgctld, multipooler, multiorch, or multigateway).
@@ -93,13 +98,54 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 	t.Logf("Starting %s with binary '%s'", p.Name, p.Binary)
 	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.DataDir, p.GrpcPort, p.PgPort)
 
-	// Start the gRPC server
-	p.Process = exec.Command(p.Binary, "server",
+	// Build pgctld server command with pgBackRest configuration
+	args := []string{
+		"server",
 		"--pooler-dir", p.DataDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--timeout", "60",
-		"--log-output", p.LogFile)
+		"--log-output", p.LogFile,
+	}
+
+	// Add pgBackRest configuration if provided
+	if p.PgBackRestPort > 0 {
+		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
+	}
+	if p.PgBackRestCertDir != "" {
+		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
+	}
+
+	// Add backup configuration from topology
+	if p.BackupLocation != nil {
+		// This mirrors code in the local provisioner, because this function takes a
+		// proto, and the other doesn't.
+		if s3 := p.BackupLocation.GetS3(); s3 != nil {
+			args = append(args, "--backup-type", "s3")
+			args = append(args, "--backup-bucket", s3.Bucket)
+			args = append(args, "--backup-region", s3.Region)
+			// Repo path for S3 (default to /multigres, or with key prefix)
+			repoPath := "/multigres"
+			if s3.KeyPrefix != "" {
+				repoPath = "/" + strings.TrimSuffix(s3.KeyPrefix, "/") + "/multigres"
+			}
+			args = append(args, "--backup-path", repoPath)
+			if s3.Endpoint != "" {
+				args = append(args, "--backup-endpoint", s3.Endpoint)
+			}
+			if s3.KeyPrefix != "" {
+				args = append(args, "--backup-key-prefix", s3.KeyPrefix)
+			}
+			if s3.UseEnvCredentials {
+				args = append(args, "--backup-use-env-credentials")
+			}
+		} else if filesystem := p.BackupLocation.GetFilesystem(); filesystem != nil {
+			args = append(args, "--backup-type", "filesystem")
+			args = append(args, "--backup-path", filesystem.Path)
+		}
+	}
+
+	p.Process = exec.Command(p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	p.Process.Env = append(p.Environment,
@@ -403,7 +449,7 @@ func (p *ProcessInstance) StopPostgres(t *testing.T) {
 // Copied from multipooler/setup_test.go.
 func (p *ProcessInstance) stopPostgreSQL() {
 	conn, err := grpc.NewClient(
-		fmt.Sprintf("localhost:%d", p.GrpcPort),
+		fmt.Sprintf("passthrough:///localhost:%d", p.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {

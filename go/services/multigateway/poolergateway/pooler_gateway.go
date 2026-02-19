@@ -14,45 +14,28 @@
 
 // Package poolergateway handles selection and communication with multipooler instances.
 // It is responsible for:
-// - Discovering available poolers via PoolerDiscovery
-// - Selecting healthy poolers for a given tablegroup
-// - Managing gRPC connections to poolers
+// - Selecting healthy poolers for a given tablegroup via LoadBalancer
 // - Providing QueryService instances for query execution
 //
 // This is analogous to Vitess's TabletGateway component.
 package poolergateway
 
+// TODO: Add PoolerGateway integration tests that verify end-to-end query routing
+// through LoadBalancer to PoolerConnection. Currently the selection logic is
+// tested via LoadBalancer unit tests.
+
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
-	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/tools/grpccommon"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
-
-// PoolerDiscovery is the interface for discovering multipooler instances.
-// This abstracts the PoolerDiscovery implementation for easier testing.
-type PoolerDiscovery interface {
-	// GetPooler returns a pooler matching the target specification.
-	// Target specifies the tablegroup, shard, and pooler type to route to.
-	// Returns nil if no matching pooler is found.
-	GetPooler(target *query.Target) *clustermetadatapb.MultiPooler
-
-	// PoolerCount returns the total number of discovered poolers.
-	PoolerCount() int
-}
 
 // A Gateway is the query processing module for each shard,
 // which is used by ScatterConn.
@@ -66,66 +49,57 @@ type Gateway interface {
 
 // PoolerGateway selects and manages connections to multipooler instances.
 type PoolerGateway struct {
-	// discovery is used to find available poolers
-	discovery PoolerDiscovery
+	// loadBalancer manages pooler connections and selects connections for queries.
+	loadBalancer *LoadBalancer
 
 	// logger for debugging
 	logger *slog.Logger
-
-	// connections maintains gRPC connections to poolers
-	// Key is pooler ID (hostname:port)
-	mu          sync.Mutex
-	connections map[string]*poolerConnection
-}
-
-// poolerConnection represents a connection to a single multipooler instance
-type poolerConnection struct {
-	// poolerInfo contains the pooler metadata
-	poolerInfo *topoclient.MultiPoolerInfo
-
-	// conn is the gRPC connection
-	conn *grpc.ClientConn
-
-	// queryService is the QueryService implementation for query execution
-	queryService queryservice.QueryService
-
-	// serviceClient is the gRPC client for admin operations (auth, health, etc.)
-	serviceClient multipoolerpb.MultiPoolerServiceClient
-
-	// lastUsed tracks when this connection was last used
-	lastUsed time.Time
 }
 
 // NewPoolerGateway creates a new PoolerGateway.
 func NewPoolerGateway(
-	discovery PoolerDiscovery,
+	loadBalancer *LoadBalancer,
 	logger *slog.Logger,
 ) *PoolerGateway {
 	return &PoolerGateway{
-		discovery:   discovery,
-		logger:      logger,
-		connections: make(map[string]*poolerConnection),
+		loadBalancer: loadBalancer,
+		logger:       logger,
 	}
 }
 
 // QueryServiceByID implements Gateway.
+// It returns a QueryService for a specific pooler ID.
+// This is used for reserved connections where queries must be routed to a specific
+// pooler instance (e.g., for session affinity with prepared statements and portals).
 func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error) {
-	// TODO: IMPLEMENT queryservicebyid
-	return pg, nil
+	// Get connection by pooler ID
+	conn, err := pg.loadBalancer.GetConnectionByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "got connection by pooler ID",
+		"pooler_id", conn.ID(),
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard)
+
+	// Return the connection's QueryService
+	return conn.QueryService(), nil
 }
 
 // StreamExecute implements queryservice.QueryService.
 // It routes the query to the appropriate multipooler instance based on the target.
 //
 // This method:
-// 1. Uses discovery to find a pooler matching the target specification
-// 2. Establishes gRPC connection if needed
-// 3. Delegates to the pooler's QueryService for execution
+// 1. Uses LoadBalancer to get a connection matching the target specification
+// 2. Delegates to the pooler's QueryService for execution
 //
 // The target specifies:
 // - TableGroup: Required
 // - PoolerType: PRIMARY (writes), REPLICA (reads), etc. Defaults to PRIMARY if not set.
 // - Shard: Optional, empty matches any shard
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -133,142 +107,49 @@ func (pg *PoolerGateway) StreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// Get a pooler matching the target
-	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return err
 	}
-
-	// Delegate to the pooler's QueryService
-	return queryService.StreamExecute(ctx, target, sql, options, callback)
-}
-
-func (pg *PoolerGateway) getQueryServiceForTarget(ctx context.Context, target *query.Target) (queryservice.QueryService, error) {
-	pooler := pg.discovery.GetPooler(target)
-	if pooler == nil {
-		return nil, fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s",
-			target.TableGroup, target.Shard, target.PoolerType.String())
-	}
-
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
 		"pooler_type", target.PoolerType.String(),
-		"pooler_id", poolerID,
-		"actual_pooler_type", pooler.Type.String())
+		"pooler_id", conn.ID())
 
-	// Get or create connection to this pooler
-	queryService, err := pg.getOrCreateConnection(ctx, pooler)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get connection to pooler %s: %w", poolerID, err)
-	}
-	return queryService, nil
+	// Delegate to the pooler's QueryService
+	return conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
 }
 
 // ExecuteQuery implements queryservice.QueryService.
 // It routes the query to the appropriate multipooler instance based on the target.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
-	// Get a pooler matching the target
-	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return nil, err
 	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return queryService.ExecuteQuery(ctx, target, sql, options)
-}
-
-// getOrCreateGRPCConn returns an existing gRPC connection or creates a new one.
-// This is the core connection management that can be used for any gRPC service.
-func (pg *PoolerGateway) getOrCreateGRPCConn(
-	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
-) (*grpc.ClientConn, error) {
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
-
-	// Check if we already have a connection
-	pg.mu.Lock()
-	if conn, ok := pg.connections[poolerID]; ok {
-		pg.mu.Unlock()
-		conn.lastUsed = time.Now()
-		return conn.conn, nil
-	}
-	pg.mu.Unlock()
-
-	// Need to create a new connection
-	pg.mu.Lock()
-	defer pg.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if conn, ok := pg.connections[poolerID]; ok {
-		conn.lastUsed = time.Now()
-		return conn.conn, nil
-	}
-
-	// Create new gRPC connection
-	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
-	addr := poolerInfo.Addr()
-
-	pg.logger.InfoContext(ctx, "creating new gRPC connection to pooler",
-		"pooler_id", poolerID,
-		"addr", addr)
-
-	// Create gRPC connection (non-blocking in newer gRPC)
-	conn, err := grpccommon.NewClient(addr,
-		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create client for pooler %s at %s: %w", poolerID, addr, err)
-	}
-
-	// Create QueryService for the connection
-	queryService := newGRPCQueryService(conn, poolerID, pg.logger)
-
-	// Create service client for admin operations
-	serviceClient := multipoolerpb.NewMultiPoolerServiceClient(conn)
-
-	// Store connection
-	pg.connections[poolerID] = &poolerConnection{
-		poolerInfo:    poolerInfo,
-		conn:          conn,
-		queryService:  queryService,
-		serviceClient: serviceClient,
-		lastUsed:      time.Now(),
-	}
-
-	pg.logger.InfoContext(ctx, "gRPC connection established",
-		"pooler_id", poolerID,
-		"addr", addr)
-
-	return conn, nil
-}
-
-// getOrCreateConnection returns an existing QueryService or creates a new one.
-func (pg *PoolerGateway) getOrCreateConnection(
-	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
-) (queryservice.QueryService, error) {
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
-
-	// Ensure we have a connection
-	_, err := pg.getOrCreateGRPCConn(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return the QueryService from the cached connection
-	pg.mu.Lock()
-	defer pg.mu.Unlock()
-	return pg.connections[poolerID].queryService, nil
+	return conn.QueryService().ExecuteQuery(ctx, target, sql, options)
 }
 
 // PortalStreamExecute implements queryservice.QueryService.
 // It executes a portal and returns reservation information.
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -277,18 +158,26 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
-	// Get a pooler matching the target
-	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return queryservice.ReservedState{}, err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return queryService.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+	return conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 }
 
 // Describe implements queryservice.QueryService.
 // It returns metadata about a prepared statement or portal.
+//
+// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) Describe(
 	ctx context.Context,
 	target *query.Target,
@@ -296,39 +185,26 @@ func (pg *PoolerGateway) Describe(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
-	// Get a pooler matching the target
-	queryService, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return nil, err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return queryService.Describe(ctx, target, preparedStatement, portal, options)
+	return conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
 }
 
 // Close implements queryservice.QueryService.
 // It closes all connections to poolers.
-func (pg *PoolerGateway) Close(ctx context.Context) error {
-	pg.mu.Lock()
-	defer pg.mu.Unlock()
-
-	pg.logger.InfoContext(ctx, "closing all pooler connections", "count", len(pg.connections))
-
-	var lastErr error
-	for poolerID, conn := range pg.connections {
-		pg.logger.DebugContext(ctx, "closing connection", "pooler_id", poolerID)
-		if err := conn.queryService.Close(ctx); err != nil {
-			pg.logger.ErrorContext(ctx, "failed to close connection",
-				"pooler_id", poolerID,
-				"error", err)
-			lastErr = err
-		}
-	}
-
-	// Clear connections map
-	pg.connections = make(map[string]*poolerConnection)
-
-	return lastErr
+func (pg *PoolerGateway) Close() error {
+	return pg.loadBalancer.Close()
 }
 
 // Ensure PoolerGateway implements Gateway
@@ -340,36 +216,25 @@ var _ Gateway = (*PoolerGateway)(nil)
 func (pg *PoolerGateway) getSystemServiceClient(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
 	// Find any pooler - for authentication we just need access to pg_authid
 	// which is available from any pooler connected to this database.
-	// Try PRIMARY first, fall back to REPLICA if not found in this cell.
-	// TODO: Once multigateway discovers poolers across all cells, we can
-	// remove the REPLICA fallback and always use PRIMARY.
+	// Try PRIMARY first, fall back to REPLICA if not found.
 	target := &query.Target{
 		TableGroup: "default", // TODO: Make configurable or discover from database
+		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 
-	pooler := pg.discovery.GetPooler(target)
-	if pooler == nil {
-		// PRIMARY not in this cell, try REPLICA
-		target.PoolerType = clustermetadatapb.PoolerType_REPLICA
-		pooler = pg.discovery.GetPooler(target)
-	}
-	if pooler == nil {
-		return nil, fmt.Errorf("no pooler found for database %q", database)
-	}
-
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
-
-	// Get or create the gRPC connection (this also caches the service client)
-	_, err := pg.getOrCreateGRPCConn(ctx, pooler)
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return nil, err
+		// PRIMARY not found, try REPLICA
+		target.PoolerType = clustermetadatapb.PoolerType_REPLICA
+		conn, err = pg.loadBalancer.GetConnection(target)
+		if err != nil {
+			return nil, fmt.Errorf("no pooler found for database %q: %w", database, err)
+		}
 	}
 
-	// Return the cached service client
-	pg.mu.Lock()
-	defer pg.mu.Unlock()
-	return pg.connections[poolerID].serviceClient, nil
+	// Return the service client from the connection
+	return conn.ServiceClient(), nil
 }
 
 // SystemClientFunc returns a function that can be used with auth.PoolerHashProvider.
@@ -380,12 +245,8 @@ func (pg *PoolerGateway) SystemClientFunc() func(ctx context.Context, database s
 
 // Stats returns statistics about the gateway.
 func (pg *PoolerGateway) Stats() map[string]any {
-	pg.mu.Lock()
-	defer pg.mu.Unlock()
-
 	return map[string]any{
-		"active_connections": len(pg.connections),
-		"poolers_discovered": pg.discovery.PoolerCount(),
+		"active_connections": pg.loadBalancer.ConnectionCount(),
 	}
 }
 
@@ -397,14 +258,20 @@ func (pg *PoolerGateway) CopyReady(
 	copyQuery string,
 	options *query.ExecuteOptions,
 ) (int16, []int16, queryservice.ReservedState, error) {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return 0, nil, queryservice.ReservedState{}, err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopyReady(ctx, target, copyQuery, options)
+	return conn.QueryService().CopyReady(ctx, target, copyQuery, options)
 }
 
 // CopySendData implements queryservice.QueryService.
@@ -415,14 +282,20 @@ func (pg *PoolerGateway) CopySendData(
 	data []byte,
 	options *query.ExecuteOptions,
 ) error {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopySendData(ctx, target, data, options)
+	return conn.QueryService().CopySendData(ctx, target, data, options)
 }
 
 // CopyFinalize implements queryservice.QueryService.
@@ -433,14 +306,20 @@ func (pg *PoolerGateway) CopyFinalize(
 	finalData []byte,
 	options *query.ExecuteOptions,
 ) (*sqltypes.Result, error) {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return nil, err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopyFinalize(ctx, target, finalData, options)
+	return conn.QueryService().CopyFinalize(ctx, target, finalData, options)
 }
 
 // CopyAbort implements queryservice.QueryService.
@@ -451,12 +330,90 @@ func (pg *PoolerGateway) CopyAbort(
 	errorMsg string,
 	options *query.ExecuteOptions,
 ) error {
-	// Get a pooler matching the target
-	qs, err := pg.getQueryServiceForTarget(ctx, target)
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		return err
 	}
 
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
 	// Delegate to the pooler's QueryService
-	return qs.CopyAbort(ctx, target, errorMsg, options)
+	return conn.QueryService().CopyAbort(ctx, target, errorMsg, options)
+}
+
+// ReserveStreamExecute implements queryservice.QueryService.
+// It creates a reserved connection and executes the query.
+func (pg *PoolerGateway) ReserveStreamExecute(
+	ctx context.Context,
+	target *query.Target,
+	sql string,
+	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) (queryservice.ReservedState, error) {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return queryservice.ReservedState{}, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	// Delegate to the pooler's QueryService
+	return conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+}
+
+// ConcludeTransaction implements queryservice.QueryService.
+// It concludes a transaction with COMMIT or ROLLBACK.
+func (pg *PoolerGateway) ConcludeTransaction(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+	conclusion multipoolerpb.TransactionConclusion,
+) (*sqltypes.Result, uint32, error) {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	// Delegate to the pooler's QueryService
+	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
+}
+
+// ReleaseReservedConnection implements queryservice.QueryService.
+// It forcefully releases a reserved connection regardless of reason.
+func (pg *PoolerGateway) ReleaseReservedConnection(
+	ctx context.Context,
+	target *query.Target,
+	options *query.ExecuteOptions,
+) error {
+	// Get a connection matching the target
+	conn, err := pg.loadBalancer.GetConnection(target)
+	if err != nil {
+		return err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for target",
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"pooler_type", target.PoolerType.String(),
+		"pooler_id", conn.ID())
+
+	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
 }

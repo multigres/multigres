@@ -268,7 +268,7 @@ func (c *Conn) handleReadyForQuery(body []byte) error {
 		return errors.New("ready for query message too short")
 	}
 
-	c.txnStatus = body[0]
+	c.txnStatus = protocol.TransactionStatus(body[0])
 	return nil
 }
 

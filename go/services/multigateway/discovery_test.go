@@ -17,6 +17,7 @@ package multigateway
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 // Test configuration constants
@@ -480,60 +480,33 @@ func TestGlobalPoolerDiscovery_MultiCell(t *testing.T) {
 	assert.Equal(t, 2, gd.PoolerCount())
 }
 
-func TestGlobalPoolerDiscovery_CellAffinityForReplicas(t *testing.T) {
+// TestGlobalPoolerDiscovery_PoolerAddedAfterStart tests that a pooler created
+// after global discovery is already running gets picked up through the full
+// path: GlobalPoolerDiscovery → CellPoolerDiscovery → watch event.
+func TestGlobalPoolerDiscovery_PoolerAddedAfterStart(t *testing.T) {
 	ctx := context.Background()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer store.Close()
-	logger := slog.Default()
 
-	// Create replicas in both cells
-	localReplica := createTestPooler("local-replica", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_REPLICA)
-	remoteReplica := createTestPooler("remote-replica", "zone2", "host2", "db1", "shard1", clustermetadatapb.PoolerType_REPLICA)
-	require.NoError(t, store.CreateMultiPooler(ctx, localReplica))
-	require.NoError(t, store.CreateMultiPooler(ctx, remoteReplica))
-
-	// Start global discovery with zone1 as local cell
-	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", slog.Default())
 	gd.Start()
 	defer gd.Stop()
 
-	waitForGlobalPoolerCount(t, gd, 2)
+	// Wait for cell discovery with no poolers
+	waitForGlobalPoolerCount(t, gd, 0)
 
-	// Request a replica - should prefer local cell
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_REPLICA,
-	}
-	pooler := gd.GetPooler(target)
-	require.NotNil(t, pooler)
-	assert.Equal(t, "local-replica", pooler.Id.Name, "Should prefer local cell for replicas")
-}
+	// Add a pooler after discovery is running
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
 
-func TestGlobalPoolerDiscovery_CrossCellPrimary(t *testing.T) {
-	ctx := context.Background()
-	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
-	defer store.Close()
-	logger := slog.Default()
-
-	// Create primary only in zone2 (not in local cell zone1)
-	remotePrimary := createTestPooler("remote-primary", "zone2", "host2", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
-	require.NoError(t, store.CreateMultiPooler(ctx, remotePrimary))
-
-	// Start global discovery with zone1 as local cell
-	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
-	gd.Start()
-	defer gd.Stop()
-
+	// Should be picked up by the cell watcher
 	waitForGlobalPoolerCount(t, gd, 1)
 
-	// Request a primary - should find it in zone2
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
-	pooler := gd.GetPooler(target)
-	require.NotNil(t, pooler, "Should find primary in remote cell")
-	assert.Equal(t, "remote-primary", pooler.Id.Name)
+	// Add a second pooler
+	pooler2 := createTestPooler("pooler2", "zone1", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	waitForGlobalPoolerCount(t, gd, 2)
 }
 
 func TestGlobalPoolerDiscovery_GetCellStatusesForAdmin(t *testing.T) {
@@ -751,6 +724,154 @@ func TestPoolerDiscovery_ReplicaDoesNotEvictPrimary(t *testing.T) {
 	assert.True(t, names["replica"], "Replica should be present")
 }
 
+// TestPoolerDiscovery_EvictionCallsOnPoolerRemoved verifies that onPoolerRemoved
+// is called when a conflicting primary is evicted during failover.
+func TestPoolerDiscovery_EvictionCallsOnPoolerRemoved(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+	logger := slog.Default()
+
+	pd := NewCellPoolerDiscovery(ctx, store, "test-cell", logger)
+
+	// Track callback invocations
+	listener := &mockPoolerListener{}
+	pd.onPoolerChanged = listener.OnPoolerChanged
+	pd.onPoolerRemoved = listener.OnPoolerRemoved
+
+	// Create old primary
+	oldPrimary := createTestPooler("old-primary", "test-cell", "old-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, oldPrimary))
+
+	pd.Start()
+	defer pd.Stop()
+
+	// Wait for initial discovery
+	waitForPoolerCount(t, pd, 1)
+
+	// Clear the tracked callbacks (initial discovery triggers OnPoolerChanged)
+	listener.mu.Lock()
+	listener.changedPoolers = nil
+	listener.removedPoolers = nil
+	listener.mu.Unlock()
+
+	// Add new primary for the same tablegroup/shard (triggers eviction)
+	newPrimary := createTestPooler("new-primary", "test-cell", "new-host", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, newPrimary))
+
+	// Wait for the new primary to be discovered and old one evicted
+	waitForCondition(t, func() bool {
+		poolers := pd.GetPoolersForAdmin()
+		if len(poolers) != 1 {
+			return false
+		}
+		return poolers[0].Id.Name == "new-primary"
+	}, "Expected new-primary to replace old-primary")
+
+	// Verify OnPoolerRemoved was called for the evicted old primary
+	removedPoolers := listener.getRemovedPoolers()
+	require.Len(t, removedPoolers, 1, "OnPoolerRemoved should be called for evicted primary")
+	assert.Equal(t, topoclient.MultiPoolerIDString(oldPrimary.Id), removedPoolers[0])
+
+	// Verify OnPoolerChanged was called for the new primary
+	changedPoolers := listener.getChangedPoolers()
+	require.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(newPrimary.Id))
+}
+
+// TestGlobalPoolerDiscovery_WatchDiscoversNewCells tests that the watch-based
+// cell discovery detects cells added after the gateway has started. This is the
+// core regression test for the bug where discovery blocked forever on
+// <-ctx.Done() and never discovered new cells.
+func TestGlobalPoolerDiscovery_WatchDiscoversNewCells(t *testing.T) {
+	ctx := context.Background()
+	// Start with NO cells — watch returns empty initial set
+	store, factory := memorytopo.NewServerAndFactory(ctx)
+	defer store.Close()
+
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", slog.Default())
+	gd.Start()
+	defer gd.Stop()
+
+	// Wait for the watch to start and process the empty initial cell set.
+	// This ensures AddCell arrives as a watch event (processCellChange),
+	// not as part of the initial snapshot (processInitialCells).
+	waitForCondition(t, func() bool {
+		return !gd.LastCellRefresh().IsZero()
+	}, "Initial cell discovery should complete")
+
+	// Dynamically add a cell (simulates multiorch registering cells after gateway start)
+	require.NoError(t, factory.AddCell(ctx, store, "zone1"))
+
+	// Create a pooler in the new cell
+	pooler := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler))
+
+	// Watch should fire an event for the new cell, start a watcher, and discover the pooler
+	waitForGlobalPoolerCount(t, gd, 1)
+	assert.Equal(t, 1, gd.PoolerCount())
+}
+
+// TestGlobalPoolerDiscovery_CellRemovalStopsWatcher tests that when a cell is
+// deleted from the topology, the corresponding CellPoolerDiscovery watcher is
+// stopped and its poolers are no longer reported.
+func TestGlobalPoolerDiscovery_CellRemovalStopsWatcher(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+
+	// Create a pooler in each cell
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	pooler2 := createTestPooler("pooler2", "zone2", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", slog.Default())
+	gd.Start()
+	defer gd.Stop()
+
+	// Both cells discovered with one pooler each
+	waitForGlobalPoolerCount(t, gd, 2)
+	assert.Len(t, gd.GetCellStatusesForAdmin(), 2)
+
+	// Delete zone2
+	require.NoError(t, store.DeleteCell(ctx, "zone2", true))
+
+	// zone2's watcher should stop, dropping its pooler
+	waitForGlobalPoolerCount(t, gd, 1)
+
+	// Only zone1 should remain
+	statuses := gd.GetCellStatusesForAdmin()
+	require.Len(t, statuses, 1)
+	assert.Equal(t, "zone1", statuses[0].Cell)
+}
+
+// TestExtractCellFromPath tests the path parsing logic for cell watch events.
+func TestExtractCellFromPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		// Relative paths (memorytopo)
+		{"cells/zone1/Cell", "zone1"},
+		{"cells/us-east-1/Cell", "us-east-1"},
+		{"cells/zone1", "zone1"},
+		{"cells/", ""},
+		{"cells", ""},
+		{"other/zone1/Cell", ""},
+		{"", ""},
+		// Absolute paths with root prefix (real etcd)
+		{"/multigres/global/cells/zone1/Cell", "zone1"},
+		{"/multigres/global/cells/us-east-1/Cell", "us-east-1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			result := extractCellFromPath(tc.path)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 // TestCellPoolerDiscovery_ExtractPoolerIDFromPath tests the path parsing logic.
 func TestCellPoolerDiscovery_ExtractPoolerIDFromPath(t *testing.T) {
 	ctx := context.Background()
@@ -779,4 +900,124 @@ func TestCellPoolerDiscovery_ExtractPoolerIDFromPath(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// mockPoolerListener records pooler change events for testing.
+type mockPoolerListener struct {
+	mu             sync.Mutex
+	changedPoolers []string
+	removedPoolers []string
+}
+
+func (m *mockPoolerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.changedPoolers = append(m.changedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
+}
+
+func (m *mockPoolerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removedPoolers = append(m.removedPoolers, topoclient.MultiPoolerIDString(pooler.Id))
+}
+
+func (m *mockPoolerListener) getChangedPoolers() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.changedPoolers))
+	copy(result, m.changedPoolers)
+	return result
+}
+
+func (m *mockPoolerListener) getRemovedPoolers() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.removedPoolers))
+	copy(result, m.removedPoolers)
+	return result
+}
+
+func TestGlobalPoolerDiscovery_RegisterListener_ReplaysExistingPoolers(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1", "zone2")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Create poolers in different cells BEFORE starting discovery
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	pooler2 := createTestPooler("pooler2", "zone2", "host2", "db2", "shard1", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	// Start global discovery
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
+	gd.Start()
+	defer gd.Stop()
+
+	// Wait for poolers to be discovered
+	waitForGlobalPoolerCount(t, gd, 2)
+
+	// Now register a listener AFTER poolers are already discovered
+	listener := &mockPoolerListener{}
+	gd.RegisterListener(listener)
+
+	// Wait for replay notifications to be processed
+	waitForCondition(t, func() bool {
+		return len(listener.getChangedPoolers()) == 2
+	}, "Listener should receive replay of 2 existing poolers")
+
+	// The listener should have received OnPoolerChanged for all existing poolers
+	changedPoolers := listener.getChangedPoolers()
+	require.Len(t, changedPoolers, 2, "Listener should receive replay of existing poolers")
+
+	// Verify both poolers were replayed (order may vary)
+	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler1.Id))
+	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
+
+	// No poolers should have been removed
+	removedPoolers := listener.getRemovedPoolers()
+	assert.Empty(t, removedPoolers)
+}
+
+func TestGlobalPoolerDiscovery_RegisterListener_ReceivesSubsequentChanges(t *testing.T) {
+	ctx := context.Background()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer store.Close()
+	logger := slog.Default()
+
+	// Start with one pooler
+	pooler1 := createTestPooler("pooler1", "zone1", "host1", "db1", "shard1", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler1))
+
+	// Start global discovery
+	gd := NewGlobalPoolerDiscovery(ctx, store, "zone1", logger)
+	gd.Start()
+	defer gd.Stop()
+
+	waitForGlobalPoolerCount(t, gd, 1)
+
+	// Register listener
+	listener := &mockPoolerListener{}
+	gd.RegisterListener(listener)
+
+	// Wait for replay notification to be processed
+	waitForCondition(t, func() bool {
+		return len(listener.getChangedPoolers()) == 1
+	}, "Listener should receive replay of 1 existing pooler")
+
+	// Should have replayed pooler1
+	changedPoolers := listener.getChangedPoolers()
+	require.Len(t, changedPoolers, 1)
+
+	// Now add another pooler
+	pooler2 := createTestPooler("pooler2", "zone1", "host2", "db2", "shard2", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, store.CreateMultiPooler(ctx, pooler2))
+
+	// Wait for listener to receive the new pooler
+	waitForCondition(t, func() bool {
+		return len(listener.getChangedPoolers()) == 2
+	}, "Listener should receive new pooler after registration")
+
+	changedPoolers = listener.getChangedPoolers()
+	assert.Contains(t, changedPoolers, topoclient.MultiPoolerIDString(pooler2.Id))
 }

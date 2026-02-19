@@ -53,6 +53,14 @@ type portal struct {
 func (h *fakeHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(context.Context, *sqltypes.Result) error) error {
 	result, err := h.server.handleQuery(queryStr)
 	if err != nil {
+		if result != nil {
+			// AfterCallbackError: deliver the result first, then return the
+			// error. This simulates mid-stream failures (rows sent, then
+			// connection error).
+			if err := callback(ctx, result); err != nil {
+				return err
+			}
+		}
 		return err
 	}
 	return callback(ctx, result)
@@ -167,6 +175,9 @@ func (h *fakeHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	delete(h.portals, "")
 	return nil
 }
+
+// ConnectionClosed handles connection cleanup.
+func (h *fakeHandler) ConnectionClosed(conn *server.Conn) {}
 
 // Ensure fakeHandler implements server.Handler.
 var _ server.Handler = (*fakeHandler)(nil)

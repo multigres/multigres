@@ -65,7 +65,6 @@ type CellServicesConfig struct {
 	Multipooler  MultipoolerConfig  `yaml:"multipooler"`
 	Multiorch    MultiorchConfig    `yaml:"multiorch"`
 	Pgctld       PgctldConfig       `yaml:"pgctld"`
-	PgBackRest   PgBackrestConfig   `yaml:"pgbackrest"`
 }
 
 // LocalProvisionerConfig represents the typed configuration for the local provisioner
@@ -132,21 +131,18 @@ type MultiadminConfig struct {
 
 // PgctldConfig holds pgctld service configuration
 type PgctldConfig struct {
-	Path           string `yaml:"path"`
-	PoolerDir      string `yaml:"pooler-dir"`       // Base directory for this pgctld instance
-	GrpcPort       int    `yaml:"grpc-port"`        // gRPC port for pgctld server
-	GRPCSocketFile string `yaml:"grpc-socket-file"` // Unix socket file path for gRPC
-	PgPort         int    `yaml:"pg-port"`          // PostgreSQL port
-	PgDatabase     string `yaml:"pg-database"`      // PostgreSQL database name
-	PgUser         string `yaml:"pg-user"`          // PostgreSQL username
-	PgPwfile       string `yaml:"pg-pwfile"`        // Source password file path; copied to pooler-dir/pgpassword.txt during init
-	Timeout        int    `yaml:"timeout"`          // Operation timeout in seconds
-	LogLevel       string `yaml:"log-level"`        // Log level
-}
-
-// PgBackrestConfig holds pgbackrest config info
-type PgBackrestConfig struct {
-	Port int `yaml:"port"`
+	Path              string `yaml:"path"`
+	PoolerDir         string `yaml:"pooler-dir"`          // Base directory for this pgctld instance
+	GrpcPort          int    `yaml:"grpc-port"`           // gRPC port for pgctld server
+	GRPCSocketFile    string `yaml:"grpc-socket-file"`    // Unix socket file path for gRPC
+	PgPort            int    `yaml:"pg-port"`             // PostgreSQL port
+	PgDatabase        string `yaml:"pg-database"`         // PostgreSQL database name
+	PgUser            string `yaml:"pg-user"`             // PostgreSQL username
+	PgPwfile          string `yaml:"pg-pwfile"`           // Source password file path; copied to pooler-dir/pgpassword.txt during init
+	Timeout           int    `yaml:"timeout"`             // Operation timeout in seconds
+	LogLevel          string `yaml:"log-level"`           // Log level
+	PgBackRestPort    int    `yaml:"pgbackrest-port"`     // pgBackRest TLS server port
+	PgBackRestCertDir string `yaml:"pgbackrest-cert-dir"` // pgBackRest TLS certificate directory
 }
 
 // LoadConfig loads the provisioner-specific configuration from the given config paths
@@ -310,18 +306,17 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					RecoveryCycleInterval:          "500ms",
 				},
 				Pgctld: PgctldConfig{
-					Path:           filepath.Join(binDir, "pgctld"),
-					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone1),
-					GrpcPort:       ports.DefaultPgctldGRPC,
-					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone1.sock"),
-					PgPort:         ports.DefaultLocalPostgresPort,
-					PgDatabase:     dbName,
-					PgUser:         constants.DefaultPostgresUser,
-					Timeout:        30,
-					LogLevel:       "info",
-				},
-				PgBackRest: PgBackrestConfig{
-					Port: ports.DefaultPgbackRestPort,
+					Path:              filepath.Join(binDir, "pgctld"),
+					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone1),
+					GrpcPort:          ports.DefaultPgctldGRPC,
+					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone1.sock"),
+					PgPort:            ports.DefaultLocalPostgresPort,
+					PgDatabase:        dbName,
+					PgUser:            constants.DefaultPostgresUser,
+					Timeout:           30,
+					LogLevel:          "info",
+					PgBackRestPort:    ports.DefaultPgbackRestPort,
+					PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
 				},
 			},
 			"zone2": {
@@ -355,19 +350,18 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					RecoveryCycleInterval:          "500ms",
 				},
 				Pgctld: PgctldConfig{
-					Path:           filepath.Join(binDir, "pgctld"),
-					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone2),
-					GrpcPort:       ports.DefaultPgctldGRPC + 1,
-					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone2.sock"),
-					PgPort:         ports.DefaultLocalPostgresPort + 1,
-					PgDatabase:     dbName,
-					PgUser:         constants.DefaultPostgresUser,
-					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
-					Timeout:        30,
-					LogLevel:       "info",
-				},
-				PgBackRest: PgBackrestConfig{
-					Port: ports.DefaultPgbackRestPort + 1,
+					Path:              filepath.Join(binDir, "pgctld"),
+					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone2),
+					GrpcPort:          ports.DefaultPgctldGRPC + 1,
+					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone2.sock"),
+					PgPort:            ports.DefaultLocalPostgresPort + 1,
+					PgDatabase:        dbName,
+					PgUser:            constants.DefaultPostgresUser,
+					PgPwfile:          filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
+					Timeout:           30,
+					LogLevel:          "info",
+					PgBackRestPort:    ports.DefaultPgbackRestPort + 1,
+					PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
 				},
 			},
 			"zone3": {
@@ -401,19 +395,18 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					RecoveryCycleInterval:          "500ms",
 				},
 				Pgctld: PgctldConfig{
-					Path:           filepath.Join(binDir, "pgctld"),
-					PoolerDir:      GeneratePoolerDir(baseDir, serviceIDZone3),
-					GrpcPort:       ports.DefaultPgctldGRPC + 2,
-					GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-zone3.sock"),
-					PgPort:         ports.DefaultLocalPostgresPort + 2,
-					PgDatabase:     dbName,
-					PgUser:         constants.DefaultPostgresUser,
-					PgPwfile:       filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgpassword.txt"),
-					Timeout:        30,
-					LogLevel:       "info",
-				},
-				PgBackRest: PgBackrestConfig{
-					Port: ports.DefaultPgbackRestPort + 2,
+					Path:              filepath.Join(binDir, "pgctld"),
+					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone3),
+					GrpcPort:          ports.DefaultPgctldGRPC + 2,
+					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone3.sock"),
+					PgPort:            ports.DefaultLocalPostgresPort + 2,
+					PgDatabase:        dbName,
+					PgUser:            constants.DefaultPostgresUser,
+					PgPwfile:          filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgpassword.txt"),
+					Timeout:           30,
+					LogLevel:          "info",
+					PgBackRestPort:    ports.DefaultPgbackRestPort + 2,
+					PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
 				},
 			},
 		},
@@ -502,19 +495,17 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 		}, nil
 	case constants.ServicePgctld:
 		return map[string]any{
-			"path":             cellServices.Pgctld.Path,
-			"pooler_dir":       cellServices.Pgctld.PoolerDir,
-			"grpc_port":        cellServices.Pgctld.GrpcPort,
-			"grpc_socket_file": cellServices.Pgctld.GRPCSocketFile,
-			"pg_port":          cellServices.Pgctld.PgPort,
-			"pg_database":      cellServices.Pgctld.PgDatabase,
-			"pg_user":          cellServices.Pgctld.PgUser,
-			"timeout":          cellServices.Pgctld.Timeout,
-			"log_level":        cellServices.Pgctld.LogLevel,
-		}, nil
-	case constants.ServicePgbackrest:
-		return map[string]any{
-			"port": cellServices.PgBackRest.Port,
+			"path":                cellServices.Pgctld.Path,
+			"pooler_dir":          cellServices.Pgctld.PoolerDir,
+			"grpc_port":           cellServices.Pgctld.GrpcPort,
+			"grpc_socket_file":    cellServices.Pgctld.GRPCSocketFile,
+			"pg_port":             cellServices.Pgctld.PgPort,
+			"pg_database":         cellServices.Pgctld.PgDatabase,
+			"pg_user":             cellServices.Pgctld.PgUser,
+			"timeout":             cellServices.Pgctld.Timeout,
+			"log_level":           cellServices.Pgctld.LogLevel,
+			"pgbackrest_port":     cellServices.Pgctld.PgBackRestPort,
+			"pgbackrest_cert_dir": cellServices.Pgctld.PgBackRestCertDir,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown service %s", service)

@@ -267,6 +267,8 @@ func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
 }
 
+func (m *mockHandler) ConnectionClosed(conn *Conn) {}
+
 // mockHashProvider implements scram.PasswordHashProvider for testing.
 // It accepts a single password for any user/database combination.
 type mockHashProvider struct {

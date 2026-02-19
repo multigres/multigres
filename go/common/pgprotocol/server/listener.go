@@ -192,6 +192,13 @@ func (l *Listener) handleConnection(conn *Conn) {
 				"remote_addr", conn.RemoteAddr())
 		}
 
+		// Notify the handler so it can clean up connection-specific state
+		// (e.g., rollback active transactions, release reserved connections).
+		// This must run before conn.Close() which clears the connection state.
+		if conn.handler != nil {
+			conn.handler.ConnectionClosed(conn)
+		}
+
 		// Clean up connection resources.
 		if err := conn.Close(); err != nil {
 			conn.logger.Error("error closing connection", "error", err)
@@ -208,6 +215,15 @@ func (l *Listener) handleConnection(conn *Conn) {
 	}
 
 	conn.logger.Info("connection closed")
+}
+
+// CloseListener closes only the TCP listener and stops accepting new connections.
+// Existing connections are not affected. This is useful for testing reconnection
+// failure scenarios where initial connections should keep working but new dial
+// attempts should fail.
+func (l *Listener) CloseListener() error {
+	l.cancel()
+	return l.listener.Close()
 }
 
 // Close closes the listener and waits for all connections to finish.

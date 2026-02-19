@@ -36,6 +36,8 @@ import (
 // 6. Reports results (logs failures but doesn't fail the test)
 //
 // The test is skipped by default. Set RUN_PGREGRESS=1 to run it.
+// By default it runs the full installcheck suite (parallel_schedule).
+// Set PGREGRESS_TESTS="boolean char" to run only specific tests.
 func TestPostgreSQLRegression(t *testing.T) {
 	// Skip unless explicitly enabled via environment variable
 	if os.Getenv("RUN_PGREGRESS") != "1" {
@@ -50,7 +52,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Create PostgresBuilder for managing source and build
 	// We need to build PostgreSQL BEFORE setting up the cluster so that pgctld
 	// uses the same PostgreSQL version as the regression test library (regress.so)
-	ctx := utils.WithTimeout(t, 60*time.Minute)
+	ctx := utils.WithTimeout(t, 15*time.Minute)
 	builder := NewPostgresBuilder(t, t.TempDir())
 	t.Cleanup(func() {
 		builder.Cleanup()
@@ -110,6 +112,24 @@ func TestPostgreSQLRegression(t *testing.T) {
 		t.Logf("  Duration: %v", results.Duration)
 		t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+		// Per-test breakdown
+		if len(results.Tests) > 0 {
+			t.Logf("")
+			t.Logf("  %-4s %-20s %-8s %s", "#", "Test", "Status", "Duration")
+			t.Logf("  %-4s %-20s %-8s %s", "---", "----", "------", "--------")
+			for i, test := range results.Tests {
+				emoji := "✅"
+				if test.Status == "fail" {
+					emoji = "❌"
+				}
+				dur := test.Duration
+				if dur == "" {
+					dur = "-"
+				}
+				t.Logf("  %-4d %-20s %s      %s", i+1, test.Name, emoji, dur)
+			}
+		}
+
 		// Log failure details if any
 		if results.FailedTests > 0 {
 			t.Logf("")
@@ -124,6 +144,11 @@ func TestPostgreSQLRegression(t *testing.T) {
 		} else if results.PassedTests > 0 {
 			t.Logf("")
 			t.Logf("✅ All %d regression tests passed!", results.PassedTests)
+		}
+
+		// Generate reports (Markdown + GitHub Actions job summary)
+		if _, err := builder.WriteMarkdownSummary(t, results); err != nil {
+			t.Logf("Warning: Failed to write markdown summary: %v", err)
 		}
 
 		// Only fail if test harness crashed (no tests ran at all)

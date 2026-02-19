@@ -1142,10 +1142,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
 
-				// setPrimaryConnInfoLocked queries (after reopen)
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+				// setPrimaryConnInfoLocked queries
+				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=testdb application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,
 			expectedPrimaryTerm:        0, // Primary term cleared after demotion
@@ -1193,10 +1194,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
 
-				// setPrimaryConnInfoLocked queries (after reopen)
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+				// setPrimaryConnInfoLocked queries
+				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=testdb application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 15, // With force, term is NOT updated when older
 			expectedPrimaryTerm:        0,  // Primary term is cleared
@@ -1224,10 +1226,11 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
 
-				// setPrimaryConnInfoLocked queries (after reopen)
-				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil))
-				m.AddQueryPattern("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+				// setPrimaryConnInfoLocked queries
+				m.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo = 'host=correct-primary-host port=5433 user=testdb application_name=zone1_stale-primary'", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // Second pg_reload_conf call
 			},
 			expectedFinalConsensusTerm: 10,
 			expectedPrimaryTerm:        0, // Primary term cleared

@@ -601,7 +601,7 @@ func (c *Conn) sendParameterStatus(name, value string) error {
 // sendReadyForQuery sends a ReadyForQuery message to indicate the server is ready.
 func (c *Conn) sendReadyForQuery() error {
 	w := NewMessageWriter()
-	w.WriteByte(c.txnStatus)
+	w.WriteByte(byte(c.txnStatus))
 	if err := c.writeMessage(protocol.MsgReadyForQuery, w.Bytes()); err != nil {
 		return err
 	}

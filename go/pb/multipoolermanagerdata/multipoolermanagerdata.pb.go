@@ -3208,7 +3208,10 @@ type BackupRequest struct {
 	// If provided, stored as annotation on the backup for status queries.
 	// If empty, multipooler generates one using the same format.
 	// Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
-	JobId         string `protobuf:"bytes,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	JobId string `protobuf:"bytes,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	// Runtime overrides for testing and debugging.
+	// Production should leave this empty.
+	Overrides     map[string]string `protobuf:"bytes,10,rep,name=overrides,proto3" json:"overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3262,6 +3265,13 @@ func (x *BackupRequest) GetJobId() string {
 		return x.JobId
 	}
 	return ""
+}
+
+func (x *BackupRequest) GetOverrides() map[string]string {
+	if x != nil {
+		return x.Overrides
+	}
+	return nil
 }
 
 // BackupResponse contains the result of a backup operation
@@ -4261,11 +4271,16 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x1eInitializeEmptyPrimaryResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12\x1b\n" +
-	"\tbackup_id\x18\x03 \x01(\tR\bbackupId\"_\n" +
+	"\tbackup_id\x18\x03 \x01(\tR\bbackupId\"\xf1\x01\n" +
 	"\rBackupRequest\x12#\n" +
 	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x15\n" +
-	"\x06job_id\x18\x03 \x01(\tR\x05jobId\"-\n" +
+	"\x06job_id\x18\x03 \x01(\tR\x05jobId\x12R\n" +
+	"\toverrides\x18\n" +
+	" \x03(\v24.multipoolermanagerdata.BackupRequest.OverridesEntryR\toverrides\x1a<\n" +
+	"\x0eOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"-\n" +
 	"\x0eBackupResponse\x12\x1b\n" +
 	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"7\n" +
 	"\x18RestoreFromBackupRequest\x12\x1b\n" +
@@ -4349,7 +4364,7 @@ func file_multipoolermanagerdata_proto_rawDescGZIP() []byte {
 }
 
 var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
+var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
 var file_multipoolermanagerdata_proto_goTypes = []any{
 	(ReplicationPauseMode)(0),                       // 0: multipoolermanagerdata.ReplicationPauseMode
 	(SynchronousMethod)(0),                          // 1: multipoolermanagerdata.SynchronousMethod
@@ -4421,70 +4436,72 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*RewindToSourceResponse)(nil),                  // 67: multipoolermanagerdata.RewindToSourceResponse
 	(*SetMonitorRequest)(nil),                       // 68: multipoolermanagerdata.SetMonitorRequest
 	(*SetMonitorResponse)(nil),                      // 69: multipoolermanagerdata.SetMonitorResponse
-	(*durationpb.Duration)(nil),                     // 70: google.protobuf.Duration
-	(*clustermetadata.MultiPooler)(nil),             // 71: clustermetadata.MultiPooler
-	(*clustermetadata.ID)(nil),                      // 72: clustermetadata.ID
-	(clustermetadata.PoolerType)(0),                 // 73: clustermetadata.PoolerType
-	(*timestamppb.Timestamp)(nil),                   // 74: google.protobuf.Timestamp
-	(*clustermetadata.QuorumRule)(nil),              // 75: clustermetadata.QuorumRule
-	(*clustermetadata.DurabilityPolicy)(nil),        // 76: clustermetadata.DurabilityPolicy
+	nil,                                             // 70: multipoolermanagerdata.BackupRequest.OverridesEntry
+	(*durationpb.Duration)(nil),                     // 71: google.protobuf.Duration
+	(*clustermetadata.MultiPooler)(nil),             // 72: clustermetadata.MultiPooler
+	(*clustermetadata.ID)(nil),                      // 73: clustermetadata.ID
+	(clustermetadata.PoolerType)(0),                 // 74: clustermetadata.PoolerType
+	(*timestamppb.Timestamp)(nil),                   // 75: google.protobuf.Timestamp
+	(*clustermetadata.QuorumRule)(nil),              // 76: clustermetadata.QuorumRule
+	(*clustermetadata.DurabilityPolicy)(nil),        // 77: clustermetadata.DurabilityPolicy
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
-	70, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
+	71, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
 	5,  // 1: multipoolermanagerdata.StandbyReplicationStatus.primary_conn_info:type_name -> multipoolermanagerdata.PrimaryConnInfo
-	70, // 2: multipoolermanagerdata.StandbyReplicationStatus.heartbeat_lag:type_name -> google.protobuf.Duration
-	70, // 3: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
-	71, // 4: multipoolermanagerdata.SetPrimaryConnInfoRequest.primary:type_name -> clustermetadata.MultiPooler
+	71, // 2: multipoolermanagerdata.StandbyReplicationStatus.heartbeat_lag:type_name -> google.protobuf.Duration
+	71, // 3: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
+	72, // 4: multipoolermanagerdata.SetPrimaryConnInfoRequest.primary:type_name -> clustermetadata.MultiPooler
 	0,  // 5: multipoolermanagerdata.StopReplicationRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
 	6,  // 6: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
 	6,  // 7: multipoolermanagerdata.StandbyReplicationStatusResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
 	3,  // 8: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
 	1,  // 9: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	72, // 10: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
-	72, // 11: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
+	73, // 10: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
+	73, // 11: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
 	17, // 12: multipoolermanagerdata.PrimaryStatus.sync_replication_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
 	18, // 13: multipoolermanagerdata.PrimaryStatusResponse.status:type_name -> multipoolermanagerdata.PrimaryStatus
-	73, // 14: multipoolermanagerdata.Status.pooler_type:type_name -> clustermetadata.PoolerType
+	74, // 14: multipoolermanagerdata.Status.pooler_type:type_name -> clustermetadata.PoolerType
 	18, // 15: multipoolermanagerdata.Status.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
 	6,  // 16: multipoolermanagerdata.Status.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
 	50, // 17: multipoolermanagerdata.Status.consensus_term:type_name -> multipoolermanagerdata.ConsensusTerm
 	23, // 18: multipoolermanagerdata.StatusResponse.status:type_name -> multipoolermanagerdata.Status
-	70, // 19: multipoolermanagerdata.ReplicationStats.write_lag:type_name -> google.protobuf.Duration
-	70, // 20: multipoolermanagerdata.ReplicationStats.flush_lag:type_name -> google.protobuf.Duration
-	70, // 21: multipoolermanagerdata.ReplicationStats.replay_lag:type_name -> google.protobuf.Duration
-	72, // 22: multipoolermanagerdata.FollowerInfo.follower_id:type_name -> clustermetadata.ID
+	71, // 19: multipoolermanagerdata.ReplicationStats.write_lag:type_name -> google.protobuf.Duration
+	71, // 20: multipoolermanagerdata.ReplicationStats.flush_lag:type_name -> google.protobuf.Duration
+	71, // 21: multipoolermanagerdata.ReplicationStats.replay_lag:type_name -> google.protobuf.Duration
+	73, // 22: multipoolermanagerdata.FollowerInfo.follower_id:type_name -> clustermetadata.ID
 	26, // 23: multipoolermanagerdata.FollowerInfo.replication_stats:type_name -> multipoolermanagerdata.ReplicationStats
 	27, // 24: multipoolermanagerdata.GetFollowersResponse.followers:type_name -> multipoolermanagerdata.FollowerInfo
 	17, // 25: multipoolermanagerdata.GetFollowersResponse.sync_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	70, // 26: multipoolermanagerdata.EmergencyDemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
-	71, // 27: multipoolermanagerdata.DemoteStalePrimaryRequest.source:type_name -> clustermetadata.MultiPooler
+	71, // 26: multipoolermanagerdata.EmergencyDemoteRequest.drain_timeout:type_name -> google.protobuf.Duration
+	72, // 27: multipoolermanagerdata.DemoteStalePrimaryRequest.source:type_name -> clustermetadata.MultiPooler
 	0,  // 28: multipoolermanagerdata.StopReplicationAndGetStatusRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
 	6,  // 29: multipoolermanagerdata.StopReplicationAndGetStatusResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
-	73, // 30: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
+	74, // 30: multipoolermanagerdata.ChangeTypeRequest.pooler_type:type_name -> clustermetadata.PoolerType
 	44, // 31: multipoolermanagerdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
 	6,  // 32: multipoolermanagerdata.ResetReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
 	3,  // 33: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
 	1,  // 34: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	72, // 35: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
+	73, // 35: multipoolermanagerdata.ConfigureSynchronousReplicationRequest.standby_ids:type_name -> clustermetadata.ID
 	2,  // 36: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.operation:type_name -> multipoolermanagerdata.StandbyUpdateOperation
-	72, // 37: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
-	72, // 38: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.coordinator_id:type_name -> clustermetadata.ID
-	72, // 39: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
-	74, // 40: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
-	72, // 41: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
-	75, // 42: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
-	61, // 43: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	61, // 44: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
-	4,  // 45: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	73, // 46: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
-	76, // 47: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
-	75, // 48: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
-	71, // 49: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
-	50, // [50:50] is the sub-list for method output_type
-	50, // [50:50] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	73, // 37: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.standby_ids:type_name -> clustermetadata.ID
+	73, // 38: multipoolermanagerdata.UpdateSynchronousStandbyListRequest.coordinator_id:type_name -> clustermetadata.ID
+	73, // 39: multipoolermanagerdata.ConsensusTerm.accepted_term_from_coordinator_id:type_name -> clustermetadata.ID
+	75, // 40: multipoolermanagerdata.ConsensusTerm.last_acceptance_time:type_name -> google.protobuf.Timestamp
+	73, // 41: multipoolermanagerdata.ConsensusTerm.leader_id:type_name -> clustermetadata.ID
+	76, // 42: multipoolermanagerdata.InitializeEmptyPrimaryRequest.durability_quorum_rule:type_name -> clustermetadata.QuorumRule
+	70, // 43: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
+	61, // 44: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	61, // 45: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
+	4,  // 46: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	74, // 47: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
+	77, // 48: multipoolermanagerdata.GetDurabilityPolicyResponse.policy:type_name -> clustermetadata.DurabilityPolicy
+	76, // 49: multipoolermanagerdata.CreateDurabilityPolicyRequest.quorum_rule:type_name -> clustermetadata.QuorumRule
+	72, // 50: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
+	51, // [51:51] is the sub-list for method output_type
+	51, // [51:51] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
@@ -4498,7 +4515,7 @@ func file_multipoolermanagerdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multipoolermanagerdata_proto_rawDesc), len(file_multipoolermanagerdata_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   65,
+			NumMessages:   66,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

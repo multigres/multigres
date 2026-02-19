@@ -649,6 +649,10 @@ message BackupRequest {
   // If empty, multipooler generates one using the same format.
   // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
   string job_id = 3;
+
+  // Runtime overrides for testing and debugging.
+  // Production should leave this empty.
+  map<string, string> overrides = 10;
 }
 
 // BackupResponse contains the result of a backup operation
