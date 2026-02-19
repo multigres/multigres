@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -74,7 +75,7 @@ func (t *TransactionPrimitive) StreamExecute(
 
 	default:
 		// For other transaction statements (SAVEPOINT, etc.), pass through to backend
-		return exec.StreamExecute(ctx, conn, t.TableGroup, "", t.Query, state, callback)
+		return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, state, callback)
 	}
 }
 
