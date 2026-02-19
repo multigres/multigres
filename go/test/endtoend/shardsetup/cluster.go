@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -33,6 +32,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // MultipoolerInstance represents a multipooler instance, which is a pair of pgctld + multipooler processes.
@@ -49,9 +49,14 @@ type ShardSetup struct {
 	TempDir        string
 	TempDirCleanup func()
 	EtcdClientAddr string
-	EtcdCmd        *exec.Cmd
+	EtcdCmd        *executil.Cmd
 	TopoServer     topoclient.Store
 	CellName       string
+
+	// Context for all processes started by this ShardSetup.
+	// Cancelled when Cleanup() is called to gracefully terminate all processes.
+	runningCtx context.Context
+	cancel     context.CancelFunc
 
 	// MultipoolerInstances indexed by name (e.g., "pooler-1", "pooler-2", "pooler-3")
 	Multipoolers map[string]*MultipoolerInstance
@@ -403,37 +408,16 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Stop multigateway first (before multipoolers it routes to)
-	if s.Multigateway != nil {
-		s.Multigateway.Stop()
+	// Cancel the context to gracefully terminate all processes (multigateway, multiorch,
+	// multipoolers, pgctld, etcd). The executil package will handle SIGTERM → SIGKILL
+	// escalation with the default grace period (10s).
+	if s.cancel != nil {
+		s.cancel()
 	}
 
-	// Stop multiorch instances (they orchestrate the shard)
-	for _, mo := range s.MultiOrchInstances {
-		if mo != nil {
-			mo.Stop()
-		}
-	}
-
-	// Stop multipooler instances (multipooler, then pgctld)
-	for _, inst := range s.Multipoolers {
-		if inst.Multipooler != nil {
-			inst.Multipooler.Stop()
-		}
-		if inst.Pgctld != nil {
-			inst.Pgctld.Stop()
-		}
-	}
-
-	// Close topology server
+	// Close topology server (can do this immediately since context cancellation is async)
 	if s.TopoServer != nil {
 		s.TopoServer.Close()
-	}
-
-	// Stop etcd
-	if s.EtcdCmd != nil && s.EtcdCmd.Process != nil {
-		_ = s.EtcdCmd.Process.Kill()
-		_ = s.EtcdCmd.Wait()
 	}
 
 	// Clean up temp directory only if tests passed

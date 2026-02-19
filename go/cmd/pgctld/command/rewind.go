@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
+
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 type PgRewindResult struct {
@@ -47,12 +47,12 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 		"target_pgdata", poolerDir+"/pg_data",
 		"dry_run", dryRun)
 
-	cmd := exec.CommandContext(ctx, "pg_rewind", args...)
+	cmd := executil.Command(ctx, "pg_rewind", args...)
 
 	// Set PGPASSWORD environment variable for pg_rewind to use
 	// pg_rewind doesn't reliably use passwords from connection strings
 	if password != "" {
-		cmd.Env = append(os.Environ(), "PGPASSWORD="+password)
+		cmd.AddEnv("PGPASSWORD=" + password)
 	}
 
 	// Capture both Stdout and Stderr

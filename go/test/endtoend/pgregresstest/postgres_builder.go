@@ -29,6 +29,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 const (
@@ -125,7 +127,7 @@ func (pb *PostgresBuilder) EnsureSource(t *testing.T, ctx context.Context) error
 		t.Logf("Found cached PostgreSQL source at %s, verifying version...", pb.SourceDir)
 
 		// Verify it's the correct version
-		cmd := exec.CommandContext(ctx, "git", "-C", pb.SourceDir, "describe", "--tags", "--exact-match")
+		cmd := executil.Command(ctx, "git", "-C", pb.SourceDir, "describe", "--tags", "--exact-match")
 		output, err := cmd.Output()
 		if err == nil && strings.TrimSpace(string(output)) == PostgresVersion {
 			t.Logf("Using cached PostgreSQL source (version %s)", PostgresVersion)
@@ -145,7 +147,7 @@ func (pb *PostgresBuilder) EnsureSource(t *testing.T, ctx context.Context) error
 
 	// Clone PostgreSQL repository
 	t.Logf("Cloning PostgreSQL %s from %s...", PostgresVersion, PostgresGitRepo)
-	cmd := exec.CommandContext(ctx, "git", "clone",
+	cmd := executil.Command(ctx, "git", "clone",
 		"--depth=1",
 		"--branch", PostgresVersion,
 		PostgresGitRepo,
@@ -173,7 +175,7 @@ func (pb *PostgresBuilder) Build(t *testing.T, ctx context.Context) error {
 
 	// Step 1: Run ./configure
 	t.Logf("Configuring PostgreSQL with ./configure...")
-	configureCmd := exec.CommandContext(ctx, filepath.Join(pb.SourceDir, "configure"),
+	configureCmd := executil.Command(ctx, filepath.Join(pb.SourceDir, "configure"),
 		"--prefix="+pb.InstallDir,
 		"--enable-cassert=no",
 		"--enable-tap-tests=no",
@@ -189,7 +191,7 @@ func (pb *PostgresBuilder) Build(t *testing.T, ctx context.Context) error {
 
 	// Step 2: Run make
 	t.Logf("Building PostgreSQL with make...")
-	makeCmd := exec.CommandContext(ctx, "make", "-j", "4") // Use 4 parallel jobs
+	makeCmd := executil.Command(ctx, "make", "-j", "4") // Use 4 parallel jobs
 	makeCmd.Dir = pb.BuildDir
 	makeCmd.Stdout = os.Stdout
 	makeCmd.Stderr = os.Stderr
@@ -200,7 +202,7 @@ func (pb *PostgresBuilder) Build(t *testing.T, ctx context.Context) error {
 
 	// Step 3: Run make install
 	t.Logf("Installing PostgreSQL to %s...", pb.InstallDir)
-	installCmd := exec.CommandContext(ctx, "make", "install")
+	installCmd := executil.Command(ctx, "make", "install")
 	installCmd.Dir = pb.BuildDir
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
@@ -265,7 +267,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 		t.Logf("Running full PostgreSQL regression test suite (installcheck)")
 	}
 
-	cmd := exec.CommandContext(ctx, "make", makeArgs...)
+	cmd := executil.Command(ctx, "make", makeArgs...)
 
 	// Start the process in its own process group so we can kill the entire tree
 	// (make → pg_regress → psql) when the context expires. Without this,
@@ -277,7 +279,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	}
 
 	// Set environment variables for connection
-	cmd.Env = append(os.Environ(),
+	cmd.AddEnv(
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
 		"PGUSER=postgres",

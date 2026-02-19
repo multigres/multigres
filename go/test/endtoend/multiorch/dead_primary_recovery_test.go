@@ -20,6 +20,7 @@
 package multiorch
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/executil"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -858,8 +860,10 @@ func killMultipooler(t *testing.T, multipooler *shardsetup.MultipoolerInstance) 
 	pid := multipooler.Multipooler.Process.Process.Pid
 	t.Logf("Killing multipooler (PID %d) on %s", pid, multipooler.Name)
 
-	err := multipooler.Multipooler.Process.Process.Kill()
-	require.NoError(t, err, "Failed to kill multipooler process")
+	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	killErr, _ := executil.KillProcess(killCtx, multipooler.Multipooler.Process.Process)
+	cancel()
+	require.NoError(t, killErr, "Failed to kill multipooler process")
 
 	// Wait for the process to actually terminate
 	_ = multipooler.Multipooler.Process.Wait()

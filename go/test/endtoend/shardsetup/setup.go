@@ -37,6 +37,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -286,15 +287,22 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	tempDir, tempDirCleanup := testutil.TempDir(t, "shardsetup_test")
 
+	// Create a long-lived context for all processes in this ShardSetup.
+	// This context is cancelled in Cleanup() to gracefully terminate all processes.
+	// Derive from context.Background() rather than the span context to avoid premature cancellation.
+	runningCtx, cancel := context.WithCancel(context.Background())
+
 	// Start etcd for topology
 	t.Logf("Starting etcd for topology...")
 
 	etcdDataDir := filepath.Join(tempDir, "etcd_data")
 	if err := os.MkdirAll(etcdDataDir, 0o755); err != nil {
+		cancel()
 		t.Fatalf("failed to create etcd data directory: %v", err)
 	}
-	etcdClientAddr, etcdCmd, err := startEtcd(ctx, t, etcdDataDir)
+	etcdClientAddr, etcdCmd, err := startEtcd(runningCtx, t, etcdDataDir)
 	if err != nil {
+		cancel()
 		t.Fatalf("failed to start etcd: %v", err)
 	}
 
@@ -350,6 +358,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		DurabilityPolicy: config.DurabilityPolicy,
 	})
 	if err != nil {
+		cancel()
 		t.Fatalf("failed to create database in topology: %v", err)
 	}
 
@@ -360,6 +369,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		EtcdCmd:            etcdCmd,
 		TopoServer:         ts,
 		CellName:           config.CellName,
+		runningCtx:         runningCtx,
+		cancel:             cancel,
 		Multipoolers:       make(map[string]*MultipoolerInstance),
 		MultiOrchInstances: make(map[string]*ProcessInstance),
 		BackupLocation:     backupLocation,
@@ -381,7 +392,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	}
 
 	// Start all processes (pgctld, multipooler, pgbackrest) for all nodes
-	startMultipoolerInstances(ctx, t, multipoolerInstances)
+	// Use setup.ctx for process lifetime, passed ctx only for tracing
+	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances)
 
 	// Create multiorch instances (if any requested by the test)
 	setup.createMultiOrchInstances(t, config)
@@ -398,7 +410,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
 
 		// Start multigateway (waits for Status RPC ready)
-		if err := mgw.Start(ctx, t); err != nil {
+		// Use setupCtx for process lifetime, passed ctx only for tracing
+		if err := mgw.Start(runningCtx, t); err != nil {
 			t.Fatalf("failed to start multigateway: %v", err)
 		}
 		t.Logf("Started multigateway")
@@ -754,7 +767,7 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 // startEtcd starts etcd without registering t.Cleanup() handlers
 // since cleanup is handled manually by TestMain via Cleanup().
 // Follows the pattern from multipooler/setup_test.go:startEtcdForSharedSetup.
-func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec.Cmd, error) {
+func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *executil.Cmd, error) {
 	t.Helper()
 
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/startEtcd")
@@ -783,7 +796,9 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	// Use the passed context for process lifetime (ShardSetup.ctx).
+	// This context is cancelled in ShardSetup.Cleanup() to gracefully terminate etcd.
+	cmd := executil.Command(ctx, "run_in_test.sh", "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
@@ -793,11 +808,9 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 		"-data-dir", dataDir)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
-	cmd.Env = append(os.Environ(),
-		"MULTIGRES_TESTDATA_DIR="+dataDir,
-	)
+	cmd.AddEnv("MULTIGRES_TESTDATA_DIR=" + dataDir)
 
-	if err := telemetry.StartCmd(ctx, cmd); err != nil {
+	if err := cmd.Start(); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to start etcd")
 		return "", nil, fmt.Errorf("failed to start etcd: %w", err)
@@ -806,7 +819,10 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := etcdtopo.WaitForReady(waitCtx, clientAddr); err != nil {
-		_ = cmd.Process.Kill()
+		// Stop the etcd process if it's not ready
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		_, _ = cmd.Stop(stopCtx)
+		stopCancel()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "etcd not ready")
 		return "", nil, err
@@ -1046,9 +1062,12 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		t.Logf("SetupTest: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
 	}
 
-	// Register cleanup handler to restore to baseline state
+	// Register cleanup handler to restore to baseline state.
+	// Note: Processes are still running during t.Cleanup() - they're only stopped later
+	// by ShardSetup.Cleanup() which cancels s.ctx.
 	t.Cleanup(func() {
 		// Stop multiorch instances first (clean state = multiorch not running)
+		// Use explicit termination here since multiorch should be stopped before restoring state.
 		for name, mo := range s.MultiOrchInstances {
 			if mo.IsRunning() {
 				mo.TerminateGracefully(t, 5*time.Second)

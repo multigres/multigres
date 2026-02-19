@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -27,8 +26,8 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
-	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // startPostgreSQLViaPgctld checks PostgreSQL status via pgctld gRPC.
@@ -312,9 +311,9 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		}
 	}
 
-	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
+	pgctldCmd := executil.Command(ctx, pgctldBinary, serverArgs...)
 
-	if err := telemetry.StartCmd(ctx, pgctldCmd); err != nil {
+	if err := pgctldCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start pgctld server: %w", err)
 	}
 

@@ -30,6 +30,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/ctxutil"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
@@ -184,8 +186,12 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 			}
 
 			// Force kill if still running
-			if err := cmd.Process.Kill(); err != nil {
-				slog.Error("cmd.Process.Kill() failed killing etcd", "error", err)
+			// Use ctxutil.Detach since we're in cleanup after the test context is done
+			killCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
+			killErr, _ := executil.KillProcess(killCtx, cmd.Process)
+			cancel()
+			if killErr != nil {
+				slog.Error("executil.KillProcess() failed killing etcd", "error", killErr)
 			}
 
 			// Wait for process to finish

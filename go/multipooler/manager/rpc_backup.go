@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -33,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
@@ -155,7 +155,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	args = append(args, "backup")
 
-	cmd := exec.CommandContext(ctx, "pgbackrest", args...)
+	cmd := executil.Command(ctx, "pgbackrest", args...)
 
 	// Execute backup with progress logging
 	output, err := pm.runLongCommand(ctx, cmd, "pgbackrest backup")
@@ -175,7 +175,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	verifyCtx, verifyCancel := context.WithTimeout(ctx, backup.VerifyTimeout)
 	defer verifyCancel()
 
-	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
+	verifyCmd := executil.Command(verifyCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--set="+foundBackupID,
@@ -320,7 +320,7 @@ func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, back
 
 	args = append(args, "restore")
 
-	cmd := exec.CommandContext(restoreCtx, "pgbackrest", args...)
+	cmd := executil.Command(restoreCtx, "pgbackrest", args...)
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
@@ -423,7 +423,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	queryCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(queryCtx, "pgbackrest",
+	cmd := executil.Command(queryCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -610,7 +610,7 @@ func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath string
 // safeCombinedOutput executes a command and streams its output to avoid blocking.
 // This prevents deadlocks when commands produce large amounts of output that
 // would fill the internal pipe buffers. Returns combined stdout and stderr.
-func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
+func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -677,7 +677,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	infoCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(infoCtx, "pgbackrest",
+	cmd := executil.Command(infoCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -866,7 +866,7 @@ func (pm *MultiPoolerManager) pgbackrestPath() string {
 // runLongCommand executes a long-running command with periodic progress logging.
 // Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
 // to ensure proper cleanup on context cancellation.
-func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
+func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
 	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
 
 	startTime := time.Now()
