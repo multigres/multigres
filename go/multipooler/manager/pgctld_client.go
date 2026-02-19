@@ -27,7 +27,7 @@ import (
 // for state-changing operations. This prevents concurrent modifications to postgres
 // state (e.g., monitor restarting postgres while a manual operation is in progress).
 //
-// State-changing operations (Start, Stop, Restart, InitDataDir, PgRewind, ReloadConfig)
+// State-changing operations (Start, Stop, Restart, InitDataDir, PgRewind, CrashRecovery, ReloadConfig)
 // require the caller to hold the action lock. Read-only operations (Status, Version)
 // can be called without the lock.
 type protectedPgctldClient struct {
@@ -90,6 +90,14 @@ func (p *protectedPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRe
 		return nil, fmt.Errorf("PgRewind requires action lock to be held: %w", err)
 	}
 	return p.client.PgRewind(ctx, req, opts...)
+}
+
+// CrashRecovery performs crash recovery on PostgreSQL. Requires action lock to be held by caller.
+func (p *protectedPgctldClient) CrashRecovery(ctx context.Context, req *pgctldpb.CrashRecoveryRequest, opts ...grpc.CallOption) (*pgctldpb.CrashRecoveryResponse, error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return nil, fmt.Errorf("CrashRecovery requires action lock to be held: %w", err)
+	}
+	return p.client.CrashRecovery(ctx, req, opts...)
 }
 
 // Status returns PostgreSQL status. Does not require action lock (read-only operation).
