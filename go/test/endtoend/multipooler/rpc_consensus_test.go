@@ -216,7 +216,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 		t.Log("Testing BeginTerm with NO_ACTION on standby...")
 
 		// First, set up replication so we can verify it's preserved after NO_ACTION
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -229,7 +229,7 @@ func TestConsensus_BeginTerm(t *testing.T) {
 			CurrentTerm:           expectedTerm,
 			StartReplicationAfter: true,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for replication config to converge
@@ -725,14 +725,14 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
 		}
-		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryConnInfoReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           newTerm,
 			Force:                 true,
 		}
-		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
 		// Stop replication on standby to prepare for promotion
@@ -747,12 +747,12 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 
 		// Promote standby to primary
 		// Use Force=true since we're testing BeginTerm auto-demote, not term validation
-		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+		promoteReq := &consensusdatapb.PromoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			ExpectedLsn:   standbyLSN,
 			Force:         true,
 		}
-		_, err = standbyManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		_, err = standbyConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote should succeed on standby")
 		t.Log("Standby promoted to primary")
 
@@ -779,12 +779,12 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		require.NoError(t, err)
 		primaryLSN := primaryStatusResp.Status.LastReplayLsn
 
-		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
+		promoteReq2 := &consensusdatapb.PromoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			ExpectedLsn:   primaryLSN,
 			Force:         true,
 		}
-		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
+		_, err = primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
 		require.NoError(t, err, "Promote should succeed on original primary")
 
 		// Verify original primary is primary again

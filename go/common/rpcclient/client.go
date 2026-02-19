@@ -137,6 +137,15 @@ type MultiPoolerClient interface {
 	// CanReachPrimary checks if the multipooler can reach the primary.
 	CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.CanReachPrimaryRequest) (*consensusdatapb.CanReachPrimaryResponse, error)
 
+	// WaitForLSN waits for the multipooler to replay WAL up to the target LSN.
+	WaitForLSN(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.WaitForLSNRequest) (*consensusdatapb.WaitForLSNResponse, error)
+
+	// SetPrimaryConnInfo configures the standby's connection to a primary.
+	SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryConnInfoRequest) (*consensusdatapb.SetPrimaryConnInfoResponse, error)
+
+	// Promote promotes the multipooler to primary.
+	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error)
+
 	//
 	// Manager Service Methods - Initialization
 	//
@@ -156,12 +165,6 @@ type MultiPoolerClient interface {
 	//
 	// Manager Service Methods - Replication
 	//
-
-	// WaitForLSN waits for the multipooler to replay WAL up to the target LSN.
-	WaitForLSN(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error)
-
-	// SetPrimaryConnInfo configures the standby's connection to a primary.
-	SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error)
 
 	// StartReplication starts WAL replay on standby.
 	StartReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error)
@@ -207,9 +210,6 @@ type MultiPoolerClient interface {
 	//
 	// Manager Service Methods - Promotion and Demotion
 	//
-
-	// Promote promotes the multipooler to primary.
-	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error)
 
 	// EmergencyDemote demotes the multipooler from primary.
 	EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error)

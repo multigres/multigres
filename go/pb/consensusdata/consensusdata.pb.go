@@ -22,8 +22,10 @@ package consensusdata
 
 import (
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -763,11 +765,403 @@ func (x *TimelineInfo) GetTimelineId() int64 {
 	return 0
 }
 
+// Wait for PostgreSQL server to reach a specific LSN position
+type WaitForLSNRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Target LSN position to wait for (PostgreSQL LSN format: X/XXXXXXXX)
+	TargetLsn string `protobuf:"bytes,1,opt,name=target_lsn,json=targetLsn,proto3" json:"target_lsn,omitempty"`
+	// Timeout (zero duration means no timeout)
+	Timeout       *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitForLSNRequest) Reset() {
+	*x = WaitForLSNRequest{}
+	mi := &file_consensusdata_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitForLSNRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitForLSNRequest) ProtoMessage() {}
+
+func (x *WaitForLSNRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitForLSNRequest.ProtoReflect.Descriptor instead.
+func (*WaitForLSNRequest) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *WaitForLSNRequest) GetTargetLsn() string {
+	if x != nil {
+		return x.TargetLsn
+	}
+	return ""
+}
+
+func (x *WaitForLSNRequest) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
+type WaitForLSNResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitForLSNResponse) Reset() {
+	*x = WaitForLSNResponse{}
+	mi := &file_consensusdata_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitForLSNResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitForLSNResponse) ProtoMessage() {}
+
+func (x *WaitForLSNResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitForLSNResponse.ProtoReflect.Descriptor instead.
+func (*WaitForLSNResponse) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{11}
+}
+
+// SetPrimaryConnInfo sets the primary connection info for a standby server
+type SetPrimaryConnInfoRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Primary pooler metadata. Contains id (cell+name), hostname, and port_map.
+	// The postgres port is extracted from port_map["postgres"].
+	Primary *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=primary,proto3" json:"primary,omitempty"`
+	// Whether to stop replication before making changes
+	StopReplicationBefore bool `protobuf:"varint,2,opt,name=stop_replication_before,json=stopReplicationBefore,proto3" json:"stop_replication_before,omitempty"`
+	// Whether to start replication after making changes
+	StartReplicationAfter bool `protobuf:"varint,3,opt,name=start_replication_after,json=startReplicationAfter,proto3" json:"start_replication_after,omitempty"`
+	// Current term for consensus (used by MultiOrch during initialization)
+	CurrentTerm int64 `protobuf:"varint,4,opt,name=current_term,json=currentTerm,proto3" json:"current_term,omitempty"`
+	// Force the operation even if the term doesn't match
+	Force         bool `protobuf:"varint,5,opt,name=force,proto3" json:"force,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetPrimaryConnInfoRequest) Reset() {
+	*x = SetPrimaryConnInfoRequest{}
+	mi := &file_consensusdata_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetPrimaryConnInfoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetPrimaryConnInfoRequest) ProtoMessage() {}
+
+func (x *SetPrimaryConnInfoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetPrimaryConnInfoRequest.ProtoReflect.Descriptor instead.
+func (*SetPrimaryConnInfoRequest) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SetPrimaryConnInfoRequest) GetPrimary() *clustermetadata.MultiPooler {
+	if x != nil {
+		return x.Primary
+	}
+	return nil
+}
+
+func (x *SetPrimaryConnInfoRequest) GetStopReplicationBefore() bool {
+	if x != nil {
+		return x.StopReplicationBefore
+	}
+	return false
+}
+
+func (x *SetPrimaryConnInfoRequest) GetStartReplicationAfter() bool {
+	if x != nil {
+		return x.StartReplicationAfter
+	}
+	return false
+}
+
+func (x *SetPrimaryConnInfoRequest) GetCurrentTerm() int64 {
+	if x != nil {
+		return x.CurrentTerm
+	}
+	return 0
+}
+
+func (x *SetPrimaryConnInfoRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+type SetPrimaryConnInfoResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetPrimaryConnInfoResponse) Reset() {
+	*x = SetPrimaryConnInfoResponse{}
+	mi := &file_consensusdata_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetPrimaryConnInfoResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetPrimaryConnInfoResponse) ProtoMessage() {}
+
+func (x *SetPrimaryConnInfoResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetPrimaryConnInfoResponse.ProtoReflect.Descriptor instead.
+func (*SetPrimaryConnInfoResponse) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{13}
+}
+
+// Promote promotes a replica to leader (Multigres-level operation)
+// This is called during the Propagate stage of generalized consensus
+// to safely transition a standby to primary and reconfigure replication.
+type PromoteRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Consensus term for this promotion operation
+	// Used to ensure this promotion corresponds to the correct term
+	// When force=true, this field is ignored and should be passed as 0
+	ConsensusTerm int64 `protobuf:"varint,1,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
+	// Expected LSN position before promotion (optional, for validation)
+	// By the Propagate stage, replication should already be stopped and the LSN frozen.
+	// This is an assertion to verify the pooler has the expected durable state.
+	// If the actual LSN doesn't match, this indicates an error in an earlier consensus stage.
+	// If empty, skip LSN validation.
+	ExpectedLsn string `protobuf:"bytes,2,opt,name=expected_lsn,json=expectedLsn,proto3" json:"expected_lsn,omitempty"`
+	// Synchronous replication configuration to apply after promotion
+	// This rewires the cohort for the new topology
+	SyncReplicationConfig *multipoolermanagerdata.ConfigureSynchronousReplicationRequest `protobuf:"bytes,3,opt,name=sync_replication_config,json=syncReplicationConfig,proto3" json:"sync_replication_config,omitempty"`
+	// Force the operation even if term validation fails
+	// Should only be used in recovery scenarios
+	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
+	// Reason for the election (e.g., "dead_primary", "manual_failover", "bootstrap")
+	Reason string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Coordinator ID that ran this election
+	CoordinatorId string `protobuf:"bytes,6,opt,name=coordinator_id,json=coordinatorId,proto3" json:"coordinator_id,omitempty"`
+	// List of pooler names that were in the cohort
+	CohortMembers []string `protobuf:"bytes,7,rep,name=cohort_members,json=cohortMembers,proto3" json:"cohort_members,omitempty"`
+	// List of pooler names that accepted the term during BeginTerm
+	AcceptedMembers []string `protobuf:"bytes,8,rep,name=accepted_members,json=acceptedMembers,proto3" json:"accepted_members,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PromoteRequest) Reset() {
+	*x = PromoteRequest{}
+	mi := &file_consensusdata_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PromoteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PromoteRequest) ProtoMessage() {}
+
+func (x *PromoteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PromoteRequest.ProtoReflect.Descriptor instead.
+func (*PromoteRequest) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PromoteRequest) GetConsensusTerm() int64 {
+	if x != nil {
+		return x.ConsensusTerm
+	}
+	return 0
+}
+
+func (x *PromoteRequest) GetExpectedLsn() string {
+	if x != nil {
+		return x.ExpectedLsn
+	}
+	return ""
+}
+
+func (x *PromoteRequest) GetSyncReplicationConfig() *multipoolermanagerdata.ConfigureSynchronousReplicationRequest {
+	if x != nil {
+		return x.SyncReplicationConfig
+	}
+	return nil
+}
+
+func (x *PromoteRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+func (x *PromoteRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *PromoteRequest) GetCoordinatorId() string {
+	if x != nil {
+		return x.CoordinatorId
+	}
+	return ""
+}
+
+func (x *PromoteRequest) GetCohortMembers() []string {
+	if x != nil {
+		return x.CohortMembers
+	}
+	return nil
+}
+
+func (x *PromoteRequest) GetAcceptedMembers() []string {
+	if x != nil {
+		return x.AcceptedMembers
+	}
+	return nil
+}
+
+type PromoteResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// LSN position after promotion
+	LsnPosition string `protobuf:"bytes,1,opt,name=lsn_position,json=lsnPosition,proto3" json:"lsn_position,omitempty"`
+	// Whether the pooler was already promoted (idempotent check)
+	WasAlreadyPrimary bool `protobuf:"varint,2,opt,name=was_already_primary,json=wasAlreadyPrimary,proto3" json:"was_already_primary,omitempty"`
+	// Consensus term at the time of promotion
+	ConsensusTerm int64 `protobuf:"varint,3,opt,name=consensus_term,json=consensusTerm,proto3" json:"consensus_term,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PromoteResponse) Reset() {
+	*x = PromoteResponse{}
+	mi := &file_consensusdata_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PromoteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PromoteResponse) ProtoMessage() {}
+
+func (x *PromoteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_consensusdata_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PromoteResponse.ProtoReflect.Descriptor instead.
+func (*PromoteResponse) Descriptor() ([]byte, []int) {
+	return file_consensusdata_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *PromoteResponse) GetLsnPosition() string {
+	if x != nil {
+		return x.LsnPosition
+	}
+	return ""
+}
+
+func (x *PromoteResponse) GetWasAlreadyPrimary() bool {
+	if x != nil {
+		return x.WasAlreadyPrimary
+	}
+	return false
+}
+
+func (x *PromoteResponse) GetConsensusTerm() int64 {
+	if x != nil {
+		return x.ConsensusTerm
+	}
+	return 0
+}
+
 var File_consensusdata_proto protoreflect.FileDescriptor
 
 const file_consensusdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x01\n" +
+	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\xba\x01\n" +
 	"\vWALPosition\x12\x1f\n" +
 	"\vcurrent_lsn\x18\x01 \x01(\tR\n" +
 	"currentLsn\x12(\n" +
@@ -815,7 +1209,32 @@ const file_consensusdata_proto_rawDesc = "" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"/\n" +
 	"\fTimelineInfo\x12\x1f\n" +
 	"\vtimeline_id\x18\x01 \x01(\x03R\n" +
-	"timelineId*s\n" +
+	"timelineId\"g\n" +
+	"\x11WaitForLSNRequest\x12\x1d\n" +
+	"\n" +
+	"target_lsn\x18\x01 \x01(\tR\ttargetLsn\x123\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x14\n" +
+	"\x12WaitForLSNResponse\"\xfc\x01\n" +
+	"\x19SetPrimaryConnInfoRequest\x126\n" +
+	"\aprimary\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\aprimary\x126\n" +
+	"\x17stop_replication_before\x18\x02 \x01(\bR\x15stopReplicationBefore\x126\n" +
+	"\x17start_replication_after\x18\x03 \x01(\bR\x15startReplicationAfter\x12!\n" +
+	"\fcurrent_term\x18\x04 \x01(\x03R\vcurrentTerm\x12\x14\n" +
+	"\x05force\x18\x05 \x01(\bR\x05force\"\x1c\n" +
+	"\x1aSetPrimaryConnInfoResponse\"\xf9\x02\n" +
+	"\x0ePromoteRequest\x12%\n" +
+	"\x0econsensus_term\x18\x01 \x01(\x03R\rconsensusTerm\x12!\n" +
+	"\fexpected_lsn\x18\x02 \x01(\tR\vexpectedLsn\x12v\n" +
+	"\x17sync_replication_config\x18\x03 \x01(\v2>.multipoolermanagerdata.ConfigureSynchronousReplicationRequestR\x15syncReplicationConfig\x12\x14\n" +
+	"\x05force\x18\x04 \x01(\bR\x05force\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\x12%\n" +
+	"\x0ecoordinator_id\x18\x06 \x01(\tR\rcoordinatorId\x12%\n" +
+	"\x0ecohort_members\x18\a \x03(\tR\rcohortMembers\x12)\n" +
+	"\x10accepted_members\x18\b \x03(\tR\x0facceptedMembers\"\x8b\x01\n" +
+	"\x0fPromoteResponse\x12!\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\x12.\n" +
+	"\x13was_already_primary\x18\x02 \x01(\bR\x11wasAlreadyPrimary\x12%\n" +
+	"\x0econsensus_term\x18\x03 \x01(\x03R\rconsensusTerm*s\n" +
 	"\x0fBeginTermAction\x12!\n" +
 	"\x1dBEGIN_TERM_ACTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bBEGIN_TERM_ACTION_NO_ACTION\x10\x01\x12\x1c\n" +
@@ -834,35 +1253,47 @@ func file_consensusdata_proto_rawDescGZIP() []byte {
 }
 
 var file_consensusdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_consensusdata_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_consensusdata_proto_goTypes = []any{
-	(BeginTermAction)(0),            // 0: consensusdata.BeginTermAction
-	(*WALPosition)(nil),             // 1: consensusdata.WALPosition
-	(*BeginTermRequest)(nil),        // 2: consensusdata.BeginTermRequest
-	(*BeginTermResponse)(nil),       // 3: consensusdata.BeginTermResponse
-	(*StatusRequest)(nil),           // 4: consensusdata.StatusRequest
-	(*StatusResponse)(nil),          // 5: consensusdata.StatusResponse
-	(*LeadershipViewRequest)(nil),   // 6: consensusdata.LeadershipViewRequest
-	(*LeadershipViewResponse)(nil),  // 7: consensusdata.LeadershipViewResponse
-	(*CanReachPrimaryRequest)(nil),  // 8: consensusdata.CanReachPrimaryRequest
-	(*CanReachPrimaryResponse)(nil), // 9: consensusdata.CanReachPrimaryResponse
-	(*TimelineInfo)(nil),            // 10: consensusdata.TimelineInfo
-	(*timestamppb.Timestamp)(nil),   // 11: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),      // 12: clustermetadata.ID
+	(BeginTermAction)(0),                // 0: consensusdata.BeginTermAction
+	(*WALPosition)(nil),                 // 1: consensusdata.WALPosition
+	(*BeginTermRequest)(nil),            // 2: consensusdata.BeginTermRequest
+	(*BeginTermResponse)(nil),           // 3: consensusdata.BeginTermResponse
+	(*StatusRequest)(nil),               // 4: consensusdata.StatusRequest
+	(*StatusResponse)(nil),              // 5: consensusdata.StatusResponse
+	(*LeadershipViewRequest)(nil),       // 6: consensusdata.LeadershipViewRequest
+	(*LeadershipViewResponse)(nil),      // 7: consensusdata.LeadershipViewResponse
+	(*CanReachPrimaryRequest)(nil),      // 8: consensusdata.CanReachPrimaryRequest
+	(*CanReachPrimaryResponse)(nil),     // 9: consensusdata.CanReachPrimaryResponse
+	(*TimelineInfo)(nil),                // 10: consensusdata.TimelineInfo
+	(*WaitForLSNRequest)(nil),           // 11: consensusdata.WaitForLSNRequest
+	(*WaitForLSNResponse)(nil),          // 12: consensusdata.WaitForLSNResponse
+	(*SetPrimaryConnInfoRequest)(nil),   // 13: consensusdata.SetPrimaryConnInfoRequest
+	(*SetPrimaryConnInfoResponse)(nil),  // 14: consensusdata.SetPrimaryConnInfoResponse
+	(*PromoteRequest)(nil),              // 15: consensusdata.PromoteRequest
+	(*PromoteResponse)(nil),             // 16: consensusdata.PromoteResponse
+	(*timestamppb.Timestamp)(nil),       // 17: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),          // 18: clustermetadata.ID
+	(*durationpb.Duration)(nil),         // 19: google.protobuf.Duration
+	(*clustermetadata.MultiPooler)(nil), // 20: clustermetadata.MultiPooler
+	(*multipoolermanagerdata.ConfigureSynchronousReplicationRequest)(nil), // 21: multipoolermanagerdata.ConfigureSynchronousReplicationRequest
 }
 var file_consensusdata_proto_depIdxs = []int32{
-	11, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
-	12, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
+	17, // 0: consensusdata.WALPosition.timestamp:type_name -> google.protobuf.Timestamp
+	18, // 1: consensusdata.BeginTermRequest.candidate_id:type_name -> clustermetadata.ID
 	0,  // 2: consensusdata.BeginTermRequest.action:type_name -> consensusdata.BeginTermAction
 	1,  // 3: consensusdata.BeginTermResponse.wal_position:type_name -> consensusdata.WALPosition
 	1,  // 4: consensusdata.StatusResponse.wal_position:type_name -> consensusdata.WALPosition
 	10, // 5: consensusdata.StatusResponse.timeline_info:type_name -> consensusdata.TimelineInfo
-	11, // 6: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
-	7,  // [7:7] is the sub-list for method output_type
-	7,  // [7:7] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	17, // 6: consensusdata.LeadershipViewResponse.last_heartbeat:type_name -> google.protobuf.Timestamp
+	19, // 7: consensusdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
+	20, // 8: consensusdata.SetPrimaryConnInfoRequest.primary:type_name -> clustermetadata.MultiPooler
+	21, // 9: consensusdata.PromoteRequest.sync_replication_config:type_name -> multipoolermanagerdata.ConfigureSynchronousReplicationRequest
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_consensusdata_proto_init() }
@@ -876,7 +1307,7 @@ func file_consensusdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_consensusdata_proto_rawDesc), len(file_consensusdata_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

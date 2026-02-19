@@ -117,6 +117,45 @@ func (c *Client) CanReachPrimary(ctx context.Context, pooler *clustermetadatapb.
 	return conn.consensusClient.CanReachPrimary(ctx, request)
 }
 
+// WaitForLSN waits for the multipooler to replay WAL up to the target LSN.
+func (c *Client) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.WaitForLSNRequest) (*consensusdatapb.WaitForLSNResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.consensusClient.WaitForLSN(ctx, request)
+}
+
+// SetPrimaryConnInfo configures the standby's connection to a primary.
+func (c *Client) SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryConnInfoRequest) (*consensusdatapb.SetPrimaryConnInfoResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.consensusClient.SetPrimaryConnInfo(ctx, request)
+}
+
+// Promote promotes the multipooler to primary.
+func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.consensusClient.Promote(ctx, request)
+}
+
 //
 // Manager Service Methods - Initialization
 //
@@ -155,32 +194,6 @@ func (c *Client) State(ctx context.Context, pooler *clustermetadatapb.MultiPoole
 //
 // Manager Service Methods - Replication
 //
-
-// WaitForLSN waits for the multipooler to replay WAL up to the target LSN.
-func (c *Client) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.WaitForLSN(ctx, request)
-}
-
-// SetPrimaryConnInfo configures the standby's connection to a primary.
-func (c *Client) SetPrimaryConnInfo(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.SetPrimaryConnInfo(ctx, request)
-}
 
 // StartReplication starts WAL replay on standby.
 func (c *Client) StartReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error) {
@@ -336,19 +349,6 @@ func (c *Client) GetFollowers(ctx context.Context, pooler *clustermetadatapb.Mul
 //
 // Manager Service Methods - Promotion and Demotion
 //
-
-// Promote promotes the multipooler to primary.
-func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.Promote(ctx, request)
-}
 
 // EmergencyDemote demotes the multipooler from primary.
 func (c *Client) EmergencyDemote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.EmergencyDemoteRequest) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {

@@ -44,29 +44,6 @@ func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServ
 	})
 }
 
-// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
-func (s *managerService) WaitForLSN(ctx context.Context, req *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error) {
-	err := s.manager.WaitForLSN(ctx, req.TargetLsn)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return &multipoolermanagerdatapb.WaitForLSNResponse{}, nil
-}
-
-// SetPrimaryConnInfo sets the primary connection info for a standby server
-func (s *managerService) SetPrimaryConnInfo(ctx context.Context, req *multipoolermanagerdatapb.SetPrimaryConnInfoRequest) (*multipoolermanagerdatapb.SetPrimaryConnInfoResponse, error) {
-	err := s.manager.SetPrimaryConnInfo(ctx,
-		req.Primary,
-		req.StopReplicationBefore,
-		req.StartReplicationAfter,
-		req.CurrentTerm,
-		req.Force)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}, nil
-}
-
 // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
 func (s *managerService) StartReplication(ctx context.Context, req *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error) {
 	err := s.manager.StartReplication(ctx)
@@ -227,23 +204,6 @@ func (s *managerService) UndoDemote(ctx context.Context, req *multipoolermanager
 // DemoteStalePrimary demotes a stale primary that came back after failover
 func (s *managerService) DemoteStalePrimary(ctx context.Context, req *multipoolermanagerdatapb.DemoteStalePrimaryRequest) (*multipoolermanagerdatapb.DemoteStalePrimaryResponse, error) {
 	resp, err := s.manager.DemoteStalePrimary(ctx, req.Source, req.ConsensusTerm, req.Force)
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-	return resp, nil
-}
-
-// Promote promotes a replica to leader (Multigres-level operation)
-func (s *managerService) Promote(ctx context.Context, req *multipoolermanagerdatapb.PromoteRequest) (*multipoolermanagerdatapb.PromoteResponse, error) {
-	resp, err := s.manager.Promote(ctx,
-		req.ConsensusTerm,
-		req.ExpectedLsn,
-		req.SyncReplicationConfig,
-		req.Force,
-		req.Reason,
-		req.CoordinatorId,
-		req.CohortMembers,
-		req.AcceptedMembers)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

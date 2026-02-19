@@ -26,13 +26,6 @@ service MultiPoolerManager {
   // PG Replication API wrappers.
   //
 
-  // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
-  rpc WaitForLSN(multipoolermanagerdata.WaitForLSNRequest) returns (multipoolermanagerdata.WaitForLSNResponse);
-
-  // SetPrimaryConnInfo sets the primary connection info for a standby server
-  rpc SetPrimaryConnInfo(multipoolermanagerdata.SetPrimaryConnInfoRequest)
-    returns (multipoolermanagerdata.SetPrimaryConnInfoResponse);
-
   // StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
   rpc StartReplication(multipoolermanagerdata.StartReplicationRequest)
     returns (multipoolermanagerdata.StartReplicationResponse);
@@ -115,10 +108,6 @@ service MultiPoolerManager {
   // by rewinding to the correct primary and restarting as standby
   rpc DemoteStalePrimary(multipoolermanagerdata.DemoteStalePrimaryRequest)
     returns (multipoolermanagerdata.DemoteStalePrimaryResponse);
-
-  // Promote promotes a replica to leader (Multigres-level operation)
-  rpc Promote(multipoolermanagerdata.PromoteRequest)
-    returns (multipoolermanagerdata.PromoteResponse);
 
   // State gets the current status of the manager
   rpc State(multipoolermanagerdata.StateRequest)

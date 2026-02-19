@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -265,7 +266,7 @@ func breakReplication(t *testing.T, client *shardsetup.MultipoolerClient) {
 
 	// Clear primary_conninfo by setting it to nil
 	// Use StopReplicationBefore=true to stop WAL receiver first
-	_, err := client.Manager.SetPrimaryConnInfo(ctx, &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+	_, err := client.Consensus.SetPrimaryConnInfo(ctx, &consensusdatapb.SetPrimaryConnInfoRequest{
 		Primary:               nil, // nil primary clears the connection
 		StopReplicationBefore: true,
 		StartReplicationAfter: false,
