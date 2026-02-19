@@ -359,7 +359,7 @@ type ImportQual struct {
 %type <node>         where_or_current_clause
 %type <list>         returning_clause merge_values_clause opt_collate
 %type <node>         merge_when_clause opt_merge_when_condition opt_conf_expr merge_update merge_delete merge_insert index_elem index_elem_options
-%type <ival>         override_kind merge_when_tgt_matched merge_when_tgt_not_matched opt_asc_desc opt_nulls_order
+%type <ival>         override_kind merge_when_tgt_matched merge_when_tgt_not_matched
 %type <ival>         copy_from opt_program opt_freeze opt_verbose opt_analyze opt_full
 %type <str>          cursor_name copy_file_name
 %type <ival>         cursor_options opt_hold from_in opt_from_in
@@ -401,7 +401,6 @@ type ImportQual struct {
 %type <list>         opt_col_def_list
 %type <list>         table_func_column_list
 // table_func_column type is declared with func_arg as <funparam>
-%type <str>          param_name
 %type <ival>         opt_ordinality
 %type <node>         xmltable
 %type <list>         xmltable_column_list
@@ -427,7 +426,6 @@ type ImportQual struct {
 %type <list>         json_name_and_value_list
 %type <bval>         json_object_constructor_null_clause_opt
 %type <bval>         json_array_constructor_null_clause_opt
-%type <bval>         json_key_uniqueness_constraint_opt
 %type <list>         json_array_aggregate_order_by_clause_opt
 %type <node>         json_returning_clause_opt
 %type <node>         json_passing_clause_opt
@@ -464,13 +462,11 @@ type ImportQual struct {
 %type <str>          OptTableSpace OptConsTableSpace
 %type <str>          ExistingIndex
 %type <str>          access_method_clause
-%type <list>         index_params index_including_params
-%type <node>         index_elem
+%type <list>         index_including_params
 %type <list>         opt_include
 %type <list>         opt_qualified_name opt_reloptions
 %type <list>         alter_table_cmds role_list
 %type <node>         alter_table_cmd partition_cmd index_partition_cmd
-%type <bval>         opt_nowait
 %type <node>         alter_column_default
 %type <objType>	     object_type_any_name object_type_name object_type_name_on_any_name drop_type_name
 %type <node>         def_arg
@@ -480,8 +476,7 @@ type ImportQual struct {
 %type <list>         create_generic_options
 %type <list>         generic_option_list
 %type <defelt>       generic_option_elem
-%type <node>         generic_option_arg
-%type <bval>         opt_unique_null_treatment opt_recheck
+%type <bval>         opt_recheck
 %type <byt>          generated_when
 %type <list>         SeqOptList OptParenthesizedSeqOptList alter_identity_column_option_list
 %type <defelt>       SeqOptElem alter_identity_column_option
@@ -514,7 +509,7 @@ type ImportQual struct {
 %type <str>          cluster_index_specification
 %type <ival>         reindex_target_relation reindex_target_all
 %type <list>         opt_reindex_option_list
-%type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList role_list DefACLOptionList
+%type <list>         transaction_mode_list transaction_mode_list_or_empty OptRoleList AlterOptRoleList DefACLOptionList
 %type <list>         privileges privilege_list grantee_list grant_role_opt_list
 %type <ival>         defacl_privilege_target
 %type <accesspriv>   privilege
@@ -528,7 +523,6 @@ type ImportQual struct {
 %type <privtarget>   privilege_target
 %type <importqual>   import_qualification
 %type <importqualtype> import_qualification_type
-%type <str>          RoleId
 %type <ival>         add_drop
 %type <stmt>  		 CreateMatViewStmt RefreshMatViewStmt CreateSchemaStmt CreatedbStmt DropdbStmt DropTableSpaceStmt DropOwnedStmt ReassignOwnedStmt
 %type <stmt>		 DropCastStmt DropOpClassStmt DropOpFamilyStmt DropTransformStmt DropSubscriptionStmt
@@ -541,9 +535,9 @@ type ImportQual struct {
 %type <stmt>         AlterObjectSchemaStmt AlterOwnerStmt AlterOperatorStmt AlterObjectDependsStmt
 %type <stmt>         AlterCollationStmt AlterDatabaseStmt AlterDatabaseSetStmt
 %type <stmt>         AlterTSConfigurationStmt AlterTSDictionaryStmt
-%type <list>         definition def_list opt_enum_val_list enum_val_list
-%type <list>         OptSeqOptList OptParenthesizedSeqOptList SeqOptList create_extension_opt_list alter_extension_opt_list
-%type <defelt>       SeqOptElem create_extension_opt_item alter_extension_opt_item
+%type <list>         opt_enum_val_list enum_val_list
+%type <list>         OptSeqOptList create_extension_opt_list alter_extension_opt_list
+%type <defelt>       create_extension_opt_item alter_extension_opt_item
 %type <list>         opt_fdw_options fdw_options createdb_opt_list createdb_opt_items drop_option_list
 %type <defelt>       fdw_option createdb_opt_item drop_option
 %type <str>          createdb_opt_name plassign_target
@@ -555,7 +549,6 @@ type ImportQual struct {
 %type <list>         event_trigger_when_list event_trigger_value_list
 %type <defelt>       event_trigger_when_item
 %type <ival>         enable_trigger
-%type <ival>         add_drop
 %type <rolespec>     OptTableSpaceOwner
 %type <bval>         RowSecurityDefaultPermissive opt_default opt_trusted opt_procedural
 %type <str>          RowSecurityDefaultForCmd row_security_cmd
@@ -566,11 +559,9 @@ type ImportQual struct {
 %type <statelem>     stats_param
 %type <node>         PublicationObjSpec opclass_item opclass_drop
 %type <list>         opt_opfamily opt_inline_handler opt_validator validator_clause
-%type <bval>         opt_recheck
 %type <list>         aggr_args aggr_args_list old_aggr_definition old_aggr_list
-%type <defelt>       def_elem old_aggr_elem
-%type <node>         def_arg opt_as DomainConstraint DomainConstraintElem aggr_arg
-%type <rolespec>     RoleSpec
+%type <defelt>       old_aggr_elem
+%type <node>         opt_as DomainConstraint DomainConstraintElem aggr_arg
 %type <vsetstmt>     generic_set set_rest set_rest_more generic_reset reset_rest SetResetClause FunctionSetResetClause
 %type <list>         func_name func_args_with_defaults func_args_with_defaults_list
 %type <funparam>     func_arg_with_default func_arg table_func_column
@@ -578,9 +569,7 @@ type ImportQual struct {
 %type <typnam>       func_return
 %type <list>         opt_createfunc_opt_list createfunc_opt_list transform_type_list
 %type <defelt>       createfunc_opt_item common_func_opt_item operator_def_elem
-%type <list>         operator_def_list createdb_opt_list createdb_opt_items
-%type <defelt>       createdb_opt_item
-%type <str>          createdb_opt_name
+%type <list>         operator_def_list
 %type <node>         operator_def_arg
 %type <node>         func_as opt_routine_body
 %type <stmt>         routine_body_stmt
@@ -593,16 +582,13 @@ type ImportQual struct {
 %type <str>          TransitionRelName
 %type <rangevar>     OptConstrFromTable
 
-%type <list>         opt_column_list opt_reloptions
 %type <ival>         opt_check_option
 %type <list>         routine_body_stmt_list
-%type <node>         zone_value var_value
-%type <list>         var_list transaction_mode_list
+%type <node>         zone_value
 %type <node>         transaction_mode_item
-%type <str>          NonReservedWord_or_Sconst NonReservedWord opt_encoding iso_level
+%type <str>          opt_encoding iso_level
 %type <ival>         document_or_content
-%type <list>         attrs opclass_purpose type_list
-%type <list>         opt_interval interval_second
+%type <list>         opclass_purpose type_list
 %type <typnam>       ConstTypename ConstBit ConstCharacter JsonType
 
 /* Start symbol */
