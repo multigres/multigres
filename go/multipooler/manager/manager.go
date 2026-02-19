@@ -417,6 +417,10 @@ func (pm *MultiPoolerManager) reopenConnections(_ context.Context) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	if !pm.isOpen {
+		return nil
+	}
+
 	pm.closeConnectionsLocked()
 	return pm.openConnectionsLocked()
 }
@@ -996,9 +1000,11 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.Wrap(err, "failed to restart as standby")
 	}
 
-	// Reopen connections after restart
-	if err := pm.reopenConnections(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to reopen connections")
+	// Reopen the manager after postgres restart. This recreates pm.ctx (which was
+	// cancelled by pm.Close() in stopPostgresIfRunning), reopens connection pools
+	// with the fresh context, and restarts the monitor and heartbeat tracker.
+	if err := pm.Open(); err != nil {
+		return mterrors.Wrap(err, "failed to reopen manager")
 	}
 
 	// Wait for database connection to be ready after restart
