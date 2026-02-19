@@ -1,5 +1,5 @@
 ---
-name: "PR Description"
+name: "pr-description"
 description: "Generate a PR title and description from the current branch diff against main"
 ---
 
