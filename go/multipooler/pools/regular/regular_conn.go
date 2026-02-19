@@ -471,10 +471,14 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 // handleContextCancellation cancels the backend query if adminPool is available.
 // This is called when the context is cancelled while a query is in progress.
 // If cancellation fails (e.g. admin pool unavailable, PostgreSQL unreachable),
-// the connection is closed to force the blocked socket read to unblock.
+// the connection is force-closed to unblock the goroutine that is mid-read/write.
+//
+// ForceClose is used instead of Close because the op goroutine may be holding
+// bufmu and writing to the buffered writer; Close would race by also writing
+// a Terminate message to the same writer without the lock.
 func (c *Conn) handleContextCancellation() {
 	if c.adminPool == nil {
-		c.conn.Close()
+		c.conn.ForceClose()
 		return
 	}
 	// Use the connection's context with a timeout for the cancel operation.
@@ -483,7 +487,7 @@ func (c *Conn) handleContextCancellation() {
 	defer cancel()
 	ok, err := c.adminPool.CancelBackend(cancelCtx, c.ProcessID())
 	if err != nil || !ok {
-		c.conn.Close()
+		c.conn.ForceClose()
 	}
 }
 
