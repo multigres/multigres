@@ -19,7 +19,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,7 +74,7 @@ type TestFailure struct {
 }
 
 // NewPostgresBuilder creates a new PostgresBuilder with unique build directories
-func NewPostgresBuilder(t *testing.T, baseTempDir string) *PostgresBuilder {
+func NewPostgresBuilder(t *testing.T) *PostgresBuilder {
 	t.Helper()
 
 	// Get cache directory from environment or use default
@@ -213,59 +212,26 @@ func (pb *PostgresBuilder) Build(t *testing.T, ctx context.Context) error {
 	return nil
 }
 
-// RunRegressionTests runs PostgreSQL regression tests against multigateway
-func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort int, password string) (*TestResults, error) {
+// testSuiteConfig holds configuration for running a PostgreSQL test suite
+// via the shared runTestSuite helper.
+type testSuiteConfig struct {
+	suiteName string // for log messages, e.g. "Regression" or "Isolation"
+	outputDir string // where to copy regression.out and regression.diffs
+	srcOutDir string // build directory containing regression.out and regression.diffs
+}
+
+// runTestSuite executes a pre-built test command and handles result parsing,
+// artifact copying, and failure reporting. Both RunRegressionTests and
+// RunIsolationTests delegate to this after constructing their command.
+func (pb *PostgresBuilder) runTestSuite(t *testing.T, cmd *exec.Cmd, cfg testSuiteConfig, multigatewayPort int, password string) (*TestResults, error) {
 	t.Helper()
 
-	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
-
-	// Create output directory for test results (persistent, outside build dir)
-	if err := os.MkdirAll(pb.OutputDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create output directory: %w", err)
+	// Create output directory for test results
+	if err := os.MkdirAll(cfg.outputDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create %s output directory: %w", cfg.suiteName, err)
 	}
 
-	t.Logf("Test results will be saved to: %s", pb.OutputDir)
-
-	// Use make installcheck-tests with TESTS variable to run specific regression tests
-	// against the existing PostgreSQL server (multigateway).
-	//
-	// The installcheck-tests target runs specific tests against an already-running
-	// PostgreSQL server, unlike installcheck which runs the entire parallel_schedule.
-	//
-	// From PostgreSQL's src/test/regress/GNUmakefile:
-	//   installcheck: runs --schedule=parallel_schedule (all tests)
-	//   installcheck-tests: runs $(TESTS) (specific tests only)
-	//
-	// Examples:
-	//
-	// 1. Run specific tests:
-	//    make installcheck-tests TESTS="boolean char"
-	//
-	// 2. Run a single test:
-	//    make installcheck-tests TESTS="boolean"
-	//
-	// 3. Run all tests (use installcheck instead):
-	//    make installcheck
-	//
-	// Environment variables that pg_regress reads:
-	//   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE - connection params
-	//
-	// Reference: https://github.com/postgres/postgres/blob/master/src/test/regress/GNUmakefile
-
-	regressDir := filepath.Join(pb.BuildDir, "src/test/regress")
-	makeArgs := []string{"-C", regressDir}
-
-	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {
-		// Run only the specified tests via installcheck-tests
-		makeArgs = append(makeArgs, "installcheck-tests", "TESTS="+testsEnv)
-		t.Logf("Running selective regression tests: %s", testsEnv)
-	} else {
-		// Run the full installcheck suite (parallel_schedule)
-		makeArgs = append(makeArgs, "installcheck")
-		t.Logf("Running full PostgreSQL regression test suite (installcheck)")
-	}
-
-	cmd := exec.CommandContext(ctx, "make", makeArgs...)
+	t.Logf("%s test results will be saved to: %s", cfg.suiteName, cfg.outputDir)
 
 	// Start the process in its own process group so we can kill the entire tree
 	// (make → pg_regress → psql) when the context expires. Without this,
@@ -286,87 +252,118 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 		"PGCONNECT_TIMEOUT=10",
 	)
 
-	// Capture output
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = io.MultiWriter(&stdout, os.Stdout)
-	cmd.Stderr = io.MultiWriter(&stderr, os.Stderr)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	// The regression.out file is written incrementally by pg_regress to the build
 	// directory as tests complete. We use it as the primary source for parsing results
 	// because it contains partial results even if the process hangs or is killed.
-	buildRegressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
-	srcOut := filepath.Join(buildRegressDir, "regression.out")
+	srcOut := filepath.Join(cfg.srcOutDir, "regression.out")
 
 	startTime := time.Now()
 	err := cmd.Run()
 	duration := time.Since(startTime)
 
-	t.Logf("Test execution completed in %v (err=%v)", duration, err)
+	t.Logf("%s test execution completed in %v (err=%v)", cfg.suiteName, duration, err)
 
 	// Parse results from the on-disk regression.out file.
-	// This file is written incrementally by pg_regress, so it contains partial
-	// results even when the command times out or is killed.
 	outData, readErr := os.ReadFile(srcOut)
 	if readErr != nil {
-		return nil, fmt.Errorf("failed to read regression.out: %w", readErr)
+		return nil, fmt.Errorf("failed to read %s regression.out: %w", cfg.suiteName, readErr)
 	}
 	results, parseErr := pb.ParseTestResults(string(outData))
 	if parseErr != nil {
-		return nil, fmt.Errorf("failed to parse regression.out: %w", parseErr)
+		return nil, fmt.Errorf("failed to parse %s regression.out: %w", cfg.suiteName, parseErr)
 	}
 	results.Duration = duration
 
-	// Define source and destination paths
-	srcDiffs := filepath.Join(buildRegressDir, "regression.diffs")
-	regressionDiffs := filepath.Join(pb.OutputDir, "regression.diffs")
-	regressionOut := filepath.Join(pb.OutputDir, "regression.out")
+	// Copy artifacts to output directory
+	srcDiffs := filepath.Join(cfg.srcOutDir, "regression.diffs")
+	dstDiffs := filepath.Join(cfg.outputDir, "regression.diffs")
+	dstOut := filepath.Join(cfg.outputDir, "regression.out")
 
-	// Copy regression.diffs if it exists
 	if diffsData, err := os.ReadFile(srcDiffs); err == nil {
-		if err := os.WriteFile(regressionDiffs, diffsData, 0o644); err != nil {
-			t.Logf("Warning: Failed to copy regression.diffs: %v", err)
+		if err := os.WriteFile(dstDiffs, diffsData, 0o644); err != nil {
+			t.Logf("Warning: Failed to copy %s regression.diffs: %v", cfg.suiteName, err)
 		}
 	}
 
-	// Copy regression.out if it exists
-	if outData, err := os.ReadFile(srcOut); err == nil {
-		if err := os.WriteFile(regressionOut, outData, 0o644); err != nil {
-			t.Logf("Warning: Failed to copy regression.out: %v", err)
-		}
+	if err := os.WriteFile(dstOut, outData, 0o644); err != nil {
+		t.Logf("Warning: Failed to copy %s regression.out: %v", cfg.suiteName, err)
 	}
 
 	t.Logf("")
 	t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	t.Logf("Test results saved to: %s", pb.OutputDir)
-	t.Logf("  • Summary:     %s", regressionOut)
-	t.Logf("  • Differences: %s", regressionDiffs)
+	t.Logf("%s test results saved to: %s", cfg.suiteName, cfg.outputDir)
+	t.Logf("  • Summary:     %s", dstOut)
+	t.Logf("  • Differences: %s", dstDiffs)
 	t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	t.Logf("")
 
-	// If there are failures, read and display the regression.diffs content
 	if results.FailedTests > 0 {
-		if diffsContent, err := os.ReadFile(regressionDiffs); err == nil {
+		if diffsContent, err := os.ReadFile(dstDiffs); err == nil {
 			t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			t.Logf("Regression Differences (from %s):", regressionDiffs)
+			t.Logf("%s Differences (from %s):", cfg.suiteName, dstDiffs)
 			t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 			t.Logf("%s", string(diffsContent))
 			t.Logf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		} else {
-			t.Logf("Warning: Could not read regression.diffs: %v", err)
+			t.Logf("Warning: Could not read %s regression.diffs: %v", cfg.suiteName, err)
 		}
 	}
 
-	// If tests ran, return results even if some failed
 	if results.TotalTests > 0 {
 		return results, err
 	}
 
-	// No tests ran - this is a test harness error
 	if err != nil {
-		return nil, fmt.Errorf("test harness failed to execute: %w", err)
+		return nil, fmt.Errorf("%s test harness failed to execute: %w", cfg.suiteName, err)
 	}
 
 	return results, nil
+}
+
+// RunRegressionTests runs PostgreSQL regression tests against multigateway.
+//
+// Uses make installcheck-tests with TESTS variable to run specific regression tests
+// against the existing PostgreSQL server (multigateway).
+//
+// The installcheck-tests target runs specific tests against an already-running
+// PostgreSQL server, unlike installcheck which runs the entire parallel_schedule.
+//
+// From PostgreSQL's src/test/regress/GNUmakefile:
+//
+//	installcheck: runs --schedule=parallel_schedule (all tests)
+//	installcheck-tests: runs $(TESTS) (specific tests only)
+//
+// Environment variables that pg_regress reads:
+//
+//	PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE - connection params
+//
+// Reference: https://github.com/postgres/postgres/blob/master/src/test/regress/GNUmakefile
+func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
+
+	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
+	makeArgs := []string{"-C", regressDir}
+
+	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {
+		makeArgs = append(makeArgs, "installcheck-tests", "TESTS="+testsEnv)
+		t.Logf("Running selective regression tests: %s", testsEnv)
+	} else {
+		makeArgs = append(makeArgs, "installcheck")
+		t.Logf("Running full PostgreSQL regression test suite (installcheck)")
+	}
+
+	cmd := exec.CommandContext(ctx, "make", makeArgs...)
+
+	return pb.runTestSuite(t, cmd, testSuiteConfig{
+		suiteName: "Regression",
+		outputDir: pb.OutputDir,
+		srcOutDir: regressDir,
+	}, multigatewayPort, password)
 }
 
 // ParseTestResults parses pg_regress TAP output to extract test results.
@@ -433,21 +430,44 @@ func (pb *PostgresBuilder) ParseTestResults(output string) (*TestResults, error)
 	return results, nil
 }
 
-// WriteMarkdownSummary generates a markdown summary suitable for GitHub Actions job summary
-func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, results *TestResults) (string, error) {
+// SuiteResult holds results for one test suite along with the directory
+// containing its regression.diffs file.
+type SuiteResult struct {
+	Name     string       // e.g. "Regression Tests", "Isolation Tests"
+	Results  *TestResults // parsed TAP results
+	DiffsDir string       // directory containing regression.diffs for this suite
+}
+
+// WriteMarkdownSummary generates a unified markdown report covering one or more
+// test suites. It writes the report to pb.OutputDir/compatibility-report.md and
+// appends it to GITHUB_STEP_SUMMARY when running in CI.
+func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResult) (string, error) {
 	t.Helper()
+
+	if err := os.MkdirAll(pb.OutputDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
 
 	var sb strings.Builder
 
 	// Header
 	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
 
-	// Summary with shields.io badge
+	// Aggregate totals across all suites
+	var totalPassed, totalFailed, totalAll int
+	var totalDuration time.Duration
+	for _, s := range suites {
+		totalPassed += s.Results.PassedTests
+		totalFailed += s.Results.FailedTests
+		totalAll += s.Results.TotalTests
+		totalDuration += s.Results.Duration
+	}
+
 	badgeColor := "red"
-	if results.FailedTests == 0 && results.TotalTests > 0 {
+	if totalFailed == 0 && totalAll > 0 {
 		badgeColor = "brightgreen"
-	} else if results.PassedTests > 0 {
-		pct := results.PassedTests * 100 / results.TotalTests
+	} else if totalPassed > 0 {
+		pct := totalPassed * 100 / totalAll
 		if pct >= 80 {
 			badgeColor = "yellow"
 		} else if pct >= 50 {
@@ -455,64 +475,62 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, results *TestResul
 		}
 	}
 	sb.WriteString(fmt.Sprintf("**Status:** ![PG Compatibility](https://img.shields.io/badge/PG_Compatibility-%d%%2F%d_tests-%s)\n",
-		results.PassedTests, results.TotalTests, badgeColor))
+		totalPassed, totalAll, badgeColor))
 	sb.WriteString(fmt.Sprintf("**PostgreSQL Version:** `%s`\n", PostgresVersion))
-	sb.WriteString(fmt.Sprintf("**Duration:** %v\n", results.Duration.Round(time.Millisecond)))
+	sb.WriteString(fmt.Sprintf("**Duration:** %v\n", totalDuration.Round(time.Millisecond)))
 	sb.WriteString(fmt.Sprintf("**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339)))
 
-	// Parse per-test diffs for inline display
-	testDiffs := make(map[string]string)
-	diffsPath := filepath.Join(pb.OutputDir, "regression.diffs")
-	if data, err := os.ReadFile(diffsPath); err == nil && len(data) > 0 {
-		testDiffs = splitDiffsByTest(string(data))
-		t.Logf("Parsed %d per-test diffs from %s (%d bytes)", len(testDiffs), diffsPath, len(data))
-	} else if err != nil {
-		t.Logf("Warning: could not read diffs file %s: %v", diffsPath, err)
-	}
+	// Per-suite sections
+	for _, s := range suites {
+		sb.WriteString(fmt.Sprintf("### %s\n\n", s.Name))
 
-	// Test results in aligned columnar format inside code blocks.
-	// Code blocks break at each failure to allow an expandable <details> diff inline.
-	sb.WriteString("### Test Results\n\n")
-
-	// Header
-	sb.WriteString("```\n")
-	sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "#", "Test", "Status", "Duration"))
-	sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "---", "---------------", "-------", "--------"))
-
-	inCodeBlock := true
-
-	for i, test := range results.Tests {
-		status := "✅ ok"
-		switch test.Status {
-		case "fail":
-			status = "❌ FAIL"
-		case "skip":
-			status = "⏭️ skip"
-		}
-		duration := test.Duration
-		if duration == "" {
-			duration = "-"
+		// Parse per-test diffs for inline display
+		testDiffs := make(map[string]string)
+		diffsPath := filepath.Join(s.DiffsDir, "regression.diffs")
+		if data, err := os.ReadFile(diffsPath); err == nil && len(data) > 0 {
+			testDiffs = splitDiffsByTest(string(data))
+			t.Logf("Parsed %d per-test diffs from %s (%d bytes)", len(testDiffs), diffsPath, len(data))
 		}
 
-		if !inCodeBlock {
-			sb.WriteString("```\n")
-			inCodeBlock = true
-		}
+		sb.WriteString("```\n")
+		sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "#", "Test", "Status", "Duration"))
+		sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "---", "---------------", "-------", "--------"))
 
-		sb.WriteString(fmt.Sprintf(" %2d  %-15s %-7s %8s\n", i+1, test.Name, status, duration))
+		inCodeBlock := true
 
-		// Break out of code block for expandable diff
-		if test.Status == "fail" {
-			if diff, ok := testDiffs[test.Name]; ok {
+		for i, test := range s.Results.Tests {
+			status := "✅ ok"
+			switch test.Status {
+			case "fail":
+				status = "❌ FAIL"
+			case "skip":
+				status = "⏭️ skip"
+			}
+			duration := test.Duration
+			if duration == "" {
+				duration = "-"
+			}
+
+			if !inCodeBlock {
 				sb.WriteString("```\n")
-				inCodeBlock = false
-				sb.WriteString(fmt.Sprintf("<details>\n<summary>Show diff</summary>\n\n```diff\n%s\n```\n</details>\n\n", diff))
+				inCodeBlock = true
+			}
+
+			sb.WriteString(fmt.Sprintf(" %2d  %-15s %-7s %8s\n", i+1, test.Name, status, duration))
+
+			if test.Status == "fail" {
+				if diff, ok := testDiffs[test.Name]; ok {
+					sb.WriteString("```\n")
+					inCodeBlock = false
+					sb.WriteString(fmt.Sprintf("<details>\n<summary>Show diff</summary>\n\n```diff\n%s\n```\n</details>\n\n", diff))
+				}
 			}
 		}
-	}
 
-	if inCodeBlock {
-		sb.WriteString("```\n")
+		if inCodeBlock {
+			sb.WriteString("```\n")
+		}
+		sb.WriteString("\n")
 	}
 
 	summary := sb.String()
@@ -578,6 +596,74 @@ func splitDiffsByTest(allDiffs string) map[string]string {
 	}
 
 	return result
+}
+
+// BuildIsolation builds the PostgreSQL isolation test tools (isolationtester and
+// pg_isolation_regress). Must be called after Build().
+func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) error {
+	t.Helper()
+
+	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
+
+	t.Logf("Building isolation test tools in %s...", isolationDir)
+	cmd := exec.CommandContext(ctx, "make", "-C", isolationDir, "all")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("make isolation tools failed: %w", err)
+	}
+
+	t.Logf("Isolation test tools built successfully")
+	return nil
+}
+
+// RunIsolationTests runs PostgreSQL isolation tests against multigateway.
+// Isolation tests exercise multi-connection concurrency (deadlocks, serialization
+// anomalies, lock contention, concurrent DDL) using isolationtester.
+//
+// The isolation Makefile has no installcheck-tests target, so for selective tests
+// we invoke pg_isolation_regress directly with test names as positional args.
+func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, multigatewayPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	t.Logf("Running PostgreSQL isolation tests against multigateway on port %d...", multigatewayPort)
+
+	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
+	outputIsoDir := filepath.Join(isolationDir, "output_iso")
+
+	// Ensure the output_iso directory exists. make installcheck creates it, but
+	// pg_isolation_regress (used for selective tests) may not.
+	if err := os.MkdirAll(outputIsoDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create output_iso directory: %w", err)
+	}
+
+	var cmd *exec.Cmd
+	if testsEnv := os.Getenv("PGISOLATION_TESTS"); testsEnv != "" {
+		pgIsoRegress := filepath.Join(isolationDir, "pg_isolation_regress")
+		args := []string{
+			"--inputdir=" + isolationDir,
+			"--outputdir=" + outputIsoDir,
+			"--host=localhost",
+			fmt.Sprintf("--port=%d", multigatewayPort),
+			"--user=postgres",
+			"--dbname=postgres",
+			"--use-existing",
+			"--dlpath=" + isolationDir,
+		}
+		args = append(args, strings.Fields(testsEnv)...)
+		cmd = exec.CommandContext(ctx, pgIsoRegress, args...)
+		t.Logf("Running selective isolation tests: %s", testsEnv)
+	} else {
+		cmd = exec.CommandContext(ctx, "make", "-C", isolationDir, "installcheck")
+		t.Logf("Running full PostgreSQL isolation test suite (installcheck)")
+	}
+
+	return pb.runTestSuite(t, cmd, testSuiteConfig{
+		suiteName: "Isolation",
+		outputDir: filepath.Join(pb.OutputDir, "isolation"),
+		srcOutDir: outputIsoDir,
+	}, multigatewayPort, password)
 }
 
 // Cleanup removes build artifacts but preserves source cache
