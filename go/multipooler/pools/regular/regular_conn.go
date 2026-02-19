@@ -342,19 +342,15 @@ func isConnectionError(err error) bool {
 
 // handleContextCancellation cancels the backend query if adminPool is available.
 // This is called when the context is cancelled while a query is in progress.
-// If cancellation fails (e.g. pool context expired), the connection is closed
-// to force the blocked socket read to fail, unblocking the in-flight query.
 func (c *Conn) handleContextCancellation() {
 	if c.adminPool == nil {
-		c.conn.Close()
 		return
 	}
+	// Use the connection's context with a timeout for the cancel operation.
+	// If the connection is closed, there's no need to cancel the query.
 	cancelCtx, cancel := context.WithTimeout(c.conn.Context(), admin.DefaultCancelTimeout)
 	defer cancel()
-	ok, err := c.adminPool.CancelBackend(cancelCtx, c.ProcessID())
-	if err != nil || !ok {
-		c.conn.Close()
-	}
+	_, _ = c.adminPool.CancelBackend(cancelCtx, c.ProcessID())
 }
 
 // execWithContextCancel executes an operation with context cancellation support.
