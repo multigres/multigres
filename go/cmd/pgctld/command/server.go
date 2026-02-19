@@ -769,6 +769,21 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		"source_port", req.GetSourcePort(),
 		"dry_run", req.GetDryRun())
 
+	// Check if postgres is cleanly stopped before pg_rewind
+	// If not, try crash recovery - this is needed for rewind dry-run to work
+	// This check is best effort. It's not harmful to try the pg_rewind if
+	// crash recovery fails, the dry run is just unlikely to succeed in that case.
+	cleanlyStopped, err := isPostgresCleanlyStopped(ctx, s.poolerDir)
+	if err != nil {
+		s.logger.WarnContext(ctx, "Failed to check postgres state (continuing anyway)", "error", err)
+	} else if !cleanlyStopped {
+		// Try to run crash recovery.
+		// It's not harmful to do this if postgres is already running.
+		if err := runCrashRecovery(ctx, s.logger, s.poolerDir); err != nil {
+			s.logger.WarnContext(ctx, "Crash recovery failed (continuing anyway)", "error", err)
+		}
+	}
+
 	// Resolve password using existing function
 	password, err := resolvePassword(s.poolerDir)
 	if err != nil {
@@ -793,54 +808,5 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	return &pb.PgRewindResponse{
 		Message: result.Message,
 		Output:  result.Output,
-	}, nil
-}
-
-func (s *PgCtldService) CrashRecovery(ctx context.Context, req *pb.CrashRecoveryRequest) (*pb.CrashRecoveryResponse, error) {
-	s.logger.InfoContext(ctx, "gRPC CrashRecovery request")
-
-	// Check if crash recovery is needed
-	needsRecovery, stateBefore, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check if crash recovery needed: %w", err)
-	}
-
-	if !needsRecovery {
-		s.logger.InfoContext(ctx, "Database is already clean, no crash recovery needed",
-			"state", stateBefore.String())
-		return &pb.CrashRecoveryResponse{
-			RecoveryPerformed: false,
-			StateBefore:       stateBefore,
-			StateAfter:        stateBefore,
-			Message:           "Database is already in clean state",
-		}, nil
-	}
-
-	s.logger.InfoContext(ctx, "Database requires crash recovery, running single-user recovery",
-		"state_before", stateBefore.String())
-
-	// Run crash recovery
-	if err := runCrashRecovery(ctx, s.logger, s.poolerDir); err != nil {
-		return nil, fmt.Errorf("crash recovery failed: %w", err)
-	}
-
-	// Verify recovery completed successfully
-	stillNeedsRecovery, stateAfter, err := needsCrashRecovery(ctx, s.logger, s.poolerDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify recovery: %w", err)
-	}
-	if stillNeedsRecovery {
-		return nil, fmt.Errorf("crash recovery completed but database still reports unclean state: %s", stateAfter.String())
-	}
-
-	s.logger.InfoContext(ctx, "Crash recovery completed successfully",
-		"state_before", stateBefore.String(),
-		"state_after", stateAfter.String())
-
-	return &pb.CrashRecoveryResponse{
-		RecoveryPerformed: true,
-		StateBefore:       stateBefore,
-		StateAfter:        stateAfter,
-		Message:           "Crash recovery completed successfully",
 	}, nil
 }

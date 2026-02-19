@@ -1598,24 +1598,8 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	// Generate application name for replication connection
 	appName := generateApplicationName(pm.serviceID)
 
-	// Run crash recovery if needed before pg_rewind
-	pm.logger.InfoContext(ctx, "Checking if crash recovery needed before pg_rewind")
-	crashRecoveryResp, err := pm.pgctldClient.CrashRecovery(ctx, &pgctldpb.CrashRecoveryRequest{})
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "Crash recovery check failed", "error", err)
-		return false, mterrors.Wrap(err, "crash recovery check failed")
-	}
-
-	if crashRecoveryResp.RecoveryPerformed {
-		pm.logger.InfoContext(ctx, "Crash recovery performed successfully",
-			"state_before", crashRecoveryResp.StateBefore.String(),
-			"state_after", crashRecoveryResp.StateAfter.String())
-	} else {
-		pm.logger.InfoContext(ctx, "No crash recovery needed, database already clean",
-			"state", crashRecoveryResp.StateBefore.String())
-	}
-
-	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run", "source_host", sourceHost, "source_port", sourcePort)
+	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run (may do crash recovery)",
+		"source_host", sourceHost, "source_port", sourcePort)
 
 	// Dry-run to check if rewind is needed
 	dryRunReq := &pgctldpb.PgRewindRequest{
