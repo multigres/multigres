@@ -27,6 +27,8 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/multipooler/connstate"
+	"github.com/multigres/multigres/go/multipooler/pools/admin"
+	"github.com/multigres/multigres/go/multipooler/pools/connpool"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -563,4 +565,144 @@ func TestQueryArgsWithRetry_ClosesConnAfterMaxAttempts(t *testing.T) {
 	assert.True(t, conn.IsClosed())
 
 	server.VerifyAllExecutedOrFail()
+}
+
+// --- handleContextCancellation tests ---
+
+// newTestAdminPool creates an admin pool backed by the given fakepgserver.
+// The pool is closed via t.Cleanup.
+func newTestAdminPool(t *testing.T, server *fakepgserver.Server) *admin.Pool {
+	t.Helper()
+	pool := admin.NewPool(context.Background(), &admin.PoolConfig{
+		ClientConfig: server.ClientConfig(),
+		ConnPoolConfig: &connpool.Config{
+			Capacity:     2,
+			MaxIdleCount: 2,
+		},
+	})
+	pool.Open()
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// newTestDirectConnWithAdmin creates a regular.Conn with an admin pool
+// for testing handleContextCancellation.
+func newTestDirectConnWithAdmin(t *testing.T, server *fakepgserver.Server, adminPool *admin.Pool) *Conn {
+	t.Helper()
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	return NewConn(clientConn, adminPool)
+}
+
+func TestHandleContextCancellation_NoAdminPool_ClosesConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	conn := newTestDirectConn(t, server) // adminPool is nil
+	assert.False(t, conn.IsClosed())
+
+	conn.handleContextCancellation()
+
+	assert.True(t, conn.IsClosed(), "connection should be closed when no admin pool is available")
+}
+
+func TestHandleContextCancellation_CancelSucceeds_ConnectionStaysOpen(t *testing.T) {
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close) // Registered first → LIFO runs last
+
+	// Admin pool's CancelBackend will execute pg_cancel_backend, respond true.
+	server.AddQueryPattern(`SELECT pg_cancel_backend\(\d+\)`, fakepgserver.MakeResult(
+		[]string{"pg_cancel_backend"},
+		[][]any{{"t"}},
+	))
+
+	adminPool := newTestAdminPool(t, server) // Registers pool.Close → LIFO runs before server
+	conn := newTestDirectConnWithAdmin(t, server, adminPool)
+	defer conn.Close()
+
+	conn.handleContextCancellation()
+
+	assert.False(t, conn.IsClosed(), "connection should stay open when cancel succeeds")
+}
+
+func TestHandleContextCancellation_CancelReturnsFalse_ClosesConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+
+	// pg_cancel_backend returns false (backend not found).
+	server.AddQueryPattern(`SELECT pg_cancel_backend\(\d+\)`, fakepgserver.MakeResult(
+		[]string{"pg_cancel_backend"},
+		[][]any{{"f"}},
+	))
+
+	adminPool := newTestAdminPool(t, server)
+	conn := newTestDirectConnWithAdmin(t, server, adminPool)
+
+	conn.handleContextCancellation()
+
+	assert.True(t, conn.IsClosed(), "connection should be closed when cancel returns false")
+}
+
+func TestHandleContextCancellation_CancelErrors_ClosesConnection(t *testing.T) {
+	// Create the regular conn server separately so it stays up.
+	regularServer := fakepgserver.New(t)
+	defer regularServer.Close()
+
+	// Create the admin pool server, then close its listener so the admin
+	// pool's Get() will fail when it tries to create a connection.
+	adminServer := fakepgserver.New(t)
+	t.Cleanup(adminServer.Close)
+
+	adminPool := newTestAdminPool(t, adminServer)
+	adminServer.CloseListener()
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, regularServer.ClientConfig())
+	require.NoError(t, err)
+	conn := NewConn(clientConn, adminPool)
+
+	conn.handleContextCancellation()
+
+	assert.True(t, conn.IsClosed(), "connection should be closed when admin pool fails")
+}
+
+// TestPool_ClosedConnectionRecycled_CapacityPreserved verifies that when
+// handleContextCancellation closes a connection and it's recycled, the pool
+// creates a replacement and capacity is preserved.
+func TestPool_ClosedConnectionRecycled_CapacityPreserved(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Get a connection from the pool.
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+
+	// Simulate what handleContextCancellation does: close the underlying connection.
+	pooled.Conn.Close()
+	assert.True(t, pooled.Conn.IsClosed())
+
+	// Recycle the closed connection — the pool should create a replacement.
+	pooled.Recycle()
+
+	// Verify capacity is preserved.
+	stats := pool.Stats()
+	assert.Equal(t, int64(2), stats.Capacity, "capacity should be unchanged")
+	assert.Equal(t, int64(1), stats.Active, "pool should have created a replacement connection")
+	assert.Equal(t, int64(0), stats.Borrowed, "no connections should be borrowed")
+
+	// Prove the pool is still functional: get a new connection and query.
+	pooled2, err := pool.Get(ctx)
+	require.NoError(t, err)
+	assert.False(t, pooled2.Conn.IsClosed(), "new connection should be healthy")
+	pooled2.Recycle()
+
+	stats = pool.Stats()
+	assert.Equal(t, int64(2), stats.Capacity, "capacity should still be unchanged")
 }
