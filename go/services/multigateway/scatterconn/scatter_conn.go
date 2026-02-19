@@ -125,6 +125,11 @@ func (sc *ScatterConn) StreamExecute(
 		// so the multipooler preserves transaction options instead of using plain "BEGIN".
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
+			// NOTE: PendingBeginQuery is consumed by the first shard. In a future
+			// multi-shard transaction, subsequent shards would get a plain BEGIN
+			// instead of preserving the isolation level. When we add distributed
+			// transactions, preserve this for the transaction lifetime and only
+			// clear on commit/rollback.
 			state.PendingBeginQuery = ""
 		}
 		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)

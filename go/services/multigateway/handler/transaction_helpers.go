@@ -116,6 +116,10 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 				} else {
 					// Backend transaction already has queries executed.
 					// PostgreSQL rejects this with SQLSTATE 25001.
+					// Rollback the implicit transaction before returning the error.
+					if isImplicitTx {
+						_ = silentExecute(ast.NewRollbackStmt())
+					}
 					return &mterrors.PgDiagnostic{
 						MessageType: 'E',
 						Severity:    "ERROR",
