@@ -2260,18 +2260,30 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	a_expr IS NULL_P %prec IS
 			{
+				if _, ok := $1.(*ast.NullTest); ok {
+					yylex.Error("syntax error: IS NULL / IS NOT NULL cannot be chained")
+				}
 				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NULL)
 			}
 		|	a_expr ISNULL
 			{
+				if _, ok := $1.(*ast.NullTest); ok {
+					yylex.Error("syntax error: IS NULL / IS NOT NULL cannot be chained")
+				}
 				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NULL)
 			}
 		|	a_expr IS NOT NULL_P %prec IS
 			{
+				if _, ok := $1.(*ast.NullTest); ok {
+					yylex.Error("syntax error: IS NULL / IS NOT NULL cannot be chained")
+				}
 				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NOT_NULL)
 			}
 		|	a_expr NOTNULL
 			{
+				if _, ok := $1.(*ast.NullTest); ok {
+					yylex.Error("syntax error: IS NULL / IS NOT NULL cannot be chained")
+				}
 				$$ = ast.NewNullTest($1.(ast.Expression), ast.IS_NOT_NULL)
 			}
 		|	row OVERLAPS row
