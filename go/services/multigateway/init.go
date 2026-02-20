@@ -20,12 +20,15 @@ package multigateway
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
@@ -47,6 +50,10 @@ type MultiGateway struct {
 	pgPort viperutil.Value[int]
 	// pgBindAddress is the address to bind the PostgreSQL listener to
 	pgBindAddress viperutil.Value[string]
+	// pgTLSCertFile is the path to the TLS certificate file for PostgreSQL SSL connections.
+	pgTLSCertFile viperutil.Value[string]
+	// pgTLSKeyFile is the path to the TLS private key file for PostgreSQL SSL connections.
+	pgTLSKeyFile viperutil.Value[string]
 	// poolerDiscovery handles discovery of multipoolers across all cells
 	poolerDiscovery *GlobalPoolerDiscovery
 	// poolerGateway manages connections to poolers
@@ -97,6 +104,18 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_BIND_ADDRESS"},
 		}),
+		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-tls-cert-file",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_TLS_CERT_FILE"},
+		}),
+		pgTLSKeyFile: viperutil.Configure(reg, "pg-tls-key-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-tls-key-file",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_PG_TLS_KEY_FILE"},
+		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
@@ -129,11 +148,15 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
 	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
+	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
+	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
 		mg.pgBindAddress,
+		mg.pgTLSCertFile,
+		mg.pgTLSKeyFile,
 	)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
@@ -193,6 +216,25 @@ func (mg *MultiGateway) Init() error {
 	// Create hash provider for SCRAM authentication using the pooler gateway
 	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
 
+	// Build TLS config if cert and key files are provided.
+	var pgTLSConfig *tls.Config
+	if certFile := mg.pgTLSCertFile.Get(); certFile != "" {
+		keyFile := mg.pgTLSKeyFile.Get()
+		if keyFile == "" {
+			return errors.New("--pg-tls-cert-file requires --pg-tls-key-file")
+		}
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS certificate: %w", err)
+		}
+		pgTLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+			NextProtos:   []string{protocol.ALPNProtocol}, // PG 17 ALPN forward compatibility
+		}
+		logger.Info("TLS configured for PostgreSQL listener", "cert_file", certFile, "key_file", keyFile)
+	}
+
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger)
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
@@ -200,6 +242,7 @@ func (mg *MultiGateway) Init() error {
 		Address:      pgAddr,
 		Handler:      mg.pgHandler,
 		HashProvider: hashProvider,
+		TLSConfig:    pgTLSConfig,
 		Logger:       logger,
 	})
 	if err != nil {

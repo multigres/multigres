@@ -70,6 +70,10 @@ type ShardSetup struct {
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
 
+	// MultigatewayTLSCertPaths stores the paths to multigateway TLS certificates.
+	// Set when WithMultigatewayTLS() is used.
+	MultigatewayTLSCertPaths *MultigatewayTLSCertPaths
+
 	// BackupLocation stores backup configuration from topology
 	BackupLocation *clustermetadatapb.BackupLocation
 
@@ -342,6 +346,12 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 		GlobalRoot:  "/multigres/global",
 		LogFile:     filepath.Join(s.TempDir, name+".log"),
 		Environment: os.Environ(),
+	}
+
+	// Add TLS cert paths if multigateway TLS is enabled
+	if s.MultigatewayTLSCertPaths != nil {
+		inst.TLSCertFile = s.MultigatewayTLSCertPaths.ServerCertFile
+		inst.TLSKeyFile = s.MultigatewayTLSCertPaths.ServerKeyFile
 	}
 
 	s.Multigateway = inst
