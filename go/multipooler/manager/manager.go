@@ -279,24 +279,26 @@ func (pm *MultiPoolerManager) execArgs(ctx context.Context, sql string, args ...
 }
 
 // Open opens the database connections and starts background operations.
+// This operation is infallible - if connection pools fail to open, queries will fail
+// gracefully at query time rather than preventing the manager from opening.
+// Open is idempotent and safe to call multiple times.
+//
 // TODO:
 //   - Replace with proper state manager (like tm_state.go) that orchestrates
 //     state transitions and manages Open/Close lifecycle.
 //   - The replTracker is being Open/Close with a big hammer. A better approach
 //     is to call MakePrimary / MakeNonPrimary during state transitions.
 //     We can do this, once we introduce the proper state manager.
-func (pm *MultiPoolerManager) Open() error {
+func (pm *MultiPoolerManager) Open() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if pm.isOpen {
-		return nil
+		return
 	}
 
 	pm.ctx, pm.cancel = context.WithCancel(context.TODO())
 
-	if err := pm.openConnectionsLocked(); err != nil {
-		return err
-	}
+	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultiPoolerManager opened database connection")
 
 	// Start background PostgreSQL monitoring and auto-recovery
@@ -304,24 +306,58 @@ func (pm *MultiPoolerManager) Open() error {
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
-	return nil
 }
 
-// Close closes the database connection and stops the async loader.
+// Pause temporarily closes the manager for maintenance operations that require
+// exclusive database access (e.g., pg_rewind). Returns a resume function that
+// MUST be called to reopen the manager.
+//
+// The resume function is safe to call multiple times (idempotent). This allows
+// using both defer and explicit calls:
+//
+//	resume := pm.Pause()
+//	defer resume()  // Guarantees cleanup
+//	// ... perform maintenance ...
+//	resume()  // Explicit resume at the right time
+//	// defer will call resume() again safely
+//
+// Note: Pause() cancels the manager's context, but Open() creates a fresh one.
+func (pm *MultiPoolerManager) Pause() (resume func()) {
+	if !pm.closeLocked("paused") {
+		// Already closed, return no-op resume
+		return func() {}
+	}
+
+	return func() {
+		pm.Open()
+	}
+}
+
+// Shutdown permanently closes the database connection and stops background operations.
+// Use this for final cleanup when the manager will no longer be used.
+// Unlike Pause(), Shutdown does not return a resume function, signaling permanent closure.
 // Safe to call multiple times and safe to call even if never opened.
-func (pm *MultiPoolerManager) Close() error {
+func (pm *MultiPoolerManager) Shutdown() {
+	pm.closeLocked("shutdown")
+}
+
+// closeLocked performs the actual close operation.
+// Returns true if the manager was open and is now closed, false if it was already closed.
+// Caller should NOT hold pm.mu - this function acquires it.
+// Always cancels the context - Open() will create a fresh one if reopened.
+func (pm *MultiPoolerManager) closeLocked(logMessage string) bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if !pm.isOpen {
-		return nil
+		return false
 	}
 
 	pm.pgMonitor.Stop()
 	pm.closeConnectionsLocked()
 	pm.cancel()
 	pm.isOpen = false
-	pm.logger.Info("MultiPoolerManager: closed")
-	return nil
+	pm.logger.Info("MultiPoolerManager: " + logMessage)
+	return true
 }
 
 // startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
@@ -353,9 +389,10 @@ func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerControlle
 }
 
 // openConnectionsLocked opens database connections and initializes connection-related components.
+// This operation is infallible - connection pool failures are handled gracefully at query time.
 // Caller must hold pm.mu.
 // This is symmetric to closeConnectionsLocked and used by both Open() and reopenConnections().
-func (pm *MultiPoolerManager) openConnectionsLocked() error {
+func (pm *MultiPoolerManager) openConnectionsLocked() {
 	// Open connection pool manager
 
 	// Open connection pool manager
@@ -389,8 +426,6 @@ func (pm *MultiPoolerManager) openConnectionsLocked() error {
 			// Don't fail the connection if heartbeat fails
 		}
 	}
-
-	return nil
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -411,14 +446,15 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() {
 }
 
 // reopenConnections closes and reopens database connections without canceling
-// the main context. This is used during auto-restore to restart connections
-// after PostgreSQL has been restored, without disrupting the startup flow.
-func (pm *MultiPoolerManager) reopenConnections(_ context.Context) error {
+// the manager's context. This is used to refresh stale connection pool file
+// descriptors after PostgreSQL has been restarted, without disrupting contexts
+// derived from pm.ctx (e.g., during auto-restore at startup).
+func (pm *MultiPoolerManager) reopenConnections(_ context.Context) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	pm.closeConnectionsLocked()
-	return pm.openConnectionsLocked()
+	pm.openConnectionsLocked()
 }
 
 // GetState returns the current state of the manager
@@ -997,9 +1033,7 @@ func (pm *MultiPoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 	}
 
 	// Reopen connections after restart
-	if err := pm.reopenConnections(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to reopen connections")
-	}
+	pm.reopenConnections(ctx)
 
 	// Wait for database connection to be ready after restart
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {
@@ -1334,10 +1368,7 @@ func (pm *MultiPoolerManager) ReplicationLag(ctx context.Context) (time.Duration
 func (pm *MultiPoolerManager) Start(senv *servenv.ServEnv) {
 	// Open the database connections, connection pool manager, and start background operations
 	// TODO: This should be managed by a proper state manager (like tm_state.go)
-	if err := pm.Open(); err != nil {
-		pm.logger.Error("Failed to open manager during startup", "error", err)
-		// Don't fail startup if Open fails - will retry on demand
-	}
+	pm.Open()
 
 	// Start loading multipooler record from topology asynchronously
 	go pm.loadMultiPoolerFromTopo()
@@ -1640,9 +1671,7 @@ func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 	// Only when connection pool is initialized (the manager may not have
 	// connection infrastructure in unit tests with minimal setup).
 	if pm.connPoolMgr != nil {
-		if err := pm.reopenConnections(ctx); err != nil {
-			return fmt.Errorf("MonitorPostgres: failed to reopen connections after restart: %w", err)
-		}
+		pm.reopenConnections(ctx)
 
 		// Wait for database connection to be ready
 		if err := pm.waitForDatabaseConnection(ctx); err != nil {

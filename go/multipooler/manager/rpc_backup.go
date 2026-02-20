@@ -356,13 +356,10 @@ func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 
 func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 	slog.InfoContext(ctx, "Reopening pooler manager after restore")
-	// Use reopenConnections instead of Close/Open to avoid canceling pm.ctx.
+	// Use reopenConnections instead of Pause/Open to avoid canceling pm.ctx.
 	// This is important during auto-restore at startup where the startup flow
 	// is waiting on contexts derived from pm.ctx.
-	if err := pm.reopenConnections(ctx); err != nil {
-		slog.ErrorContext(ctx, "Failed to reopen pooler manager after restore", "error", err)
-		return mterrors.Wrap(err, "failed to reopen pooler manager after restore")
-	}
+	pm.reopenConnections(ctx)
 	slog.InfoContext(ctx, "Pooler manager reopened successfully after restore")
 	return nil
 }

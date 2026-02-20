@@ -120,7 +120,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { pm.Close() })
+	t.Cleanup(func() { pm.Shutdown() })
 
 	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
@@ -1286,7 +1286,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			}
 			pm, err := NewMultiPoolerManager(logger, multipooler, config)
 			require.NoError(t, err)
-			t.Cleanup(func() { pm.Close() })
+			t.Cleanup(func() { pm.Shutdown() })
 
 			// Set up mock query service
 			mockQueryService := mock.NewQueryService()
