@@ -99,7 +99,7 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
 	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -190,7 +190,7 @@ func TestConsensusService_Status(t *testing.T) {
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
 	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -274,7 +274,7 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
 	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -353,7 +353,7 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
 	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -434,7 +434,7 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
 	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
