@@ -53,6 +53,7 @@ type SetupConfig struct {
 	MultipoolerCount                    int
 	MultiOrchCount                      int
 	EnableMultigateway                  bool // Enable multigateway (opt-in, default: false)
+	EnableMultigatewayTLS               bool // Enable TLS for multigateway PostgreSQL listener
 	Database                            string
 	TableGroup                          string
 	Shard                               string
@@ -121,6 +122,15 @@ func WithoutInitialization() SetupOption {
 func WithMultigateway() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
+	}
+}
+
+// WithMultigatewayTLS enables TLS for the multigateway PostgreSQL listener.
+// Implies WithMultigateway(). TLS certificates are auto-generated during setup.
+func WithMultigatewayTLS() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMultigatewayTLS = true
 	}
 }
 
@@ -265,6 +275,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		attribute.String("shard", config.Shard),
 		attribute.String("cell", config.CellName),
 		attribute.Bool("enable.multigateway", config.EnableMultigateway),
+		attribute.Bool("enable.multigateway.tls", config.EnableMultigatewayTLS),
 		attribute.Bool("skip.initialization", config.SkipInitialization),
 	)
 
@@ -388,6 +399,11 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Start multigateway (if enabled) - MUST be after bootstrap so poolers are in topology
 	if config.EnableMultigateway {
+		// Generate TLS certificates for multigateway if TLS is enabled
+		if config.EnableMultigatewayTLS {
+			setup.generateMultigatewayTLSCerts(t)
+		}
+
 		// Allocate ports for multigateway
 		pgPort := utils.GetFreePort(t)
 		httpPort := utils.GetFreePort(t)

@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -68,6 +69,19 @@ type Conn struct {
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
 	trustAuthProvider TrustAuthProvider
+
+	// tlsConfig holds the TLS configuration for SSL connections.
+	// When set, the server accepts SSLRequest and upgrades to TLS.
+	// When nil, SSLRequest is declined with 'N'.
+	tlsConfig *tls.Config
+
+	// sslDone indicates that an SSLRequest has already been handled
+	// (accepted or declined) for this connection. Prevents double negotiation.
+	sslDone bool
+
+	// gssDone indicates that a GSSENCRequest has already been handled
+	// for this connection. Prevents double negotiation.
+	gssDone bool
 
 	// logger for connection-specific logging.
 	logger *slog.Logger

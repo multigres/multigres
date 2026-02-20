@@ -105,7 +105,7 @@ func newPipeConnPair() (serverConn, clientConn *pipeConn) {
 
 // scramClientHelper performs SCRAM authentication from the client side.
 // It reads server messages from clientConn and responds appropriately.
-func scramClientHelper(t *testing.T, clientConn *pipeConn, username, password string) {
+func scramClientHelper(t *testing.T, clientConn io.ReadWriter, username, password string) {
 	t.Helper()
 	client := scram.NewSCRAMClientWithPassword(username, password)
 
@@ -159,7 +159,7 @@ func scramClientHelper(t *testing.T, clientConn *pipeConn, username, password st
 }
 
 // readMessage reads a PostgreSQL message from the connection.
-func readMessage(t *testing.T, conn *pipeConn) (byte, []byte) {
+func readMessage(t *testing.T, conn io.Reader) (byte, []byte) {
 	t.Helper()
 	header := make([]byte, 5)
 	_, err := io.ReadFull(conn, header)
@@ -176,7 +176,7 @@ func readMessage(t *testing.T, conn *pipeConn) (byte, []byte) {
 }
 
 // writeSASLInitialResponse writes a SASLInitialResponse message.
-func writeSASLInitialResponse(t *testing.T, conn *pipeConn, mechanism, data string) {
+func writeSASLInitialResponse(t *testing.T, conn io.Writer, mechanism, data string) {
 	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteString(mechanism)
@@ -188,13 +188,13 @@ func writeSASLInitialResponse(t *testing.T, conn *pipeConn, mechanism, data stri
 }
 
 // writeSASLResponse writes a SASLResponse message.
-func writeSASLResponse(t *testing.T, conn *pipeConn, data string) {
+func writeSASLResponse(t *testing.T, conn io.Writer, data string) {
 	t.Helper()
 	writeMessage(t, conn, 'p', []byte(data))
 }
 
 // writeMessage writes a PostgreSQL message to the connection.
-func writeMessage(t *testing.T, conn *pipeConn, msgType byte, body []byte) {
+func writeMessage(t *testing.T, conn io.Writer, msgType byte, body []byte) {
 	t.Helper()
 	header := make([]byte, 5)
 	header[0] = msgType
@@ -205,8 +205,8 @@ func writeMessage(t *testing.T, conn *pipeConn, msgType byte, body []byte) {
 	require.NoError(t, err)
 }
 
-// writeStartupPacketToPipe writes a startup packet to a pipeConn.
-func writeStartupPacketToPipe(t *testing.T, conn *pipeConn, protocolCode uint32, params map[string]string) {
+// writeStartupPacketToPipe writes a startup packet to a writer.
+func writeStartupPacketToPipe(t *testing.T, conn io.Writer, protocolCode uint32, params map[string]string) {
 	t.Helper()
 	var buf bytes.Buffer
 	writeStartupPacket(&buf, protocolCode, params)
