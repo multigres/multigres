@@ -17,6 +17,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +44,11 @@ type Listener struct {
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
 	trustAuthProvider TrustAuthProvider
+
+	// tlsConfig holds the TLS configuration for SSL connections.
+	// When set, the server accepts SSLRequest and upgrades to TLS.
+	// When nil, SSLRequest is declined with 'N'.
+	tlsConfig *tls.Config
 
 	// logger for logging.
 	logger *slog.Logger
@@ -97,6 +103,11 @@ type ListenerConfig struct {
 	// Production code should NOT set this field.
 	TrustAuthProvider TrustAuthProvider
 
+	// TLSConfig enables SSL for client connections.
+	// When set, the listener accepts SSLRequest and upgrades connections to TLS.
+	// When nil, SSLRequest is declined with 'N' (plaintext only).
+	TLSConfig *tls.Config
+
 	// Logger for logging (optional, defaults to slog.Default()).
 	Logger *slog.Logger
 }
@@ -129,6 +140,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		handler:           config.Handler,
 		hashProvider:      config.HashProvider,
 		trustAuthProvider: config.TrustAuthProvider,
+		tlsConfig:         config.TLSConfig,
 		logger:            logger,
 		ctx:               ctx,
 		cancel:            cancel,
@@ -174,6 +186,7 @@ func (l *Listener) Serve() error {
 		conn.handler = l.handler
 		conn.hashProvider = l.hashProvider
 		conn.trustAuthProvider = l.trustAuthProvider
+		conn.tlsConfig = l.tlsConfig
 
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {

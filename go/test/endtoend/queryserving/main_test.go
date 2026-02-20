@@ -31,13 +31,24 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 	)
 })
 
+// tlsSetupManager manages a separate shared setup with TLS-enabled multigateway.
+// SSL tests need their own cluster because the multigateway must be started with TLS certificates.
+var tlsSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithMultigatewayTLS(), // enable multigateway with TLS
+	)
+})
+
 // TestMain sets the path and cleans up after all tests.
 func TestMain(m *testing.M) {
 	exitCode := shardsetup.RunTestMain(m)
 	if exitCode != 0 {
 		setupManager.DumpLogs()
+		tlsSetupManager.DumpLogs()
 	}
 	setupManager.Cleanup()
+	tlsSetupManager.Cleanup()
 	os.Exit(exitCode) //nolint:forbidigo // TestMain() is allowed to call os.Exit
 }
 
@@ -45,4 +56,10 @@ func TestMain(m *testing.M) {
 func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
 	t.Helper()
 	return setupManager.Get(t)
+}
+
+// getTLSSharedSetup returns the shared setup with TLS-enabled multigateway for SSL tests.
+func getTLSSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+	t.Helper()
+	return tlsSetupManager.Get(t)
 }

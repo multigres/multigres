@@ -63,6 +63,10 @@ type ProcessInstance struct {
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (e.g., "0s", "10s")
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
 
+	// Multigateway TLS fields
+	TLSCertFile string // TLS certificate file (multigateway)
+	TLSKeyFile  string // TLS private key file (multigateway)
+
 	// PgBackRest-specific fields (used by multipooler and pgctld)
 	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
 	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
@@ -290,6 +294,14 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--http-port", strconv.Itoa(p.HttpPort),
 		"--hostname", "localhost",
 		"--log-level", "debug",
+	}
+
+	// Add TLS certificate flags if configured
+	if p.TLSCertFile != "" && p.TLSKeyFile != "" {
+		args = append(args,
+			"--pg-tls-cert-file", p.TLSCertFile,
+			"--pg-tls-key-file", p.TLSKeyFile,
+		)
 	}
 
 	p.Process = exec.Command(p.Binary, args...)
