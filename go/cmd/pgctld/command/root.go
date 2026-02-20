@@ -46,14 +46,6 @@ type PgCtlCommand struct {
 	pgHbaTemplate      viperutil.Value[string]
 	postgresConfigTmpl viperutil.Value[string]
 
-	// Backup configuration
-	backupType      viperutil.Value[string]
-	backupPath      viperutil.Value[string]
-	backupBucket    viperutil.Value[string]
-	backupRegion    viperutil.Value[string]
-	backupEndpoint  viperutil.Value[string]
-	backupKeyPrefix viperutil.Value[string]
-
 	vc        *viperutil.ViperConfig
 	lg        *servenv.Logger
 	telemetry *telemetry.Telemetry
@@ -103,36 +95,6 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		postgresConfigTmpl: viperutil.Configure(reg, "postgres-config-template", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "postgres-config-template",
-			Dynamic:  false,
-		}),
-		backupType: viperutil.Configure(reg, "backup.type", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-type",
-			Dynamic:  false,
-		}),
-		backupPath: viperutil.Configure(reg, "backup.path", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-path",
-			Dynamic:  false,
-		}),
-		backupBucket: viperutil.Configure(reg, "backup.bucket", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-bucket",
-			Dynamic:  false,
-		}),
-		backupRegion: viperutil.Configure(reg, "backup.region", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-region",
-			Dynamic:  false,
-		}),
-		backupEndpoint: viperutil.Configure(reg, "backup.endpoint", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-endpoint",
-			Dynamic:  false,
-		}),
-		backupKeyPrefix: viperutil.Configure(reg, "backup.key-prefix", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-key-prefix",
 			Dynamic:  false,
 		}),
 		vc:        viperutil.NewViperConfig(reg),

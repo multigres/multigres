@@ -179,9 +179,7 @@ timeout: 30
 			"--pooler-dir", dataDir,
 			"--grpc-port", strconv.Itoa(grpcPort),
 			"--pg-port", strconv.Itoa(pgPort),
-			"--config-file", pgctldConfigFile,
-			"--backup-type", "filesystem",
-			"--backup-path", filepath.Join(tempDir, "backups"))
+			"--config-file", pgctldConfigFile)
 
 		// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 		serverCmd.Env = append(os.Environ(),
@@ -1126,9 +1124,7 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 		"--pooler-dir", dataDir,
 		"--grpc-port", strconv.Itoa(grpcPort),
 		"--pg-port", strconv.Itoa(pgPort),
-		"--config-file", pgctldConfigFile,
-		"--backup-type", "filesystem",
-		"--backup-path", filepath.Join(tempDir, "backups"))
+		"--config-file", pgctldConfigFile)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	// Add endtoend directory to PATH so run_command_if_parent_dies.sh can be found
@@ -1251,9 +1247,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		"--pooler-dir", primaryDir,
 		"--grpc-port", strconv.Itoa(primaryGrpcPort),
 		"--pg-port", strconv.Itoa(primaryPgPort),
-		"--config-file", primaryConfigFile,
-		"--backup-type", "filesystem",
-		"--backup-path", filepath.Join(tempDir, "primary-backups"))
+		"--config-file", primaryConfigFile)
 	setupTestEnv(primaryServerCmd)
 	require.NoError(t, primaryServerCmd.Start())
 	defer func() {
@@ -1301,9 +1295,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		"--pooler-dir", standbyDir,
 		"--grpc-port", strconv.Itoa(standbyGrpcPort),
 		"--pg-port", strconv.Itoa(standbyPgPort),
-		"--config-file", standbyConfigFile,
-		"--backup-type", "filesystem",
-		"--backup-path", filepath.Join(tempDir, "standby-backups"))
+		"--config-file", standbyConfigFile)
 	setupTestEnv(standbyServerCmd)
 	require.NoError(t, standbyServerCmd.Start())
 	defer func() {
