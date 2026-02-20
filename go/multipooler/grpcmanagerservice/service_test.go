@@ -91,7 +91,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Start the async loader
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -169,7 +169,7 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 	}
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Do NOT start the manager - keep it in starting state
 	// Verify manager is in starting state
