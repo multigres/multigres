@@ -108,9 +108,9 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 	return pm
 }
 
-// setupMockPgBackRestConfig creates a mock pgbackrest.conf file that pgctld would normally generate.
-// This allows tests to proceed past initPgBackRest() validation.
-func setupMockPgBackRestConfig(t *testing.T, poolerDir string) {
+// setupMockPgBackRestConfig creates a mock pgbackrest.conf file and returns its path.
+// Callers must set pm.pgbackrestConfigPath to the returned path after creating the manager.
+func setupMockPgBackRestConfig(t *testing.T, poolerDir string) string {
 	t.Helper()
 
 	// Create pgbackrest directory
@@ -133,6 +133,7 @@ pg1-port=5432
 `
 	err = os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err, "failed to create pgbackrest.conf")
+	return configPath
 }
 
 func TestFindBackupByJobID(t *testing.T) {
@@ -262,8 +263,9 @@ exit 1
 
 			// Use separate directory for pooler data
 			poolerDir := t.TempDir()
-			setupMockPgBackRestConfig(t, poolerDir)
+			configPath := setupMockPgBackRestConfig(t, poolerDir)
 			pm := createTestManagerWithBackupLocation(poolerDir, "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, poolerDir)
+			pm.pgBackRestConfigPath = configPath
 
 			ctx := context.Background()
 			backupID, err := pm.findBackupByJobID(ctx, tt.jobID)
@@ -342,8 +344,9 @@ func TestBackup_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Provide backup location for tests that need to reach pgbackrest execution or validation
 			backupLocation := "/tmp/test-backups"
-			setupMockPgBackRestConfig(t, tt.poolerDir)
+			configPath := setupMockPgBackRestConfig(t, tt.poolerDir)
 			pm := createTestManagerWithBackupLocation(tt.poolerDir, "", "", tt.poolerType, backupLocation)
+			pm.pgBackRestConfigPath = configPath
 
 			// Setup primary info for replica poolers (required for backup)
 			if tt.poolerType == clustermetadatapb.PoolerType_REPLICA {
@@ -395,8 +398,9 @@ func TestGetBackups_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setupMockPgBackRestConfig(t, tt.poolerDir)
+			configPath := setupMockPgBackRestConfig(t, tt.poolerDir)
 			pm := createTestManager(tt.poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+			pm.pgBackRestConfigPath = configPath
 
 			result, err := pm.GetBackups(ctx, tt.limit)
 
@@ -977,84 +981,59 @@ func TestGetBackupByJobId_Found(t *testing.T) {
 	assert.Equal(t, "20251203-143045.123456_mp-cell-1", resp.Backup.JobId)
 }
 
-func TestInitPgBackRest(t *testing.T) {
-	tests := []struct {
-		name          string
-		setupConfig   bool // Whether to create the pgbackrest.conf file
-		expectError   bool
-		errorContains string
-	}{
-		{
-			name:        "Success when config exists",
-			setupConfig: true,
-			expectError: false,
-		},
-		{
-			name:          "Failure when config missing",
-			setupConfig:   false,
-			expectError:   true,
-			errorContains: "pgbackrest config not found",
-		},
-	}
+func TestPgbackrestConfig(t *testing.T) {
+	t.Run("Success when config path is set", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		configPath := setupMockPgBackRestConfig(t, poolerDir)
+		pm := createTestManagerWithBackupLocation(
+			poolerDir,
+			"test-tg",
+			"0",
+			clustermetadatapb.PoolerType_REPLICA,
+			"/tmp/test-backups",
+		)
+		pm.pgBackRestConfigPath = configPath
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			poolerDir := t.TempDir()
-			pm := createTestManagerWithBackupLocation(
-				poolerDir,
-				"test-tg",
-				"0",
-				clustermetadatapb.PoolerType_REPLICA,
-				"/tmp/test-backups",
-			)
+		result, err := pm.pgBackRestConfig()
+		require.NoError(t, err)
+		assert.Equal(t, configPath, result)
+	})
 
-			if tt.setupConfig {
-				setupMockPgBackRestConfig(t, poolerDir)
-			}
+	t.Run("Error when config path is not set", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		pm := createTestManagerWithBackupLocation(
+			poolerDir,
+			"test-tg",
+			"0",
+			clustermetadatapb.PoolerType_REPLICA,
+			"/tmp/test-backups",
+		)
 
-			configPath, err := pm.checkPgBackRestConfig(context.Background())
+		result, err := pm.pgBackRestConfig()
+		require.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "not yet generated")
+	})
 
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Empty(t, configPath, "config path should be empty on error")
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			} else {
-				require.NoError(t, err)
-				assert.NotEmpty(t, configPath, "config path should not be empty on success")
+	t.Run("Repeated calls return same path", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		configPath := setupMockPgBackRestConfig(t, poolerDir)
+		pm := createTestManagerWithBackupLocation(
+			poolerDir,
+			"test-tg",
+			"0",
+			clustermetadatapb.PoolerType_REPLICA,
+			"/tmp/backups",
+		)
+		pm.pgBackRestConfigPath = configPath
 
-				// Verify config file exists
-				pgbackrestPath := pm.pgbackrestPath()
-				expectedPath := filepath.Join(pgbackrestPath, "pgbackrest.conf")
-				assert.Equal(t, expectedPath, configPath)
-				assert.FileExists(t, configPath, "config file should exist")
-			}
-		})
-	}
-}
+		result1, err := pm.pgBackRestConfig()
+		require.NoError(t, err)
 
-func TestInitPgBackRest_Idempotent(t *testing.T) {
-	// Test that calling initPgBackRest multiple times is safe (idempotent)
-	poolerDir := t.TempDir()
-	setupMockPgBackRestConfig(t, poolerDir)
-	pm := createTestManagerWithBackupLocation(
-		poolerDir,
-		"test-tg",
-		"0",
-		clustermetadatapb.PoolerType_REPLICA,
-		"/tmp/backups",
-	)
-
-	// First call
-	configPath, err := pm.checkPgBackRestConfig(context.Background())
-	require.NoError(t, err)
-	assert.NotEmpty(t, configPath)
-
-	// Second call - should return the same path
-	configPath2, err := pm.checkPgBackRestConfig(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, configPath, configPath2, "should return same path on second call")
+		result2, err := pm.pgBackRestConfig()
+		require.NoError(t, err)
+		assert.Equal(t, result1, result2, "should return same path on repeated calls")
+	})
 }
 
 func TestBackup_UsesCLIArgs(t *testing.T) {
@@ -1118,6 +1097,7 @@ pg1-path=/tmp/pg_data
 
 	// Create test manager with the pooler directory
 	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm.pgBackRestConfigPath = pgctldConfigPath
 
 	// Setup primary info (required for replica backups)
 	pm.primaryHost = "primary.local"
@@ -1135,9 +1115,9 @@ pg1-path=/tmp/pg_data
 	require.NoError(t, err)
 	args := string(capturedArgs)
 
-	// Verify --config points to pgctld's config (not a temp file)
+	// Verify --config points to the multipooler-generated config (not a temp file)
 	assert.Contains(t, args, "--config", "command should include --config flag")
-	assert.Contains(t, args, "pgbackrest.conf", "config should be pgbackrest.conf from pgctld")
+	assert.Contains(t, args, "pgbackrest.conf", "config should be pgbackrest.conf")
 	assert.NotContains(t, args, "pgbackrest-backup.conf", "should NOT use temp backup config file")
 
 	// Verify backup command structure

@@ -40,7 +40,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
@@ -60,15 +59,6 @@ type PgCtldServerCmd struct {
 	senv              *servenv.ServEnv
 	pgbackrestPort    viperutil.Value[int]
 	pgbackrestCertDir viperutil.Value[string]
-
-	// Backup configuration
-	backupType              viperutil.Value[string]
-	backupPath              viperutil.Value[string]
-	backupBucket            viperutil.Value[string]
-	backupRegion            viperutil.Value[string]
-	backupEndpoint          viperutil.Value[string]
-	backupKeyPrefix         viperutil.Value[string]
-	backupUseEnvCredentials viperutil.Value[bool]
 }
 
 // AddServerCommand adds the server subcommand to the root command
@@ -87,41 +77,6 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 			FlagName: "pgbackrest-cert-dir",
 			Dynamic:  false,
 		}),
-		backupType: viperutil.Configure(pc.reg, "backup.type", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-type",
-			Dynamic:  false,
-		}),
-		backupPath: viperutil.Configure(pc.reg, "backup.path", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-path",
-			Dynamic:  false,
-		}),
-		backupBucket: viperutil.Configure(pc.reg, "backup.bucket", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-bucket",
-			Dynamic:  false,
-		}),
-		backupRegion: viperutil.Configure(pc.reg, "backup.region", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-region",
-			Dynamic:  false,
-		}),
-		backupEndpoint: viperutil.Configure(pc.reg, "backup.endpoint", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-endpoint",
-			Dynamic:  false,
-		}),
-		backupKeyPrefix: viperutil.Configure(pc.reg, "backup.key-prefix", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-key-prefix",
-			Dynamic:  false,
-		}),
-		backupUseEnvCredentials: viperutil.Configure(pc.reg, "backup.use-env-credentials", viperutil.Options[bool]{
-			Default:  false,
-			FlagName: "backup-use-env-credentials",
-			Dynamic:  false,
-		}),
 	}
 	serverCmd.senv.InitServiceMap("grpc", constants.ServicePgctld)
 	root.AddCommand(serverCmd.createCommand())
@@ -129,23 +84,9 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 
 // validateServerFlags validates required flags for the server command
 func (s *PgCtldServerCmd) validateServerFlags(cmd *cobra.Command, args []string) error {
-	// First run the standard servenv validation
 	if err := s.senv.CobraPreRunE(cmd); err != nil {
 		return err
 	}
-
-	// Validate backup configuration flags
-	backupType := s.backupType.Get()
-	backupPath := s.backupPath.Get()
-	if backupType == "" {
-		return errors.New("--backup-type is required")
-	}
-	if backupPath == "" {
-		return errors.New("--backup-path is required")
-	}
-
-	// Then run our global validation (but not initialization validation -
-	// the gRPC server should start and validate initialization per method)
 	return s.pgCtlCmd.validateGlobalFlags(cmd, args)
 }
 
@@ -168,24 +109,6 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 	cmd.Flags().Int("pgbackrest-port", s.pgbackrestPort.Default(), "pgBackRest TLS server port")
 	cmd.Flags().String("pgbackrest-cert-dir", s.pgbackrestCertDir.Default(), "Directory containing ca.crt, pgbackrest.crt, pgbackrest.key")
 	viperutil.BindFlags(cmd.Flags(), s.pgbackrestPort, s.pgbackrestCertDir)
-
-	// Backup configuration flags (server command only)
-	cmd.Flags().String("backup-type", s.backupType.Default(), "Backup type: s3 or filesystem")
-	cmd.Flags().String("backup-path", s.backupPath.Default(), "Filesystem backup directory path")
-	cmd.Flags().String("backup-bucket", s.backupBucket.Default(), "S3 bucket name for backups")
-	cmd.Flags().String("backup-region", s.backupRegion.Default(), "S3 region for backups")
-	cmd.Flags().String("backup-endpoint", s.backupEndpoint.Default(), "S3 endpoint URL (optional, for S3-compatible services)")
-	cmd.Flags().String("backup-key-prefix", s.backupKeyPrefix.Default(), "S3 key prefix for backup objects (optional)")
-	cmd.Flags().Bool("backup-use-env-credentials", s.backupUseEnvCredentials.Default(), "Use AWS credentials from environment variables")
-	viperutil.BindFlags(cmd.Flags(),
-		s.backupType,
-		s.backupPath,
-		s.backupBucket,
-		s.backupRegion,
-		s.backupEndpoint,
-		s.backupKeyPrefix,
-		s.backupUseEnvCredentials,
-	)
 
 	return cmd
 }
@@ -212,45 +135,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	pgbackrestPort := s.pgbackrestPort.Get()
 	pgbackrestCertDir := s.pgbackrestCertDir.Get()
 
-	// Build backup configuration from viperutil values
-	var backupConfig *backup.Config
-	if backupType := s.backupType.Get(); backupType != "" {
-		var loc *clustermetadatapb.BackupLocation
-		switch backupType {
-		case "s3":
-			loc = &clustermetadatapb.BackupLocation{
-				Location: &clustermetadatapb.BackupLocation_S3{
-					S3: &clustermetadatapb.S3Backup{
-						Bucket:            s.backupBucket.Get(),
-						Region:            s.backupRegion.Get(),
-						Endpoint:          s.backupEndpoint.Get(),
-						KeyPrefix:         s.backupKeyPrefix.Get(),
-						UseEnvCredentials: s.backupUseEnvCredentials.Get(),
-					},
-				},
-			}
-		case "filesystem":
-			loc = &clustermetadatapb.BackupLocation{
-				Location: &clustermetadatapb.BackupLocation_Filesystem{
-					Filesystem: &clustermetadatapb.FilesystemBackup{
-						Path: s.backupPath.Get(),
-					},
-				},
-			}
-		default:
-			logger.Error("Invalid backup type", "type", backupType)
-		}
-
-		if loc != nil {
-			var err error
-			backupConfig, err = backup.NewConfig(loc)
-			if err != nil {
-				logger.Error("Failed to create backup config", "error", err)
-				backupConfig = nil
-			}
-		}
-	}
-
 	pgctldService, err := NewPgCtldService(
 		logger,
 		s.pgCtlCmd.pgPort.Get(),
@@ -261,7 +145,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		s.pgCtlCmd.pgListenAddresses.Get(),
 		pgbackrestPort,
 		pgbackrestCertDir,
-		backupConfig,
 	)
 	if err != nil {
 		return err
@@ -336,9 +219,10 @@ type PgCtldService struct {
 	restartCount     int32
 }
 
-// validatePortConsistency is no longer needed because port, listen_addresses, and unix_socket_directories
-// are now passed as command-line parameters and not stored in the config file.
-// This makes backups portable across different environments.
+// pgbackrestServerConfigPath returns the path to the pgbackrest server config file.
+func (s *PgCtldService) pgbackrestServerConfigPath() string {
+	return filepath.Join(s.poolerDir, "pgbackrest", "pgbackrest-server.conf")
+}
 
 // NewPgCtldService creates a new PgCtldService with validation
 func NewPgCtldService(
@@ -351,7 +235,6 @@ func NewPgCtldService(
 	listenAddresses string,
 	pgbackrestPort int,
 	pgbackrestCertDir string,
-	backupConfig *backup.Config,
 ) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
@@ -391,26 +274,20 @@ func NewPgCtldService(
 		return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
 	}
 
-	// Generate pgbackrest.conf if backup config and cert dir provided
+	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
 	if pgbackrestPort > 0 && pgbackrestCertDir != "" {
-		if backupConfig == nil {
-			return nil, errors.New("pgBackRest server enabled but no backup configuration provided")
-		}
-
-		pgbrCfg := pgctld.PgBackRestConfig{
+		configPath, err := backup.WriteServerConfig(backup.ServerConfigOpts{
 			PoolerDir:     poolerDir,
 			CertDir:       pgbackrestCertDir,
 			Port:          pgbackrestPort,
 			Pg1Port:       pgPort,
 			Pg1SocketPath: pgctld.PostgresSocketDir(poolerDir),
 			Pg1Path:       pgctld.PostgresDataDir(poolerDir),
-		}
-
-		configPath, err := pgctld.GeneratePgBackRestConfig(pgbrCfg, backupConfig)
+		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate pgbackrest.conf: %w", err)
+			return nil, fmt.Errorf("failed to generate pgbackrest-server.conf: %w", err)
 		}
-		logger.Info("Generated pgbackrest.conf", "path", configPath)
+		logger.Info("Generated pgbackrest-server.conf", "path", configPath)
 	}
 
 	//nolint:gocritic // Background context for pgBackRest lifecycle management
@@ -489,11 +366,11 @@ func (s *PgCtldService) Close() {
 // startPgBackRest starts the pgBackRest TLS server process
 // Returns the command on success, or error on failure
 func (s *PgCtldService) startPgBackRest(ctx context.Context) (*exec.Cmd, error) {
-	configPath := filepath.Join(s.poolerDir, "pgbackrest", "pgbackrest.conf")
+	configPath := s.pgbackrestServerConfigPath()
 
 	// Verify config exists
 	if _, err := os.Stat(configPath); err != nil {
-		return nil, fmt.Errorf("pgbackrest.conf not found at %s: %w", configPath, err)
+		return nil, fmt.Errorf("pgbackrest-server.conf not found at %s: %w", configPath, err)
 	}
 
 	// Build command: pgbackrest server
@@ -517,7 +394,7 @@ func (s *PgCtldService) startPgBackRest(ctx context.Context) (*exec.Cmd, error) 
 // managePgBackRest manages the pgBackRest TLS server lifecycle with retry and restart logic
 func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 	// Check if pgbackrest config exists before attempting to start
-	configPath := filepath.Join(s.poolerDir, "pgbackrest", "pgbackrest.conf")
+	configPath := s.pgbackrestServerConfigPath()
 	if _, err := os.Stat(configPath); err != nil {
 		s.logger.InfoContext(ctx, "pgBackRest config not found, skipping pgBackRest server startup", "config_path", configPath)
 		s.setPgBackRestStatus(false, "config not found", false)

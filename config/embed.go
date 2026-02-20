@@ -24,3 +24,6 @@ var PostgresHbaDefaultTmpl string
 
 //go:embed pgbackrest/pgbackrest_template.conf
 var PgBackRestConfigTmpl string
+
+//go:embed pgbackrest/pgbackrest_server_template.conf
+var PgBackRestServerConfigTmpl string
