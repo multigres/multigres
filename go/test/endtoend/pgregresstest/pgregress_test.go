@@ -140,6 +140,15 @@ func TestPostgreSQLRegression(t *testing.T) {
 		})
 	}
 
+	// Between suites: fully reinitialize the cluster. The regression suite
+	// can leave PostgreSQL in a degraded state (crashed backends, stale
+	// connection pools, modified databases). A full teardown + re-bootstrap
+	// gives isolation a completely fresh cluster.
+	if runRegress && runIsolation {
+		t.Logf("Reinitializing cluster between suites...")
+		setup.ReinitializeCluster(t)
+	}
+
 	// Phase 6: Run isolation tests
 	if runIsolation {
 		t.Run("isolation", func(t *testing.T) {
