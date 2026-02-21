@@ -332,14 +332,11 @@ func TestConsensus_BeginTerm(t *testing.T) {
 			Action:  consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE,
 		}
 
-		resp, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
-		require.NoError(t, err, "BeginTerm RPC should succeed")
-		require.NotNil(t, resp, "Response should not be nil")
-
-		// New term should be accepted
-		assert.True(t, resp.Accepted, "New term should be accepted")
-		assert.Equal(t, expectedTerm, resp.Term, "Response term should be updated to new term")
-		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.PoolerId, "PoolerId should match")
+		_, err := primaryConsensusClient.BeginTerm(utils.WithShortDeadline(t), req)
+		// Primary REVOKE returns an error because emergency demotion stops postgres,
+		// making the node unusable. gRPC drops the response when an error is returned.
+		require.Error(t, err, "BeginTerm REVOKE on primary should return error after emergency demotion")
+		require.Contains(t, err.Error(), "primary demoted and postgres stopped")
 
 		// Verify PostgreSQL is stopped (emergency demotion stops postgres)
 		pgctldClient, err := shardsetup.NewPgctldClient(setup.PrimaryPgctld.GrpcPort)
@@ -686,16 +683,12 @@ func TestBeginTermEmergencyDemotesPrimary(t *testing.T) {
 		}
 
 		t.Logf("Sending BeginTerm with term %d to primary...", newTerm)
-		beginTermResp, err := primaryConsensusClient.BeginTerm(utils.WithTimeout(t, 30*time.Second), beginTermReq)
-		require.NoError(t, err, "BeginTerm RPC should succeed")
-
-		// Verify response
-		assert.True(t, beginTermResp.Accepted, "Primary should accept the higher term")
-		assert.Equal(t, newTerm, beginTermResp.Term, "Response term should be the new term")
-		require.NotNil(t, beginTermResp.WalPosition, "Primary should include WAL position after auto-demotion")
-		assert.NotEmpty(t, beginTermResp.WalPosition.CurrentLsn, "Primary should include current_lsn after auto-demotion")
-		t.Logf("BeginTerm response: accepted=%v, term=%d, current_lsn=%s",
-			beginTermResp.Accepted, beginTermResp.Term, beginTermResp.WalPosition.CurrentLsn)
+		_, err = primaryConsensusClient.BeginTerm(utils.WithTimeout(t, 30*time.Second), beginTermReq)
+		// Primary REVOKE returns an error because emergency demotion stops postgres,
+		// making the node unusable. gRPC drops the response when an error is returned.
+		require.Error(t, err, "BeginTerm REVOKE on primary should return error after emergency demotion")
+		require.Contains(t, err.Error(), "primary demoted and postgres stopped")
+		t.Logf("BeginTerm correctly returned error after emergency demotion: %v", err)
 
 		// Verify PostgreSQL is stopped (emergency demotion stops postgres, doesn't restart as standby)
 		pgctldClient, err := shardsetup.NewPgctldClient(setup.PrimaryPgctld.GrpcPort)

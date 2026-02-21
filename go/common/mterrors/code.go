@@ -32,11 +32,15 @@ var (
 	// MT13002 Pooler Type Mismatch
 	MT13002 = errorWithoutState("MT13002", mtrpcpb.Code_FAILED_PRECONDITION, "pooler type mismatch: topology says %s but PostgreSQL is %s", "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.")
 
+	// MT13003 Heartbeat Stale
+	MT13003 = errorWithoutState("MT13003", mtrpcpb.Code_UNAVAILABLE, "heartbeat stale", "The heartbeat reader has not received a fresh heartbeat within the expected interval, indicating the primary may have stopped writing or replication is broken.")
+
 	// Errors is a list of errors that must match all the variables
 	// defined above to enable auto-documentation of error codes.
 	Errors = []func(args ...any) *MultigresError{
 		MT13001,
 		MT13002,
+		MT13003,
 	}
 
 	ErrorsWithNoCode = []func(code mtrpcpb.Code, args ...any) *MultigresError{}

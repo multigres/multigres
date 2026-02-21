@@ -252,6 +252,17 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
+	// Disable restore_command so archive-get does not fetch divergent WAL
+	// from the old primary's archive. This must happen after PostgreSQL starts
+	// (ALTER SYSTEM requires a running instance) and before we open connections.
+	// TODO: MUL-174: We need to audit all the places where restore needs to be
+	// disabled / enabled. We don't want pgbackrest to manage the lifecycle
+	// of this command. So for now disabling here, but we still need to
+	// enable.
+	if err := pm.disableRestoreCommand(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to disable restore_command after restore")
+	}
+
 	// Set consensus term after restore.
 	// If the cluster is at a higher term,
 	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.

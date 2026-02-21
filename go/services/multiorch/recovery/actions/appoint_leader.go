@@ -77,14 +77,16 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	}
 
 	// Check if a primary already exists and is healthy (problem resolved).
-	// We must verify both that the pooler is reachable (IsLastCheckValid) AND that
-	// PostgreSQL is running (IsPostgresRunning). If the pooler is up but Postgres
-	// is down, we still need to trigger failover.
+	// We must verify that the pooler is reachable (IsLastCheckValid), PostgreSQL
+	// is running (IsPostgresRunning), and replicas are connected. A primary with
+	// no connected followers may have had its leadership revoked and needs re-election.
 	for _, pooler := range cohort {
 		if pooler.MultiPooler != nil &&
 			pooler.MultiPooler.Type == clustermetadatapb.PoolerType_PRIMARY &&
 			pooler.IsLastCheckValid &&
-			pooler.IsPostgresRunning {
+			pooler.IsPostgresRunning &&
+			pooler.PrimaryStatus != nil &&
+			len(pooler.PrimaryStatus.ConnectedFollowers) > 0 {
 			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
 				"primary", pooler.MultiPooler.Id.Name,
 				"shard_key", problem.ShardKey.String())

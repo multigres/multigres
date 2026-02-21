@@ -19,14 +19,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PrimaryIsDeadAnalyzer detects when a primary exists in topology but is unhealthy/unreachable.
-// This is a per-pooler analyzer that returns a shard-wide problem.
-// The recovery loop's filterAndPrioritize() will deduplicate multiple instances.
+// PrimaryIsDeadAnalyzer detects when a primary is unreachable, ALL replica poolers
+// are reachable, and none is connected to the primary. Strongest signal for failover.
 type PrimaryIsDeadAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -48,49 +46,33 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
-	// Only analyze replicas (primaries can't report themselves as dead)
-	if poolerAnalysis.IsPrimary {
+	if !checkPrimaryUnreachable(poolerAnalysis) {
 		return nil, nil
 	}
 
-	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
-	if !poolerAnalysis.IsInitialized {
+	// No replicas in shard — nothing to failover to.
+	if poolerAnalysis.CountReplicaPoolersInShard == 0 {
 		return nil, nil
 	}
 
-	// Skip if no primary exists in topology
-	if poolerAnalysis.PrimaryPoolerID == nil {
+	// Full visibility required: all replica poolers must be reachable.
+	if poolerAnalysis.CountReachableReplicaPoolersInShard != poolerAnalysis.CountReplicaPoolersInShard {
 		return nil, nil
 	}
 
-	// Early return if primary is fully reachable (pooler up AND Postgres running)
-	if poolerAnalysis.PrimaryReachable {
-		return nil, nil
-	}
-
-	// At this point, PrimaryReachable is false. This can happen in two cases:
-	// 1. Primary pooler is reachable but Postgres is down -> FAILOVER
-	// 2. Primary pooler is unreachable -> need to check if Postgres is still running
-	//
-	// For case 2, we check if ALL replicas are still connected to the primary Postgres.
-	// If they are, Postgres is still running and only the pooler process is down.
-	// In this case, we do NOT trigger failover - the operator should restart the pooler.
-	if !poolerAnalysis.PrimaryPoolerReachable && poolerAnalysis.ReplicasConnectedToPrimary {
-		// Primary pooler is down but Postgres is still running (replicas are connected).
-		// Do not trigger failover - operator should restart the pooler process.
-		a.factory.Logger().Warn("primary pooler unreachable but postgres still running",
-			"shard_key", poolerAnalysis.ShardKey.String(),
-			"primary_pooler_id", topoclient.MultiPoolerIDString(poolerAnalysis.PrimaryPoolerID),
-			"action", "operator should restart pooler process")
+	// All replicas confirm primary is alive (streaming WAL + healthy heartbeat).
+	// Primary pooler may be down but Postgres is still running — don't failover.
+	if poolerAnalysis.AllReplicasConfirmPrimaryAlive {
 		return nil, nil
 	}
 
 	return &types.Problem{
-		Code:           types.ProblemPrimaryIsDead,
-		CheckName:      "PrimaryIsDead",
-		PoolerID:       poolerAnalysis.PoolerID,
-		ShardKey:       poolerAnalysis.ShardKey,
-		Description:    fmt.Sprintf("Primary for shard %s is dead/unreachable", poolerAnalysis.ShardKey),
+		Code:      types.ProblemPrimaryIsDead,
+		CheckName: "PrimaryIsDead",
+		PoolerID:  poolerAnalysis.PoolerID,
+		ShardKey:  poolerAnalysis.ShardKey,
+		Description: fmt.Sprintf("Primary for shard %s is dead/unreachable and none of its replicas is connected",
+			poolerAnalysis.ShardKey),
 		Priority:       types.PriorityEmergency,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),

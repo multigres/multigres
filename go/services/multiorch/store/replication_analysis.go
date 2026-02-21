@@ -73,10 +73,13 @@ type ReplicationAnalysis struct {
 	PrimaryTimestamp       time.Time
 	PrimaryLSNStr          string
 	ReplicationLagBytes    int64
-	IsInPrimaryStandbyList bool // Whether this replica is in the primary's synchronous_standby_names
+	IsInPrimaryStandbyList bool          // Whether this replica is in the primary's synchronous_standby_names
+	WalReceiverStatus      string        // WAL receiver status: "streaming", "stopping", "starting", "waiting", or empty
+	HeartbeatLag           time.Duration // Time since primary last wrote a heartbeat, as observed via replicated row. -1 if unavailable.
 
-	// Stale primary detection: populated for PRIMARY nodes only
-	PrimaryTerm           int64          // This pooler's primary term (term when promoted)
+	// PrimaryTerm: for PRIMARY nodes, this is the term when promoted (stale primary detection).
+	// For REPLICA nodes, this is the shard primary's promotion term (revoked primary detection).
+	PrimaryTerm           int64
 	OtherPrimariesInShard []*PrimaryInfo // All other primaries detected in the shard
 	HighestTermPrimary    *PrimaryInfo   // Primary with highest PrimaryTerm (rewind source)
 	ConsensusTerm         int64          // This node's consensus term (from health check)
@@ -85,9 +88,16 @@ type ReplicationAnalysis struct {
 	PrimaryPoolerReachable bool // True if primary pooler health check succeeded (IsLastCheckValid)
 	PrimaryPostgresRunning bool // True if primary Postgres is running (IsPostgresRunning from health check)
 
-	// ReplicasConnectedToPrimary is true only if ALL replicas in the shard are still
-	// connected to the primary Postgres (have primary_conninfo configured and are receiving WAL).
-	// Used to avoid failover when only the primary pooler is down but Postgres is still running.
-	// If even one replica has lost connection, this is false.
-	ReplicasConnectedToPrimary bool
+	// Total replica poolers in the shard (regardless of reachability).
+	CountReplicaPoolersInShard uint
+	// Replica poolers reachable by multiorch via gRPC (IsLastCheckValid == true).
+	CountReachableReplicaPoolersInShard uint
+	// Replicas confirming the primary is alive: reachable, streaming WAL from
+	// the correct primary, and with healthy heartbeat.
+	CountReplicasConfirmingPrimaryAliveInShard uint
+
+	// AllReplicasConfirmPrimaryAlive is true only if ALL replicas in the shard
+	// confirm the primary is alive (streaming WAL, correct primary, healthy heartbeat).
+	// If even one replica fails the check, this is false.
+	AllReplicasConfirmPrimaryAlive bool
 }
