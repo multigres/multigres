@@ -498,6 +498,8 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 
 		inCodeBlock := true
 
+		const maxDiffBytes = 2000 // truncate individual diffs to keep report small
+
 		for i, test := range s.Results.Tests {
 			status := "✅ ok"
 			switch test.Status {
@@ -520,9 +522,13 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 
 			if test.Status == "fail" {
 				if diff, ok := testDiffs[test.Name]; ok {
+					truncated := diff
+					if len(truncated) > maxDiffBytes {
+						truncated = truncated[:maxDiffBytes] + "\n... (truncated)"
+					}
 					sb.WriteString("```\n")
 					inCodeBlock = false
-					sb.WriteString(fmt.Sprintf("<details>\n<summary>Show diff</summary>\n\n```diff\n%s\n```\n</details>\n\n", diff))
+					sb.WriteString(fmt.Sprintf("<details>\n<summary>Show diff</summary>\n\n```diff\n%s\n```\n</details>\n\n", truncated))
 				}
 			}
 		}
@@ -543,17 +549,66 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 
 	t.Logf("Markdown summary written to: %s", summaryPath)
 
-	// Write to GitHub Actions job summary if available
+	// Write to GitHub Actions job summary if available.
+	// GitHub limits GITHUB_STEP_SUMMARY to 1 MB. If the full report exceeds
+	// the limit, write a truncated version with only the results table
+	// (no per-test diffs).
+	const maxStepSummaryBytes = 900 * 1024 // 900 KB, with headroom for other steps
 	if summaryFile := os.Getenv("GITHUB_STEP_SUMMARY"); summaryFile != "" {
+		ciSummary := summary
+		if len(ciSummary) > maxStepSummaryBytes {
+			t.Logf("Full report is %d bytes, exceeds %d byte limit for GITHUB_STEP_SUMMARY; writing table-only version",
+				len(summary), maxStepSummaryBytes)
+			ciSummary = pb.buildTableOnlySummary(suites, totalPassed, totalAll, totalDuration, badgeColor)
+		}
 		f, err := os.OpenFile(summaryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err == nil {
-			_, _ = f.WriteString(summary)
+			_, _ = f.WriteString(ciSummary)
 			f.Close()
-			t.Logf("Written to GitHub Actions job summary")
+			t.Logf("Written to GitHub Actions job summary (%d bytes)", len(ciSummary))
 		}
 	}
 
 	return summary, nil
+}
+
+// buildTableOnlySummary generates a compact markdown report without per-test
+// diffs, used when the full report would exceed the GITHUB_STEP_SUMMARY limit.
+func (pb *PostgresBuilder) buildTableOnlySummary(suites []SuiteResult, totalPassed, totalAll int, totalDuration time.Duration, badgeColor string) string {
+	var sb strings.Builder
+
+	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
+	sb.WriteString(fmt.Sprintf("**Status:** ![PG Compatibility](https://img.shields.io/badge/PG_Compatibility-%d%%2F%d_tests-%s)\n",
+		totalPassed, totalAll, badgeColor))
+	sb.WriteString(fmt.Sprintf("**PostgreSQL Version:** `%s`\n", PostgresVersion))
+	sb.WriteString(fmt.Sprintf("**Duration:** %v\n", totalDuration.Round(time.Millisecond)))
+	sb.WriteString(fmt.Sprintf("**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339)))
+	sb.WriteString("> **Note:** Per-test diffs omitted to fit GitHub step summary size limit. See the full report in CI artifacts.\n\n")
+
+	for _, s := range suites {
+		sb.WriteString(fmt.Sprintf("### %s\n\n", s.Name))
+		sb.WriteString("```\n")
+		sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "#", "Test", "Status", "Duration"))
+		sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "---", "---------------", "-------", "--------"))
+
+		for i, test := range s.Results.Tests {
+			status := "✅ ok"
+			switch test.Status {
+			case "fail":
+				status = "❌ FAIL"
+			case "skip":
+				status = "⏭️ skip"
+			}
+			duration := test.Duration
+			if duration == "" {
+				duration = "-"
+			}
+			sb.WriteString(fmt.Sprintf(" %2d  %-15s %-7s %8s\n", i+1, test.Name, status, duration))
+		}
+		sb.WriteString("```\n\n")
+	}
+
+	return sb.String()
 }
 
 // splitDiffsByTest splits a combined regression.diffs file into per-test diffs.
