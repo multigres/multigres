@@ -144,6 +144,10 @@ func (m *mockMultiPoolerServiceClient) GetAuthCredentials(ctx context.Context, i
 	return nil, nil
 }
 
+func (m *mockMultiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *multipoolerservice.StreamPoolerHealthRequest, opts ...grpc.CallOption) (multipoolerservice.MultiPoolerService_StreamPoolerHealthClient, error) {
+	return nil, nil
+}
+
 func (m *mockMultiPoolerServiceClient) ReserveStreamExecute(ctx context.Context, in *multipoolerservice.ReserveStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.ReserveStreamExecuteResponse], error) {
 	if m.reserveStreamErr != nil {
 		return nil, m.reserveStreamErr

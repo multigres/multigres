@@ -71,3 +71,34 @@ func TestGetAuthCredentials_Validation(t *testing.T) {
 		assert.Contains(t, st.Message(), "pooler not initialized")
 	})
 }
+
+func TestStreamPoolerHealth_Validation(t *testing.T) {
+	t.Run("nil pooler", func(t *testing.T) {
+		srv := &poolerService{pooler: nil}
+		req := &multipoolerpb.StreamPoolerHealthRequest{}
+
+		// Create a mock stream that captures the error
+		mockStream := &mockHealthStream{ctx: context.Background()}
+		err := srv.StreamPoolerHealth(req, mockStream)
+
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Unavailable, st.Code())
+		assert.Contains(t, st.Message(), "pooler not initialized")
+	})
+}
+
+// mockHealthStream is a minimal mock for testing StreamPoolerHealth validation.
+type mockHealthStream struct {
+	multipoolerpb.MultiPoolerService_StreamPoolerHealthServer
+	ctx context.Context
+}
+
+func (m *mockHealthStream) Context() context.Context {
+	return m.ctx
+}
+
+func (m *mockHealthStream) Send(*multipoolerpb.StreamPoolerHealthResponse) error {
+	return nil
+}

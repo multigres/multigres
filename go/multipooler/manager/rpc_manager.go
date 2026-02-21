@@ -735,6 +735,8 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 		return mterrors.Wrap(err, "failed to update pooler type in topology")
 	}
 
+	// Update health streamer with pooler type change
+	pm.healthStreamer.UpdatePoolerType(poolerType)
 	// Update heartbeat tracker based on new type
 	if pm.replTracker != nil {
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {

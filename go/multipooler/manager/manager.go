@@ -142,6 +142,10 @@ type MultiPoolerManager struct {
 	primaryPoolerID *clustermetadatapb.ID
 	primaryHost     string
 	primaryPort     int32
+
+	// healthStreamer streams health state to subscribers.
+	// Owns all health-related state and provides typed update methods.
+	healthStreamer *healthStreamer
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -228,15 +232,16 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		pgMonitor:              monitorRunner,
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:            ctx,
+		cancel:         cancel,
+		healthStreamer: newHealthStreamer(ctx, logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
 	}
 
 	// Consensus state is always available; it will be loaded when needed.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 
 	// Create the query service controller with the pool manager
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm)
 
 	return pm, nil
 }
@@ -308,6 +313,9 @@ func (pm *MultiPoolerManager) Open() error {
 	pm.pgMonitor.Start(pm.monitorPostgresIteration, nil)
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
+	// Start health streaming
+	pm.healthStreamer.Start()
+
 	pm.isOpen = true
 	return nil
 }
@@ -322,6 +330,7 @@ func (pm *MultiPoolerManager) Close() error {
 	}
 
 	pm.pgMonitor.Stop()
+	pm.healthStreamer.Stop()
 	pm.closeConnectionsLocked()
 	pm.cancel()
 	pm.isOpen = false
@@ -674,6 +683,9 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
+		// Update health streamer with newly loaded multipooler type
+		poolerType := pm.multipooler.Type
+		pm.healthStreamer.UpdatePoolerType(poolerType)
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
 		pm.checkAndSetReady()
@@ -955,6 +967,8 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 		return mterrors.Wrap(err, "failed to transition to SERVING_RDONLY")
 	}
 
+	// Update health streamer with serving status change
+	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
 	// Stop heartbeat writer
 	if pm.replTracker != nil {
 		pm.logger.InfoContext(ctx, "Stopping heartbeat writer")
@@ -1299,6 +1313,8 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
 	}
 
+	// Update health streamer with pooler type change
+	pm.healthStreamer.UpdatePoolerType(clustermetadatapb.PoolerType_PRIMARY)
 	// Update heartbeat tracker to primary mode
 	if pm.replTracker != nil {
 		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
