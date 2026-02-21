@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: PostgreSQL Regression Tests
+name: PostgreSQL Compatibility Tests
 
 on:
   schedule:
@@ -25,7 +25,7 @@ permissions: {}
 
 jobs:
   test-pgregress:
-    name: Run PostgreSQL regression tests
+    name: Run PostgreSQL compatibility tests
     if: >-
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run PgRegress Tests')
@@ -51,11 +51,12 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Run PostgreSQL regression tests
+      - name: Run PostgreSQL compatibility tests
         env:
           RUN_PGREGRESS: "1"
+          RUN_PGISOLATION: "1"
           TEST_PRINT_LOGS: "1"
-        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 20m | tee pgregress-test-results.jsonl | go tool tparse -follow
+        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
       - name: Upload compatibility report
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

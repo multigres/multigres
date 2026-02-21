@@ -979,6 +979,119 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	}
 }
 
+// ReinitializeCluster tears down the running cluster and brings up a fresh one.
+// It stops all processes (multigateway, multipooler, pgctld), removes PostgreSQL
+// data directories, restarts everything, and re-bootstraps via multiorch.
+// Use this between independent test suites that may leave the cluster in a
+// degraded state (e.g., PostgreSQL regression tests that crash connections).
+func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
+	t.Helper()
+
+	ctx := context.Background()
+	gracePeriod := 5 * time.Second
+
+	t.Logf("ReinitializeCluster: tearing down cluster...")
+
+	// 1. Stop multigateway (routes to multipoolers, stop first)
+	if s.Multigateway != nil {
+		s.Multigateway.TerminateGracefully(t, gracePeriod)
+		t.Logf("ReinitializeCluster: stopped multigateway")
+	}
+
+	// 2. Stop multiorch instances
+	for name, mo := range s.MultiOrchInstances {
+		if mo.IsRunning() {
+			mo.TerminateGracefully(t, gracePeriod)
+			t.Logf("ReinitializeCluster: stopped multiorch %s", name)
+		}
+	}
+
+	// 3. Stop multipooler + pgctld and remove PostgreSQL data.
+	// StopPostgres must be called BEFORE killing pgctld, otherwise
+	// the postgres process survives and holds the port.
+	for name, inst := range s.Multipoolers {
+		if inst.Multipooler != nil {
+			inst.Multipooler.TerminateGracefully(t, gracePeriod)
+			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
+		}
+		if inst.Pgctld != nil {
+			inst.Pgctld.StopPostgres(t)
+			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
+			inst.Pgctld.TerminateGracefully(t, gracePeriod)
+			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
+		}
+
+		// Remove ALL contents of the data directory so pgctld starts
+		// completely fresh. This clears pg_data (PostgreSQL data),
+		// pg_sockets (stale Unix sockets), pgbackrest (backup state),
+		// and any other state files.
+		dataDir := inst.Pgctld.DataDir
+		entries, err := os.ReadDir(dataDir)
+		if err != nil {
+			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
+		} else {
+			for _, entry := range entries {
+				entryPath := filepath.Join(dataDir, entry.Name())
+				if err := os.RemoveAll(entryPath); err != nil {
+					t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
+				}
+			}
+			t.Logf("ReinitializeCluster: cleared data directory %s", dataDir)
+		}
+	}
+
+	// 3b. Clear the shared backup repository so pgbackrest doesn't
+	// reference stale backups from the previous cluster.
+	backupRepoDir := filepath.Join(s.TempDir, "backup-repo")
+	if entries, err := os.ReadDir(backupRepoDir); err == nil {
+		for _, entry := range entries {
+			entryPath := filepath.Join(backupRepoDir, entry.Name())
+			if err := os.RemoveAll(entryPath); err != nil {
+				t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
+			}
+		}
+		t.Logf("ReinitializeCluster: cleared backup repo %s", backupRepoDir)
+	}
+
+	t.Logf("ReinitializeCluster: restarting cluster...")
+
+	// 4. Start pgctld + multipooler for all nodes
+	for name, inst := range s.Multipoolers {
+		if err := inst.Pgctld.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
+		}
+		if err := inst.Multipooler.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start multipooler %s: %v", name, err)
+		}
+		WaitForManagerReady(t, inst.Multipooler)
+		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
+	}
+
+	// 5. Start multigateway
+	if s.Multigateway != nil {
+		if err := s.Multigateway.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start multigateway: %v", err)
+		}
+		t.Logf("ReinitializeCluster: started multigateway")
+	}
+
+	// 6. Bootstrap via temporary multiorch
+	config := &SetupConfig{
+		Database:   "postgres",
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+		CellName:   s.CellName,
+	}
+	initializeWithMultiOrch(ctx, t, s, config)
+
+	// 7. Wait for multigateway to serve queries
+	if s.Multigateway != nil {
+		s.WaitForMultigatewayQueryServing(t)
+	}
+
+	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
+}
+
 // SetupTest provides test isolation by validating clean state and automatically
 // restoring baseline state at test cleanup.
 //
