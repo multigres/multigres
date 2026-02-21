@@ -265,7 +265,11 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	}
 
 	// If orphan detection environment variables are set, spawn a watchdog process
-	// that will stop postgres if the test parent dies or testdata dir is deleted
+	// that will stop postgres if the test parent dies or testdata dir is deleted.
+	// Note: The watchdog uses `pg_ctl stop` which requires the data directory to exist.
+	// If the directory is deleted while PostgreSQL is running, pg_ctl will fail but
+	// PostgreSQL will eventually crash when it tries to access files (e.g., writing
+	// WAL or checkpoints), typically within a few seconds to minutes depending on activity.
 	if servenv.IsTestOrphanDetectionEnabled() {
 		logger.Info("Spawning watchdog process for orphan detection")
 		watchdogCmd := exec.Command(
