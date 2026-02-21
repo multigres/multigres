@@ -80,3 +80,43 @@ func (s *consensusService) CanReachPrimary(ctx context.Context, req *consensusda
 	}
 	return resp, nil
 }
+
+// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
+func (s *consensusService) WaitForLSN(ctx context.Context, req *consensusdata.WaitForLSNRequest) (*consensusdata.WaitForLSNResponse, error) {
+	err := s.manager.WaitForLSN(ctx, req.TargetLsn)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &consensusdata.WaitForLSNResponse{}, nil
+}
+
+// SetPrimaryConnInfo sets the primary connection info for a standby server
+func (s *consensusService) SetPrimaryConnInfo(ctx context.Context, req *consensusdata.SetPrimaryConnInfoRequest) (*consensusdata.SetPrimaryConnInfoResponse, error) {
+	err := s.manager.SetPrimaryConnInfo(ctx,
+		req.Primary,
+		req.StopReplicationBefore,
+		req.StartReplicationAfter,
+		req.CurrentTerm,
+		req.Force)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &consensusdata.SetPrimaryConnInfoResponse{}, nil
+}
+
+// Promote promotes a replica to leader (Multigres-level operation)
+func (s *consensusService) Promote(ctx context.Context, req *consensusdata.PromoteRequest) (*consensusdata.PromoteResponse, error) {
+	resp, err := s.manager.Promote(ctx,
+		req.ConsensusTerm,
+		req.ExpectedLsn,
+		req.SyncReplicationConfig,
+		req.Force,
+		req.Reason,
+		req.CoordinatorId,
+		req.CohortMembers,
+		req.AcceptedMembers)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}

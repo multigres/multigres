@@ -29,7 +29,6 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // BeginTerm achieves Revocation, Candidacy, and Discovery by recruiting poolers
@@ -376,7 +375,7 @@ func (c *Coordinator) EstablishLeadership(
 					"pooler", candidate.MultiPooler.Id.Name,
 					"target_lsn", expectedLSN)
 
-				waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+				waitReq := &consensusdatapb.WaitForLSNRequest{
 					TargetLsn: expectedLSN,
 				}
 				waitCtx, waitCancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
@@ -422,7 +421,7 @@ func (c *Coordinator) EstablishLeadership(
 			rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RemoteOperationTimeout)
 			defer cancel()
 
-			setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 				Primary:               candidate.MultiPooler,
 				CurrentTerm:           term,
 				StopReplicationBefore: false,
@@ -459,7 +458,7 @@ func (c *Coordinator) EstablishLeadership(
 		return mterrors.Wrap(err, "failed to build synchronous replication config")
 	}
 
-	promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+	promoteReq := &consensusdatapb.PromoteRequest{
 		ConsensusTerm:         term,
 		ExpectedLsn:           expectedLSN,
 		SyncReplicationConfig: syncConfig,

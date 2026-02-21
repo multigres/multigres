@@ -34,10 +34,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiPoolerConsensus_BeginTerm_FullMethodName         = "/consensus.MultiPoolerConsensus/BeginTerm"
-	MultiPoolerConsensus_Status_FullMethodName            = "/consensus.MultiPoolerConsensus/Status"
-	MultiPoolerConsensus_GetLeadershipView_FullMethodName = "/consensus.MultiPoolerConsensus/GetLeadershipView"
-	MultiPoolerConsensus_CanReachPrimary_FullMethodName   = "/consensus.MultiPoolerConsensus/CanReachPrimary"
+	MultiPoolerConsensus_BeginTerm_FullMethodName          = "/consensus.MultiPoolerConsensus/BeginTerm"
+	MultiPoolerConsensus_Status_FullMethodName             = "/consensus.MultiPoolerConsensus/Status"
+	MultiPoolerConsensus_GetLeadershipView_FullMethodName  = "/consensus.MultiPoolerConsensus/GetLeadershipView"
+	MultiPoolerConsensus_CanReachPrimary_FullMethodName    = "/consensus.MultiPoolerConsensus/CanReachPrimary"
+	MultiPoolerConsensus_WaitForLSN_FullMethodName         = "/consensus.MultiPoolerConsensus/WaitForLSN"
+	MultiPoolerConsensus_SetPrimaryConnInfo_FullMethodName = "/consensus.MultiPoolerConsensus/SetPrimaryConnInfo"
+	MultiPoolerConsensus_Promote_FullMethodName            = "/consensus.MultiPoolerConsensus/Promote"
 )
 
 // MultiPoolerConsensusClient is the client API for MultiPoolerConsensus service.
@@ -53,6 +56,10 @@ type MultiPoolerConsensusClient interface {
 	GetLeadershipView(ctx context.Context, in *consensusdata.LeadershipViewRequest, opts ...grpc.CallOption) (*consensusdata.LeadershipViewResponse, error)
 	// Replication
 	CanReachPrimary(ctx context.Context, in *consensusdata.CanReachPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.CanReachPrimaryResponse, error)
+	// Leader Appointment - Consensus Operations
+	WaitForLSN(ctx context.Context, in *consensusdata.WaitForLSNRequest, opts ...grpc.CallOption) (*consensusdata.WaitForLSNResponse, error)
+	SetPrimaryConnInfo(ctx context.Context, in *consensusdata.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*consensusdata.SetPrimaryConnInfoResponse, error)
+	Promote(ctx context.Context, in *consensusdata.PromoteRequest, opts ...grpc.CallOption) (*consensusdata.PromoteResponse, error)
 }
 
 type multiPoolerConsensusClient struct {
@@ -103,6 +110,36 @@ func (c *multiPoolerConsensusClient) CanReachPrimary(ctx context.Context, in *co
 	return out, nil
 }
 
+func (c *multiPoolerConsensusClient) WaitForLSN(ctx context.Context, in *consensusdata.WaitForLSNRequest, opts ...grpc.CallOption) (*consensusdata.WaitForLSNResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(consensusdata.WaitForLSNResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_WaitForLSN_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerConsensusClient) SetPrimaryConnInfo(ctx context.Context, in *consensusdata.SetPrimaryConnInfoRequest, opts ...grpc.CallOption) (*consensusdata.SetPrimaryConnInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(consensusdata.SetPrimaryConnInfoResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_SetPrimaryConnInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiPoolerConsensusClient) Promote(ctx context.Context, in *consensusdata.PromoteRequest, opts ...grpc.CallOption) (*consensusdata.PromoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(consensusdata.PromoteResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Promote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiPoolerConsensusServer is the server API for MultiPoolerConsensus service.
 // All implementations must embed UnimplementedMultiPoolerConsensusServer
 // for forward compatibility.
@@ -116,6 +153,10 @@ type MultiPoolerConsensusServer interface {
 	GetLeadershipView(context.Context, *consensusdata.LeadershipViewRequest) (*consensusdata.LeadershipViewResponse, error)
 	// Replication
 	CanReachPrimary(context.Context, *consensusdata.CanReachPrimaryRequest) (*consensusdata.CanReachPrimaryResponse, error)
+	// Leader Appointment - Consensus Operations
+	WaitForLSN(context.Context, *consensusdata.WaitForLSNRequest) (*consensusdata.WaitForLSNResponse, error)
+	SetPrimaryConnInfo(context.Context, *consensusdata.SetPrimaryConnInfoRequest) (*consensusdata.SetPrimaryConnInfoResponse, error)
+	Promote(context.Context, *consensusdata.PromoteRequest) (*consensusdata.PromoteResponse, error)
 	mustEmbedUnimplementedMultiPoolerConsensusServer()
 }
 
@@ -137,6 +178,15 @@ func (UnimplementedMultiPoolerConsensusServer) GetLeadershipView(context.Context
 }
 func (UnimplementedMultiPoolerConsensusServer) CanReachPrimary(context.Context, *consensusdata.CanReachPrimaryRequest) (*consensusdata.CanReachPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CanReachPrimary not implemented")
+}
+func (UnimplementedMultiPoolerConsensusServer) WaitForLSN(context.Context, *consensusdata.WaitForLSNRequest) (*consensusdata.WaitForLSNResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WaitForLSN not implemented")
+}
+func (UnimplementedMultiPoolerConsensusServer) SetPrimaryConnInfo(context.Context, *consensusdata.SetPrimaryConnInfoRequest) (*consensusdata.SetPrimaryConnInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPrimaryConnInfo not implemented")
+}
+func (UnimplementedMultiPoolerConsensusServer) Promote(context.Context, *consensusdata.PromoteRequest) (*consensusdata.PromoteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Promote not implemented")
 }
 func (UnimplementedMultiPoolerConsensusServer) mustEmbedUnimplementedMultiPoolerConsensusServer() {}
 func (UnimplementedMultiPoolerConsensusServer) testEmbeddedByValue()                              {}
@@ -231,6 +281,60 @@ func _MultiPoolerConsensus_CanReachPrimary_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerConsensus_WaitForLSN_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.WaitForLSNRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerConsensusServer).WaitForLSN(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerConsensus_WaitForLSN_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerConsensusServer).WaitForLSN(ctx, req.(*consensusdata.WaitForLSNRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerConsensus_SetPrimaryConnInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.SetPrimaryConnInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerConsensusServer).SetPrimaryConnInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerConsensus_SetPrimaryConnInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerConsensusServer).SetPrimaryConnInfo(ctx, req.(*consensusdata.SetPrimaryConnInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiPoolerConsensus_Promote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(consensusdata.PromoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerConsensusServer).Promote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerConsensus_Promote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerConsensusServer).Promote(ctx, req.(*consensusdata.PromoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiPoolerConsensus_ServiceDesc is the grpc.ServiceDesc for MultiPoolerConsensus service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -253,6 +357,18 @@ var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CanReachPrimary",
 			Handler:    _MultiPoolerConsensus_CanReachPrimary_Handler,
+		},
+		{
+			MethodName: "WaitForLSN",
+			Handler:    _MultiPoolerConsensus_WaitForLSN_Handler,
+		},
+		{
+			MethodName: "SetPrimaryConnInfo",
+			Handler:    _MultiPoolerConsensus_SetPrimaryConnInfo_Handler,
+		},
+		{
+			MethodName: "Promote",
+			Handler:    _MultiPoolerConsensus_Promote_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -237,7 +237,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 				},
 			},
 		},
-		SetPrimaryConnInfoResponses: map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
+		SetPrimaryConnInfoResponses: map[string]*consensusdatapb.SetPrimaryConnInfoResponse{
 			"multipooler-cell1-replica1": {},
 		},
 		UpdateSynchronousStandbyListResponses: map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{
@@ -436,7 +436,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 			},
 		},
 	}
-	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
+	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*consensusdatapb.SetPrimaryConnInfoResponse{
 		"multipooler-cell1-replica1": {},
 	}
 	baseFakeClient.UpdateSynchronousStandbyListResponses = map[string]*multipoolermanagerdatapb.UpdateSynchronousStandbyListResponse{

@@ -89,9 +89,9 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		State: "ready",
 	}
 
-	fakeClient.PromoteResponses[poolerKey] = &multipoolermanagerdatapb.PromoteResponse{}
+	fakeClient.PromoteResponses[poolerKey] = &consensusdatapb.PromoteResponse{}
 
-	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &multipoolermanagerdatapb.SetPrimaryConnInfoResponse{}
+	fakeClient.SetPrimaryConnInfoResponses[poolerKey] = &consensusdatapb.SetPrimaryConnInfoResponse{}
 
 	// Build ConsensusTerm if term > 0
 	var consensusTerm *multipoolermanagerdatapb.ConsensusTerm

@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
@@ -97,6 +98,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Create backup client connections
 			backupClient := createBackupClient(t, setup.PrimaryMultipooler.GrpcPort)
 			standbyBackupClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
+			standbyConsensusClient := createConsensusClient(t, setup.StandbyMultipooler.GrpcPort)
 
 			// Connect to primary PostgreSQL database using Unix socket
 			var err error
@@ -184,7 +186,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Hostname: "localhost",
 						PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 					}
-					updateTermReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+					updateTermReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 						Primary:               primary,
 						StartReplicationAfter: false, // Don't restart replication
 						StopReplicationBefore: false,
@@ -192,7 +194,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Force:                 false,
 					}
 					updateTermCtx := utils.WithTimeout(t, 30*time.Second)
-					_, err = standbyBackupClient.SetPrimaryConnInfo(updateTermCtx, updateTermReq)
+					_, err = standbyConsensusClient.SetPrimaryConnInfo(updateTermCtx, updateTermReq)
 					require.NoError(t, err, "Should be able to update term")
 
 					// Verify term was updated
@@ -253,7 +255,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						"primary_term should be cleared to 0 after restore (standby restore)")
 
 					// Configure replication after restore
-					setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+					setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 						Primary:               primary,
 						StartReplicationAfter: true,
 						StopReplicationBefore: false,
@@ -261,7 +263,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						Force:                 true,         // Force reconfiguration after restore
 					}
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
-					_, err = standbyBackupClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+					_, err = standbyConsensusClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 					require.NoError(t, err, "Should be able to configure replication after restore")
 
 					// Connect to the standby database after restore
@@ -623,6 +625,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 				// Configure replication after restore
 				standbyClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
+				standbyConsensus := createConsensusClient(t, setup.StandbyMultipooler.GrpcPort)
 
 				// Wait for PostgreSQL to be ready after restore
 				require.Eventually(t, func() bool {
@@ -641,7 +644,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 					Hostname: "localhost",
 					PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 				}
-				setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+				setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 					Primary:               primary,
 					StartReplicationAfter: true,
 					StopReplicationBefore: false,
@@ -650,7 +653,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				}
 				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer setPrimaryCancel()
-				_, err = standbyClient.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
+				_, err = standbyConsensus.SetPrimaryConnInfo(setPrimaryCtx, setPrimaryReq)
 				require.NoError(t, err, "Should be able to configure replication after restore")
 				t.Log("Replication configured after restore")
 

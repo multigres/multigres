@@ -166,7 +166,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	consensusTerm := consensusResp.CurrentTerm
 
 	// Configure primary_conninfo on the replica
-	req := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+	req := &consensusdatapb.SetPrimaryConnInfoRequest{
 		Primary:               primary.MultiPooler,
 		StopReplicationBefore: true,
 		StartReplicationAfter: true,
