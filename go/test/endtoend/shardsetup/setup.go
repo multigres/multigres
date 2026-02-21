@@ -1006,13 +1006,17 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		}
 	}
 
-	// 3. Stop multipooler + pgctld and remove PostgreSQL data
+	// 3. Stop multipooler + pgctld and remove PostgreSQL data.
+	// StopPostgres must be called BEFORE killing pgctld, otherwise
+	// the postgres process survives and holds the port.
 	for name, inst := range s.Multipoolers {
 		if inst.Multipooler != nil {
 			inst.Multipooler.TerminateGracefully(t, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
 		}
 		if inst.Pgctld != nil {
+			inst.Pgctld.StopPostgres(t)
+			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
 			inst.Pgctld.TerminateGracefully(t, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
@@ -1034,6 +1038,19 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 			}
 			t.Logf("ReinitializeCluster: cleared data directory %s", dataDir)
 		}
+	}
+
+	// 3b. Clear the shared backup repository so pgbackrest doesn't
+	// reference stale backups from the previous cluster.
+	backupRepoDir := filepath.Join(s.TempDir, "backup-repo")
+	if entries, err := os.ReadDir(backupRepoDir); err == nil {
+		for _, entry := range entries {
+			entryPath := filepath.Join(backupRepoDir, entry.Name())
+			if err := os.RemoveAll(entryPath); err != nil {
+				t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
+			}
+		}
+		t.Logf("ReinitializeCluster: cleared backup repo %s", backupRepoDir)
 	}
 
 	t.Logf("ReinitializeCluster: restarting cluster...")
