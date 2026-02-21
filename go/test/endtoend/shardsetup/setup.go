@@ -1017,12 +1017,22 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
 
-		// Remove PostgreSQL data directory so pgctld starts fresh
-		pgDataDir := filepath.Join(inst.Pgctld.DataDir, "pg_data")
-		if err := os.RemoveAll(pgDataDir); err != nil {
-			t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", pgDataDir, err)
+		// Remove ALL contents of the data directory so pgctld starts
+		// completely fresh. This clears pg_data (PostgreSQL data),
+		// pg_sockets (stale Unix sockets), pgbackrest (backup state),
+		// and any other state files.
+		dataDir := inst.Pgctld.DataDir
+		entries, err := os.ReadDir(dataDir)
+		if err != nil {
+			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
 		} else {
-			t.Logf("ReinitializeCluster: removed %s", pgDataDir)
+			for _, entry := range entries {
+				entryPath := filepath.Join(dataDir, entry.Name())
+				if err := os.RemoveAll(entryPath); err != nil {
+					t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
+				}
+			}
+			t.Logf("ReinitializeCluster: cleared data directory %s", dataDir)
 		}
 	}
 
