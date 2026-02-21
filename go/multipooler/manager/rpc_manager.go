@@ -731,11 +731,13 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 
 	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
-		return mterrors.Wrap(err, "failed to update pooler type in topology")
+		pm.logger.WarnContext(ctx, "Failed to update pooler type in topology, scheduling background retry", "error", err, "service_id", pm.serviceID.String())
+		pm.scheduleTopoSync()
+	} else {
+		pm.topoSyncState.Store(topoSyncIdle)
 	}
 
-	// Update heartbeat tracker based on new type
+	// Update heartbeat tracker based on new type regardless of topo write outcome
 	if pm.replTracker != nil {
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
 			pm.logger.InfoContext(ctx, "Starting heartbeat writer for new primary")
