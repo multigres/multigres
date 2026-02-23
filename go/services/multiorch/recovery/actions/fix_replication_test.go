@@ -444,9 +444,8 @@ func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 }
 
 // replicationStatusClient wraps FakeClient to return different StandbyReplicationStatus responses
-// based on call count, simulating the progression from "not configured" to various failure states.
-// The walReceiverStatus field controls what subsequent calls return, allowing tests to simulate
-// different failure modes (slow startup vs timeline divergence).
+// based on call count, simulating the progression from "not configured" to a failure state.
+// The walReceiverStatus field controls what subsequent calls return.
 type replicationStatusClient struct {
 	*rpcclient.FakeClient
 	callCount         int
@@ -514,8 +513,6 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		},
 	}
 
-	// WAL receiver status "stopping" indicates the WAL receiver connected but was
-	// terminated, which happens with timeline divergence.
 	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient, walReceiverStatus: "stopping"}
 	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
 
@@ -579,102 +576,11 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	// Verify SetPrimaryConnInfo was called (configuration was attempted)
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
-	// Verify pg_rewind was tried because WAL receiver "stopping" indicates divergence
+	// Verify pg_rewind was tried after replication failed to start
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
 
 	// Verify the pooler was marked as DRAINED in topology when pg_rewind wasn't feasible
 	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type)
-}
-
-func TestFixNotReplicating_NoRewindOnSlowStartup(t *testing.T) {
-	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
-
-	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
-
-	baseFakeClient := rpcclient.NewFakeClient()
-	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
-	})
-	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
-		"multipooler-cell1-primary": {
-			CurrentTerm: 1,
-		},
-	}
-	baseFakeClient.SetPrimaryConnInfoResponses = map[string]*multipoolermanagerdatapb.SetPrimaryConnInfoResponse{
-		"multipooler-cell1-replica1": {},
-	}
-
-	// WAL receiver status "" (not running) indicates the WAL receiver hasn't
-	// connected yet — just slow to start, not timeline divergence.
-	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient, walReceiverStatus: ""}
-	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
-
-	replicaID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "cell1",
-		Name:      "replica1",
-	}
-	replica := &clustermetadatapb.MultiPooler{
-		Id:         replicaID,
-		Database:   "testdb",
-		TableGroup: "default",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
-	}
-	primary := &clustermetadatapb.MultiPooler{
-		Id: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "primary",
-		},
-		Database:   "testdb",
-		TableGroup: "default",
-		Shard:      "0",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-		Hostname:   "primary.example.com",
-		PortMap:    map[string]int32{"postgres": 5432},
-	}
-
-	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
-	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
-
-	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: replica,
-	})
-	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: primary,
-	})
-
-	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
-	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
-
-	problem := types.Problem{
-		Code: types.ProblemReplicaNotReplicating,
-		ShardKey: commontypes.ShardKey{
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-		},
-		PoolerID: replicaID,
-	}
-
-	err := action.Execute(ctx, problem)
-
-	// Should fail because replication didn't start, but should NOT trigger pg_rewind
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no timeline divergence")
-
-	// Verify SetPrimaryConnInfo was called
-	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
-	// Verify pg_rewind was NOT called — no evidence of timeline divergence
-	assert.NotContains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
-
-	// Verify the pooler was NOT marked as DRAINED
-	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
-	require.NoError(t, err)
-	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, updatedPooler.Type)
 }
