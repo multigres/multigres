@@ -197,10 +197,34 @@ func (a *FixReplicationAction) fixNotReplicating(
 		a.logger.WarnContext(ctx, "replication did not start after configuration",
 			"replica", replica.MultiPooler.Id.Name,
 			"primary", primary.MultiPooler.Id.Name)
+
+		// Only attempt pg_rewind if the WAL receiver shows evidence of timeline
+		// divergence (e.g., status "stopping" indicates it connected then was
+		// terminated). For fresh bootstrap where the WAL receiver is just slow
+		// to connect, return the error and let the next recovery cycle retry.
+		if !a.hasTimelineDivergence(ctx, replica) {
+			return mterrors.Wrap(err, "replication did not start (no timeline divergence)")
+		}
+
 		if rewindErr := a.tryPgRewind(ctx, primary, replica); rewindErr != nil {
 			return mterrors.Wrap(rewindErr, "pg_rewind failed for diverged timelines")
 		}
-		return mterrors.Wrap(err, "replication did not start after configuration")
+		// After successful pg_rewind, re-apply primary_conninfo since
+		// pg_rewind may have overwritten postgresql.auto.conf.
+		retryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+			Primary:               primary.MultiPooler,
+			StopReplicationBefore: true,
+			StartReplicationAfter: true,
+			CurrentTerm:           consensusTerm,
+			Force:                 false,
+		}
+		if _, setErr := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, retryReq); setErr != nil {
+			return mterrors.Wrap(setErr, "failed to re-set primary_conninfo after pg_rewind")
+		}
+		// Re-verify replication after rewind + re-configuration
+		if verifyErr := a.verifyReplicationStarted(ctx, replica); verifyErr != nil {
+			return mterrors.Wrap(verifyErr, "replication did not start after pg_rewind")
+		}
 	}
 
 	// Add replica to the primary's synchronous standby list if it's a REPLICA type
@@ -373,6 +397,34 @@ func (a *FixReplicationAction) verifyReplicaNotInStandbyList(
 		"primary", primary.MultiPooler.Id.Name)
 
 	return false, status, nil
+}
+
+// hasTimelineDivergence checks if the replica's WAL receiver shows evidence of
+// timeline divergence. Returns false for fresh bootstraps where the WAL receiver
+// is just slow to connect (status "", "starting", or "waiting").
+// Only "stopping" suggests the WAL receiver connected and was terminated, which
+// happens when PostgreSQL detects a timeline mismatch.
+func (a *FixReplicationAction) hasTimelineDivergence(ctx context.Context, replica *multiorchdatapb.PoolerHealthState) bool {
+	status, err := a.getReplicationStatus(ctx, replica)
+	if err != nil {
+		a.logger.WarnContext(ctx, "could not check for timeline divergence",
+			"replica", replica.MultiPooler.Id.Name,
+			"error", err)
+		return false
+	}
+	if status == nil {
+		return false
+	}
+
+	switch status.WalReceiverStatus {
+	case "", "starting", "waiting", "streaming":
+		return false
+	default:
+		a.logger.InfoContext(ctx, "WAL receiver status suggests possible timeline divergence",
+			"replica", replica.MultiPooler.Id.Name,
+			"wal_receiver_status", status.WalReceiverStatus)
+		return true
+	}
 }
 
 // getReplicationStatus gets the current replication status from the replica.
