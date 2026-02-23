@@ -241,6 +241,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 	if reservedState.ReservedConnectionId > 0 {
 		return stream.Send(&multipoolerpb.PortalStreamExecuteResponse{
 			ReservedConnectionId: reservedState.ReservedConnectionId,
+			PoolerId:             reservedState.PoolerID,
 		})
 	}
 
