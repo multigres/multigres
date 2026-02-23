@@ -382,6 +382,67 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 }
 
+// delayedStreamingClient wraps FakeClient to simulate a WAL receiver that takes
+// several polling cycles to start streaming, as happens under coverage builds.
+type delayedStreamingClient struct {
+	*rpcclient.FakeClient
+	callCount        int
+	streamAfterCalls int // Return "streaming" starting at this call number
+}
+
+func (c *delayedStreamingClient) StandbyReplicationStatus(
+	ctx context.Context,
+	pooler *clustermetadatapb.MultiPooler,
+	request *multipoolermanagerdatapb.StandbyReplicationStatusRequest,
+) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	c.callCount++
+	if c.callCount >= c.streamAfterCalls {
+		return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				WalReceiverStatus: "streaming",
+				LastReceiveLsn:    "0/1234",
+			},
+		}, nil
+	}
+	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+		Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			WalReceiverStatus: "startup",
+		},
+	}, nil
+}
+
+func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
+	ctx := context.Background()
+
+	// WAL receiver starts streaming after more attempts than would fit in the
+	// old 2.5s window (5 × 500ms), but within the current limit. This ensures
+	// the polling window is wide enough for coverage builds where WAL receiver
+	// takes several seconds to connect.
+	streamAfterCalls := DefaultVerifyMaxAttempts/2 + 1
+
+	fakeClient := &delayedStreamingClient{
+		FakeClient:       rpcclient.NewFakeClient(),
+		streamAfterCalls: streamAfterCalls,
+	}
+
+	action := NewFixReplicationAction(nil, fakeClient, nil, nil, slog.Default())
+	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
+
+	replica := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "replica1",
+			},
+		},
+	}
+
+	err := action.verifyReplicationStarted(ctx, replica)
+	require.NoError(t, err, "verifyReplicationStarted should succeed when WAL receiver starts streaming after several polling cycles")
+	assert.Equal(t, streamAfterCalls, fakeClient.callCount, "should have polled exactly until streaming started")
+}
+
 // replicationStatusClient wraps FakeClient to return different StandbyReplicationStatus responses
 // based on call count, simulating the progression from "not configured" to "configured but not streaming".
 type replicationStatusClient struct {
@@ -492,6 +553,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	})
 
 	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,

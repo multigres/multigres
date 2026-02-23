@@ -60,12 +60,24 @@ var _ types.RecoveryAction = (*FixReplicationAction)(nil)
 // (SetPrimaryConnInfo, UpdateSynchronousStandbyList) are implemented as idempotent
 // operations at the pooler level and serialized by action locks on the poolers,
 // so concurrent calls are safe and produce the same final state.
+// Default polling parameters for verifyReplicationStarted.
+// Under coverage builds, WAL receiver can take 3-10s to connect and start streaming,
+// so we use a generous window (15s) to avoid false failures.
+const (
+	DefaultVerifyMaxAttempts  = 15
+	DefaultVerifyPollInterval = 1 * time.Second
+)
+
 type FixReplicationAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.PoolerStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
+
+	// Polling parameters for verifyReplicationStarted. Zero values use defaults.
+	verifyMaxAttempts  int
+	verifyPollInterval time.Duration
 }
 
 // NewFixReplicationAction creates a new fix replication action.
@@ -407,10 +419,17 @@ func (a *FixReplicationAction) isReplicaInStandbyList(
 }
 
 // verifyReplicationStarted checks that replication is actively streaming.
-// It polls a few times to allow the WAL receiver to connect.
+// It polls to allow the WAL receiver to connect, using configurable parameters
+// that default to DefaultVerifyMaxAttempts and DefaultVerifyPollInterval.
 func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, replica *multiorchdatapb.PoolerHealthState) error {
-	const maxAttempts = 5
-	const pollInterval = 500 * time.Millisecond
+	maxAttempts := a.verifyMaxAttempts
+	if maxAttempts == 0 {
+		maxAttempts = DefaultVerifyMaxAttempts
+	}
+	pollInterval := a.verifyPollInterval
+	if pollInterval == 0 {
+		pollInterval = DefaultVerifyPollInterval
+	}
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
