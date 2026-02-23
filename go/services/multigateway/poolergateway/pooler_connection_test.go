@@ -80,7 +80,7 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	logger := slog.Default()
 
 	// Create a real PoolerConnection - this is what we're testing
-	conn, err := NewPoolerConnection(pooler, logger)
+	conn, err := NewPoolerConnection(pooler, logger, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -125,7 +125,7 @@ func TestNewPoolerConnection(t *testing.T) {
 	// Create a new pooler connection
 	// The connection will fail to actually connect (no server), but gRPC uses
 	// non-blocking dial so NewPoolerConnection succeeds.
-	conn, err := NewPoolerConnection(pooler, logger)
+	conn, err := NewPoolerConnection(pooler, logger, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 	defer conn.Close()
@@ -154,7 +154,7 @@ func TestPoolerConnection_ID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pooler := createTestMultiPooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-			conn, err := NewPoolerConnection(pooler, logger)
+			conn, err := NewPoolerConnection(pooler, logger, nil)
 			require.NoError(t, err)
 			defer conn.Close()
 

@@ -79,8 +79,11 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 		return nil
 	}
 
-	// Create new connection
-	conn, err := NewPoolerConnection(pooler, lb.logger)
+	// Create new connection.
+	// Pass nil for onHealthUpdate - the LoadBalancer currently uses Health()
+	// to check serving state on demand rather than maintaining a separate list.
+	// TODO: Consider adding a callback to proactively update routing when health changes.
+	conn, err := NewPoolerConnection(pooler, lb.logger, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create connection to pooler %s: %w", poolerID, err)
 	}

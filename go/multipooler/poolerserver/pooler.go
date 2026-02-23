@@ -44,23 +44,27 @@ type QueryPoolerServer struct {
 	poolManager connpoolmanager.PoolManager
 	executor    *executor.Executor
 
-	mu            sync.Mutex
-	servingStatus clustermetadatapb.PoolerServingStatus
+	mu             sync.Mutex
+	servingStatus  clustermetadatapb.PoolerServingStatus
+	healthProvider HealthProvider
 }
 
-// NewQueryPoolerServer creates a new QueryPoolerServer instance with the given pool manager.
+// NewQueryPoolerServer creates a new QueryPoolerServer instance with the given pool manager
+// and health provider.
 // The pool manager must already be opened before calling this function.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *QueryPoolerServer {
+// The health provider is used by StreamPoolerHealth to provide health updates to clients.
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
 		exec = executor.NewExecutor(logger, poolManager, poolerID)
 	}
 
 	return &QueryPoolerServer{
-		logger:        logger,
-		poolManager:   poolManager,
-		executor:      exec,
-		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		logger:         logger,
+		poolManager:    poolManager,
+		executor:       exec,
+		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		healthProvider: healthProvider,
 	}
 }
 
@@ -152,4 +156,9 @@ func (s *QueryPoolerServer) PoolManager() connpoolmanager.PoolManager {
 // Implements PoolerController interface.
 func (s *QueryPoolerServer) InternalQueryService() executor.InternalQueryService {
 	return s.executor
+}
+
+// HealthProvider returns the health provider for streaming health updates.
+func (s *QueryPoolerServer) HealthProvider() HealthProvider {
+	return s.healthProvider
 }

@@ -21,6 +21,7 @@ syntax = "proto3";
 package multipoolerservice;
 
 import "clustermetadata.proto";
+import "google/protobuf/duration.proto";
 import "mtrpc.proto";
 import "query.proto";
 
@@ -56,6 +57,20 @@ service MultiPoolerService {
   // The gateway sends the initial command and then streams data/messages.
   // The pooler responds with protocol-specific messages and final result.
   rpc CopyBidiExecute(stream CopyBidiExecuteRequest) returns (stream CopyBidiExecuteResponse);
+
+  // StreamPoolerHealth streams health updates from the multipooler.
+  //
+  // The server sends an initial health response immediately upon connection,
+  // then pushes updates whenever the health state changes. If no state change
+  // occurs within the heartbeat interval, the server sends a heartbeat to
+  // confirm the stream is alive.
+  //
+  // Clients MUST implement a staleness timeout. The recommended timeout is provided
+  // in recommended_staleness_timeout_seconds in each response. If no message is
+  // received within this timeout, the pooler should be marked unhealthy.
+  //
+  // Each response contains the full health state (not incremental updates).
+  rpc StreamPoolerHealth(StreamPoolerHealthRequest) returns (stream StreamPoolerHealthResponse);
 
   // ReserveStreamExecute creates a reserved connection and executes a query.
   // Based on ReservationOptions.reason, may execute BEGIN before the query (for transactions).
@@ -264,6 +279,44 @@ message CopyBidiExecuteResponse {
 
   // error contains the error message (for ERROR phase)
   string error = 7;
+}
+
+// StreamPoolerHealthRequest initiates a health stream from the multipooler.
+// Currently empty; future versions may add fields for client-requested intervals.
+message StreamPoolerHealthRequest {
+}
+
+// StreamPoolerHealthResponse contains the current health state of the multipooler.
+// Sent immediately on connection, on state changes, and periodically as heartbeats.
+message StreamPoolerHealthResponse {
+  // target identifies the tablegroup, shard, and pooler type this pooler serves.
+  query.Target target = 1;
+
+  // pooler_id identifies this multipooler instance.
+  clustermetadata.ID pooler_id = 2;
+
+  // serving_status is the current serving state of the pooler.
+  clustermetadata.PoolerServingStatus serving_status = 3;
+
+  // primary_observation contains this pooler's view of who the primary is.
+  // Used by clients to identify the true primary when multiple poolers exist.
+  PrimaryObservation primary_observation = 4;
+
+  // recommended_staleness_timeout is the duration clients should use
+  // to detect a stale/dead health stream. If no message is received within
+  // this duration, clients should mark the pooler as unhealthy.
+  google.protobuf.Duration recommended_staleness_timeout = 5;
+}
+
+// PrimaryObservation represents a pooler's view of who the primary is.
+message PrimaryObservation {
+  // primary_id is the ID of the pooler this node believes is the primary.
+  // May be this pooler's own ID if it believes itself to be primary.
+  clustermetadata.ID primary_id = 1;
+
+  // term is the consensus term at which this observation was made.
+  // Higher terms indicate more recent observations.
+  int64 voting_term = 2;
 }
 
 // ReservationReason indicates why a connection needs to be reserved.
