@@ -652,18 +652,18 @@ func (e *Executor) CopyAbort(
 		// Continue to try reading response
 	}
 
-	// Read ErrorResponse from PostgreSQL
-	// After CopyFail, PostgreSQL should respond with ErrorResponse and ReadyForQuery
-	// We can try to read it, but if it fails, that's okay since we're aborting anyway
-	_, _, readErr := conn.ReadCopyDoneResponse(ctx)
+	// Read ErrorResponse + ReadyForQuery from PostgreSQL.
+	// After CopyFail, PostgreSQL responds with ErrorResponse then ReadyForQuery.
+	// ReadCopyFailResponse drains both, leaving the connection in a clean state.
+	readErr := conn.ReadCopyFailResponse(ctx)
 	if readErr != nil {
-		e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)", "error", readErr)
+		e.logger.ErrorContext(ctx, "failed to read response after CopyFail", "error", readErr)
 	}
 
 	e.logger.DebugContext(ctx, "COPY FAIL completed")
 
-	// If write or read failed, connection is in bad state — release regardless.
 	if writeFailed || readErr != nil {
+		// Connection is in a bad protocol state — release it.
 		reservedConn.Release(reserved.ReleaseError)
 	} else {
 		// Clean abort — remove the COPY reason. If other reasons remain
