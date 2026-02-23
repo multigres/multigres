@@ -272,11 +272,15 @@ func TestDynamicAllocation_UserArrivalDuringLoad(t *testing.T) {
 			"user %s should have capacity after new user arrived", user)
 	}
 
-	// User3 should have acquired at least 1 connection
-	mu.Lock()
-	user3Conns := len(conns["user3"])
-	mu.Unlock()
-	assert.GreaterOrEqual(t, user3Conns, 1, "user3 should have acquired at least 1 connection")
+	// User3 should have acquired at least 1 connection.
+	// Use Eventually because user3's goroutines may still be completing their
+	// connection acquisition after the pool is created (pool creation makes the
+	// pool visible to UserPoolCount before GetRegularConn returns).
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(conns["user3"]) >= 1
+	}, 5*time.Second, 50*time.Millisecond, "user3 should have acquired at least 1 connection")
 
 	// Cleanup
 	mu.Lock()
