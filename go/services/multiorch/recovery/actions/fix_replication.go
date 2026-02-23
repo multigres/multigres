@@ -211,19 +211,9 @@ func (a *FixReplicationAction) fixNotReplicating(
 		if rewindErr := a.tryPgRewind(ctx, primary, replica); rewindErr != nil {
 			return mterrors.Wrap(rewindErr, "pg_rewind failed for diverged timelines")
 		}
-		// After successful pg_rewind, re-apply primary_conninfo since
-		// pg_rewind may have overwritten postgresql.auto.conf.
-		retryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
-			Primary:               primary.MultiPooler,
-			StopReplicationBefore: true,
-			StartReplicationAfter: true,
-			CurrentTerm:           consensusTerm,
-			Force:                 false,
-		}
-		if _, setErr := a.rpcClient.SetPrimaryConnInfo(ctx, replica.MultiPooler, retryReq); setErr != nil {
-			return mterrors.Wrap(setErr, "failed to re-set primary_conninfo after pg_rewind")
-		}
-		// Re-verify replication after rewind + re-configuration
+		// Re-verify replication after rewind. RewindToSource restarts
+		// PostgreSQL as a standby, and primary_conninfo in
+		// postgresql.auto.conf is preserved (pg_rewind doesn't touch it).
 		if verifyErr := a.verifyReplicationStarted(ctx, replica); verifyErr != nil {
 			return mterrors.Wrap(verifyErr, "replication did not start after pg_rewind")
 		}
@@ -473,8 +463,7 @@ func (a *FixReplicationAction) isReplicaInStandbyList(
 }
 
 // verifyReplicationStarted checks that replication is actively streaming.
-// It polls to allow the WAL receiver to connect, using configurable parameters
-// that default to DefaultVerifyMaxAttempts and DefaultVerifyPollInterval.
+// It polls a few times to allow the WAL receiver to connect.
 func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, replica *multiorchdatapb.PoolerHealthState) error {
 	ticker := time.NewTicker(a.verifyPollInterval)
 	defer ticker.Stop()
