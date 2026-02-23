@@ -92,14 +92,6 @@ func (p *protectedPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRe
 	return p.client.PgRewind(ctx, req, opts...)
 }
 
-// CrashRecovery performs crash recovery on PostgreSQL. Requires action lock to be held by caller.
-func (p *protectedPgctldClient) CrashRecovery(ctx context.Context, req *pgctldpb.CrashRecoveryRequest, opts ...grpc.CallOption) (*pgctldpb.CrashRecoveryResponse, error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return nil, fmt.Errorf("CrashRecovery requires action lock to be held: %w", err)
-	}
-	return p.client.CrashRecovery(ctx, req, opts...)
-}
-
 // Status returns PostgreSQL status. Does not require action lock (read-only operation).
 func (p *protectedPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
 	return p.client.Status(ctx, req, opts...)

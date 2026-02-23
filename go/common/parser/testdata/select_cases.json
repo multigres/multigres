@@ -2225,6 +2225,11 @@
     "error": "parse error at position 31: LIMIT #,# syntax is not supported. Use separate LIMIT and OFFSET clauses."
   },
   {
+    "comment": "Chained IS NULL is a syntax error: the %nonassoc conflict on IS is resolved by shift, which would silently produce a doubly-nested NullTest; caught by semantic action in postgres.y",
+    "query": "SELECT a IS NULL IS NULL",
+    "error": "syntax error"
+  },
+  {
     "comment": "Boolean test IS TRUE",
     "query": "SELECT * FROM users WHERE active IS TRUE"
   },

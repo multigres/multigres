@@ -36,9 +36,6 @@ func TestSetupPgBackRestTest(t *testing.T) {
 	assert.FileExists(t, filepath.Join(setup.CertDir, "pgbackrest.crt"))
 	assert.FileExists(t, filepath.Join(setup.CertDir, "pgbackrest.key"))
 
-	// Verify backup config exists
-	assert.NotNil(t, setup.BackupConfig)
-
 	// Verify ports are assigned
 	assert.Greater(t, setup.PgPort, 0)
 	assert.Greater(t, setup.PgBackRestPort, 0)

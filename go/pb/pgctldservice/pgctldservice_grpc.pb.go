@@ -33,15 +33,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PgCtld_Start_FullMethodName         = "/pgctldservice.PgCtld/Start"
-	PgCtld_Stop_FullMethodName          = "/pgctldservice.PgCtld/Stop"
-	PgCtld_Restart_FullMethodName       = "/pgctldservice.PgCtld/Restart"
-	PgCtld_ReloadConfig_FullMethodName  = "/pgctldservice.PgCtld/ReloadConfig"
-	PgCtld_Status_FullMethodName        = "/pgctldservice.PgCtld/Status"
-	PgCtld_Version_FullMethodName       = "/pgctldservice.PgCtld/Version"
-	PgCtld_InitDataDir_FullMethodName   = "/pgctldservice.PgCtld/InitDataDir"
-	PgCtld_PgRewind_FullMethodName      = "/pgctldservice.PgCtld/PgRewind"
-	PgCtld_CrashRecovery_FullMethodName = "/pgctldservice.PgCtld/CrashRecovery"
+	PgCtld_Start_FullMethodName        = "/pgctldservice.PgCtld/Start"
+	PgCtld_Stop_FullMethodName         = "/pgctldservice.PgCtld/Stop"
+	PgCtld_Restart_FullMethodName      = "/pgctldservice.PgCtld/Restart"
+	PgCtld_ReloadConfig_FullMethodName = "/pgctldservice.PgCtld/ReloadConfig"
+	PgCtld_Status_FullMethodName       = "/pgctldservice.PgCtld/Status"
+	PgCtld_Version_FullMethodName      = "/pgctldservice.PgCtld/Version"
+	PgCtld_InitDataDir_FullMethodName  = "/pgctldservice.PgCtld/InitDataDir"
+	PgCtld_PgRewind_FullMethodName     = "/pgctldservice.PgCtld/PgRewind"
 )
 
 // PgCtldClient is the client API for PgCtld service.
@@ -67,9 +66,6 @@ type PgCtldClient interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(ctx context.Context, in *PgRewindRequest, opts ...grpc.CallOption) (*PgRewindResponse, error)
-	// CrashRecovery performs crash recovery in single-user mode if needed
-	// This is used before pg_rewind when PostgreSQL was killed uncleanly (e.g., SIGKILL)
-	CrashRecovery(ctx context.Context, in *CrashRecoveryRequest, opts ...grpc.CallOption) (*CrashRecoveryResponse, error)
 }
 
 type pgCtldClient struct {
@@ -160,16 +156,6 @@ func (c *pgCtldClient) PgRewind(ctx context.Context, in *PgRewindRequest, opts .
 	return out, nil
 }
 
-func (c *pgCtldClient) CrashRecovery(ctx context.Context, in *CrashRecoveryRequest, opts ...grpc.CallOption) (*CrashRecoveryResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CrashRecoveryResponse)
-	err := c.cc.Invoke(ctx, PgCtld_CrashRecovery_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // PgCtldServer is the server API for PgCtld service.
 // All implementations must embed UnimplementedPgCtldServer
 // for forward compatibility.
@@ -193,9 +179,6 @@ type PgCtldServer interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error)
-	// CrashRecovery performs crash recovery in single-user mode if needed
-	// This is used before pg_rewind when PostgreSQL was killed uncleanly (e.g., SIGKILL)
-	CrashRecovery(context.Context, *CrashRecoveryRequest) (*CrashRecoveryResponse, error)
 	mustEmbedUnimplementedPgCtldServer()
 }
 
@@ -229,9 +212,6 @@ func (UnimplementedPgCtldServer) InitDataDir(context.Context, *InitDataDirReques
 }
 func (UnimplementedPgCtldServer) PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PgRewind not implemented")
-}
-func (UnimplementedPgCtldServer) CrashRecovery(context.Context, *CrashRecoveryRequest) (*CrashRecoveryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CrashRecovery not implemented")
 }
 func (UnimplementedPgCtldServer) mustEmbedUnimplementedPgCtldServer() {}
 func (UnimplementedPgCtldServer) testEmbeddedByValue()                {}
@@ -398,24 +378,6 @@ func _PgCtld_PgRewind_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PgCtld_CrashRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CrashRecoveryRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PgCtldServer).CrashRecovery(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PgCtld_CrashRecovery_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PgCtldServer).CrashRecovery(ctx, req.(*CrashRecoveryRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // PgCtld_ServiceDesc is the grpc.ServiceDesc for PgCtld service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -454,10 +416,6 @@ var PgCtld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PgRewind",
 			Handler:    _PgCtld_PgRewind_Handler,
-		},
-		{
-			MethodName: "CrashRecovery",
-			Handler:    _PgCtld_CrashRecovery_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

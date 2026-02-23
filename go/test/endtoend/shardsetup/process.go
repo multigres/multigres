@@ -116,35 +116,6 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
 	}
 
-	// Add backup configuration from topology
-	if p.BackupLocation != nil {
-		// This mirrors code in the local provisioner, because this function takes a
-		// proto, and the other doesn't.
-		if s3 := p.BackupLocation.GetS3(); s3 != nil {
-			args = append(args, "--backup-type", "s3")
-			args = append(args, "--backup-bucket", s3.Bucket)
-			args = append(args, "--backup-region", s3.Region)
-			// Repo path for S3 (default to /multigres, or with key prefix)
-			repoPath := "/multigres"
-			if s3.KeyPrefix != "" {
-				repoPath = "/" + strings.TrimSuffix(s3.KeyPrefix, "/") + "/multigres"
-			}
-			args = append(args, "--backup-path", repoPath)
-			if s3.Endpoint != "" {
-				args = append(args, "--backup-endpoint", s3.Endpoint)
-			}
-			if s3.KeyPrefix != "" {
-				args = append(args, "--backup-key-prefix", s3.KeyPrefix)
-			}
-			if s3.UseEnvCredentials {
-				args = append(args, "--backup-use-env-credentials")
-			}
-		} else if filesystem := p.BackupLocation.GetFilesystem(); filesystem != nil {
-			args = append(args, "--backup-type", "filesystem")
-			args = append(args, "--backup-path", filesystem.Path)
-		}
-	}
-
 	p.Process = exec.Command(p.Binary, args...)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
