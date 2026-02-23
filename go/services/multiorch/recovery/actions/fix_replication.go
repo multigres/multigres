@@ -89,11 +89,13 @@ func NewFixReplicationAction(
 	logger *slog.Logger,
 ) *FixReplicationAction {
 	return &FixReplicationAction{
-		config:      cfg,
-		rpcClient:   rpcClient,
-		poolerStore: poolerStore,
-		topoStore:   topoStore,
-		logger:      logger,
+		config:             cfg,
+		rpcClient:          rpcClient,
+		poolerStore:        poolerStore,
+		topoStore:          topoStore,
+		logger:             logger,
+		verifyMaxAttempts:  DefaultVerifyMaxAttempts,
+		verifyPollInterval: DefaultVerifyPollInterval,
 	}
 }
 
@@ -474,20 +476,11 @@ func (a *FixReplicationAction) isReplicaInStandbyList(
 // It polls to allow the WAL receiver to connect, using configurable parameters
 // that default to DefaultVerifyMaxAttempts and DefaultVerifyPollInterval.
 func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, replica *multiorchdatapb.PoolerHealthState) error {
-	maxAttempts := a.verifyMaxAttempts
-	if maxAttempts == 0 {
-		maxAttempts = DefaultVerifyMaxAttempts
-	}
-	pollInterval := a.verifyPollInterval
-	if pollInterval == 0 {
-		pollInterval = DefaultVerifyPollInterval
-	}
-
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(a.verifyPollInterval)
 	defer ticker.Stop()
 
 	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= a.verifyMaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
 			return mterrors.Wrap(ctx.Err(), "context cancelled while verifying replication")
