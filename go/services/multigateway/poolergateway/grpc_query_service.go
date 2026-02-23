@@ -303,6 +303,7 @@ func (g *grpcQueryService) CopyReady(
 	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
+	reservationOptions *multipoolerservice.ReservationOptions,
 ) (int16, []int16, queryservice.ReservedState, error) {
 	g.logger.DebugContext(ctx, "initiating COPY",
 		"pooler_id", g.poolerID,
@@ -329,10 +330,11 @@ func (g *grpcQueryService) CopyReady(
 
 	// Send INITIATE message
 	initiateReq := &multipoolerservice.CopyBidiExecuteRequest{
-		Phase:   multipoolerservice.CopyBidiExecuteRequest_INITIATE,
-		Query:   copyQuery,
-		Target:  target,
-		Options: options,
+		Phase:              multipoolerservice.CopyBidiExecuteRequest_INITIATE,
+		Query:              copyQuery,
+		Target:             target,
+		Options:            options,
+		ReservationOptions: reservationOptions,
 	}
 
 	if err := stream.Send(initiateReq); err != nil {

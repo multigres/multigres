@@ -475,37 +475,32 @@ func (sc *ScatterConn) CopyInitiate(
 	// If there's already a reserved connection for this target (e.g., in a transaction),
 	// pass its ID so CopyReady reuses it instead of creating a new one.
 	// If we're in a transaction but no reserved connection exists yet (deferred BEGIN),
-	// create one now by executing a lightweight query with the pending BEGIN.
+	// pass ReservationOptions so CopyReady creates a connection with the pending BEGIN.
+	var reservationOpts *multipoolerpb.ReservationOptions
 	ss := state.GetMatchingShardState(target)
 	if ss != nil && ss.ReservedConnectionId != 0 {
 		execOptions.ReservedConnectionId = uint64(ss.ReservedConnectionId)
 	} else if conn.IsInTransaction() {
-		// Deferred BEGIN: the client sent BEGIN but no query has been executed yet,
-		// so no reserved connection exists. Create one now with the pending BEGIN,
-		// then reuse it for COPY.
-		reservationOpts := protoutil.NewTransactionReservationOptions()
+		// Deferred BEGIN: pass transaction reservation options so the executor
+		// executes BEGIN on the new connection before initiating COPY.
+		reservationOpts = protoutil.NewTransactionReservationOptions()
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""
 		}
-		reservedState, err := sc.gateway.ReserveStreamExecute(
-			ctx, target, "SELECT 1", execOptions, reservationOpts,
-			func(context.Context, *sqltypes.Result) error { return nil }, // discard SELECT 1 result
-		)
-		if err != nil {
-			return 0, nil, fmt.Errorf("failed to create transaction connection for COPY: %w", err)
-		}
-		state.StoreReservedConnection(target, reservedState, protoutil.ReasonTransaction)
-		execOptions.ReservedConnectionId = reservedState.ReservedConnectionId
 	}
 
 	// Call CopyReady on gateway to initiate the COPY and get format info
-	format, columnFormats, reservedState, err := sc.gateway.CopyReady(ctx, target, queryStr, execOptions)
+	format, columnFormats, reservedState, err := sc.gateway.CopyReady(ctx, target, queryStr, execOptions, reservationOpts)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
-	// Store reserved connection with COPY reason. The reason is removed by CopyFinalize/CopyAbort.
+	// Store reserved connection. For deferred-BEGIN, also store the transaction
+	// reason since the executor executed BEGIN on the new connection.
+	if reservationOpts != nil {
+		state.StoreReservedConnection(target, reservedState, protoutil.ReasonTransaction)
+	}
 	state.StoreReservedConnection(target, reservedState, protoutil.ReasonCopy)
 
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",

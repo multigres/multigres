@@ -224,6 +224,11 @@ message CopyBidiExecuteRequest {
 
   // error_message contains the error message (for FAIL phase)
   string error_message = 7;
+
+  // reservation_options controls connection reservation behavior (only for INITIATE phase).
+  // When set with a transaction reason and begin_query, the executor will start a
+  // transaction on the new connection before initiating COPY.
+  ReservationOptions reservation_options = 8;
 }
 
 // CopyBidiExecuteResponse represents a message in the bidirectional execute stream from pooler to gateway.

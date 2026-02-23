@@ -270,7 +270,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 	}
 
 	// Phase 1: INITIATE - Send COPY command and get reserved connection
-	format, columnFormats, reservedState, err := exec.CopyReady(ctx, req.Target, req.Query, req.Options)
+	format, columnFormats, reservedState, err := exec.CopyReady(ctx, req.Target, req.Query, req.Options, req.ReservationOptions)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to initiate COPY: %v", err)
 	}

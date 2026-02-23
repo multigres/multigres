@@ -257,6 +257,7 @@ func (pg *PoolerGateway) CopyReady(
 	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
 ) (int16, []int16, queryservice.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
@@ -271,7 +272,7 @@ func (pg *PoolerGateway) CopyReady(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.QueryService().CopyReady(ctx, target, copyQuery, options)
+	return conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 }
 
 // CopySendData implements queryservice.QueryService.

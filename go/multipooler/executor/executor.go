@@ -443,6 +443,7 @@ func (e *Executor) CopyReady(
 	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
 ) (int16, []int16, queryservice.ReservedState, error) {
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
@@ -468,6 +469,20 @@ func (e *Executor) CopyReady(
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user)
 		if err != nil {
 			return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
+		}
+
+		// If this is a transaction reservation, execute BEGIN before COPY.
+		// This handles the deferred-BEGIN case where the client sent BEGIN
+		// but no query has been executed yet to create a reserved connection.
+		if protoutil.RequiresBegin(protoutil.GetReasons(reservationOptions)) {
+			beginQuery := "BEGIN"
+			if reservationOptions != nil && reservationOptions.BeginQuery != "" {
+				beginQuery = reservationOptions.BeginQuery
+			}
+			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
+				reservedConn.Release(reserved.ReleaseError)
+				return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to begin transaction for COPY: %w", err)
+			}
 		}
 	}
 
