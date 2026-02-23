@@ -102,7 +102,7 @@ pause_for_input
 echo ""
 echo "Creating 'animals' table"
 echo "========================"
-run_cmd psql --host=localhost --port=15432 -U postgres -d postgres -c "
+run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "
 CREATE TABLE IF NOT EXISTS animals (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS animals (
 
 echo ""
 echo "Verifying table structure:"
-run_cmd psql --host=localhost --port=15432 -U postgres -d postgres -c "\d animals"
+run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "\d animals"
 
 pause_for_input
 
@@ -118,13 +118,13 @@ pause_for_input
 echo ""
 echo "Inserting rows into 'animals' table"
 echo "===================================="
-run_cmd psql --host=localhost --port=15432 -U postgres -d postgres -c "
+run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "
 INSERT INTO animals (name)
 SELECT (ARRAY['cat', 'dog', 'bird', 'fish', 'rabbit', 'hamster'])[(random() * 5)::int + 1] || '_' || generate_series(1, 100000);"
 
 echo ""
 echo "Verifying row count:"
-run_cmd psql --host=localhost --port=15432 -U postgres -d postgres -c "
+run_cmd psql --host=localhost --port=15433 -U postgres -d postgres -c "
 SELECT COUNT(*) as total_animals FROM animals;"
 
 pause_for_input
