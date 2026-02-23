@@ -540,6 +540,45 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 		assert.Equal(t, int64(3), count, "all 3 rows (INSERT + COPY) should persist after COMMIT")
 	})
 
+	t.Run("COPY data visible within transaction before COMMIT", func(t *testing.T) {
+		tableName := "copy_txn_visible"
+		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
+
+		// BEGIN explicit transaction
+		_, err := conn.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
+
+		// COPY data into the table
+		rowsAffected, err := conn.CopyFrom(ctx,
+			pgx.Identifier{tableName},
+			[]string{"id", "name"},
+			pgx.CopyFromRows([][]any{{1, "Alice"}, {2, "Bob"}}),
+		)
+		require.NoError(t, err, "COPY inside transaction should succeed")
+		assert.Equal(t, int64(2), rowsAffected)
+
+		// SELECT within the same transaction — copied data should be visible
+		var count int64
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), count, "COPY data should be visible within the transaction")
+
+		// Verify specific rows
+		var name string
+		err = conn.QueryRow(ctx, fmt.Sprintf("SELECT name FROM %s WHERE id = 2", tableName)).Scan(&name)
+		require.NoError(t, err)
+		assert.Equal(t, "Bob", name)
+
+		// COMMIT
+		_, err = conn.Exec(ctx, "COMMIT")
+		require.NoError(t, err)
+
+		// Verify data persists after commit
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), count, "COPY data should persist after COMMIT")
+	})
+
 	t.Run("COPY in rolled-back transaction is discarded", func(t *testing.T) {
 		tableName := "copy_txn_rollback"
 		createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
