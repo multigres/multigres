@@ -249,7 +249,7 @@ func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
 		return fmt.Errorf("failed to chmod PGDATA %s to 0700: %w", dataDir, err)
 	}
 
-	logger.Info("Normalized PGDATA permissions",
+	logger.Debug("Normalized PGDATA permissions",
 		"path", dataDir,
 		"old_mode", oldMode,
 		"new_mode", "0700",
@@ -257,7 +257,6 @@ func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
 
 	return nil
 }
-
 
 func isPostgreSQLRunning(dataDir string) bool {
 	// Check if postmaster.pid file exists and process is running
