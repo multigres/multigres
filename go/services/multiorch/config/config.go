@@ -157,6 +157,7 @@ type Config struct {
 	recoveryCycleInterval               viperutil.Value[time.Duration]
 	primaryFailoverGracePeriodBase      viperutil.Value[time.Duration]
 	primaryFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
+	verifyReplicationTimeout            viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -234,6 +235,12 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_PRIMARY_FAILOVER_GRACE_PERIOD_MAX_JITTER"},
 		}),
+		verifyReplicationTimeout: viperutil.Configure(reg, "verify-replication-timeout", viperutil.Options[time.Duration]{
+			Default:  5 * time.Second,
+			FlagName: "verify-replication-timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_VERIFY_REPLICATION_TIMEOUT"},
+		}),
 	}
 }
 
@@ -283,6 +290,10 @@ func (c *Config) GetPrimaryFailoverGracePeriodMaxJitter() time.Duration {
 	return c.primaryFailoverGracePeriodMaxJitter.Get()
 }
 
+func (c *Config) GetVerifyReplicationTimeout() time.Duration {
+	return c.verifyReplicationTimeout.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -329,6 +340,10 @@ func (c *Config) DefaultPrimaryFailoverGracePeriodMaxJitter() time.Duration {
 	return c.primaryFailoverGracePeriodMaxJitter.Default()
 }
 
+func (c *Config) DefaultVerifyReplicationTimeout() time.Duration {
+	return c.verifyReplicationTimeout.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -342,6 +357,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
 	fs.Duration("primary-failover-grace-period-base", c.DefaultPrimaryFailoverGracePeriodBase(), "base grace period before executing primary failover")
 	fs.Duration("primary-failover-grace-period-max-jitter", c.DefaultPrimaryFailoverGracePeriodMaxJitter(), "max jitter added to primary failover grace period")
+	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -353,7 +369,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.healthCheckWorkers,
 		c.recoveryCycleInterval,
 		c.primaryFailoverGracePeriodBase,
-		c.primaryFailoverGracePeriodMaxJitter)
+		c.primaryFailoverGracePeriodMaxJitter,
+		c.verifyReplicationTimeout)
 }
 
 // Test helper functions

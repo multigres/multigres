@@ -215,6 +215,12 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		args = append(args, "--primary-failover-grace-period-max-jitter", p.PrimaryFailoverGracePeriodMaxJitter)
 	}
 
+	// Coverage builds are slower — WAL receiver can take 3-10s to connect.
+	// So, we Increase the verify-replication timeout to compensate.
+	if os.Getenv("GOCOVERDIR") != "" {
+		args = append(args, "--verify-replication-timeout", "15s")
+	}
+
 	p.Process = exec.Command(p.Binary, args...)
 	if p.DataDir != "" {
 		p.Process.Dir = p.DataDir

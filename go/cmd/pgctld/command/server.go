@@ -124,11 +124,18 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	// Get the configured logger
 	logger := s.senv.GetLogger()
 
-	// Start reaping orphaned children to prevent zombie processes
-	// This is necessary because pg_ctl with -W flag can create orphaned child processes
-	// that get reparented to pgctld (PID 1 in container). Without this, these processes
-	// remain in defunct state after exit.
-	go reapOrphanedChildren(logger)
+	// Start reaping orphaned children to prevent zombie processes.
+	// Only start when running as PID 1 (container init process). pg_ctl with -W
+	// forks a child that gets reparented to PID 1 on exit; without this reaper
+	// those children become zombies.
+	//
+	// When pgctld is NOT PID 1 (tests, CI, systemd), orphaned children are
+	// reparented to the system init — not pgctld — so the reaper is unnecessary.
+	// Starting it anyway races with cmd.Wait() in RPC handlers (initdb, pg_rewind)
+	// causing "waitid: no child processes" errors.
+	if os.Getpid() == 1 {
+		go reapOrphanedChildren(logger)
+	}
 
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
