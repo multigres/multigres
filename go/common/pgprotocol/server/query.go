@@ -345,13 +345,8 @@ func (c *Conn) writeError(err error) error {
 	}
 
 	// Generic error: use outer message for context
-	synthetic := &mterrors.PgDiagnostic{
-		MessageType: protocol.MsgErrorResponse,
-		Severity:    "ERROR",
-		Code:        mterrors.PgSSInternalError,
-		Message:     err.Error(), // Full wrapped message
-	}
-	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, synthetic)
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse,
+		mterrors.NewPgError("ERROR", mterrors.PgSSInternalError, err.Error()))
 }
 
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).

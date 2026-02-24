@@ -23,8 +23,11 @@ import (
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
-	PgSSAuthFailed    = "28P01" // invalid_authorization_specification
-	PgSSInternalError = "XX000" // internal_error
+	PgSSProtocolViolation   = "08P01" // protocol_violation
+	PgSSFeatureNotSupported = "0A000" // feature_not_supported
+	PgSSAuthFailed          = "28P01" // invalid_authorization_specification
+	PgSSInvalidCursorName   = "34000" // invalid_cursor_name
+	PgSSInternalError       = "XX000" // internal_error
 )
 
 // MTError defines a Multigres error code. Each instance is a template that

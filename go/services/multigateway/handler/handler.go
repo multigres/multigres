@@ -197,7 +197,8 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
-		return fmt.Errorf("portal \"%s\" does not exist", portalName)
+		return mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
+			fmt.Sprintf("portal \"%s\" does not exist", portalName))
 	}
 
 	// Reject queries in aborted transaction state, except ROLLBACK which is the
