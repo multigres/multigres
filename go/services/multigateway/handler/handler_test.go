@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -376,7 +377,7 @@ func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	require.Equal(t, errAbortedTransaction, err)
+	require.True(t, mterrors.IsError(err, "MT10001"))
 	// Status should remain Failed
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
 }
@@ -439,7 +440,7 @@ func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *te
 	})
 
 	require.Error(t, err)
-	require.Equal(t, errAbortedTransaction, err)
+	require.True(t, mterrors.IsError(err, "MT10001"))
 }
 
 // TestHandleQuery_ErrorInTransactionSetsAbortedState tests that a query error
@@ -503,7 +504,7 @@ func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	require.Equal(t, errAbortedTransaction, err)
+	require.True(t, mterrors.IsError(err, "MT10001"))
 }
 
 // TestConnectionClosed_ReleasesReservedConnections tests that ConnectionClosed

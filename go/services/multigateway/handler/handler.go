@@ -76,12 +76,7 @@ func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
 // PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
-var errAbortedTransaction = &mterrors.PgDiagnostic{
-	MessageType: 'E',
-	Severity:    "ERROR",
-	Code:        "25P02",
-	Message:     "current transaction is aborted, commands ignored until end of transaction block",
-}
+var errAbortedTransaction = mterrors.MT10001.New()
 
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.

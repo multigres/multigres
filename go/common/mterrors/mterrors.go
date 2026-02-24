@@ -214,32 +214,10 @@ func Errorf(code mtrpcpb.Code, format string, args ...any) error {
 	}
 }
 
-// NewErrorf formats according to a format specifier and returns the string
-// as a value that satisfies error.
-// NewErrorf also records the stack trace at the point it was called.
-// Use this for errors in Multigres that we eventually want to mimic as a PostgreSQL error
-func NewErrorf(code mtrpcpb.Code, state State, format string, args ...any) error {
-	return NewError(code, state, fmt.Sprintf(format, args...))
-}
-
-// NewErrorf formats according to a format specifier and returns the string
-// as a value that satisfies error.
-// NewErrorf also records the stack trace at the point it was called.
-// Use this for errors in Multigres that we eventually want to mimic as a PostgreSQL error
-func NewError(code mtrpcpb.Code, state State, msg string) error {
-	return &fundamental{
-		msg:   msg,
-		code:  code,
-		state: state,
-		stack: callers(),
-	}
-}
-
 // fundamental is an error that has a message and a stack, but no caller.
 type fundamental struct {
-	msg   string
-	code  mtrpcpb.Code
-	state State
+	msg  string
+	code mtrpcpb.Code
 	*stack
 }
 
@@ -285,25 +263,6 @@ func Code(err error) mtrpcpb.Code {
 		return mtrpcpb.Code_DEADLINE_EXCEEDED
 	}
 	return mtrpcpb.Code_UNKNOWN
-}
-
-// ErrState returns the error state if it's a mtError.
-// If err is nil, it returns Undefined.
-func ErrState(err error) State {
-	if err == nil {
-		return Undefined
-	}
-
-	if err, ok := err.(ErrorWithState); ok {
-		return err.ErrorState()
-	}
-
-	cause := Cause(err)
-	if cause != err && cause != nil {
-		// If we did not find an error state at the outer level, let's find the cause and check it's state
-		return ErrState(cause)
-	}
-	return Undefined
 }
 
 // Wrap returns an error annotating err with a stack trace
@@ -461,7 +420,6 @@ func TruncateError(oldErr error, max int) error {
 	return New(Code(oldErr), oldErr.Error()[:max-12]+" [TRUNCATED]")
 }
 
-func (f *fundamental) ErrorState() State       { return f.state }
 func (f *fundamental) ErrorCode() mtrpcpb.Code { return f.code }
 
 // IsConnectionError returns true if the error indicates a broken or lost

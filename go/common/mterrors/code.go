@@ -16,109 +16,115 @@
 package mterrors
 
 import (
+	"errors"
 	"fmt"
-	"strings"
-
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
-// Errors added to the list of variables below must be added to the Errors slice a little below in this same file.
-// This will enable the auto-documentation of error code in the website repository.
+// MTError defines a Multigres error code. Each instance is a template that
+// produces a *PgDiagnostic via its New method. The ID (e.g. "MT10001") is
+// used as the SQLSTATE code in the PgDiagnostic, making MT errors directly
+// identifiable by clients through the standard SQLSTATE field.
+type MTError struct {
+	ID          string // e.g. "MT10001" — used as the SQLSTATE code
+	Description string // long description for docs
+	Severity    string
+	Format      string // fmt format string for message
+}
+
+// New builds a *PgDiagnostic from this error definition.
+// The MT ID is placed in the SQLSTATE Code field.
+// If args are provided, the Format string is passed through fmt.Sprintf.
+func (e *MTError) New(args ...any) *PgDiagnostic {
+	msg := e.Format
+	if len(args) != 0 {
+		msg = fmt.Sprintf(e.Format, args...)
+	}
+	return &PgDiagnostic{
+		MessageType: 'E',
+		Severity:    e.Severity,
+		Code:        e.ID,
+		Message:     msg,
+	}
+}
 
 var (
-	// MT13001 General Error
-	MT13001 = errorWithoutState("MT13001", mtrpcpb.Code_INTERNAL, "[BUG] %s", "This error should not happen and is a bug. Please file an issue on GitHub: https://github.com/multigres/multigres/issues/new/choose.")
-
-	// MT13002 Pooler Type Mismatch
-	MT13002 = errorWithoutState("MT13002", mtrpcpb.Code_FAILED_PRECONDITION, "pooler type mismatch: topology says %s but PostgreSQL is %s", "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.")
-
-	// Errors is a list of errors that must match all the variables
-	// defined above to enable auto-documentation of error codes.
-	Errors = []func(args ...any) *MultigresError{
-		MT13001,
-		MT13002,
+	MT09001 = &MTError{
+		ID: "MT09001", Severity: "ERROR",
+		Format:      "SET TRANSACTION ISOLATION LEVEL must be called before any query",
+		Description: "Transaction isolation cannot be changed after queries executed.",
 	}
 
-	ErrorsWithNoCode = []func(code mtrpcpb.Code, args ...any) *MultigresError{}
+	MT10001 = &MTError{
+		ID: "MT10001", Severity: "ERROR",
+		Format:      "current transaction is aborted, commands ignored until end of transaction block",
+		Description: "Issue ROLLBACK to start a new transaction.",
+	}
+
+	MT13001 = &MTError{
+		ID: "MT13001", Severity: "ERROR",
+		Format:      "[BUG] %s",
+		Description: "This error should not happen and is a bug. Please file an issue on GitHub: https://github.com/multigres/multigres/issues/new/choose.",
+	}
+
+	MT13002 = &MTError{
+		ID: "MT13002", Severity: "ERROR",
+		Format:      "pooler type mismatch: topology says %s but PostgreSQL is %s",
+		Description: "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.",
+	}
+
+	MT13003 = &MTError{
+		ID: "MT13003", Severity: "ERROR",
+		Format:      "%s",
+		Description: "Internal proxy error.",
+	}
+
+	MT13004 = &MTError{
+		ID: "MT13004", Severity: "ERROR",
+		Format:      "parse failed: %s",
+		Description: "Extended query Parse could not be processed.",
+	}
+
+	MT13005 = &MTError{
+		ID: "MT13005", Severity: "ERROR",
+		Format:      "bind failed: %s",
+		Description: "Extended query Bind could not be processed.",
+	}
+
+	MT13006 = &MTError{
+		ID: "MT13006", Severity: "ERROR",
+		Format:      "describe failed: %s",
+		Description: "Extended query Describe could not be processed.",
+	}
+
+	MT13007 = &MTError{
+		ID: "MT13007", Severity: "ERROR",
+		Format:      "close failed: %s",
+		Description: "Extended query Close could not be processed.",
+	}
+
+	MT13008 = &MTError{
+		ID: "MT13008", Severity: "ERROR",
+		Format:      "sync failed: %s",
+		Description: "Extended query Sync could not be processed.",
+	}
+
+	MT14001 = &MTError{
+		ID: "MT14001", Severity: "FATAL",
+		Format:      "connection startup failed: %s",
+		Description: "Invalid startup message.",
+	}
 )
 
-type MultigresError struct {
-	Err         error
-	Description string
-	ID          string
-	State       State
-}
-
-func (o *MultigresError) Error() string {
-	return o.Err.Error()
-}
-
-func (o *MultigresError) Cause() error {
-	return o.Err
-}
-
-var _ error = (*MultigresError)(nil)
-
-// errorWithoutState is an error that does not have any state, e.g. the state will be unknown
-func errorWithoutState(id string, code mtrpcpb.Code, short, long string) func(args ...any) *MultigresError {
-	return func(args ...any) *MultigresError {
-		s := short
-		if len(args) != 0 {
-			s = fmt.Sprintf(s, args...)
-		}
-
-		return &MultigresError{
-			Err:         New(code, id+": "+s),
-			Description: long,
-			ID:          id,
-		}
-	}
-}
-
-//nolint:unused // Will be used for future error codes with state
-func errorWithState(id string, code mtrpcpb.Code, state State, short, long string) func(args ...any) *MultigresError {
-	return func(args ...any) *MultigresError {
-		var err error
-		if len(args) != 0 {
-			err = NewErrorf(code, state, id+": "+short, args...)
-		} else {
-			err = NewError(code, state, id+": "+short)
-		}
-
-		return &MultigresError{
-			Err:         err,
-			Description: long,
-			ID:          id,
-			State:       state,
-		}
-	}
-}
-
-// ErrorWithNoCode refers to error code that do not have a predefined error code.
-type ErrorWithNoCode func(code mtrpcpb.Code, args ...any) *MultigresError
-
-// errorWithNoCode creates a MultigresError where the error code is set by the user when creating the error
-// instead of having a static error code that is declared in this file.
-//
-//nolint:unused // Will be used for future dynamic error codes
-func errorWithNoCode(id string, short, long string) func(code mtrpcpb.Code, args ...any) *MultigresError {
-	return func(code mtrpcpb.Code, args ...any) *MultigresError {
-		s := short
-		if len(args) != 0 {
-			s = fmt.Sprintf(s, args...)
-		}
-
-		return &MultigresError{
-			Err:         New(code, id+": "+s),
-			Description: long,
-			ID:          id,
-		}
-	}
-}
-
+// IsError checks whether err (or a wrapped cause) is an MT error matching code.
+// For *PgDiagnostic errors it compares the SQLSTATE Code field directly;
+// otherwise it falls back to substring matching on the error string.
 func IsError(err error, code string) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), code)
+	var diag *PgDiagnostic
+	if errors.As(err, &diag) {
+		return diag.Code == code
+	}
+	return false
 }
