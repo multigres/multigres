@@ -60,12 +60,11 @@ var _ types.RecoveryAction = (*FixReplicationAction)(nil)
 // (SetPrimaryConnInfo, UpdateSynchronousStandbyList) are implemented as idempotent
 // operations at the pooler level and serialized by action locks on the poolers,
 // so concurrent calls are safe and produce the same final state.
+
 // Default polling parameters for verifyReplicationStarted.
-// Under coverage builds, WAL receiver can take 3-10s to connect and start streaming,
-// so we use a generous window (15s) to avoid false failures.
 const (
-	DefaultVerifyMaxAttempts  = 15
-	DefaultVerifyPollInterval = 1 * time.Second
+	DefaultVerifyMaxAttempts  = 10
+	DefaultVerifyPollInterval = 500 * time.Millisecond
 )
 
 type FixReplicationAction struct {
@@ -75,7 +74,7 @@ type FixReplicationAction struct {
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 
-	// Polling parameters for verifyReplicationStarted. Zero values use defaults.
+	// Polling parameters for verifyReplicationStarted.
 	verifyMaxAttempts  int
 	verifyPollInterval time.Duration
 }
@@ -88,14 +87,22 @@ func NewFixReplicationAction(
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *FixReplicationAction {
+	maxAttempts := DefaultVerifyMaxAttempts
+	pollInterval := DefaultVerifyPollInterval
+	if cfg != nil {
+		timeout := cfg.GetVerifyReplicationTimeout()
+		if timeout > 0 {
+			maxAttempts = max(int(timeout/DefaultVerifyPollInterval), 1)
+		}
+	}
 	return &FixReplicationAction{
 		config:             cfg,
 		rpcClient:          rpcClient,
 		poolerStore:        poolerStore,
 		topoStore:          topoStore,
 		logger:             logger,
-		verifyMaxAttempts:  DefaultVerifyMaxAttempts,
-		verifyPollInterval: DefaultVerifyPollInterval,
+		verifyMaxAttempts:  maxAttempts,
+		verifyPollInterval: pollInterval,
 	}
 }
 

@@ -414,10 +414,9 @@ func (c *delayedStreamingClient) StandbyReplicationStatus(
 func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 	ctx := context.Background()
 
-	// WAL receiver starts streaming after more attempts than would fit in the
-	// old 2.5s window (5 × 500ms), but within the current limit. This ensures
-	// the polling window is wide enough for coverage builds where WAL receiver
-	// takes several seconds to connect.
+	// WAL receiver starts streaming halfway through the polling window.
+	// This verifies the polling loop correctly waits for slow WAL receivers
+	// (as seen in coverage builds).
 	streamAfterCalls := DefaultVerifyMaxAttempts/2 + 1
 
 	fakeClient := &delayedStreamingClient{
