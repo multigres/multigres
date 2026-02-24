@@ -20,6 +20,13 @@ import (
 	"fmt"
 )
 
+// PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
+// See: https://www.postgresql.org/docs/current/errcodes-appendix.html
+const (
+	PgSSAuthFailed    = "28P01" // invalid_authorization_specification
+	PgSSInternalError = "XX000" // internal_error
+)
+
 // MTError defines a Multigres error code. Each instance is a template that
 // produces a *PgDiagnostic via its New method. The ID (e.g. "MT10001") is
 // used as the SQLSTATE code in the PgDiagnostic, making MT errors directly
@@ -114,6 +121,18 @@ var (
 		Description: "Invalid startup message.",
 	}
 )
+
+// NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.
+// Use this for errors that should present as native PostgreSQL errors to clients
+// (e.g., authentication failures, protocol violations).
+func NewPgError(severity, sqlState, message string) *PgDiagnostic {
+	return &PgDiagnostic{
+		MessageType: 'E',
+		Severity:    severity,
+		Code:        sqlState,
+		Message:     message,
+	}
+}
 
 // IsError checks whether err (or a wrapped cause) is an MT error matching code.
 // For *PgDiagnostic errors it compares the SQLSTATE Code field directly;

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -392,10 +393,11 @@ func TestWriteCommandComplete(t *testing.T) {
 	}
 }
 
-// TestWriteSimpleErrorWithDetail tests encoding of ErrorResponse messages.
-func TestWriteSimpleErrorWithDetail(t *testing.T) {
+// TestWriteError tests encoding of ErrorResponse messages via writeError.
+func TestWriteError(t *testing.T) {
 	tests := []struct {
 		name     string
+		err      error
 		severity string
 		sqlState string
 		message  string
@@ -403,15 +405,22 @@ func TestWriteSimpleErrorWithDetail(t *testing.T) {
 		hint     string
 	}{
 		{
-			name:     "basic error",
+			name:     "PgDiagnostic error",
+			err:      mterrors.NewPgError("ERROR", "42P01", "relation \"users\" does not exist"),
 			severity: "ERROR",
 			sqlState: "42P01",
 			message:  "relation \"users\" does not exist",
-			detail:   "",
-			hint:     "",
 		},
 		{
-			name:     "error with detail and hint",
+			name: "PgDiagnostic with detail and hint",
+			err: &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "23505",
+				Message:     "duplicate key value violates unique constraint",
+				Detail:      "Key (id)=(1) already exists.",
+				Hint:        "Use a different value for the id column.",
+			},
 			severity: "ERROR",
 			sqlState: "23505",
 			message:  "duplicate key value violates unique constraint",
@@ -419,12 +428,11 @@ func TestWriteSimpleErrorWithDetail(t *testing.T) {
 			hint:     "Use a different value for the id column.",
 		},
 		{
-			name:     "fatal error",
+			name:     "MT error",
+			err:      mterrors.MT14001.New("bad message"),
 			severity: "FATAL",
-			sqlState: "08P01",
-			message:  "protocol violation",
-			detail:   "",
-			hint:     "",
+			sqlState: "MT14001",
+			message:  "connection startup failed: bad message",
 		},
 	}
 
@@ -433,7 +441,7 @@ func TestWriteSimpleErrorWithDetail(t *testing.T) {
 			var buf bytes.Buffer
 			conn := createTestConn(t, &buf)
 
-			err := conn.writeSimpleErrorWithDetail(tt.severity, tt.sqlState, tt.message, tt.detail, tt.hint)
+			err := conn.writeError(tt.err)
 			assert.NoError(t, err)
 
 			// Verify message type.
