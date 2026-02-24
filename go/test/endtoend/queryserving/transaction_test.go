@@ -598,7 +598,7 @@ func explicitTransactionTestCases() []transactionTestCase {
 
 				var diag *mterrors.PgDiagnostic
 				require.True(t, errors.As(err, &diag), "Expected PostgreSQL error")
-				assert.Equal(t, "25P02", diag.Code, "Expected in_failed_sql_transaction error")
+				assert.Equal(t, "MT10001", diag.Code, "Expected in_failed_sql_transaction error")
 
 				_, err = conn.Query(ctx, "ROLLBACK")
 				require.NoError(t, err)
