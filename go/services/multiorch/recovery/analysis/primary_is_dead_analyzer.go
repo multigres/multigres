@@ -23,8 +23,8 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PrimaryIsDeadAnalyzer detects when a primary is unreachable, ALL replica poolers
-// are reachable, and none is connected to the primary. Strongest signal for failover.
+// PrimaryIsDeadAnalyzer detects when a primary is unreachable and all replica poolers
+// are reachable but none confirm the primary is alive. Strongest signal for failover.
 type PrimaryIsDeadAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -60,9 +60,11 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 		return nil, nil
 	}
 
-	// All replicas confirm primary is alive (streaming WAL + healthy heartbeat).
-	// Primary pooler may be down but Postgres is still running — don't failover.
-	if poolerAnalysis.AllReplicasConfirmPrimaryAlive {
+	// Any replica confirming primary is alive (streaming WAL + healthy heartbeat)
+	// is sufficient evidence the primary Postgres is still running — don't failover.
+	// We've already verified all replica poolers are reachable above, if we haven't
+	// found a connected replica then we know the primary has no connected replicas.
+	if poolerAnalysis.CountReplicasConfirmingPrimaryAliveInShard > 0 {
 		return nil, nil
 	}
 

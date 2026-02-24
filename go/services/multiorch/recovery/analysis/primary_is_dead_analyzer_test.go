@@ -211,6 +211,28 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		require.Nil(t, problem, "no replicas to failover to")
 	})
 
+	t.Run("does not trigger when any replica confirms primary is alive", func(t *testing.T) {
+		// If 1 of 2 replicas has a fresh heartbeat from the primary, that's enough evidence
+		// the primary is alive — don't failover due to a single replica's stale heartbeat.
+		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
+		analysis := &store.ReplicationAnalysis{
+			PoolerID:                            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
+			ShardKey:                            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+			IsPrimary:                           false,
+			IsInitialized:                       true,
+			PrimaryPoolerID:                     primaryID,
+			PrimaryReachable:                    false,
+			AllReplicasConfirmPrimaryAlive:      false, // NOT all — only 1 of 2
+			CountReplicaPoolersInShard:          2,
+			CountReachableReplicaPoolersInShard: 2,
+			CountReplicasConfirmingPrimaryAliveInShard: 1, // one replica sees the primary as alive
+		}
+
+		problem, err := analyzer.Analyze(analysis)
+		require.NoError(t, err)
+		require.Nil(t, problem, "should not trigger failover when any replica confirms primary is alive")
+	})
+
 	t.Run("does not trigger when no poolers reachable", func(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &store.ReplicationAnalysis{
