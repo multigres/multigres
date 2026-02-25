@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -56,7 +57,7 @@ func (p *Planner) planCopyStmt(
 				"file", stmt.Filename,
 				"tablegroup", p.defaultTableGroup)
 
-			route := engine.NewRoute(p.defaultTableGroup, "", sql)
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
 			plan := engine.NewPlan(sql, route)
 			p.logger.Debug("created COPY FROM file plan (pass-through)", "plan", plan.String())
 			return plan, nil
@@ -77,7 +78,7 @@ func (p *Planner) planCopyStmt(
 				"file", stmt.Filename,
 				"tablegroup", p.defaultTableGroup)
 
-			route := engine.NewRoute(p.defaultTableGroup, "", sql)
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
 			plan := engine.NewPlan(sql, route)
 			p.logger.Debug("created COPY TO file plan (pass-through)", "plan", plan.String())
 			return plan, nil
