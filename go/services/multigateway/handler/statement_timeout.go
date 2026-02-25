@@ -24,12 +24,13 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// ResolveStatementTimeout returns the per-query directive if set, otherwise
+// ResolveStatementTimeout returns the per-query directive if present, otherwise
 // the effective timeout from the connection state (session override or default).
-// A non-zero directive takes priority over everything else.
-func ResolveStatementTimeout(directive time.Duration, effective time.Duration) time.Duration {
-	if directive > 0 {
-		return directive
+// A nil directive means no directive was found; a non-nil directive (including 0,
+// which disables timeouts) takes priority over everything else.
+func ResolveStatementTimeout(directive *time.Duration, effective time.Duration) time.Duration {
+	if directive != nil {
+		return *directive
 	}
 	return effective
 }
@@ -37,9 +38,9 @@ func ResolveStatementTimeout(directive time.Duration, effective time.Duration) t
 // ParseStatementTimeoutDirective is a placeholder for per-query directive parsing.
 // Per-query directives (e.g., /*mg+ STATEMENT_TIMEOUT_MS=500 */) will be supported
 // in the future by parsing them in the SQL grammar (similar to Vitess).
-// For now, this always returns 0 (no directive found).
-func ParseStatementTimeoutDirective(query ast.Stmt) time.Duration {
-	return 0
+// For now, this always returns nil (no directive found).
+func ParseStatementTimeoutDirective(query ast.Stmt) *time.Duration {
+	return nil
 }
 
 // ParsePostgresInterval parses a PostgreSQL-style interval value for statement_timeout
@@ -65,7 +66,7 @@ func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 	d, err := time.ParseDuration(value)
 	if err != nil {
 		return 0, invalidParamError(paramName, value,
-			`Valid units for this parameter are "us", "ms", "s", "min", "h", "d".`)
+			`Valid units for this parameter are "us", "ms", "s", "m", "h".`)
 	}
 	if d < 0 {
 		return 0, outOfRangeParamError(paramName, value)

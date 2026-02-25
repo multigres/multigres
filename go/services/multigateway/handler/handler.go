@@ -195,6 +195,9 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 		if v, ok := newState.StartupParams["statement_timeout"]; ok {
 			if d, err := ParsePostgresInterval("statement_timeout", v); err == nil {
 				stDefault = d
+			} else {
+				h.logger.Warn("ignoring invalid statement_timeout startup parameter, using flag default",
+					"value", v, "default", h.statementTimeout, "error", err)
 			}
 			delete(newState.StartupParams, "statement_timeout")
 		}

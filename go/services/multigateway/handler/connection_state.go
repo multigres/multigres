@@ -279,6 +279,8 @@ func (m *MultiGatewayConnectionState) ShowStatementTimeout() string {
 // Called once during connection initialization with the value from startup params
 // (if present) or the --statement-timeout flag.
 func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
 }
 
