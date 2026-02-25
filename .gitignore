@@ -71,6 +71,9 @@ go/common/parser/y.output
 # Kind demo runtime data
 demo/k8s/data/
 
+# Test runtime artifacts
+go/multipooler/grpcmanagerservice/pgbackrest/
+
 # Next
 .next
 
