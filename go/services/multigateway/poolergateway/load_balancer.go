@@ -44,6 +44,9 @@ type LoadBalancer struct {
 	// logger for debugging
 	logger *slog.Logger
 
+	// ctx is the service-lifetime context for child goroutines (health streams)
+	ctx context.Context
+
 	// mu protects the connections map
 	mu sync.RWMutex
 
@@ -52,10 +55,11 @@ type LoadBalancer struct {
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
-func NewLoadBalancer(localCell string, logger *slog.Logger) *LoadBalancer {
+func NewLoadBalancer(localCell string, logger *slog.Logger, ctx context.Context) *LoadBalancer {
 	return &LoadBalancer{
 		localCell:   localCell,
 		logger:      logger,
+		ctx:         ctx,
 		connections: make(map[string]*PoolerConnection),
 	}
 }
@@ -79,7 +83,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	// Pass nil for onHealthUpdate - the LoadBalancer currently uses Health()
 	// to check serving state on demand rather than maintaining a separate list.
 	// TODO: Consider adding a callback to proactively update routing when health changes.
-	conn, err := NewPoolerConnection(pooler, lb.logger, nil)
+	conn, err := NewPoolerConnection(lb.ctx, pooler, lb.logger, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create connection to pooler %s: %w", poolerID, err)
 	}
