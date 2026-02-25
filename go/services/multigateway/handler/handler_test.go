@@ -89,7 +89,7 @@ func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state 
 func TestHandleQueryEmptyQuery(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 
 	// Create a mock connection
 	conn := &server.Conn{}
@@ -162,7 +162,7 @@ func TestHandleQueryEmptyQuery(t *testing.T) {
 func TestHandleQueryNonEmpty(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 
 	// Create a mock connection
 	conn := &server.Conn{}
@@ -186,7 +186,7 @@ func TestHandleQueryNonEmpty(t *testing.T) {
 func TestPreparedStatementHandling(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -238,7 +238,7 @@ func TestPreparedStatementHandling(t *testing.T) {
 func TestPortalHandling(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -292,7 +292,7 @@ func TestPortalHandling(t *testing.T) {
 func TestPreparedStatementConsolidation(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -337,7 +337,7 @@ func TestPreparedStatementConsolidation(t *testing.T) {
 func TestConnectionStateIsolation(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn1 := &server.Conn{}
 	conn2 := &server.Conn{}
 	ctx := context.Background()
@@ -364,7 +364,7 @@ func TestConnectionStateIsolation(t *testing.T) {
 func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -386,7 +386,7 @@ func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
 func TestHandleQuery_AbortedTransactionAllowsRollback(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -406,7 +406,7 @@ func TestHandleQuery_AbortedTransactionAllowsRollback(t *testing.T) {
 func TestHandleQuery_AbortedTransactionAllowsRollbackInBatch(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -427,7 +427,7 @@ func TestHandleQuery_AbortedTransactionAllowsRollbackInBatch(t *testing.T) {
 func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -447,7 +447,7 @@ func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *te
 func TestHandleQuery_ErrorInTransactionSetsAbortedState(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{streamExecuteErr: errors.New("query failed")}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in active transaction
@@ -467,7 +467,7 @@ func TestHandleQuery_ErrorInTransactionSetsAbortedState(t *testing.T) {
 func TestHandleQuery_ErrorOutsideTransactionStaysIdle(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{streamExecuteErr: errors.New("query failed")}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
@@ -484,7 +484,7 @@ func TestHandleQuery_ErrorOutsideTransactionStaysIdle(t *testing.T) {
 func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	ctx := context.Background()
 
@@ -511,7 +511,7 @@ func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Initialize connection state with a reserved connection
@@ -537,7 +537,7 @@ func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
 func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Initialize connection state with a reserved connection for COPY (not transaction)
@@ -563,7 +563,7 @@ func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T
 func TestConnectionClosed_NoReservedConnections(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Initialize connection state with no reserved connections
@@ -580,7 +580,7 @@ func TestConnectionClosed_NoReservedConnections(t *testing.T) {
 func TestConnectionClosed_CleansPreparedStatements(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger)
+	h := NewMultiGatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	ctx := context.Background()
 

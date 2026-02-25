@@ -17,6 +17,7 @@ package handler
 import (
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -59,6 +60,12 @@ type MultiGatewayConnectionState struct {
 	// with deferred execution. This is consumed when creating the first reserved
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
 	PendingBeginQuery string
+
+	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
+	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
+	// nil means not set (fall through to flag default). Zero means disabled.
+	// Parsed at SET time to avoid repeated parsing on every query.
+	statementTimeout *time.Duration
 }
 
 type ShardState struct {
@@ -235,6 +242,30 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.SessionSettings = make(map[string]string)
+}
+
+// SetStatementTimeout sets the session-level statement timeout.
+// The value is pre-parsed to avoid repeated parsing on every query.
+func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout = &d
+}
+
+// ResetStatementTimeout clears the session-level statement timeout,
+// reverting to the flag default.
+func (m *MultiGatewayConnectionState) ResetStatementTimeout() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout = nil
+}
+
+// GetStatementTimeout returns the session-level statement timeout.
+// Returns nil if not set (meaning the flag default should be used).
+func (m *MultiGatewayConnectionState) GetStatementTimeout() *time.Duration {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.statementTimeout
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.

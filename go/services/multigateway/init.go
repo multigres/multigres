@@ -21,6 +21,7 @@ package multigateway
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -61,6 +62,8 @@ type MultiGateway struct {
 	scatterConn *scatterconn.ScatterConn
 	// executor handles query execution and routing
 	executor *executor.Executor
+	// statementTimeout is the default statement execution timeout
+	statementTimeout viperutil.Value[time.Duration]
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
@@ -97,6 +100,12 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_BIND_ADDRESS"},
 		}),
+		statementTimeout: viperutil.Configure(reg, "statement-timeout", viperutil.Options[time.Duration]{
+			Default:  30 * time.Second,
+			FlagName: "statement-timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_STATEMENT_TIMEOUT"},
+		}),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
@@ -129,11 +138,13 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
 	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
+	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
 	viperutil.BindFlags(fs,
 		mg.cell,
 		mg.serviceID,
 		mg.pgPort,
 		mg.pgBindAddress,
+		mg.statementTimeout,
 	)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
@@ -194,7 +205,7 @@ func (mg *MultiGateway) Init() error {
 	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
 
 	// Create and start PostgreSQL protocol listener
-	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger)
+	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:      pgAddr,

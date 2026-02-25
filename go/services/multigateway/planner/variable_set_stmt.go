@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // planVariableSetStmt plans SET/RESET commands.
@@ -60,6 +62,18 @@ func (p *Planner) planVariableSetStmt(
 		"variable", stmt.Name,
 		"value", value)
 
+	// Gateway-managed variables are handled locally without routing to PostgreSQL.
+	// This avoids unnecessary round-trips and keeps the gateway in control.
+	if isGatewayManagedVariable(stmt.Name) {
+		primitive, err := p.planGatewayManagedVariable(sql, stmt, value)
+		if err != nil {
+			return nil, err
+		}
+		plan := engine.NewPlan(sql, primitive)
+		p.logger.Debug("created gateway-managed plan", "plan", plan.String())
+		return plan, nil
+	}
+
 	// 1. Route: Send to PostgreSQL for validation and execution
 	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
 
@@ -72,6 +86,53 @@ func (p *Planner) planVariableSetStmt(
 	plan := engine.NewPlan(sql, seq)
 	p.logger.Debug("created SET/RESET plan", "plan", plan.String())
 	return plan, nil
+}
+
+// isGatewayManagedVariable returns true for session variables that are managed
+// entirely by the gateway and should NOT be forwarded to PostgreSQL.
+// These variables control gateway-level behavior (e.g., timeouts) and sending
+// them to PostgreSQL would be redundant or counterproductive for connection pooling.
+func isGatewayManagedVariable(name string) bool {
+	switch strings.ToLower(name) {
+	case "statement_timeout":
+		return true
+	default:
+		return false
+	}
+}
+
+// planGatewayManagedVariable creates a GatewaySessionState primitive for a
+// gateway-managed variable. All parsing and validation happens here at plan
+// time so the primitive's execute path is a simple assignment.
+func (p *Planner) planGatewayManagedVariable(
+	sql string,
+	stmt *ast.VariableSetStmt,
+	value string,
+) (engine.Primitive, error) {
+	name := strings.ToLower(stmt.Name)
+
+	switch stmt.Kind {
+	case ast.VAR_SET_VALUE:
+		switch name {
+		case "statement_timeout":
+			d, err := handler.ParsePostgresInterval(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for statement_timeout: %w", err)
+			}
+			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
+				"value", value, "parsed", d)
+			return engine.NewStatementTimeoutSet(sql, d), nil
+		default:
+			return nil, fmt.Errorf("unknown gateway-managed variable %q", name)
+		}
+
+	case ast.VAR_RESET:
+		p.logger.Debug("planning RESET gateway-managed variable", "variable", name)
+		return engine.NewGatewaySessionStateReset(sql, name), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported operation for gateway-managed variable %q", name)
+	}
 }
 
 // extractVariableValue converts AST NodeList arguments to a string value.
