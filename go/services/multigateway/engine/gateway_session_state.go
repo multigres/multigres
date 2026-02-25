@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -79,7 +80,12 @@ func (g *GatewaySessionState) StreamExecute(
 			state.SetStatementTimeout(g.statementTimeout)
 		}
 	default:
-		return fmt.Errorf("unknown gateway-managed variable %q", g.variable)
+		return &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "ERROR",
+			Code:        "42704", // undefined_object
+			Message:     fmt.Sprintf("unrecognized configuration parameter %q", g.variable),
+		}
 	}
 
 	return callback(ctx, &sqltypes.Result{CommandTag: commandTag})

@@ -101,9 +101,10 @@ var errStatementTimeout = &mterrors.PgDiagnostic{
 // If the function returns an error and the context deadline was exceeded, it returns
 // errStatementTimeout (SQLSTATE 57014) to match PostgreSQL behavior.
 func (h *MultiGatewayHandler) executeWithTimeout(ctx context.Context, state *MultiGatewayConnectionState, query ast.Stmt, fn func(ctx context.Context) error) error {
-	directive := ParseStatementTimeoutDirective(query)
-	sessionVar := state.GetStatementTimeout()
-	timeout := ResolveStatementTimeout(directive, sessionVar, h.statementTimeout)
+	timeout := ResolveStatementTimeout(
+		ParseStatementTimeoutDirective(query),
+		state.GetStatementTimeout(),
+	)
 
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -112,7 +113,7 @@ func (h *MultiGatewayHandler) executeWithTimeout(ctx context.Context, state *Mul
 	}
 
 	err := fn(ctx)
-	if err != nil && ctx.Err() == context.DeadlineExceeded {
+	if timeout > 0 && err != nil && ctx.Err() == context.DeadlineExceeded {
 		return errStatementTimeout
 	}
 	return err
@@ -187,6 +188,18 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 	if state == nil {
 		newState := NewMultiGatewayConnectionState()
 		newState.StartupParams = conn.GetStartupParams()
+
+		// Initialize gateway-managed variables. Startup params take precedence
+		// over the flag default (matching PostgreSQL's GUC priority).
+		stDefault := h.statementTimeout
+		if v, ok := newState.StartupParams["statement_timeout"]; ok {
+			if d, err := ParsePostgresInterval("statement_timeout", v); err == nil {
+				stDefault = d
+			}
+			delete(newState.StartupParams, "statement_timeout")
+		}
+		newState.InitStatementTimeout(stDefault)
+
 		conn.SetConnectionState(newState)
 		return newState
 	}

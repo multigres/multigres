@@ -63,9 +63,9 @@ type MultiGatewayConnectionState struct {
 
 	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
 	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
-	// nil means not set (fall through to flag default). Zero means disabled.
+	// The default is initialized from startup params (if present) or the --statement-timeout flag.
 	// Parsed at SET time to avoid repeated parsing on every query.
-	statementTimeout *time.Duration
+	statementTimeout GatewayManagedVariable[time.Duration]
 }
 
 type ShardState struct {
@@ -244,28 +244,42 @@ func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.SessionSettings = make(map[string]string)
 }
 
-// SetStatementTimeout sets the session-level statement timeout.
-// The value is pre-parsed to avoid repeated parsing on every query.
+// SetStatementTimeout sets the session-level statement timeout override.
 func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statementTimeout = &d
+	m.statementTimeout.Set(d)
 }
 
 // ResetStatementTimeout clears the session-level statement timeout,
-// reverting to the flag default.
+// reverting to the default (from startup params or flag).
 func (m *MultiGatewayConnectionState) ResetStatementTimeout() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statementTimeout = nil
+	m.statementTimeout.Reset()
 }
 
-// GetStatementTimeout returns the session-level statement timeout.
-// Returns nil if not set (meaning the flag default should be used).
-func (m *MultiGatewayConnectionState) GetStatementTimeout() *time.Duration {
+// GetStatementTimeout returns the effective statement timeout:
+// the session override if set, otherwise the default.
+func (m *MultiGatewayConnectionState) GetStatementTimeout() time.Duration {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.statementTimeout
+	return m.statementTimeout.GetEffective()
+}
+
+// ShowStatementTimeout returns the effective statement timeout formatted
+// as a PostgreSQL-compatible milliseconds string for SHOW output.
+func (m *MultiGatewayConnectionState) ShowStatementTimeout() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return formatDurationAsMs(m.statementTimeout.GetEffective())
+}
+
+// InitStatementTimeout sets the default for the statement timeout variable.
+// Called once during connection initialization with the value from startup params
+// (if present) or the --statement-timeout flag.
+func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Duration) {
+	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.

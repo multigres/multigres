@@ -80,6 +80,9 @@ func (p *Planner) Plan(
 	case ast.T_TransactionStmt:
 		return p.planTransactionStmt(sql, stmt.(*ast.TransactionStmt))
 
+	case ast.T_VariableShowStmt:
+		return p.planVariableShowStmt(sql, stmt.(*ast.VariableShowStmt), conn)
+
 	// Future: Add more statement types here
 	// case ast.T_SelectStmt:
 	//     return p.planSelectStmt(sql, stmt.(*ast.SelectStmt), conn)

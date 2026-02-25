@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -38,6 +39,23 @@ func (p *Planner) planVariableSetStmt(
 		p.logger.Debug("SET LOCAL detected, passing through",
 			"variable", stmt.Name)
 		return p.planDefault(sql, conn)
+	}
+
+	// Gateway-managed variables are handled locally without routing to PostgreSQL.
+	// This check happens before the Kind filter because VAR_SET_DEFAULT also needs
+	// to be intercepted for gateway-managed variables (it should behave like RESET).
+	if isGatewayManagedVariable(stmt.Name) {
+		value := ""
+		if stmt.Kind == ast.VAR_SET_VALUE {
+			value = extractVariableValue(stmt.Args)
+		}
+		primitive, err := p.planGatewayManagedVariable(sql, stmt, value)
+		if err != nil {
+			return nil, err
+		}
+		plan := engine.NewPlan(sql, primitive)
+		p.logger.Debug("created gateway-managed plan", "plan", plan.String())
+		return plan, nil
 	}
 
 	// Only track VAR_SET_VALUE, VAR_RESET, VAR_RESET_ALL
@@ -61,18 +79,6 @@ func (p *Planner) planVariableSetStmt(
 		"kind", stmt.Kind,
 		"variable", stmt.Name,
 		"value", value)
-
-	// Gateway-managed variables are handled locally without routing to PostgreSQL.
-	// This avoids unnecessary round-trips and keeps the gateway in control.
-	if isGatewayManagedVariable(stmt.Name) {
-		primitive, err := p.planGatewayManagedVariable(sql, stmt, value)
-		if err != nil {
-			return nil, err
-		}
-		plan := engine.NewPlan(sql, primitive)
-		p.logger.Debug("created gateway-managed plan", "plan", plan.String())
-		return plan, nil
-	}
 
 	// 1. Route: Send to PostgreSQL for validation and execution
 	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
@@ -115,23 +121,34 @@ func (p *Planner) planGatewayManagedVariable(
 	case ast.VAR_SET_VALUE:
 		switch name {
 		case "statement_timeout":
-			d, err := handler.ParsePostgresInterval(value)
+			d, err := handler.ParsePostgresInterval(name, value)
 			if err != nil {
-				return nil, fmt.Errorf("invalid value for statement_timeout: %w", err)
+				return nil, err
 			}
 			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
 				"value", value, "parsed", d)
 			return engine.NewStatementTimeoutSet(sql, d), nil
 		default:
-			return nil, fmt.Errorf("unknown gateway-managed variable %q", name)
+			return nil, &mterrors.PgDiagnostic{
+				MessageType: 'E',
+				Severity:    "ERROR",
+				Code:        "42704", // undefined_object
+				Message:     fmt.Sprintf("unrecognized configuration parameter %q", name),
+			}
 		}
 
-	case ast.VAR_RESET:
+	case ast.VAR_RESET, ast.VAR_SET_DEFAULT, ast.VAR_RESET_ALL:
+		// RESET, SET ... TO DEFAULT, and RESET ALL all revert to the flag default.
 		p.logger.Debug("planning RESET gateway-managed variable", "variable", name)
 		return engine.NewGatewaySessionStateReset(sql, name), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported operation for gateway-managed variable %q", name)
+		return nil, &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "ERROR",
+			Code:        "42601", // syntax_error
+			Message:     fmt.Sprintf("unsupported operation for parameter %q", name),
+		}
 	}
 }
 

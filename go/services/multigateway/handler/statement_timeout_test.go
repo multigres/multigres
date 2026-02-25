@@ -22,68 +22,44 @@ import (
 )
 
 func TestResolveStatementTimeout(t *testing.T) {
-	d := func(v time.Duration) *time.Duration { return &v }
-
 	tests := []struct {
-		name       string
-		directive  *time.Duration
-		sessionVar *time.Duration
-		flag       time.Duration
-		want       time.Duration
+		name      string
+		directive time.Duration
+		effective time.Duration
+		want      time.Duration
 	}{
 		{
-			name: "flag only",
-			flag: 10 * time.Second,
-			want: 10 * time.Second,
+			name:      "effective only",
+			effective: 10 * time.Second,
+			want:      10 * time.Second,
 		},
 		{
-			name:       "session wins over flag",
-			sessionVar: d(5 * time.Second),
-			flag:       10 * time.Second,
-			want:       5 * time.Second,
+			name:      "directive wins over effective",
+			directive: 500 * time.Millisecond,
+			effective: 10 * time.Second,
+			want:      500 * time.Millisecond,
 		},
 		{
-			name:       "session wins even when larger than flag",
-			sessionVar: d(15 * time.Second),
-			flag:       10 * time.Second,
-			want:       15 * time.Second,
-		},
-		{
-			name:       "directive wins over session and flag",
-			directive:  d(500 * time.Millisecond),
-			sessionVar: d(5 * time.Second),
-			flag:       10 * time.Second,
-			want:       500 * time.Millisecond,
-		},
-		{
-			name:       "directive=0 disables timeout",
-			directive:  d(0),
-			sessionVar: d(5 * time.Second),
-			flag:       10 * time.Second,
-			want:       0,
-		},
-		{
-			name:       "session=0 disables timeout",
-			sessionVar: d(0),
-			flag:       10 * time.Second,
-			want:       0,
+			name:      "directive=0 falls through to effective",
+			directive: 0,
+			effective: 10 * time.Second,
+			want:      10 * time.Second,
 		},
 		{
 			name: "all zero means no timeout",
-			flag: 0,
 			want: 0,
 		},
 		{
-			name:      "directive wins even when larger than flag",
-			directive: d(60 * time.Second),
-			flag:      10 * time.Second,
+			name:      "directive wins even when larger",
+			directive: 60 * time.Second,
+			effective: 10 * time.Second,
 			want:      60 * time.Second,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ResolveStatementTimeout(tt.directive, tt.sessionVar, tt.flag)
+			got := ResolveStatementTimeout(tt.directive, tt.effective)
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -122,9 +98,14 @@ func TestParsePostgresInterval(t *testing.T) {
 			want:  0,
 		},
 		{
-			name:  "negative integer",
-			value: "-1",
-			want:  -time.Millisecond,
+			name:    "negative integer",
+			value:   "-1",
+			wantErr: true,
+		},
+		{
+			name:    "negative Go duration",
+			value:   "-5s",
+			wantErr: true,
 		},
 		{
 			name:    "invalid string",
@@ -145,7 +126,7 @@ func TestParsePostgresInterval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParsePostgresInterval(tt.value)
+			got, err := ParsePostgresInterval("statement_timeout", tt.value)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -156,41 +137,81 @@ func TestParsePostgresInterval(t *testing.T) {
 	}
 }
 
-func TestConnectionState_StatementTimeout(t *testing.T) {
-	t.Run("not set returns nil", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
-		require.Nil(t, s.GetStatementTimeout())
+func TestGatewayManagedVariable(t *testing.T) {
+	t.Run("default value returned when not set", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		require.Equal(t, 30*time.Second, v.GetEffective())
+		require.False(t, v.IsSet())
 	})
 
-	t.Run("set and get", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
-		s.SetStatementTimeout(5 * time.Second)
-		got := s.GetStatementTimeout()
-		require.NotNil(t, got)
-		require.Equal(t, 5*time.Second, *got)
+	t.Run("set overrides default", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(5 * time.Second)
+		require.Equal(t, 5*time.Second, v.GetEffective())
+		require.True(t, v.IsSet())
 	})
 
-	t.Run("set zero means disabled", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
-		s.SetStatementTimeout(0)
-		got := s.GetStatementTimeout()
-		require.NotNil(t, got)
-		require.Equal(t, time.Duration(0), *got)
+	t.Run("set zero overrides non-zero default", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(0)
+		require.Equal(t, time.Duration(0), v.GetEffective())
+		require.True(t, v.IsSet())
 	})
 
-	t.Run("reset clears to nil", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
-		s.SetStatementTimeout(5 * time.Second)
-		s.ResetStatementTimeout()
-		require.Nil(t, s.GetStatementTimeout())
+	t.Run("reset reverts to default", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(5 * time.Second)
+		v.Reset()
+		require.Equal(t, 30*time.Second, v.GetEffective())
+		require.False(t, v.IsSet())
 	})
 
 	t.Run("overwrite with new value", func(t *testing.T) {
+		v := NewGatewayManagedVariable(30 * time.Second)
+		v.Set(5 * time.Second)
+		v.Set(10 * time.Second)
+		require.Equal(t, 10*time.Second, v.GetEffective())
+	})
+}
+
+func TestConnectionState_StatementTimeout(t *testing.T) {
+	t.Run("returns default when not set", func(t *testing.T) {
 		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		require.Equal(t, 30*time.Second, s.GetStatementTimeout())
+	})
+
+	t.Run("set overrides default", func(t *testing.T) {
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
-		s.SetStatementTimeout(10 * time.Second)
-		got := s.GetStatementTimeout()
-		require.NotNil(t, got)
-		require.Equal(t, 10*time.Second, *got)
+		require.Equal(t, 5*time.Second, s.GetStatementTimeout())
+	})
+
+	t.Run("set zero disables timeout", func(t *testing.T) {
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(0)
+		require.Equal(t, time.Duration(0), s.GetStatementTimeout())
+	})
+
+	t.Run("reset reverts to default", func(t *testing.T) {
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(5 * time.Second)
+		s.ResetStatementTimeout()
+		require.Equal(t, 30*time.Second, s.GetStatementTimeout())
+	})
+
+	t.Run("show formats as milliseconds", func(t *testing.T) {
+		s := NewMultiGatewayConnectionState()
+		s.InitStatementTimeout(30 * time.Second)
+		require.Equal(t, "30000", s.ShowStatementTimeout())
+
+		s.SetStatementTimeout(5 * time.Second)
+		require.Equal(t, "5000", s.ShowStatementTimeout())
+
+		s.SetStatementTimeout(0)
+		require.Equal(t, "0", s.ShowStatementTimeout())
 	})
 }

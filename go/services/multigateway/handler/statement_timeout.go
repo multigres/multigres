@@ -20,55 +20,82 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// ResolveStatementTimeout determines the effective statement timeout using strict priority ordering.
-// The highest-priority source that is set wins entirely (no minimum across sources).
-//
-// Priority (highest to lowest):
-//  1. Per-query directive — placeholder, always nil for now (will be parsed in grammar)
-//  2. Session variable (SET statement_timeout = ...)
-//  3. --statement-timeout flag
-//
-// A value of 0 from any source means "no timeout" (disabled).
-func ResolveStatementTimeout(directive *time.Duration, sessionVar *time.Duration, flag time.Duration) time.Duration {
-	if directive != nil {
-		return *directive
+// ResolveStatementTimeout returns the per-query directive if set, otherwise
+// the effective timeout from the connection state (session override or default).
+// A non-zero directive takes priority over everything else.
+func ResolveStatementTimeout(directive time.Duration, effective time.Duration) time.Duration {
+	if directive > 0 {
+		return directive
 	}
-	if sessionVar != nil {
-		return *sessionVar
-	}
-	return flag
+	return effective
 }
 
 // ParseStatementTimeoutDirective is a placeholder for per-query directive parsing.
 // Per-query directives (e.g., /*mg+ STATEMENT_TIMEOUT_MS=500 */) will be supported
 // in the future by parsing them in the SQL grammar (similar to Vitess).
-// For now, this always returns nil (no directive found).
-func ParseStatementTimeoutDirective(query ast.Stmt) *time.Duration {
-	return nil
+// For now, this always returns 0 (no directive found).
+func ParseStatementTimeoutDirective(query ast.Stmt) time.Duration {
+	return 0
 }
 
-// ParsePostgresInterval parses a PostgreSQL-style interval value into a time.Duration.
+// ParsePostgresInterval parses a PostgreSQL-style interval value for statement_timeout
+// into a time.Duration. Returns PgDiagnostic errors matching PostgreSQL's error format.
 // Supports:
-//   - Plain integers as milliseconds (e.g., "5000" → 5s) — PostgreSQL's default unit for statement_timeout
+//   - Plain integers as milliseconds (e.g., "5000" -> 5s) — PostgreSQL's default unit
 //   - Go-compatible duration strings (e.g., "30s", "200ms", "1m")
-func ParsePostgresInterval(value string) (time.Duration, error) {
+func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return 0, fmt.Errorf("empty interval value")
+		return 0, invalidParamError(paramName, value, "")
 	}
 
 	// Try parsing as plain integer (milliseconds) first — this is the common PG case.
 	if ms, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if ms < 0 {
+			return 0, outOfRangeParamError(paramName, value)
+		}
 		return time.Duration(ms) * time.Millisecond, nil
 	}
 
 	// Try Go duration format (e.g., "30s", "200ms", "1m").
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, fmt.Errorf("invalid interval %q: must be an integer (ms) or Go duration string", value)
+		return 0, invalidParamError(paramName, value,
+			`Valid units for this parameter are "us", "ms", "s", "min", "h", "d".`)
+	}
+	if d < 0 {
+		return 0, outOfRangeParamError(paramName, value)
 	}
 	return d, nil
+}
+
+// invalidParamError returns a PgDiagnostic for an invalid parameter value (SQLSTATE 22023).
+func invalidParamError(paramName, value, hint string) *mterrors.PgDiagnostic {
+	return &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "ERROR",
+		Code:        "22023", // invalid_parameter_value
+		Message:     fmt.Sprintf("invalid value for parameter %q: %q", paramName, value),
+		Hint:        hint,
+	}
+}
+
+// outOfRangeParamError returns a PgDiagnostic for an out-of-range parameter value (SQLSTATE 22023).
+func outOfRangeParamError(paramName, value string) *mterrors.PgDiagnostic {
+	return &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "ERROR",
+		Code:        "22023", // invalid_parameter_value
+		Message:     fmt.Sprintf("%s is outside the valid range for parameter %q (0 .. 2147483647)", value, paramName),
+	}
+}
+
+// formatDurationAsMs formats a time.Duration as a PostgreSQL-compatible milliseconds string.
+// This matches PostgreSQL's display format for statement_timeout.
+func formatDurationAsMs(d time.Duration) string {
+	return strconv.FormatInt(d.Milliseconds(), 10)
 }
