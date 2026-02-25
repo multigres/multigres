@@ -58,13 +58,14 @@ jobs:
           TEST_PRINT_LOGS: "1"
         run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
-      - name: Upload compatibility report
+      - name: Upload compatibility results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled() }}
         with:
-          name: postgres-compatibility-report
-          path: /tmp/multigres_pg_cache/results/**/compatibility-report.*
+          name: postgres-compatibility-results
+          path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
 
-      # Note: the Go test writes the full report (including shields.io badge)
-      # directly to GITHUB_STEP_SUMMARY via postgres_builder.go
+      # Note: the Go test writes the pass/fail summary (including shields.io badge)
+      # directly to GITHUB_STEP_SUMMARY via postgres_builder.go.
+      # Full diffs are in the uploaded artifact (regression.diffs).

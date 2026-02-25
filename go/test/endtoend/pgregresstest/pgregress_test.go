@@ -129,9 +129,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 			logSuiteResults(t, "Regression", results)
 
 			suites = append(suites, SuiteResult{
-				Name:     "Regression Tests",
-				Results:  results,
-				DiffsDir: builder.OutputDir,
+				Name:    "Regression Tests",
+				Results: results,
 			})
 
 			if err != nil && results.TotalTests == 0 {
@@ -166,9 +165,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 			logSuiteResults(t, "Isolation", results)
 
 			suites = append(suites, SuiteResult{
-				Name:     "Isolation Tests",
-				Results:  results,
-				DiffsDir: filepath.Join(builder.OutputDir, "isolation"),
+				Name:    "Isolation Tests",
+				Results: results,
 			})
 
 			if err != nil && results.TotalTests == 0 {
