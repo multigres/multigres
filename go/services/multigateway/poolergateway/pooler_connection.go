@@ -14,12 +14,6 @@
 
 package poolergateway
 
-// TODO: Add PoolerConnection streaming tests. This requires either:
-// - A mock gRPC server using google.golang.org/grpc/test/bufconn for unit tests
-// - Integration tests with a real multipooler instance
-// Tests should cover: checkConn retry loop, streamHealth, staleness timeout detection
-// Note: PoolerHealth tests exist in pooler_health_test.go (IsServing, SimpleCopy)
-
 import (
 	"context"
 	"errors"
