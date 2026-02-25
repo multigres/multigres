@@ -583,6 +583,12 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 	return c.conn.ReadCopyDoneResponse(ctx)
 }
 
+// ReadCopyFailResponse reads the expected ErrorResponse + ReadyForQuery
+// sequence after sending CopyFail, leaving the connection in a clean state.
+func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
+	return c.conn.ReadCopyFailResponse(ctx)
+}
+
 // WriteCopyFail sends a CopyFail message to abort the COPY operation.
 func (c *Conn) WriteCopyFail(errorMsg string) error {
 	return c.conn.WriteCopyFail(errorMsg)
