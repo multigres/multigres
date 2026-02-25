@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -644,7 +645,22 @@ func (pm *MultiPoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 // getStandbyStatusInternal gets standby replication status without guardrail checks.
 // Called by Status() which has already verified the PostgreSQL role.
 func (pm *MultiPoolerManager) getStandbyStatusInternal(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	return pm.queryReplicationStatus(ctx)
+	status, err := pm.queryReplicationStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if pm.replTracker == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "replication tracker not initialized")
+	}
+
+	hbLag, hbErr := pm.replTracker.HeartbeatReader().Status()
+	if hbErr == nil {
+		status.HeartbeatLag = durationpb.New(hbLag)
+	}
+	// HeartbeatLag is nil when the reader encountered an error.
+
+	return status, nil
 }
 
 // PrimaryStatus gets the status of the leader server

@@ -289,7 +289,7 @@ func TestBeginTerm(t *testing.T) {
 			expectedTerm:                        10,
 			expectedAcceptedTermFromCoordinator: "new-candidate",
 			expectedWalPosition:                 &consensusdatapb.WALPosition{LastReceiveLsn: "0/4000000", LastReplayLsn: "0/4000000"},
-			description:                         "Primary should accept term after successful demotion (idempotent case - already demoted)",
+			description:                         "Already-demoted node (standby) accepts term with REVOKE and pauses replication",
 		},
 		{
 			name:   "StandbyAcceptsTermAndPausesReplication",

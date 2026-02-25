@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	"github.com/multigres/multigres/go/tools/timer"
@@ -29,7 +30,7 @@ import (
 
 // Make these modifiable for testing.
 var (
-	defaultHeartbeatInterval = 1 * time.Second
+	defaultHeartbeatInterval = constants.HeartbeatWriteInterval
 )
 
 // Writer runs on primary databases and writes heartbeats to the heartbeat

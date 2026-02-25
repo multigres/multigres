@@ -27,7 +27,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -110,7 +109,7 @@ func (r *Reader) Status() (time.Duration, error) {
 
 	// Return an error if we didn't receive a heartbeat for more than two intervals
 	if !r.lastKnownTime.IsZero() && r.now().Sub(r.lastKnownTime) > 2*r.interval {
-		return 0, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "no heartbeat received in over 2x the heartbeat interval")
+		return 0, mterrors.MT13003()
 	}
 
 	return r.lastKnownLag, nil

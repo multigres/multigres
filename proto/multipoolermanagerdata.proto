@@ -69,6 +69,19 @@ message StandbyReplicationStatus {
   // Values: "streaming", "stopping", "starting", "waiting", or empty if no WAL receiver
   // Empty string indicates WAL receiver is not running (0 rows from pg_stat_wal_receiver)
   string wal_receiver_status = 8;
+
+  // Heartbeat lag: time elapsed since the primary last wrote a heartbeat to
+  // the multigres.heartbeat table, as observed by this replica reading the
+  // replicated row. This value includes both replication lag and time since
+  // the primary's last write.
+  //
+  // A low value (e.g. < 2x write interval) proves the primary was recently
+  // alive and replication is working. A high or growing value indicates the
+  // primary may have stopped writing or replication has stalled.
+  //
+  // Nil when the heartbeat reader encountered an error (DB unreachable,
+  // no heartbeat row found, or reader not running).
+  google.protobuf.Duration heartbeat_lag = 9;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position

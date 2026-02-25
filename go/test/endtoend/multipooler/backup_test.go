@@ -272,6 +272,13 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 					t.Log("Verifying standby database is accessible after restore...")
 
+					// Verify restore_command was disabled to prevent fetching divergent WAL
+					var restoreCommand string
+					err = standbyDB.QueryRow("SHOW restore_command").Scan(&restoreCommand)
+					require.NoError(t, err, "Should be able to query restore_command")
+					assert.Equal(t, "exit 1", restoreCommand,
+						"restore_command should be disabled after restore to prevent fetching divergent WAL")
+
 					// Verify standby database is accessible and we can query data
 					var countAfterRestore int
 					err = standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore)
@@ -666,6 +673,13 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				err = standbyDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 				require.NoError(t, err, "Should be able to query standby")
 				assert.True(t, isInRecovery, "Standby should be in recovery mode after restore")
+
+				// Verify restore_command was disabled to prevent fetching divergent WAL
+				var restoreCommand string
+				err = standbyDB.QueryRow("SHOW restore_command").Scan(&restoreCommand)
+				require.NoError(t, err, "Should be able to query restore_command")
+				assert.Equal(t, "exit 1", restoreCommand,
+					"restore_command should be disabled after restore to prevent fetching divergent WAL")
 
 				t.Logf("✓ MultiAdmin backup/restore completed successfully")
 				t.Logf("✓ Standby is in recovery mode: %t", isInRecovery)

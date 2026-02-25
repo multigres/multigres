@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -25,8 +26,15 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
+// HeartbeatLagThreshold is the maximum acceptable heartbeat lag (3x write interval).
+// A heartbeat lag above this threshold indicates the primary may have stopped writing.
+const HeartbeatLagThreshold = 3 * constants.HeartbeatWriteInterval
+
 // DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
-const DefaultReplicaLagThreshold = 10 * time.Second
+// Also used to skip the heartbeat check in isReplicaConnectedToPrimary: a lagging replica
+// has a stale heartbeat because replay hasn't caught up, not because the primary stopped.
+// Derives from HeartbeatLagThreshold so all thresholds scale together.
+const DefaultReplicaLagThreshold = 3 * HeartbeatLagThreshold
 
 // PoolersByShard is a structured map for efficient lookups.
 // Structure: [database][tablegroup][shard][pooler_id] -> PoolerHealthState
@@ -226,6 +234,12 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 			analysis.ReplicaReceiveLSN = rs.LastReceiveLsn
 			analysis.IsWalReplayPaused = rs.IsWalReplayPaused
 			analysis.WalReplayPauseState = rs.WalReplayPauseState
+			analysis.WalReceiverStatus = rs.WalReceiverStatus
+			if rs.GetHeartbeatLag() != nil {
+				analysis.HeartbeatLag = rs.GetHeartbeatLag().AsDuration()
+			} else {
+				analysis.HeartbeatLag = -1
+			}
 
 			// Extract primary connection info
 			if rs.PrimaryConnInfo != nil {
@@ -371,6 +385,9 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	// Track primary health details separately (for distinguishing pooler-down vs postgres-down)
 	analysis.PrimaryPoolerReachable = primary.IsLastCheckValid
 	analysis.PrimaryPostgresRunning = primary.IsPostgresRunning
+	if primary.ConsensusTerm != nil {
+		analysis.PrimaryTerm = primary.ConsensusTerm.PrimaryTerm
+	}
 
 	// Primary is reachable only if both pooler is reachable AND Postgres is running
 	analysis.PrimaryReachable = analysis.PrimaryPoolerReachable && analysis.PrimaryPostgresRunning
@@ -378,10 +395,10 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 	// Check if this replica is in the primary's synchronous standby list
 	analysis.IsInPrimaryStandbyList = g.isInStandbyList(analysis.PoolerID, primary)
 
-	// Compute ReplicasConnectedToPrimary: true only if ALL replicas are connected to primary.
+	// Compute replica visibility and connectivity for the shard.
 	// When the primary pooler is down but Postgres is still running, replicas remain connected
 	// and we should NOT trigger failover. Instead, the operator should restart the pooler process.
-	analysis.ReplicasConnectedToPrimary = g.allReplicasConnectedToPrimary(primary, poolers)
+	g.computeReplicaConnectivity(analysis, primary, poolers)
 }
 
 // isInStandbyList checks if the given pooler ID is in the primary's synchronous standby list.
@@ -402,24 +419,21 @@ func (g *AnalysisGenerator) isInStandbyList(
 	return false
 }
 
-// allReplicasConnectedToPrimary checks if ALL replicas in the shard are connected to the primary.
-// A replica is considered connected if:
-// 1. Its health check is valid (IsLastCheckValid)
-// 2. It has PrimaryConnInfo configured pointing to this primary
-// 3. It has received WAL (LastReceiveLsn is not empty)
-//
-// Returns true only if all replicas meet these criteria.
-// Returns false if there are no replicas or any replica is disconnected.
-func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
+// computeReplicaConnectivity checks replica visibility and connectivity for the shard.
+// Sets CountReplicaPoolersInShard, CountReachableReplicaPoolersInShard,
+// CountReplicasConfirmingPrimaryAliveInShard, and AllReplicasConfirmPrimaryAlive on the analysis.
+func (g *AnalysisGenerator) computeReplicaConnectivity(
+	analysis *store.ReplicationAnalysis,
 	primary *multiorchdatapb.PoolerHealthState,
 	poolers map[string]*multiorchdatapb.PoolerHealthState,
-) bool {
+) {
 	primaryIDStr := topoclient.MultiPoolerIDString(primary.MultiPooler.Id)
 	primaryHost := primary.MultiPooler.Hostname
 	primaryPort := primary.MultiPooler.PortMap["postgres"]
 
-	replicaCount := 0
-	connectedCount := 0
+	var replicaCount uint
+	var reachableCount uint
+	var connectedCount uint
 
 	for poolerID, pooler := range poolers {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
@@ -442,24 +456,25 @@ func (g *AnalysisGenerator) allReplicasConnectedToPrimary(
 
 		replicaCount++
 
-		// Check if replica is connected to the primary
-		if !g.isReplicaConnectedToPrimary(pooler, primaryHost, primaryPort) {
-			continue
+		if pooler.IsLastCheckValid {
+			reachableCount++
 		}
 
-		connectedCount++
+		// Check if replica is connected to the primary
+		if g.isReplicaConnectedToPrimary(pooler, primaryHost, primaryPort) {
+			connectedCount++
+		}
 	}
 
-	// All replicas must be connected (and there must be at least one replica)
-	return replicaCount > 0 && connectedCount == replicaCount
+	analysis.CountReplicaPoolersInShard = replicaCount
+	analysis.CountReachableReplicaPoolersInShard = reachableCount
+	analysis.CountReplicasConfirmingPrimaryAliveInShard = connectedCount
+	analysis.AllReplicasConfirmPrimaryAlive = replicaCount > 0 && connectedCount == replicaCount
 }
 
 // isReplicaConnectedToPrimary checks if a single replica is connected to the primary.
-//
-// TODO: Check heartbeat data timestamp to verify writes are actively flowing through replication.
-// The multigres.heartbeat table is updated periodically on the primary, so checking if the
-// replica's heartbeat timestamp is recent would prove the replication connection is active.
-// Currently we check that LastReceiveLsn is non-empty, but this doesn't prove active connectivity.
+// Verifies reachability, correct primary_conninfo, WAL receipt, active WAL receiver,
+// and healthy heartbeat.
 func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 	replica *multiorchdatapb.PoolerHealthState,
 	primaryHost string,
@@ -488,6 +503,23 @@ func (g *AnalysisGenerator) isReplicaConnectedToPrimary(
 
 	// Replica must have received WAL (indicates connection was established)
 	if replica.ReplicationStatus.LastReceiveLsn == "" {
+		return false
+	}
+
+	// Replica must have an active WAL receiver connection
+	if replica.ReplicationStatus.WalReceiverStatus != "streaming" {
+		return false
+	}
+
+	// A lagging replica may have a stale heartbeat because replay hasn't caught
+	// up, not because the primary stopped writing. Skip the heartbeat check.
+	if replica.ReplicationStatus.Lag != nil && replica.ReplicationStatus.Lag.AsDuration() > DefaultReplicaLagThreshold {
+		return true
+	}
+
+	// Heartbeat must be available and fresh (below staleness threshold).
+	hbLag := replica.ReplicationStatus.GetHeartbeatLag()
+	if hbLag == nil || hbLag.AsDuration() > HeartbeatLagThreshold {
 		return false
 	}
 
