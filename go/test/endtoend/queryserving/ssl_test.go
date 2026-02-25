@@ -17,6 +17,8 @@ package queryserving
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -269,5 +271,104 @@ func TestMultiGateway_SSL_PreferMode_FallbackToPlaintext(t *testing.T) {
 	var result int
 	err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
 	require.NoError(t, err, "query with sslmode=prefer should succeed after SSL decline + plaintext fallback")
+	assert.Equal(t, 1, result)
+}
+
+// TestMultiGateway_SSL_VerifyCA_WrongRootCert tests that sslmode=verify-ca correctly
+// rejects connections when the client has a missing or wrong root certificate.
+// Matches PostgreSQL 001_ssltests.pl lines 262-280.
+func TestMultiGateway_SSL_VerifyCA_WrongRootCert(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSL test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping SSL tests")
+	}
+
+	setup := getTLSSharedSetup(t)
+	setup.SetupTest(t)
+	require.NotNil(t, setup.MultigatewayTLSCertPaths, "TLS cert paths should be set")
+
+	t.Run("missing root cert", func(t *testing.T) {
+		// sslrootcert points to a nonexistent file — client cannot verify the server cert.
+		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=verify-ca sslrootcert=/nonexistent/ca.crt connect_timeout=5",
+			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		ctx := utils.WithTimeout(t, 10*time.Second)
+		_, err := pgx.Connect(ctx, connStr)
+		require.Error(t, err, "verify-ca with missing root cert should fail")
+	})
+
+	t.Run("wrong root cert", func(t *testing.T) {
+		// Create an empty file as root cert — results in an empty CA pool,
+		// so the server's certificate chain cannot be verified against any trusted root.
+		emptyCAFile := filepath.Join(t.TempDir(), "empty-ca.crt")
+		require.NoError(t, os.WriteFile(emptyCAFile, nil, 0o600))
+
+		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=verify-ca sslrootcert=%s connect_timeout=5",
+			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword, emptyCAFile)
+		ctx := utils.WithTimeout(t, 10*time.Second)
+		_, err := pgx.Connect(ctx, connStr)
+		require.Error(t, err, "verify-ca with empty root cert pool should fail")
+	})
+}
+
+// TestMultiGateway_SSL_VerifyFull_HostnameMismatch tests that sslmode=verify-full rejects
+// connections when the server hostname doesn't match the certificate SANs.
+// Our cert has SANs: DNS=localhost, IP=127.0.0.1, IP=::1 — "wronghost.test" matches none.
+// Matches PostgreSQL 001_ssltests.pl lines 369-374.
+func TestMultiGateway_SSL_VerifyFull_HostnameMismatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSL test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping SSL tests")
+	}
+
+	setup := getTLSSharedSetup(t)
+	setup.SetupTest(t)
+	require.NotNil(t, setup.MultigatewayTLSCertPaths, "TLS cert paths should be set")
+
+	// Parse a valid config with verify-full and correct root cert.
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=verify-full sslrootcert=%s connect_timeout=5",
+		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword, setup.MultigatewayTLSCertPaths.CACertFile)
+	config, err := pgx.ParseConfig(connStr)
+	require.NoError(t, err)
+
+	// Override the TLS ServerName to a hostname that doesn't match any cert SAN.
+	// The TCP connection still goes to localhost, but TLS verification checks "wronghost.test".
+	config.TLSConfig.ServerName = "wronghost.test"
+
+	ctx := utils.WithTimeout(t, 10*time.Second)
+	_, err = pgx.ConnectConfig(ctx, config)
+	require.Error(t, err, "verify-full with hostname mismatch should fail")
+	assert.Contains(t, err.Error(), "wronghost.test")
+}
+
+// TestMultiGateway_SSL_AllowMode tests sslmode=allow against a TLS-enabled multigateway.
+// Per the PG protocol, "allow" means try plaintext first; if rejected, retry with SSL.
+// Since multigateway accepts both, the client connects in plaintext on the first attempt.
+// Uses pgx because lib/pq doesn't support sslmode=allow.
+// Matches PostgreSQL 005_negotiate_encryption.pl sslmode=allow rows.
+func TestMultiGateway_SSL_AllowMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSL test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping SSL tests")
+	}
+
+	setup := getTLSSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=allow connect_timeout=5",
+		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	ctx := utils.WithTimeout(t, 10*time.Second)
+	conn, err := pgx.Connect(ctx, connStr)
+	require.NoError(t, err, "pgx connect with sslmode=allow should succeed")
+	defer conn.Close(ctx)
+
+	var result int
+	err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
+	require.NoError(t, err, "query with sslmode=allow should succeed")
 	assert.Equal(t, 1, result)
 }

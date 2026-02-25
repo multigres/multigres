@@ -483,6 +483,58 @@ func TestSSLRequest_BufferStuffingPrevention(t *testing.T) {
 	assert.Contains(t, err.Error(), "unencrypted data after SSL request")
 }
 
+func TestSSLRequest_TLS11Rejected(t *testing.T) {
+	// Verify that the server enforces MinVersion: TLS 1.2 by rejecting
+	// a client that only supports TLS 1.1.
+	// Matches PostgreSQL 001_ssltests.pl lines 661-667.
+
+	tlsConfig, _ := generateTestTLSConfig(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		netConn, err := ln.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+
+		c := newTestConn(t, netConn, tlsConfig)
+		errCh <- c.handleStartup()
+	}()
+
+	clientConn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	// Send SSLRequest
+	writeSSLRequest(t, clientConn)
+
+	// Read 'S' response
+	resp := readSingleByte(t, clientConn)
+	require.Equal(t, byte('S'), resp)
+
+	// Attempt TLS handshake with TLS 1.1 max — server requires 1.2+
+	//nolint:gosec // G402: intentionally using TLS 1.1 to test version enforcement
+	tlsClientConn := tls.Client(clientConn, &tls.Config{
+		InsecureSkipVerify: true,
+		MaxVersion:         tls.VersionTLS11,
+	})
+	err = tlsClientConn.Handshake()
+	require.Error(t, err, "TLS 1.1 handshake should fail against server requiring TLS 1.2+")
+
+	// Close the client connection to unblock the server's TLS handshake goroutine.
+	clientConn.Close()
+
+	// Server should also get a handshake error
+	err = <-errCh
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TLS handshake failed")
+}
+
 func TestGSSENCRequest_ThenSSLRequest_WithTLS(t *testing.T) {
 	// A client tries GSSENCRequest first (declined), then SSLRequest with TLS configured.
 	// The SSLRequest should be accepted and TLS upgrade should work.
