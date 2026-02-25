@@ -217,21 +217,13 @@ func (mg *MultiGateway) Init() error {
 	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
 
 	// Build TLS config if cert and key files are provided.
-	var pgTLSConfig *tls.Config
-	if certFile := mg.pgTLSCertFile.Get(); certFile != "" {
-		keyFile := mg.pgTLSKeyFile.Get()
-		if keyFile == "" {
-			return errors.New("--pg-tls-cert-file requires --pg-tls-key-file")
-		}
-		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-		if err != nil {
-			return fmt.Errorf("failed to load TLS certificate: %w", err)
-		}
-		pgTLSConfig = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
-			NextProtos:   []string{protocol.ALPNProtocol}, // PG 17 ALPN forward compatibility
-		}
+	certFile := mg.pgTLSCertFile.Get()
+	keyFile := mg.pgTLSKeyFile.Get()
+	pgTLSConfig, err := buildPGTLSConfig(certFile, keyFile)
+	if err != nil {
+		return err
+	}
+	if pgTLSConfig != nil {
 		logger.Info("TLS configured for PostgreSQL listener", "cert_file", certFile, "key_file", keyFile)
 	}
 
@@ -328,6 +320,29 @@ func (mg *MultiGateway) Shutdown() {
 
 	mg.tr.Unregister()
 	mg.ts.Close()
+}
+
+// buildPGTLSConfig validates TLS flag combinations and loads the certificate.
+// Returns nil if neither cert nor key file is configured (plaintext mode).
+func buildPGTLSConfig(certFile, keyFile string) (*tls.Config, error) {
+	if certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	if certFile == "" {
+		return nil, errors.New("--pg-tls-key-file requires --pg-tls-cert-file")
+	}
+	if keyFile == "" {
+		return nil, errors.New("--pg-tls-cert-file requires --pg-tls-key-file")
+	}
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+		NextProtos:   []string{protocol.ALPNProtocol}, // PG 17 ALPN forward compatibility
+	}, nil
 }
 
 // poolerSystemDiscovererAdapter adapts PoolerGateway to implement auth.PoolerSystemDiscoverer.
