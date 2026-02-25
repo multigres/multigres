@@ -189,6 +189,7 @@ func TestCopyReady_CopyBidiExecuteError(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -214,6 +215,7 @@ func TestCopyReady_SendInitiateError(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -242,6 +244,7 @@ func TestCopyReady_RecvReadyError(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -274,6 +277,7 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -304,6 +308,7 @@ func TestCopyReady_UnexpectedPhaseResponse(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -336,6 +341,7 @@ func TestCopyReady_Success(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.NoError(t, err)

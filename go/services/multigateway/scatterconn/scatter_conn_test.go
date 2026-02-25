@@ -107,7 +107,7 @@ func (m *mockGateway) Describe(context.Context, *query.Target, *query.PreparedSt
 
 func (m *mockGateway) Close() error { return nil }
 
-func (m *mockGateway) CopyReady(context.Context, *query.Target, string, *query.ExecuteOptions) (int16, []int16, queryservice.ReservedState, error) {
+func (m *mockGateway) CopyReady(context.Context, *query.Target, string, *query.ExecuteOptions, *multipoolerpb.ReservationOptions) (int16, []int16, queryservice.ReservedState, error) {
 	return 0, nil, queryservice.ReservedState{}, nil
 }
 
