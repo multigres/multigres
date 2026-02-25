@@ -76,7 +76,8 @@ func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
 // PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
-var errAbortedTransaction = mterrors.MT10001.New()
+var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTransaction,
+	"current transaction is aborted, commands ignored until end of transaction block", "")
 
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
@@ -198,7 +199,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
 		return mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
-			fmt.Sprintf("portal \"%s\" does not exist", portalName))
+			fmt.Sprintf("portal \"%s\" does not exist", portalName), "")
 	}
 
 	// Reject queries in aborted transaction state, except ROLLBACK which is the

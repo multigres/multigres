@@ -30,7 +30,7 @@ func (p *Planner) planCopyStmt(
 	// SECURITY: Reject COPY FROM/TO PROGRAM (arbitrary command execution)
 	if stmt.IsProgram {
 		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
-			"COPY with PROGRAM not supported for security reasons")
+			"COPY with PROGRAM not supported for security reasons", "")
 	}
 
 	// Decision tree based on IsFrom and Filename
@@ -66,7 +66,7 @@ func (p *Planner) planCopyStmt(
 		if stmt.Filename == "" {
 			// COPY TO STDOUT - not yet supported
 			return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
-				"COPY TO STDOUT not yet supported")
+				"COPY TO STDOUT not yet supported", "")
 		} else {
 			// COPY TO file - simple Route (PostgreSQL writes server-side file)
 			// TODO(multigateway): Future enhancement - similar to FROM file,

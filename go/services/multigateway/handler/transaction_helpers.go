@@ -120,7 +120,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 					if isImplicitTx {
 						_ = silentExecute(ast.NewRollbackStmt())
 					}
-					return mterrors.MT09001.New()
+					return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
+						"SET TRANSACTION ISOLATION LEVEL must be called before any query", "")
 				}
 			}
 			if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {

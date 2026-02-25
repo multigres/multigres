@@ -346,7 +346,7 @@ func (c *Conn) writeError(err error) error {
 
 	// Generic error: use outer message for context
 	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse,
-		mterrors.NewPgError("ERROR", mterrors.PgSSInternalError, err.Error()))
+		mterrors.NewPgError("ERROR", mterrors.PgSSInternalError, err.Error(), ""))
 }
 
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).

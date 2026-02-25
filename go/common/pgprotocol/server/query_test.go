@@ -406,7 +406,7 @@ func TestWriteError(t *testing.T) {
 	}{
 		{
 			name:     "PgDiagnostic error",
-			err:      mterrors.NewPgError("ERROR", "42P01", "relation \"users\" does not exist"),
+			err:      mterrors.NewPgError("ERROR", "42P01", "relation \"users\" does not exist", ""),
 			severity: "ERROR",
 			sqlState: "42P01",
 			message:  "relation \"users\" does not exist",
@@ -429,10 +429,11 @@ func TestWriteError(t *testing.T) {
 		},
 		{
 			name:     "MT error",
-			err:      mterrors.MT14001.New("bad message"),
+			err:      mterrors.MTE01.NewWithDetail("bad message"),
 			severity: "FATAL",
-			sqlState: "MT14001",
-			message:  "connection startup failed: bad message",
+			sqlState: "MTE01",
+			message:  "connection startup failed",
+			detail:   "bad message",
 		},
 	}
 

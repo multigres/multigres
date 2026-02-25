@@ -121,11 +121,11 @@ func (c *CopyStatement) StreamExecute(
 				return err
 			}
 			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
-				"COPY failed: "+errMsg)
+				"COPY failed: "+errMsg, "")
 
 		default:
 			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
-				fmt.Sprintf("unexpected message type during COPY: %c", msgType))
+				fmt.Sprintf("unexpected message type during COPY: %c", msgType), "")
 		}
 	}
 }

@@ -25,25 +25,30 @@ import (
 const (
 	PgSSProtocolViolation   = "08P01" // protocol_violation
 	PgSSFeatureNotSupported = "0A000" // feature_not_supported
+	PgSSActiveTransaction   = "25001" // active_sql_transaction
+	PgSSInFailedTransaction = "25P02" // in_failed_sql_transaction
 	PgSSAuthFailed          = "28P01" // invalid_authorization_specification
 	PgSSInvalidCursorName   = "34000" // invalid_cursor_name
 	PgSSInternalError       = "XX000" // internal_error
 )
 
-// MTError defines a Multigres error code. Each instance is a template that
-// produces a *PgDiagnostic via its New method. The ID (e.g. "MT10001") is
-// used as the SQLSTATE code in the PgDiagnostic, making MT errors directly
-// identifiable by clients through the standard SQLSTATE field.
+// MTError defines a Multigres-specific error code for conditions that have no
+// PostgreSQL equivalent. Each instance is a template that produces a
+// *PgDiagnostic via its New method. The ID is a 5-character code (e.g.
+// "MTD01") placed in the SQLSTATE field, making MT errors directly
+// identifiable by clients. For errors that have a real PostgreSQL SQLSTATE
+// equivalent, use NewPgError instead.
 type MTError struct {
-	ID          string // e.g. "MT10001" — used as the SQLSTATE code
-	Description string // long description for docs
+	ID          string // e.g. "MTD01" — 5-char code used as the SQLSTATE
+	Description string // long description, used as the Detail field
 	Severity    string
 	Format      string // fmt format string for message
 }
 
 // New builds a *PgDiagnostic from this error definition.
-// The MT ID is placed in the SQLSTATE Code field.
-// If args are provided, the Format string is passed through fmt.Sprintf.
+// The MT ID is placed in the SQLSTATE Code field and the Description
+// is placed in the Detail field. If args are provided, the Format
+// string is passed through fmt.Sprintf.
 func (e *MTError) New(args ...any) *PgDiagnostic {
 	msg := e.Format
 	if len(args) != 0 {
@@ -54,86 +59,85 @@ func (e *MTError) New(args ...any) *PgDiagnostic {
 		Severity:    e.Severity,
 		Code:        e.ID,
 		Message:     msg,
+		Detail:      e.Description,
 	}
 }
 
+// NewWithDetail builds a *PgDiagnostic from this error definition, using the
+// provided detail string instead of the Description. This is useful for wrapper
+// errors where the underlying error message should appear as the Detail field.
+func (e *MTError) NewWithDetail(detail string, args ...any) *PgDiagnostic {
+	d := e.New(args...)
+	d.Detail = detail
+	return d
+}
+
 var (
-	MT09001 = &MTError{
-		ID: "MT09001", Severity: "ERROR",
-		Format:      "SET TRANSACTION ISOLATION LEVEL must be called before any query",
-		Description: "Transaction isolation cannot be changed after queries executed.",
-	}
-
-	MT10001 = &MTError{
-		ID: "MT10001", Severity: "ERROR",
-		Format:      "current transaction is aborted, commands ignored until end of transaction block",
-		Description: "Issue ROLLBACK to start a new transaction.",
-	}
-
-	MT13001 = &MTError{
-		ID: "MT13001", Severity: "ERROR",
+	MTD01 = &MTError{
+		ID: "MTD01", Severity: "ERROR",
 		Format:      "[BUG] %s",
 		Description: "This error should not happen and is a bug. Please file an issue on GitHub: https://github.com/multigres/multigres/issues/new/choose.",
 	}
 
-	MT13002 = &MTError{
-		ID: "MT13002", Severity: "ERROR",
+	MTD02 = &MTError{
+		ID: "MTD02", Severity: "ERROR",
 		Format:      "pooler type mismatch: topology says %s but PostgreSQL is %s",
 		Description: "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.",
 	}
 
-	MT13003 = &MTError{
-		ID: "MT13003", Severity: "ERROR",
-		Format:      "%s",
+	MTD03 = &MTError{
+		ID: "MTD03", Severity: "ERROR",
+		Format:      "internal error",
 		Description: "Internal proxy error.",
 	}
 
-	MT13004 = &MTError{
-		ID: "MT13004", Severity: "ERROR",
-		Format:      "parse failed: %s",
+	MTD04 = &MTError{
+		ID: "MTD04", Severity: "ERROR",
+		Format:      "parse failed",
 		Description: "Extended query Parse could not be processed.",
 	}
 
-	MT13005 = &MTError{
-		ID: "MT13005", Severity: "ERROR",
-		Format:      "bind failed: %s",
+	MTD05 = &MTError{
+		ID: "MTD05", Severity: "ERROR",
+		Format:      "bind failed",
 		Description: "Extended query Bind could not be processed.",
 	}
 
-	MT13006 = &MTError{
-		ID: "MT13006", Severity: "ERROR",
-		Format:      "describe failed: %s",
+	MTD06 = &MTError{
+		ID: "MTD06", Severity: "ERROR",
+		Format:      "describe failed",
 		Description: "Extended query Describe could not be processed.",
 	}
 
-	MT13007 = &MTError{
-		ID: "MT13007", Severity: "ERROR",
-		Format:      "close failed: %s",
+	MTD07 = &MTError{
+		ID: "MTD07", Severity: "ERROR",
+		Format:      "close failed",
 		Description: "Extended query Close could not be processed.",
 	}
 
-	MT13008 = &MTError{
-		ID: "MT13008", Severity: "ERROR",
-		Format:      "sync failed: %s",
+	MTD08 = &MTError{
+		ID: "MTD08", Severity: "ERROR",
+		Format:      "sync failed",
 		Description: "Extended query Sync could not be processed.",
 	}
 
-	MT14001 = &MTError{
-		ID: "MT14001", Severity: "FATAL",
-		Format:      "connection startup failed: %s",
+	MTE01 = &MTError{
+		ID: "MTE01", Severity: "FATAL",
+		Format:      "connection startup failed",
 		Description: "Invalid startup message.",
 	}
 )
 
 // NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.
 // Use this for errors that should present as native PostgreSQL errors to clients
-// (e.g., authentication failures, protocol violations).
-func NewPgError(severity, sqlState, message string) *PgDiagnostic {
+// (e.g., authentication failures, protocol violations, aborted transactions).
+func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 	return &PgDiagnostic{
 		MessageType: 'E',
 		Severity:    severity,
 		Code:        sqlState,
 		Message:     message,
+		Detail:      detail,
 	}
 }
 

@@ -22,48 +22,64 @@ import (
 )
 
 func TestMTError_New_ProducesPgDiagnostic(t *testing.T) {
-	diag := MT10001.New()
+	diag := MTD03.New()
 
 	require.Equal(t, byte('E'), diag.MessageType)
 	require.Equal(t, "ERROR", diag.Severity)
-	require.Equal(t, "MT10001", diag.Code)
-	require.Equal(t, "current transaction is aborted, commands ignored until end of transaction block", diag.Message)
+	require.Equal(t, "MTD03", diag.Code)
+	require.Equal(t, "internal error", diag.Message)
+	require.Equal(t, "Internal proxy error.", diag.Detail)
 }
 
 func TestMTError_New_WithArgs(t *testing.T) {
-	diag := MT13004.New("bad syntax near ';'")
+	diag := MTD02.New("PRIMARY", "REPLICA")
 
 	require.Equal(t, byte('E'), diag.MessageType)
 	require.Equal(t, "ERROR", diag.Severity)
-	require.Equal(t, "MT13004", diag.Code)
-	require.Equal(t, "parse failed: bad syntax near ';'", diag.Message)
+	require.Equal(t, "MTD02", diag.Code)
+	require.Equal(t, "pooler type mismatch: topology says PRIMARY but PostgreSQL is REPLICA", diag.Message)
+	require.Equal(t, "The pooler type in the topology does not match the actual PostgreSQL role. This indicates the pooler is in an inconsistent state and requires intervention.", diag.Detail)
 }
 
 func TestMTError_New_FatalSeverity(t *testing.T) {
-	diag := MT14001.New("invalid protocol version")
+	diag := MTE01.New()
 
 	require.Equal(t, "FATAL", diag.Severity)
-	require.Equal(t, "MT14001", diag.Code)
-	require.Equal(t, "connection startup failed: invalid protocol version", diag.Message)
+	require.Equal(t, "MTE01", diag.Code)
+	require.Equal(t, "connection startup failed", diag.Message)
+	require.Equal(t, "Invalid startup message.", diag.Detail)
 }
 
-func TestMTError_New_MultipleArgs(t *testing.T) {
-	diag := MT13002.New("PRIMARY", "REPLICA")
+func TestMTError_NewWithDetail(t *testing.T) {
+	diag := MTD04.NewWithDetail("bad syntax near ';'")
 
-	require.Equal(t, "MT13002", diag.Code)
-	require.Equal(t, "pooler type mismatch: topology says PRIMARY but PostgreSQL is REPLICA", diag.Message)
+	require.Equal(t, byte('E'), diag.MessageType)
+	require.Equal(t, "ERROR", diag.Severity)
+	require.Equal(t, "MTD04", diag.Code)
+	require.Equal(t, "parse failed", diag.Message)
+	require.Equal(t, "bad syntax near ';'", diag.Detail)
+}
+
+func TestMTError_NewWithDetail_FatalSeverity(t *testing.T) {
+	diag := MTE01.NewWithDetail("invalid protocol version")
+
+	require.Equal(t, "FATAL", diag.Severity)
+	require.Equal(t, "MTE01", diag.Code)
+	require.Equal(t, "connection startup failed", diag.Message)
+	require.Equal(t, "invalid protocol version", diag.Detail)
 }
 
 func TestMTError_PgDiagnosticExtraction(t *testing.T) {
 	// Verify that wrapping an MT error preserves PgDiagnostic via RootCause.
-	mtErr := MT13003.New("something went wrong")
+	mtErr := MTD03.NewWithDetail("something went wrong")
 	wrapped := Wrapf(mtErr, "handling request")
 
 	rootErr := RootCause(wrapped)
 	var diag *PgDiagnostic
 	require.True(t, errors.As(rootErr, &diag))
-	require.Equal(t, "MT13003", diag.Code)
-	require.Equal(t, "something went wrong", diag.Message)
+	require.Equal(t, "MTD03", diag.Code)
+	require.Equal(t, "internal error", diag.Message)
+	require.Equal(t, "something went wrong", diag.Detail)
 }
 
 func TestIsError(t *testing.T) {
@@ -76,38 +92,44 @@ func TestIsError(t *testing.T) {
 		{
 			name:     "nil error",
 			err:      nil,
-			code:     "MT10001",
+			code:     "MTD03",
 			expected: false,
 		},
 		{
 			name:     "matching MT error",
-			err:      MT10001.New(),
-			code:     "MT10001",
+			err:      MTD03.New(),
+			code:     "MTD03",
 			expected: true,
 		},
 		{
 			name:     "non-matching code",
-			err:      MT10001.New(),
-			code:     "MT13001",
+			err:      MTD03.New(),
+			code:     "MTD01",
 			expected: false,
 		},
 		{
 			name:     "parameterized MT error",
-			err:      MT13004.New("bad query"),
-			code:     "MT13004",
+			err:      MTD01.New("bad query"),
+			code:     "MTD01",
 			expected: true,
 		},
 		{
 			name:     "wrapped PgDiagnostic",
-			err:      Wrapf(MT13003.New("oops"), "context"),
-			code:     "MT13003",
+			err:      Wrapf(MTD03.NewWithDetail("oops"), "context"),
+			code:     "MTD03",
 			expected: true,
 		},
 		{
 			name:     "generic error",
 			err:      errors.New("some error"),
-			code:     "MT10001",
+			code:     "MTD03",
 			expected: false,
+		},
+		{
+			name:     "NewPgError matches code",
+			err:      NewPgError("ERROR", PgSSInFailedTransaction, "aborted", ""),
+			code:     PgSSInFailedTransaction,
+			expected: true,
 		},
 	}
 
@@ -121,8 +143,28 @@ func TestIsError(t *testing.T) {
 func TestMTError_New_NoArgsWithFormatString(t *testing.T) {
 	// When called without args on a format-string error, the format string
 	// should be used literally (no Sprintf).
-	diag := MT13001.New()
+	diag := MTD01.New()
 
-	require.Equal(t, "MT13001", diag.Code)
+	require.Equal(t, "MTD01", diag.Code)
 	require.Equal(t, "[BUG] %s", diag.Message)
+	require.Equal(t, "This error should not happen and is a bug. Please file an issue on GitHub: https://github.com/multigres/multigres/issues/new/choose.", diag.Detail)
+}
+
+func TestNewPgError(t *testing.T) {
+	diag := NewPgError("ERROR", PgSSInFailedTransaction,
+		"current transaction is aborted, commands ignored until end of transaction block", "")
+
+	require.Equal(t, byte('E'), diag.MessageType)
+	require.Equal(t, "ERROR", diag.Severity)
+	require.Equal(t, "25P02", diag.Code)
+	require.Equal(t, "current transaction is aborted, commands ignored until end of transaction block", diag.Message)
+	require.Equal(t, "", diag.Detail)
+}
+
+func TestNewPgError_WithDetail(t *testing.T) {
+	diag := NewPgError("ERROR", PgSSInternalError, "something failed", "underlying cause")
+
+	require.Equal(t, "XX000", diag.Code)
+	require.Equal(t, "something failed", diag.Message)
+	require.Equal(t, "underlying cause", diag.Detail)
 }
