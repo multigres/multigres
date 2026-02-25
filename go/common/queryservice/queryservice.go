@@ -40,6 +40,10 @@ type ReservedState struct {
 	// PoolerID identifies which multipooler instance owns this reserved connection.
 	// This is needed to route subsequent queries to the correct pooler.
 	PoolerID *clustermetadatapb.ID
+
+	// ReservationReasons is a bitmask of ReservationReason values indicating why
+	// the connection is still reserved. Zero means the connection was released.
+	ReservationReasons uint32
 }
 
 // QueryService is the interface for executing queries on a multipooler.
@@ -67,6 +71,8 @@ type QueryService interface {
 	// The callback will be called for each Result. If the callback returns
 	// an error, streaming stops and that error is returned.
 	//
+	// Returns ReservedState with the authoritative reservation state from the multipooler.
+	// If ReservedConnectionId is zero, the connection was destroyed or not reserved.
 	// The context can be used to cancel the stream.
 	StreamExecute(
 		ctx context.Context,
@@ -74,7 +80,7 @@ type QueryService interface {
 		sql string,
 		options *query.ExecuteOptions,
 		callback func(context.Context, *sqltypes.Result) error,
-	) error
+	) (ReservedState, error)
 
 	// PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
 	// Returns ReservedState containing information about the reserved connection used for this execution.
@@ -154,6 +160,9 @@ type QueryService interface {
 	// CopyFinalize completes a COPY operation, sending final data and returning the result.
 	// options.ReservedConnectionId must be set to route to the correct connection.
 	//
+	// Returns ReservedState with the authoritative reservation state from the multipooler.
+	// If ReservedConnectionId is zero, the COPY connection was released (no other reasons remain).
+	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
 	//   target: Target specifying tablegroup, shard, and pooler type
@@ -164,10 +173,13 @@ type QueryService interface {
 		target *query.Target,
 		finalData []byte,
 		options *query.ExecuteOptions,
-	) (*sqltypes.Result, error)
+	) (*sqltypes.Result, ReservedState, error)
 
 	// CopyAbort aborts a COPY operation.
 	// options.ReservedConnectionId must be set to route to the correct connection.
+	//
+	// Returns ReservedState with the authoritative reservation state from the multipooler.
+	// If ReservedConnectionId is zero, the connection was destroyed or fully released.
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
@@ -179,7 +191,7 @@ type QueryService interface {
 		target *query.Target,
 		errorMsg string,
 		options *query.ExecuteOptions,
-	) error
+	) (ReservedState, error)
 
 	// ReserveStreamExecute creates a reserved connection and executes a query.
 	// Based on ReservationOptions.Reason, it may execute setup commands:
@@ -210,9 +222,9 @@ type QueryService interface {
 	//
 	// The connection may remain reserved after the transaction concludes if there
 	// are other reasons to keep it reserved (e.g., temporary tables). The returned
-	// remainingReasons bitmask indicates whether the connection is still reserved:
-	//   - remainingReasons == 0: Connection released, clear tracking
-	//   - remainingReasons != 0: Connection still reserved, keep tracking it
+	// ReservedState indicates whether the connection is still reserved:
+	//   - ReservedConnectionId == 0: Connection released, clear tracking
+	//   - ReservedConnectionId != 0: Connection still reserved, keep tracking it
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
@@ -220,13 +232,13 @@ type QueryService interface {
 	//   options: Execute options including reserved connection ID
 	//   conclusion: COMMIT or ROLLBACK
 	//
-	// Returns the result of the COMMIT/ROLLBACK command and the remaining reservation reasons.
+	// Returns the result of the COMMIT/ROLLBACK command and the authoritative reservation state.
 	ConcludeTransaction(
 		ctx context.Context,
 		target *query.Target,
 		options *query.ExecuteOptions,
 		conclusion multipoolerpb.TransactionConclusion,
-	) (result *sqltypes.Result, remainingReasons uint32, err error)
+	) (*sqltypes.Result, ReservedState, error)
 
 	// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 	// Used during client disconnect cleanup. The multipooler handles all cleanup internally:

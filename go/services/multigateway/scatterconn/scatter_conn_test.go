@@ -37,10 +37,11 @@ import (
 // mockGateway is a mock implementation of poolergateway.Gateway for testing.
 type mockGateway struct {
 	// StreamExecute tracking
-	streamExecuteCalled bool
-	streamExecuteSQL    string
-	streamExecuteOpts   *query.ExecuteOptions
-	streamExecuteErr    error
+	streamExecuteCalled      bool
+	streamExecuteSQL         string
+	streamExecuteOpts        *query.ExecuteOptions
+	streamExecuteErr         error
+	streamExecuteReturnState queryservice.ReservedState
 
 	// ReserveStreamExecute tracking
 	reserveStreamExecuteCalled bool
@@ -52,22 +53,38 @@ type mockGateway struct {
 	queryServiceByIDCalled bool
 	queryServiceByIDErr    error
 
+	// ConcludeTransaction tracking
+	concludeTransactionResult      *sqltypes.Result
+	concludeTransactionReturnState queryservice.ReservedState
+	concludeTransactionErr         error
+
+	// CopyFinalize tracking
+	copyFinalizeResult      *sqltypes.Result
+	copyFinalizeReturnState queryservice.ReservedState
+	copyFinalizeErr         error
+
+	// CopyAbort tracking
+	copyAbortReturnState queryservice.ReservedState
+	copyAbortErr         error
+
 	// Callback control
 	callbackResult *sqltypes.Result
 }
 
 // StreamExecute implements queryservice.QueryService.
-func (m *mockGateway) StreamExecute(_ context.Context, _ *query.Target, sql string, opts *query.ExecuteOptions, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *mockGateway) StreamExecute(_ context.Context, _ *query.Target, sql string, opts *query.ExecuteOptions, callback func(context.Context, *sqltypes.Result) error) (queryservice.ReservedState, error) {
 	m.streamExecuteCalled = true
 	m.streamExecuteSQL = sql
 	m.streamExecuteOpts = opts
 	if m.streamExecuteErr != nil {
-		return m.streamExecuteErr
+		return m.streamExecuteReturnState, m.streamExecuteErr
 	}
 	if m.callbackResult != nil {
-		return callback(context.Background(), m.callbackResult)
+		if err := callback(context.Background(), m.callbackResult); err != nil {
+			return m.streamExecuteReturnState, err
+		}
 	}
-	return nil
+	return m.streamExecuteReturnState, nil
 }
 
 // ReserveStreamExecute implements queryservice.QueryService.
@@ -115,20 +132,20 @@ func (m *mockGateway) CopySendData(context.Context, *query.Target, []byte, *quer
 	return nil
 }
 
-func (m *mockGateway) CopyFinalize(context.Context, *query.Target, []byte, *query.ExecuteOptions) (*sqltypes.Result, error) {
-	return nil, nil
+func (m *mockGateway) CopyFinalize(_ context.Context, _ *query.Target, _ []byte, _ *query.ExecuteOptions) (*sqltypes.Result, queryservice.ReservedState, error) {
+	return m.copyFinalizeResult, m.copyFinalizeReturnState, m.copyFinalizeErr
 }
 
-func (m *mockGateway) CopyAbort(context.Context, *query.Target, string, *query.ExecuteOptions) error {
-	return nil
+func (m *mockGateway) CopyAbort(_ context.Context, _ *query.Target, _ string, _ *query.ExecuteOptions) (queryservice.ReservedState, error) {
+	return m.copyAbortReturnState, m.copyAbortErr
 }
 
 func (m *mockGateway) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions) error {
 	return nil
 }
 
-func (m *mockGateway) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion) (*sqltypes.Result, uint32, error) {
-	return nil, 0, nil
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *query.Target, _ *query.ExecuteOptions, _ multipoolerpb.TransactionConclusion) (*sqltypes.Result, queryservice.ReservedState, error) {
+	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
 // newTestConn creates a test server.Conn for ScatterConn tests.

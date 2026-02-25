@@ -56,6 +56,15 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 	}
 }
 
+// buildReservedState constructs a ReservedState from the current state of a reserved connection.
+func (e *Executor) buildReservedState(reservedConn *reserved.Conn) queryservice.ReservedState {
+	return queryservice.ReservedState{
+		ReservedConnectionId: uint64(reservedConn.ConnID),
+		PoolerID:             e.poolerID,
+		ReservationReasons:   reservedConn.RemainingReasons(),
+	}
+}
+
 // ExecuteQuery implements queryservice.QueryService.
 // It executes a query using a pooled connection for the specified user.
 // If ReservedConnectionId is set in options, uses that reserved connection instead.
@@ -121,13 +130,14 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 // StreamExecute executes a query and streams results back via callback.
 // This implements the queryservice.QueryService interface.
 // If ReservedConnectionId is set in options, uses that reserved connection instead.
+// Returns ReservedState with the authoritative reservation state from the multipooler.
 func (e *Executor) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
 	sql string,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (queryservice.ReservedState, error) {
 	if target == nil {
 		target = &query.Target{}
 	}
@@ -144,13 +154,15 @@ func (e *Executor) StreamExecute(
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
-			return fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			// Connection destroyed — return zero state so gateway clears its tracking
+			return queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
 
 		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {
-			return wrapQueryError(err)
+			// Query failed but connection still exists — return current state
+			return e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
-		return nil
+		return e.buildReservedState(reservedConn), nil
 	}
 
 	// Get session settings from options
@@ -162,16 +174,16 @@ func (e *Executor) StreamExecute(
 	// Get a connection from the pool for this user
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
 	if err != nil {
-		return fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return queryservice.ReservedState{}, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
 
 	// Use streaming query execution with retry since this is a stateless pool query.
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
-		return wrapQueryError(err)
+		return queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
-	return nil
+	return queryservice.ReservedState{}, nil
 }
 
 // Close closes the executor and releases resources.
@@ -292,10 +304,7 @@ func (e *Executor) portalExecuteWithReserved(
 		}
 	}
 
-	return queryservice.ReservedState{
-		ReservedConnectionId: uint64(reservedConn.ConnID),
-		PoolerID:             e.poolerID,
-	}, nil
+	return e.buildReservedState(reservedConn), nil
 }
 
 // portalExecuteWithRegular executes a portal using a regular pooled connection.
@@ -508,12 +517,7 @@ func (e *Executor) CopyReady(
 		"format", format,
 		"num_columns", len(columnFormats))
 
-	reservedState := queryservice.ReservedState{
-		ReservedConnectionId: uint64(connID),
-		PoolerID:             e.poolerID,
-	}
-
-	return format, columnFormats, reservedState, nil
+	return format, columnFormats, e.buildReservedState(reservedConn), nil
 }
 
 // CopySendData sends a chunk of data for an active COPY operation.
@@ -557,14 +561,15 @@ func (e *Executor) CopySendData(
 }
 
 // CopyFinalize completes a COPY operation, sending final data and returning the result.
+// Returns ReservedState with the authoritative reservation state from the multipooler.
 func (e *Executor) CopyFinalize(
 	ctx context.Context,
 	target *query.Target,
 	finalData []byte,
 	options *query.ExecuteOptions,
-) (*sqltypes.Result, error) {
+) (*sqltypes.Result, queryservice.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
-		return nil, errors.New("options.ReservedConnectionId is required for CopyFinalize")
+		return nil, queryservice.ReservedState{}, errors.New("options.ReservedConnectionId is required for CopyFinalize")
 	}
 
 	user := e.getUserFromOptions(options)
@@ -572,7 +577,7 @@ func (e *Executor) CopyFinalize(
 	// Get the reserved connection
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok || reservedConn == nil {
-		return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		return nil, queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 	}
 
 	e.logger.DebugContext(ctx, "finalizing COPY",
@@ -588,7 +593,7 @@ func (e *Executor) CopyFinalize(
 			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
 			// Connection is in bad state - close it instead of recycling
 			reservedConn.Release(reserved.ReleaseError)
-			return nil, fmt.Errorf("failed to write final COPY data: %w", err)
+			return nil, queryservice.ReservedState{}, fmt.Errorf("failed to write final COPY data: %w", err)
 		}
 		e.logger.DebugContext(ctx, "sent final COPY data", "size", len(finalData))
 	}
@@ -598,7 +603,7 @@ func (e *Executor) CopyFinalize(
 		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
 		// Connection is in bad state - close it instead of recycling
 		reservedConn.Release(reserved.ReleaseError)
-		return nil, fmt.Errorf("failed to write CopyDone: %w", err)
+		return nil, queryservice.ReservedState{}, fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 
 	// Read CommandComplete response from PostgreSQL
@@ -607,7 +612,7 @@ func (e *Executor) CopyFinalize(
 		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
 		// Connection might be in bad state - close it instead of recycling
 		reservedConn.Release(reserved.ReleaseError)
-		return nil, fmt.Errorf("COPY operation failed: %w", err)
+		return nil, queryservice.ReservedState{}, fmt.Errorf("COPY operation failed: %w", err)
 	}
 
 	e.logger.DebugContext(ctx, "COPY DONE successful",
@@ -624,21 +629,23 @@ func (e *Executor) CopyFinalize(
 	// keep the connection reserved. Otherwise, release it back to the pool.
 	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 		reservedConn.Release(reserved.ReleasePortalComplete)
+		return result, queryservice.ReservedState{}, nil
 	}
 
-	return result, nil
+	return result, e.buildReservedState(reservedConn), nil
 }
 
 // CopyAbort aborts a COPY operation.
+// Returns ReservedState with the authoritative reservation state from the multipooler.
 func (e *Executor) CopyAbort(
 	ctx context.Context,
 	target *query.Target,
 	errorMsg string,
 	options *query.ExecuteOptions,
-) error {
+) (queryservice.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		// Already cleaned up or never initiated
-		return nil
+		return queryservice.ReservedState{}, nil
 	}
 
 	user := e.getUserFromOptions(options)
@@ -646,10 +653,10 @@ func (e *Executor) CopyAbort(
 	// Get the reserved connection
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok || reservedConn == nil {
-		// Already cleaned up
+		// Already cleaned up — return zero state
 		e.logger.DebugContext(ctx, "COPY connection already cleaned up",
 			"conn_id", options.ReservedConnectionId)
-		return nil
+		return queryservice.ReservedState{}, nil
 	}
 
 	e.logger.DebugContext(ctx, "aborting COPY",
@@ -680,15 +687,17 @@ func (e *Executor) CopyAbort(
 	if writeFailed || readErr != nil {
 		// Connection is in a bad protocol state — release it.
 		reservedConn.Release(reserved.ReleaseError)
-	} else {
-		// Clean abort — remove the COPY reason. If other reasons remain
-		// (e.g., transaction), keep the connection reserved.
-		if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-			reservedConn.Release(reserved.ReleasePortalComplete)
-		}
+		return queryservice.ReservedState{}, nil
 	}
 
-	return nil
+	// Clean abort — remove the COPY reason. If other reasons remain
+	// (e.g., transaction), keep the connection reserved.
+	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+		reservedConn.Release(reserved.ReleasePortalComplete)
+		return queryservice.ReservedState{}, nil
+	}
+
+	return e.buildReservedState(reservedConn), nil
 }
 
 // getUserFromOptions extracts the user from ExecuteOptions.
@@ -781,10 +790,7 @@ func (e *Executor) ReserveStreamExecute(
 		return queryservice.ReservedState{}, fmt.Errorf("query execution failed: %w", err)
 	}
 
-	reservedState := queryservice.ReservedState{
-		ReservedConnectionId: uint64(reservedConn.ConnID),
-		PoolerID:             e.poolerID,
-	}
+	reservedState := e.buildReservedState(reservedConn)
 
 	e.logger.DebugContext(ctx, "reserve stream execute completed",
 		"reserved_conn_id", reservedState.ReservedConnectionId)
@@ -794,14 +800,15 @@ func (e *Executor) ReserveStreamExecute(
 
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
+// Returns ReservedState with the authoritative reservation state.
 func (e *Executor) ConcludeTransaction(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
-) (*sqltypes.Result, uint32, error) {
+) (*sqltypes.Result, queryservice.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
-		return nil, 0, errors.New("reserved_connection_id is required")
+		return nil, queryservice.ReservedState{}, errors.New("reserved_connection_id is required")
 	}
 
 	user := e.getUserFromOptions(options)
@@ -814,7 +821,8 @@ func (e *Executor) ConcludeTransaction(
 	// Get the reserved connection
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok {
-		return nil, 0, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
+		// Connection destroyed — return zero state so gateway clears its tracking
+		return nil, queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
 	}
 
 	// Execute COMMIT or ROLLBACK using the reserved connection's methods,
@@ -827,17 +835,17 @@ func (e *Executor) ConcludeTransaction(
 		releaseReason = reserved.ReleaseCommit
 		if err := reservedConn.Commit(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
-			return nil, 0, err
+			return nil, queryservice.ReservedState{}, err
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
 		commandTag = "ROLLBACK"
 		releaseReason = reserved.ReleaseRollback
 		if err := reservedConn.Rollback(ctx); err != nil {
 			reservedConn.Release(reserved.ReleaseError)
-			return nil, 0, err
+			return nil, queryservice.ReservedState{}, err
 		}
 	default:
-		return nil, 0, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
+		return nil, queryservice.ReservedState{}, fmt.Errorf("invalid transaction conclusion: %v", conclusion)
 	}
 
 	result := &sqltypes.Result{CommandTag: commandTag}
@@ -849,15 +857,20 @@ func (e *Executor) ConcludeTransaction(
 
 	if shouldRelease {
 		reservedConn.Release(releaseReason)
+		e.logger.DebugContext(ctx, "transaction concluded",
+			"reserved_conn_id", options.ReservedConnectionId,
+			"command_tag", commandTag,
+			"released", true)
+		return result, queryservice.ReservedState{}, nil
 	}
 
 	e.logger.DebugContext(ctx, "transaction concluded",
 		"reserved_conn_id", options.ReservedConnectionId,
 		"command_tag", commandTag,
-		"released", shouldRelease,
+		"released", false,
 		"remaining_reasons", protoutil.ReasonsString(remainingReasons))
 
-	return result, remainingReasons, nil
+	return result, e.buildReservedState(reservedConn), nil
 }
 
 // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.

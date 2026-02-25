@@ -128,7 +128,7 @@ func (m *mockMultiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *mul
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[query.QueryResultPayload], error) {
+func (m *mockMultiPoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamExecuteResponse], error) {
 	return nil, nil
 }
 
@@ -450,7 +450,7 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 
 	svc := newTestGRPCQueryService(mockClient)
 
-	result, remainingReasons, err := svc.ConcludeTransaction(
+	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
@@ -459,7 +459,7 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "COMMIT", result.CommandTag)
-	require.Equal(t, uint32(0), remainingReasons)
+	require.Equal(t, uint32(0), reservedState.ReservationReasons)
 }
 
 func TestConcludeTransaction_Rollback(t *testing.T) {
@@ -472,7 +472,7 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 
 	svc := newTestGRPCQueryService(mockClient)
 
-	result, remainingReasons, err := svc.ConcludeTransaction(
+	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
@@ -481,20 +481,23 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "ROLLBACK", result.CommandTag)
-	require.Equal(t, uint32(0), remainingReasons)
+	require.Equal(t, uint32(0), reservedState.ReservationReasons)
 }
 
 func TestConcludeTransaction_StillReserved(t *testing.T) {
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 	mockClient := &mockMultiPoolerServiceClient{
 		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
-			Result:           (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
-			RemainingReasons: protoutil.ReasonPortal,
+			Result:               (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
+			RemainingReasons:     protoutil.ReasonPortal,
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
 		},
 	}
 
 	svc := newTestGRPCQueryService(mockClient)
 
-	result, remainingReasons, err := svc.ConcludeTransaction(
+	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
@@ -503,7 +506,8 @@ func TestConcludeTransaction_StillReserved(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "COMMIT", result.CommandTag)
-	require.NotEqual(t, uint32(0), remainingReasons, "connection should still be reserved")
+	require.NotEqual(t, uint64(0), reservedState.ReservedConnectionId, "connection should still be reserved")
+	require.Equal(t, protoutil.ReasonPortal, reservedState.ReservationReasons)
 }
 
 func TestConcludeTransaction_Error(t *testing.T) {

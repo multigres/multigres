@@ -28,6 +28,7 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -55,6 +56,30 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 	return &ScatterConn{
 		logger:  logger,
 		gateway: gateway,
+	}
+}
+
+// updateShardState replaces independent bookkeeping with the authoritative reservation
+// state from the multipooler. If the reserved connection ID is zero, the connection was
+// destroyed or released — clear the shard state. Otherwise, update the reservation reasons.
+//
+// When a reserved connection is destroyed while in a transaction, the transaction is marked
+// as failed (TxnStatusFailed) so subsequent queries are rejected until ROLLBACK. This is
+// defense-in-depth — handler.go also sets TxnStatusFailed on query errors, but setting it
+// here ensures coverage for all code paths (COPY, portal, etc.).
+func (sc *ScatterConn) updateShardState(
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	target *query.Target,
+	rs queryservice.ReservedState,
+) {
+	if rs.ReservedConnectionId == 0 {
+		state.ClearReservedConnection(target)
+		if conn.TxnStatus() == protocol.TxnStatusInBlock {
+			conn.SetTxnStatus(protocol.TxnStatusFailed)
+		}
+	} else {
+		state.UpdateReservationReasons(target, rs.ReservationReasons)
 	}
 }
 
@@ -110,7 +135,9 @@ func (sc *ScatterConn) StreamExecute(
 			return err
 		}
 
-		if err := qs.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, callback)
+		sc.updateShardState(conn, state, target, reservedState)
+		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
 		}
 		return nil
@@ -151,7 +178,7 @@ func (sc *ScatterConn) StreamExecute(
 		"shard", shard,
 		"pooler_type", target.PoolerType.String())
 
-	if err := sc.gateway.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+	if _, err := sc.gateway.StreamExecute(ctx, target, sql, eo, callback); err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -389,19 +416,24 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		result, remainingReasons, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
+		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			// ROLLBACK on a destroyed connection is graceful recovery — don't propagate error
+			if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK {
+				callbackResult = &sqltypes.Result{CommandTag: "ROLLBACK"}
+				continue
+			}
 			errs = append(errs, fmt.Errorf("conclude transaction failed for %s: %w", ss.Target, err))
 			continue
 		}
 
-		if remainingReasons == 0 {
+		if reservedState.ReservedConnectionId == 0 {
 			// Connection fully released by multipooler
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 		} else {
 			// Connection still reserved for other reasons — update our local tracking
-			updates = append(updates, shardUpdate{target: ss.Target, remainingReasons: remainingReasons})
+			updates = append(updates, shardUpdate{target: ss.Target, remainingReasons: reservedState.ReservationReasons})
 		}
 
 		// Keep the last successful result for the callback
@@ -593,10 +625,10 @@ func (sc *ScatterConn) CopyFinalize(
 	}
 
 	// Finalize the COPY operation via gateway
-	result, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
+	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// Remove COPY reason on error. If no other reasons remain, the entry is cleared.
-		state.RemoveReservationReason(target, protoutil.ReasonCopy)
+		// Connection was destroyed or released — clear our tracking
+		state.ClearReservedConnection(target)
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
@@ -607,12 +639,12 @@ func (sc *ScatterConn) CopyFinalize(
 	// Call callback with result
 	if err := callback(ctx, result); err != nil {
 		sc.logger.ErrorContext(ctx, "callback error in CopyFinalize", "error", err)
-		state.RemoveReservationReason(target, protoutil.ReasonCopy)
+		sc.updateShardState(conn, state, target, reservedState)
 		return err
 	}
 
-	// Remove COPY reason. If the connection is also reserved for a transaction, it stays.
-	state.RemoveReservationReason(target, protoutil.ReasonCopy)
+	// Update shard state with authoritative state from multipooler
+	sc.updateShardState(conn, state, target, reservedState)
 
 	return nil
 }
@@ -653,12 +685,13 @@ func (sc *ScatterConn) CopyAbort(
 	}
 
 	// Abort the COPY operation via gateway
-	if err := sc.gateway.CopyAbort(ctx, target, "operation aborted by client", copyOptions); err != nil {
+	reservedState, err := sc.gateway.CopyAbort(ctx, target, "operation aborted by client", copyOptions)
+	if err != nil {
 		sc.logger.WarnContext(ctx, "error during COPY abort", "error", err)
 	}
 
-	// Remove COPY reason. If the connection is also reserved for a transaction, it stays.
-	state.RemoveReservationReason(target, protoutil.ReasonCopy)
+	// Update shard state with authoritative state from multipooler
+	sc.updateShardState(conn, state, target, reservedState)
 
 	sc.logger.DebugContext(ctx, "COPY aborted")
 
