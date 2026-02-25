@@ -55,6 +55,7 @@ type TestResults struct {
 	PassedTests    int
 	FailedTests    int
 	SkippedTests   int
+	TimedOut       bool // true if the suite was killed by context timeout
 	Duration       time.Duration
 	FailureDetails []TestFailure
 	Tests          []IndividualTestResult // Per-test results in order
@@ -223,7 +224,7 @@ type testSuiteConfig struct {
 // runTestSuite executes a pre-built test command and handles result parsing,
 // artifact copying, and failure reporting. Both RunRegressionTests and
 // RunIsolationTests delegate to this after constructing their command.
-func (pb *PostgresBuilder) runTestSuite(t *testing.T, cmd *exec.Cmd, cfg testSuiteConfig, multigatewayPort int, password string) (*TestResults, error) {
+func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *exec.Cmd, cfg testSuiteConfig, multigatewayPort int, password string) (*TestResults, error) {
 	t.Helper()
 
 	// Create output directory for test results
@@ -280,6 +281,7 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, cmd *exec.Cmd, cfg testSui
 		return nil, fmt.Errorf("failed to parse %s regression.out: %w", cfg.suiteName, parseErr)
 	}
 	results.Duration = duration
+	results.TimedOut = ctx.Err() == context.DeadlineExceeded
 
 	// Copy artifacts to output directory
 	srcDiffs := filepath.Join(cfg.srcOutDir, "regression.diffs")
@@ -363,7 +365,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 
 	cmd := exec.CommandContext(ctx, "make", makeArgs...)
 
-	return pb.runTestSuite(t, cmd, testSuiteConfig{
+	return pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
 		suiteName: "Regression",
 		outputDir: pb.OutputDir,
 		srcOutDir: regressDir,
@@ -434,18 +436,56 @@ func (pb *PostgresBuilder) ParseTestResults(output string) (*TestResults, error)
 	return results, nil
 }
 
+// CountScheduleTests parses a PostgreSQL schedule file and returns the number
+// of tests listed. Each line starting with "test:" contains space-separated
+// test names (parallel groups have multiple tests per line).
+func CountScheduleTests(scheduleFile string) (int, error) {
+	data, err := os.ReadFile(scheduleFile)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "test:"); ok {
+			count += len(strings.Fields(rest))
+		}
+	}
+	return count, nil
+}
+
 // SuiteResult holds results for one test suite.
 type SuiteResult struct {
-	Name    string       // e.g. "Regression Tests", "Isolation Tests"
-	Results *TestResults // parsed TAP results
+	Name          string       // e.g. "Regression Tests", "Isolation Tests"
+	Results       *TestResults // parsed TAP results
+	ExpectedTests int          // total tests from schedule file (0 = unknown)
+}
+
+// badgeColor returns a shields.io color based on the pass rate.
+func badgeColor(passed, total int) string {
+	if total == 0 {
+		return "lightgrey"
+	}
+	if passed == total {
+		return "brightgreen"
+	}
+	pct := passed * 100 / total
+	switch {
+	case pct >= 80:
+		return "yellow"
+	case pct >= 50:
+		return "orange"
+	default:
+		return "red"
+	}
 }
 
 // WriteMarkdownSummary generates a unified markdown report covering one or more
 // test suites. It writes the report to pb.OutputDir/compatibility-report.md and
 // appends it to GITHUB_STEP_SUMMARY when running in CI.
 //
-// The report shows pass/fail status and duration per test. Full diffs are
-// available in the CI artifact (regression.diffs).
+// Each suite gets its own badge showing pass rate and timeout status. Full diffs
+// are available in the CI artifact (regression.diffs).
 func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResult) (string, error) {
 	t.Helper()
 
@@ -458,39 +498,47 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 	// Header
 	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
 
-	// Aggregate totals across all suites
-	var totalPassed, totalFailed, totalAll int
-	var totalDuration time.Duration
+	// Per-suite badges
 	for _, s := range suites {
-		totalPassed += s.Results.PassedTests
-		totalFailed += s.Results.FailedTests
-		totalAll += s.Results.TotalTests
-		totalDuration += s.Results.Duration
-	}
+		passed := s.Results.PassedTests
+		ran := s.Results.TotalTests
+		color := badgeColor(passed, ran)
 
-	badgeColor := "red"
-	if totalFailed == 0 && totalAll > 0 {
-		badgeColor = "brightgreen"
-	} else if totalPassed > 0 {
-		pct := totalPassed * 100 / totalAll
-		if pct >= 80 {
-			badgeColor = "yellow"
-		} else if pct >= 50 {
-			badgeColor = "orange"
+		// Build badge value: "71/177 passed" or "71/177 passed (of 230)" if expected > ran
+		label := strings.TrimSuffix(s.Name, " Tests") // "Regression Tests" → "Regression"
+		value := fmt.Sprintf("%d%%2F%d_passed", passed, ran)
+		if s.ExpectedTests > 0 && s.ExpectedTests > ran {
+			value = fmt.Sprintf("%d%%2F%d_passed_(of_%d)", passed, ran, s.ExpectedTests)
 		}
+		if s.Results.TimedOut {
+			value += "_(timed_out)"
+			if color == "brightgreen" {
+				color = "yellow" // downgrade: all ran tests passed but suite was incomplete
+			}
+		}
+
+		fmt.Fprintf(&sb, "![%s](https://img.shields.io/badge/%s-%s-%s) ", label, label, value, color)
 	}
-	sb.WriteString(fmt.Sprintf("**Status:** ![PG Compatibility](https://img.shields.io/badge/PG_Compatibility-%d%%2F%d_tests-%s)\n",
-		totalPassed, totalAll, badgeColor))
-	sb.WriteString(fmt.Sprintf("**PostgreSQL Version:** `%s`\n", PostgresVersion))
-	sb.WriteString(fmt.Sprintf("**Duration:** %v\n", totalDuration.Round(time.Millisecond)))
-	sb.WriteString(fmt.Sprintf("**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339)))
+	sb.WriteString("\n\n")
+
+	fmt.Fprintf(&sb, "**PostgreSQL Version:** `%s`\n", PostgresVersion)
+	fmt.Fprintf(&sb, "**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339))
 
 	// Per-suite sections
 	for _, s := range suites {
-		sb.WriteString(fmt.Sprintf("### %s\n\n", s.Name))
-		sb.WriteString("```\n")
-		sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "#", "Test", "Status", "Duration"))
-		sb.WriteString(fmt.Sprintf(" %-3s %-15s %-7s %s\n", "---", "---------------", "-------", "--------"))
+		fmt.Fprintf(&sb, "### %s\n\n", s.Name)
+
+		if s.Results.TimedOut {
+			ran := s.Results.TotalTests
+			if s.ExpectedTests > 0 {
+				fmt.Fprintf(&sb, "> **Timed out** — %d of %d scheduled tests executed before the deadline.\n\n", ran, s.ExpectedTests)
+			} else {
+				fmt.Fprintf(&sb, "> **Timed out** — %d tests executed before the deadline.\n\n", ran)
+			}
+		}
+
+		sb.WriteString("| # | Test | Status | Duration |\n")
+		sb.WriteString("|---|------|--------|----------|\n")
 
 		for i, test := range s.Results.Tests {
 			status := "✅ ok"
@@ -504,9 +552,9 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 			if duration == "" {
 				duration = "-"
 			}
-			sb.WriteString(fmt.Sprintf(" %2d  %-15s %-7s %8s\n", i+1, test.Name, status, duration))
+			fmt.Fprintf(&sb, "| %d | %s | %s | %s |\n", i+1, test.Name, status, duration)
 		}
-		sb.WriteString("```\n\n")
+		sb.WriteString("\n")
 	}
 
 	summary := sb.String()
@@ -593,7 +641,7 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 		t.Logf("Running full PostgreSQL isolation test suite (installcheck)")
 	}
 
-	return pb.runTestSuite(t, cmd, testSuiteConfig{
+	return pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
 		suiteName: "Isolation",
 		outputDir: filepath.Join(pb.OutputDir, "isolation"),
 		srcOutDir: outputIsoDir,
