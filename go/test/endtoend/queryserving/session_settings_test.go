@@ -94,7 +94,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 		var timeout string
 		err = db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&timeout)
 		require.NoError(t, err, "failed to SHOW statement_timeout")
-		assert.Equal(t, "30s", timeout, "statement_timeout should be 30s")
+		assert.Equal(t, "30000", timeout, "statement_timeout should be 30000ms (gateway-managed, displayed as milliseconds)")
 
 		var searchPath string
 		err = db.QueryRowContext(ctx, "SHOW search_path").Scan(&searchPath)
