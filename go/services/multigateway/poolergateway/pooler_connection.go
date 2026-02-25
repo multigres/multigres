@@ -168,6 +168,7 @@ type PoolerConnection struct {
 // Close must be called when the connection is no longer needed to stop the
 // health stream goroutine and release resources.
 func NewPoolerConnection(
+	ctx context.Context,
 	pooler *clustermetadatapb.MultiPooler,
 	logger *slog.Logger,
 	onHealthUpdate func(*PoolerConnection),
@@ -176,7 +177,7 @@ func NewPoolerConnection(
 	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
 	addr := poolerInfo.Addr()
 
-	logger.Debug("creating pooler connection",
+	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
 		"addr", addr,
 		"type", pooler.Type.String())
@@ -190,11 +191,9 @@ func NewPoolerConnection(
 		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)
 	}
 
-	// Create internal context for health stream goroutine.
-	// TODO: This should inherit from the multigateway command context for proper
-	// shutdown propagation, but shouldn't use a short-lived request context since
-	// health monitoring is long-running. For now using TODO as a placeholder.
-	ctx, cancel := context.WithCancel(context.TODO())
+	// Derive a cancellable context from the service-lifetime context for the
+	// health stream goroutine. This ensures proper shutdown propagation.
+	ctx, cancel := context.WithCancel(ctx)
 
 	// Create QueryService wrapper
 	queryService := newGRPCQueryService(conn, poolerID, logger)
@@ -227,7 +226,7 @@ func NewPoolerConnection(
 	// Start health stream goroutine
 	go pc.checkConn()
 
-	logger.Debug("pooler connection established",
+	logger.DebugContext(ctx, "pooler connection established",
 		"pooler_id", poolerID,
 		"addr", addr)
 

@@ -82,6 +82,10 @@ type MultiGateway struct {
 	ts           topoclient.Store
 	tr           *toporeg.TopoReg
 	serverStatus Status
+	// shutdownCtx is cancelled during Shutdown to propagate cancellation
+	// to all long-running goroutines (health streams, discovery, etc.)
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
 }
 
 func NewMultiGateway() *MultiGateway {
@@ -208,13 +212,17 @@ func (mg *MultiGateway) Init() error {
 	mg.serverStatus.LocalCell = mg.cell.Get()
 	mg.serverStatus.ServiceID = mg.serviceID.Get()
 
+	// Create a service-lifetime context cancelled on shutdown.
+	//nolint:gocritic // service entry point: this is the top-level context for the multigateway process
+	mg.shutdownCtx, mg.shutdownCancel = context.WithCancel(context.Background())
+
 	// Start pooler discovery (watches all cells)
-	mg.poolerDiscovery = NewGlobalPoolerDiscovery(context.TODO(), mg.ts, mg.cell.Get(), logger)
+	mg.poolerDiscovery = NewGlobalPoolerDiscovery(mg.shutdownCtx, mg.ts, mg.cell.Get(), logger)
 	mg.poolerDiscovery.Start()
 	logger.Info("Global pooler discovery started", "local_cell", mg.cell.Get())
 
 	// Create LoadBalancer and register with discovery for real-time updates
-	loadBalancer := poolergateway.NewLoadBalancer(mg.cell.Get(), logger)
+	loadBalancer := poolergateway.NewLoadBalancer(mg.cell.Get(), logger, mg.shutdownCtx)
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.Info("LoadBalancer registered with pooler discovery")
 
@@ -354,6 +362,12 @@ func (mg *MultiGateway) CobraPreRunE(cmd *cobra.Command) error {
 
 func (mg *MultiGateway) Shutdown() {
 	mg.senv.GetLogger().Info("multigateway shutting down")
+
+	// Cancel the service-lifetime context first so health stream goroutines
+	// stop promptly, before we close the underlying gRPC connections.
+	if mg.shutdownCancel != nil {
+		mg.shutdownCancel()
+	}
 
 	// Stop PostgreSQL listener
 	if mg.pgListener != nil {
