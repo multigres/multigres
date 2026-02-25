@@ -332,6 +332,11 @@ func generateBackendKey() uint32 {
 // serve is the main command processing loop for the connection.
 // It reads messages from the client and processes them until the connection is closed.
 func (c *Conn) serve() error {
+	// TODO: Add startup phase timeout (equivalent to PostgreSQL's authentication_timeout).
+	// Set c.conn.SetDeadline() here and clear it after handleStartup() returns.
+	// Without this, a client can hold a goroutine indefinitely by stalling during
+	// SSL handshake, startup packet reading, or SCRAM authentication exchange.
+
 	// First, handle the startup phase.
 	if err := c.handleStartup(); err != nil {
 		c.logger.Error("startup failed", "error", err)
