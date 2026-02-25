@@ -241,6 +241,10 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, cmd *exec.Cmd, cfg testSui
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
+	// WaitDelay caps how long cmd.Run() waits for I/O after Cancel.
+	// Without this, if a child process (e.g. psql stuck on a metacommand)
+	// survives SIGKILL in an uninterruptible state, cmd.Run() blocks forever.
+	cmd.WaitDelay = 10 * time.Second
 
 	// Set environment variables for connection
 	cmd.Env = append(os.Environ(),

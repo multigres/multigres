@@ -63,7 +63,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// starve the other. The build phase uses a separate 10-minute budget.
 	const (
 		buildTimeout = 10 * time.Minute
-		suiteTimeout = 25 * time.Minute
+		suiteTimeout = 20 * time.Minute
 	)
 
 	buildCtx := utils.WithTimeout(t, buildTimeout)
