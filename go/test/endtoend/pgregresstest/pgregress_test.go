@@ -131,7 +131,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// Count expected tests from schedule (only for full suite runs)
 			var expectedRegress int
 			if os.Getenv("PGREGRESS_TESTS") == "" {
-				schedule := filepath.Join(builder.BuildDir, "src", "test", "regress", "parallel_schedule")
+				schedule := filepath.Join(builder.SourceDir, "src", "test", "regress", "parallel_schedule")
 				if n, err := CountScheduleTests(schedule); err == nil {
 					expectedRegress = n
 					t.Logf("Regression schedule has %d tests; %d executed", n, results.TotalTests)
@@ -178,7 +178,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// Count expected tests from schedule (only for full suite runs)
 			var expectedIsolation int
 			if os.Getenv("PGISOLATION_TESTS") == "" {
-				schedule := filepath.Join(builder.BuildDir, "src", "test", "isolation", "isolation_schedule")
+				schedule := filepath.Join(builder.SourceDir, "src", "test", "isolation", "isolation_schedule")
 				if n, err := CountScheduleTests(schedule); err == nil {
 					expectedIsolation = n
 					t.Logf("Isolation schedule has %d tests; %d executed", n, results.TotalTests)
