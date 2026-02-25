@@ -45,6 +45,7 @@ const (
 	MultiPoolerService_ReserveStreamExecute_FullMethodName      = "/multipoolerservice.MultiPoolerService/ReserveStreamExecute"
 	MultiPoolerService_ConcludeTransaction_FullMethodName       = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
 	MultiPoolerService_ReleaseReservedConnection_FullMethodName = "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"
+	MultiPoolerService_StreamPoolerHealth_FullMethodName        = "/multipoolerservice.MultiPoolerService/StreamPoolerHealth"
 )
 
 // MultiPoolerServiceClient is the client API for MultiPoolerService service.
@@ -91,6 +92,19 @@ type MultiPoolerServiceClient interface {
 	// If the connection has portals, they are released.
 	// If any cleanup step fails, the connection is tainted and closed.
 	ReleaseReservedConnection(ctx context.Context, in *ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*ReleaseReservedConnectionResponse, error)
+	// StreamPoolerHealth streams health updates from the multipooler.
+	//
+	// The server sends an initial health response immediately upon connection,
+	// then pushes updates whenever the health state changes. If no state change
+	// occurs within the heartbeat interval, the server sends a heartbeat to
+	// confirm the stream is alive.
+	//
+	// Clients MUST implement a staleness timeout. The recommended timeout is provided
+	// in recommended_staleness_timeout_seconds in each response. If no message is
+	// received within this timeout, the pooler should be marked unhealthy.
+	//
+	// Each response contains the full health state (not incremental updates).
+	StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error)
 }
 
 type multiPoolerServiceClient struct {
@@ -221,6 +235,25 @@ func (c *multiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context
 	return out, nil
 }
 
+func (c *multiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[4], MultiPoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamPoolerHealthRequest, StreamPoolerHealthResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamPoolerHealthClient = grpc.ServerStreamingClient[StreamPoolerHealthResponse]
+
 // MultiPoolerServiceServer is the server API for MultiPoolerService service.
 // All implementations must embed UnimplementedMultiPoolerServiceServer
 // for forward compatibility.
@@ -265,6 +298,19 @@ type MultiPoolerServiceServer interface {
 	// If the connection has portals, they are released.
 	// If any cleanup step fails, the connection is tainted and closed.
 	ReleaseReservedConnection(context.Context, *ReleaseReservedConnectionRequest) (*ReleaseReservedConnectionResponse, error)
+	// StreamPoolerHealth streams health updates from the multipooler.
+	//
+	// The server sends an initial health response immediately upon connection,
+	// then pushes updates whenever the health state changes. If no state change
+	// occurs within the heartbeat interval, the server sends a heartbeat to
+	// confirm the stream is alive.
+	//
+	// Clients MUST implement a staleness timeout. The recommended timeout is provided
+	// in recommended_staleness_timeout_seconds in each response. If no message is
+	// received within this timeout, the pooler should be marked unhealthy.
+	//
+	// Each response contains the full health state (not incremental updates).
+	StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error
 	mustEmbedUnimplementedMultiPoolerServiceServer()
 }
 
@@ -301,6 +347,9 @@ func (UnimplementedMultiPoolerServiceServer) ConcludeTransaction(context.Context
 }
 func (UnimplementedMultiPoolerServiceServer) ReleaseReservedConnection(context.Context, *ReleaseReservedConnectionRequest) (*ReleaseReservedConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReleaseReservedConnection not implemented")
+}
+func (UnimplementedMultiPoolerServiceServer) StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamPoolerHealth not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
 func (UnimplementedMultiPoolerServiceServer) testEmbeddedByValue()                            {}
@@ -453,6 +502,17 @@ func _MultiPoolerService_ReleaseReservedConnection_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerService_StreamPoolerHealth_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamPoolerHealthRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MultiPoolerServiceServer).StreamPoolerHealth(m, &grpc.GenericServerStream[StreamPoolerHealthRequest, StreamPoolerHealthResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MultiPoolerService_StreamPoolerHealthServer = grpc.ServerStreamingServer[StreamPoolerHealthResponse]
+
 // MultiPoolerService_ServiceDesc is the grpc.ServiceDesc for MultiPoolerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -501,6 +561,11 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ReserveStreamExecute",
 			Handler:       _MultiPoolerService_ReserveStreamExecute_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamPoolerHealth",
+			Handler:       _MultiPoolerService_StreamPoolerHealth_Handler,
 			ServerStreams: true,
 		},
 	},
