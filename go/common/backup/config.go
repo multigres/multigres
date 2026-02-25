@@ -173,7 +173,7 @@ func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) 
 			// Do not include them in the main config
 			config["repo1-s3-key-type"] = "shared"
 		} else {
-		// Use web-id for IRSA, since pgBackRest's "auto" only checks EC2 metadata.
+			// Use web-id for IRSA, since pgBackRest's "auto" only checks EC2 metadata.
 			if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
 				config["repo1-s3-key-type"] = "web-id"
 			} else {
