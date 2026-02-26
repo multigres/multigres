@@ -67,8 +67,8 @@ type ShardSetup struct {
 	Multigateway       *ProcessInstance
 	MultigatewayPgPort int // PostgreSQL protocol port for multigateway
 
-	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
-	PgBackRestCertPaths *local.PgBackRestCertPaths
+	// PgCertPaths stores the paths to PostgreSQL TLS certificates
+	PgCertPaths *local.PgCertPaths
 
 	// BackupLocation stores backup configuration from topology
 	BackupLocation *clustermetadatapb.BackupLocation
@@ -191,9 +191,9 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 		s.Multipoolers = make(map[string]*MultipoolerInstance)
 	}
 
-	// Generate pgBackRest certificates once for the entire setup (shared across all multipoolers)
-	if s.PgBackRestCertPaths == nil {
-		s.PgBackRestCertPaths = s.generatePgBackRestCerts(t)
+	// Generate PostgreSQL certificates once for the entire setup (shared across all multipoolers)
+	if s.PgCertPaths == nil {
+		s.PgCertPaths = s.generatePgCerts(t)
 	}
 
 	// Allocate a port for pgBackRest server (one per multipooler)
@@ -207,7 +207,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
 	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
 		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, s.CellName,
-		s.PgBackRestCertPaths, pgbackrestPort)
+		s.PgCertPaths, pgbackrestPort)
 
 	inst := &MultipoolerInstance{
 		Name:        name,
@@ -247,7 +247,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 
 // CreateMultipoolerProcessInstance creates a new multipooler process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createMultipoolerInstance.
-func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgBackRestCertPaths, pgbackrestPort int) *ProcessInstance {
+func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPort int, pgctldAddr string, pgctldDataDir string, pgPort int, etcdAddr string, cell string, certPaths *local.PgCertPaths, pgbackrestPort int) *ProcessInstance {
 	t.Helper()
 
 	logFile := filepath.Join(baseDir, name, "multipooler.log")
@@ -268,8 +268,8 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
 	}
 
-	// Store pgBackRest cert paths struct and port for later use when starting multipooler
-	inst.PgBackRestCertPaths = certPaths
+	// Store cert paths struct and port for later use when starting multipooler
+	inst.PgCertPaths = certPaths
 	inst.PgBackRestPort = pgbackrestPort
 
 	return inst

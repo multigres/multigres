@@ -71,7 +71,7 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	// Generate TLS certificates
-	certPaths, err := local.GeneratePgBackRestCerts(certDir)
+	certPaths, err := local.GeneratePgCerts(certDir, constants.DefaultMultigresUser)
 	require.NoError(t, err, "Failed to generate pgBackRest certificates")
 	t.Logf("Generated certificates in %s", certDir)
 

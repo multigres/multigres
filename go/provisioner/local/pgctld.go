@@ -264,7 +264,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Add pgBackRest configuration if certificates are available
-	if p.pgBackRestCertPaths != nil {
+	if p.pgCertPaths != nil {
 		// Get pgbackrest port from config or use default
 		pgbackrestPort := ports.DefaultPgbackRestPort
 		if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {

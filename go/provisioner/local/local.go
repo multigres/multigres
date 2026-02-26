@@ -54,8 +54,8 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config              *LocalProvisionerConfig
-	pgBackRestCertPaths *PgBackRestCertPaths
+	config      *LocalProvisionerConfig
+	pgCertPaths *PgCertPaths
 }
 
 // Compile-time check to ensure localProvisioner implements Provisioner
@@ -806,9 +806,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Add pgbackrest TLS certificate paths and port
 	args = append(args,
-		"--pgbackrest-cert-file", p.pgBackRestCertPaths.ServerCertFile,
-		"--pgbackrest-key-file", p.pgBackRestCertPaths.ServerKeyFile,
-		"--pgbackrest-ca-file", p.pgBackRestCertPaths.CACertFile,
+		"--pgbackrest-cert-file", p.pgCertPaths.ServerCertFile,
+		"--pgbackrest-key-file", p.pgCertPaths.ServerKeyFile,
+		"--pgbackrest-ca-file", p.pgCertPaths.CACertFile,
 		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
 	)
 
@@ -1613,7 +1613,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 	fmt.Println("")
 
 	// Generate pgBackRest certificates before starting services
-	if err := p.generatePgBackRestCertsOnce(ctx); err != nil {
+	if err := p.generatePgCertsOnce(ctx); err != nil {
 		return nil, err
 	}
 
@@ -1777,27 +1777,28 @@ func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocat
 	}
 }
 
-// generatePgBackRestCertsOnce generates pgBackRest certificates once for all cells
-func (p *localProvisioner) generatePgBackRestCertsOnce(ctx context.Context) error {
-	fmt.Println("=== Generating pgBackRest certs ===")
+// generatePgCertsOnce generates pgBackRest certificates once for all cells
+func (p *localProvisioner) generatePgCertsOnce(ctx context.Context) error {
+	fmt.Println("=== Generating certificates ===")
 	certDir := p.certDir()
-	certPaths, err := GeneratePgBackRestCerts(certDir)
-	if err != nil {
-		return fmt.Errorf("failed to generate pgBackRest certs: %w", err)
-	}
-	// Store the cert paths for later use
-	p.pgBackRestCertPaths = certPaths
 
-	// Generate PostgreSQL SSL server and client certificates into the same directory.
-	// These share the CA with pgBackRest so all internal services trust each other.
-	// Use MULTIGRES_USER env var if set, otherwise fall back to the default.
+	// Use MULTIGRES_USER env var if set, otherwise fall back to the default user for pgctld and pgBackRest certs.
 	pgCtldUser := constants.DefaultMultigresUser
 	if v := os.Getenv("MULTIGRES_USER"); v != "" {
 		pgCtldUser = v
 	}
-	if err := GeneratePgCerts(certDir, pgCtldUser); err != nil {
-		return fmt.Errorf("failed to generate PG SSL certs: %w", err)
+
+	// Generate PostgreSQL SSL server and client certificates into the same directory.
+	// These share the CA with pgBackRest so all internal services trust each other.
+	// Use MULTIGRES_USER env var if set, otherwise fall back to the default.
+	certPaths, err := GeneratePgCerts(certDir, pgCtldUser)
+	if err != nil {
+		return fmt.Errorf("failed to generate certs: %w", err)
 	}
+
+	// Store the cert paths for later use
+	p.pgCertPaths = certPaths
+
 	fmt.Println("")
 	return nil
 }

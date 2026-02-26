@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 func TestGeneratePgBackRestCerts(t *testing.T) {
@@ -30,7 +32,7 @@ func TestGeneratePgBackRestCerts(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Generate certificates
-	certPaths, err := GeneratePgBackRestCerts(tempDir)
+	certPaths, err := GeneratePgCerts(tempDir, constants.DefaultMultigresUser)
 	require.NoError(t, err, "failed to generate certificates")
 	require.NotNil(t, certPaths)
 

@@ -25,21 +25,30 @@ func (p *localProvisioner) certDir() string {
 	return filepath.Join(p.config.RootWorkingDir, "certs")
 }
 
-// PgBackRestCertPaths holds the paths to the generated pgBackRest certificates.
-type PgBackRestCertPaths struct {
-	CACertFile     string // ca.crt
-	ServerCertFile string // pgbackrest.crt
-	ServerKeyFile  string // pgbackrest.key
+// PgCertPaths holds the paths to generated certificates.
+type PgCertPaths struct {
+	CACertFile         string // ca.crt
+	PgBackrestCertFile string // pgbackrest.crt
+	PgBackrestKeyFile  string // pgbackrest.key
+	ServerCertFile     string // server.crt
+	ServerKeyFile      string // server.key
+	PgCtldCertFile     string // <pgCtldUser>.crt
+	PgCtldKeyFile      string // <pgCtldUser>.key
 }
 
-// GeneratePgBackRestCerts creates TLS certificates for pgBackRest server in the specified directory.
+// GeneratePgCerts creates TLS certificates in the specified directory.
 // This is a public function that can be reused by tests and other components.
 // It creates:
 //   - ca.crt and ca.key (CA certificate and key)
 //   - pgbackrest.crt and pgbackrest.key (server certificate and key)
+//   - server.crt / server.key  — PostgreSQL server SSL certificate (SAN=localhost)
+//   - <pgCtldUser>.crt / <pgCtldUser>.key — client certificate (CN=pgCtldUser)
+//
+// The client certificate CN must exactly match the PostgreSQL role name for
+// cert authentication (clientcert=verify-full) to succeed.
 //
 // Returns the paths to the generated certificates that are needed for pgBackRest configuration.
-func GeneratePgBackRestCerts(certDir string) (*PgBackRestCertPaths, error) {
+func GeneratePgCerts(certDir, pgCtldUser string) (*PgCertPaths, error) {
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create pgBackRest certificate directory: %w", err)
 	}
@@ -50,46 +59,39 @@ func GeneratePgBackRestCerts(certDir string) (*PgBackRestCertPaths, error) {
 		return nil, fmt.Errorf("failed to generate CA for pgBackRest: %w", err)
 	}
 
-	certFile := filepath.Join(certDir, "pgbackrest.crt")
-	keyFile := filepath.Join(certDir, "pgbackrest.key")
-	if err := generateCert(caCertFile, caKeyFile, certFile, keyFile, "pgbackrest", []string{"localhost", "pgbackrest"}); err != nil {
+	backrestCertFile := filepath.Join(certDir, "pgbackrest.crt")
+	backrestKeyFile := filepath.Join(certDir, "pgbackrest.key")
+	if err := generateCert(caCertFile, caKeyFile, backrestCertFile, backrestKeyFile, "pgbackrest", []string{"localhost", "pgbackrest"}); err != nil {
 		return nil, fmt.Errorf("failed to generate certificate for pgBackRest: %w", err)
 	}
 
-	return &PgBackRestCertPaths{
-		CACertFile:     caCertFile,
-		ServerCertFile: certFile,
-		ServerKeyFile:  keyFile,
-	}, nil
-}
-
-// GeneratePgCerts generates PostgreSQL SSL server and client certificates into certDir.
-// Must be called after GeneratePgBackRestCerts, as it reuses the same CA (ca.crt / ca.key).
-// Creates:
-//   - server.crt / server.key  — PostgreSQL server SSL certificate (SAN=localhost)
-//   - <pgCtldUser>.crt / <pgCtldUser>.key — client certificate (CN=pgCtldUser)
-//
-// The client certificate CN must exactly match the PostgreSQL role name for
-// cert authentication (clientcert=verify-full) to succeed.
-func GeneratePgCerts(certDir string, pgCtldUser string) error {
-	caCertFile := filepath.Join(certDir, "ca.crt")
-	caKeyFile := filepath.Join(certDir, "ca.key")
-
 	// PostgreSQL server SSL certificate
+	serverCertFile := filepath.Join(certDir, "server.crt")
+	serverKeyFile := filepath.Join(certDir, "server.key")
 	if err := generateCert(caCertFile, caKeyFile,
-		filepath.Join(certDir, "server.crt"),
-		filepath.Join(certDir, "server.key"),
+		serverCertFile,
+		serverKeyFile,
 		"postgres-server", []string{"localhost"}); err != nil {
-		return fmt.Errorf("failed to generate PG server cert: %w", err)
+		return nil, fmt.Errorf("failed to generate PG server cert: %w", err)
 	}
 
 	// Client certificate for the controller role (CN must match role name for cert auth)
+	ctldCertFile := filepath.Join(certDir, pgCtldUser+".crt")
+	ctldKeyFile := filepath.Join(certDir, pgCtldUser+".key")
 	if err := generateCert(caCertFile, caKeyFile,
-		filepath.Join(certDir, pgCtldUser+".crt"),
-		filepath.Join(certDir, pgCtldUser+".key"),
+		ctldCertFile,
+		ctldKeyFile,
 		pgCtldUser, []string{}); err != nil {
-		return fmt.Errorf("failed to generate %s client cert: %w", pgCtldUser, err)
+		return nil, fmt.Errorf("failed to generate %s client cert: %w", pgCtldUser, err)
 	}
 
-	return nil
+	return &PgCertPaths{
+		CACertFile:         caCertFile,
+		PgBackrestCertFile: backrestCertFile,
+		PgBackrestKeyFile:  backrestKeyFile,
+		ServerCertFile:     serverCertFile,
+		ServerKeyFile:      serverKeyFile,
+		PgCtldCertFile:     ctldCertFile,
+		PgCtldKeyFile:      ctldKeyFile,
+	}, nil
 }

@@ -64,9 +64,9 @@ type ProcessInstance struct {
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
 
 	// PgBackRest-specific fields (used by multipooler and pgctld)
-	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
-	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
-	PgCertsDir          string                     // TLS certificate directory (pgctld)
+	PgCertPaths    *local.PgCertPaths // pgBackRest TLS certificate paths (multipooler)
+	PgBackRestPort int                // pgBackRest server port (multipooler, pgctld)
+	PgCertsDir     string             // TLS certificate directory (pgctld)
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
@@ -161,11 +161,11 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	}
 
 	// Add pgBackRest certificate paths and port if configured
-	if p.PgBackRestCertPaths != nil {
+	if p.PgCertPaths != nil {
 		args = append(args,
-			"--pgbackrest-cert-file", p.PgBackRestCertPaths.ServerCertFile,
-			"--pgbackrest-key-file", p.PgBackRestCertPaths.ServerKeyFile,
-			"--pgbackrest-ca-file", p.PgBackRestCertPaths.CACertFile,
+			"--pgbackrest-cert-file", p.PgCertPaths.PgBackrestCertFile,
+			"--pgbackrest-key-file", p.PgCertPaths.PgBackrestKeyFile,
+			"--pgbackrest-ca-file", p.PgCertPaths.CACertFile,
 		)
 	}
 	if p.PgBackRestPort > 0 {

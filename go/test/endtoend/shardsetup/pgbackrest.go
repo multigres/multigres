@@ -26,18 +26,15 @@ import (
 // Mirrors what the production provisioner does in generatePgBackRestCertsOnce:
 // both GeneratePgBackRestCerts and GeneratePgCerts are called so the shared CA
 // covers pgBackRest, the PostgreSQL server, and the pgctld client role.
-func (s *ShardSetup) generatePgBackRestCerts(t *testing.T) *local.PgBackRestCertPaths {
+func (s *ShardSetup) generatePgCerts(t *testing.T) *local.PgCertPaths {
 	t.Helper()
 
 	certDir := filepath.Join(s.TempDir, "certs")
-	certPaths, err := local.GeneratePgBackRestCerts(certDir)
-	if err != nil {
-		t.Fatalf("failed to generate pgBackRest certificates: %v", err)
-	}
 
 	// Generate PostgreSQL server SSL certs (server.crt/key) and the pgctld client
 	// cert into the same directory so PostgreSQL can start with ssl=on.
-	if err := local.GeneratePgCerts(certDir, constants.DefaultMultigresUser); err != nil {
+	certPaths, err := local.GeneratePgCerts(certDir, constants.DefaultMultigresUser)
+	if err != nil {
 		t.Fatalf("failed to generate PostgreSQL SSL certificates: %v", err)
 	}
 
