@@ -443,6 +443,7 @@ func (e *Executor) CopyReady(
 	target *query.Target,
 	copyQuery string,
 	options *query.ExecuteOptions,
+	reservationOptions *multipoolerpb.ReservationOptions,
 ) (int16, []int16, queryservice.ReservedState, error) {
 	user := e.getUserFromOptions(options)
 	var settings map[string]string
@@ -469,6 +470,20 @@ func (e *Executor) CopyReady(
 		if err != nil {
 			return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
 		}
+
+		// If this is a transaction reservation, execute BEGIN before COPY.
+		// This handles the deferred-BEGIN case where the client sent BEGIN
+		// but no query has been executed yet to create a reserved connection.
+		if protoutil.RequiresBegin(protoutil.GetReasons(reservationOptions)) {
+			beginQuery := "BEGIN"
+			if reservationOptions != nil && reservationOptions.BeginQuery != "" {
+				beginQuery = reservationOptions.BeginQuery
+			}
+			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
+				reservedConn.Release(reserved.ReleaseError)
+				return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to begin transaction for COPY: %w", err)
+			}
+		}
 	}
 
 	connID := reservedConn.ConnID
@@ -483,6 +498,10 @@ func (e *Executor) CopyReady(
 		reservedConn.Release(reserved.ReleaseError)
 		return 0, nil, queryservice.ReservedState{}, fmt.Errorf("failed to initiate COPY FROM STDIN: %w", err)
 	}
+
+	// Mark the connection as reserved for COPY. If the connection is also
+	// reserved for a transaction, this adds the COPY reason alongside it.
+	reservedConn.AddReservationReason(protoutil.ReasonCopy)
 
 	e.logger.DebugContext(ctx, "COPY INITIATE successful",
 		"conn_id", connID,
@@ -601,8 +620,11 @@ func (e *Executor) CopyFinalize(
 		RowsAffected: rowsAffected,
 	}
 
-	// Success - release connection back to pool for reuse
-	reservedConn.Release(reserved.ReleasePortalComplete)
+	// Remove the COPY reason. If other reasons remain (e.g., transaction),
+	// keep the connection reserved. Otherwise, release it back to the pool.
+	if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+		reservedConn.Release(reserved.ReleasePortalComplete)
+	}
 
 	return result, nil
 }
@@ -645,22 +667,25 @@ func (e *Executor) CopyAbort(
 		// Continue to try reading response
 	}
 
-	// Read ErrorResponse from PostgreSQL
-	// After CopyFail, PostgreSQL should respond with ErrorResponse and ReadyForQuery
-	// We can try to read it, but if it fails, that's okay since we're aborting anyway
-	_, _, readErr := conn.ReadCopyDoneResponse(ctx)
+	// Read ErrorResponse + ReadyForQuery from PostgreSQL.
+	// After CopyFail, PostgreSQL responds with ErrorResponse then ReadyForQuery.
+	// ReadCopyFailResponse drains both, leaving the connection in a clean state.
+	readErr := conn.ReadCopyFailResponse(ctx)
 	if readErr != nil {
-		e.logger.DebugContext(ctx, "error reading response after CopyFail (expected)", "error", readErr)
+		e.logger.ErrorContext(ctx, "failed to read response after CopyFail", "error", readErr)
 	}
 
 	e.logger.DebugContext(ctx, "COPY FAIL completed")
 
-	// If write or read failed, connection might be in bad state - close it
 	if writeFailed || readErr != nil {
+		// Connection is in a bad protocol state — release it.
 		reservedConn.Release(reserved.ReleaseError)
 	} else {
-		// Clean abort - release connection back to pool
-		reservedConn.Release(reserved.ReleasePortalComplete)
+		// Clean abort — remove the COPY reason. If other reasons remain
+		// (e.g., transaction), keep the connection reserved.
+		if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
+			reservedConn.Release(reserved.ReleasePortalComplete)
+		}
 	}
 
 	return nil

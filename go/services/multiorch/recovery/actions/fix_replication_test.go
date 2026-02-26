@@ -382,11 +382,73 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 }
 
+// delayedStreamingClient wraps FakeClient to simulate a WAL receiver that takes
+// several polling cycles to start streaming, as happens under coverage builds.
+type delayedStreamingClient struct {
+	*rpcclient.FakeClient
+	callCount        int
+	streamAfterCalls int // Return "streaming" starting at this call number
+}
+
+func (c *delayedStreamingClient) StandbyReplicationStatus(
+	ctx context.Context,
+	pooler *clustermetadatapb.MultiPooler,
+	request *multipoolermanagerdatapb.StandbyReplicationStatusRequest,
+) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
+	c.callCount++
+	if c.callCount >= c.streamAfterCalls {
+		return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				WalReceiverStatus: "streaming",
+				LastReceiveLsn:    "0/1234",
+			},
+		}, nil
+	}
+	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
+		Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
+			WalReceiverStatus: "startup",
+		},
+	}, nil
+}
+
+func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
+	ctx := context.Background()
+
+	// WAL receiver starts streaming halfway through the polling window.
+	// This verifies the polling loop correctly waits for slow WAL receivers
+	// (as seen in coverage builds).
+	streamAfterCalls := DefaultVerifyMaxAttempts/2 + 1
+
+	fakeClient := &delayedStreamingClient{
+		FakeClient:       rpcclient.NewFakeClient(),
+		streamAfterCalls: streamAfterCalls,
+	}
+
+	action := NewFixReplicationAction(nil, fakeClient, nil, nil, slog.Default())
+	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
+
+	replica := &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "cell1",
+				Name:      "replica1",
+			},
+		},
+	}
+
+	err := action.verifyReplicationStarted(ctx, replica)
+	require.NoError(t, err, "verifyReplicationStarted should succeed when WAL receiver starts streaming after several polling cycles")
+	assert.Equal(t, streamAfterCalls, fakeClient.callCount, "should have polled exactly until streaming started")
+}
+
 // replicationStatusClient wraps FakeClient to return different StandbyReplicationStatus responses
-// based on call count, simulating the progression from "not configured" to "configured but not streaming".
+// based on call count, simulating the progression from "not configured" to a failure state.
+// The walReceiverStatus field controls what subsequent calls return.
 type replicationStatusClient struct {
 	*rpcclient.FakeClient
-	callCount int
+	callCount         int
+	walReceiverStatus string // WAL receiver status for calls after the first
 }
 
 func (c *replicationStatusClient) StandbyReplicationStatus(
@@ -396,7 +458,7 @@ func (c *replicationStatusClient) StandbyReplicationStatus(
 ) (*multipoolermanagerdatapb.StandbyReplicationStatusResponse, error) {
 	c.callCount++
 	// First call is verifyProblemExists (no primary_conninfo - triggers the fix)
-	// Subsequent calls are verifyReplicationStarted polling (never returns LSN)
+	// Subsequent calls are verifyReplicationStarted polling (never reaches streaming)
 	if c.callCount == 1 {
 		return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
 			Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -406,7 +468,7 @@ func (c *replicationStatusClient) StandbyReplicationStatus(
 	}
 	return &multipoolermanagerdatapb.StandbyReplicationStatusResponse{
 		Status: &multipoolermanagerdatapb.StandbyReplicationStatus{
-			LastReceiveLsn: "", // Still not streaming
+			WalReceiverStatus: c.walReceiverStatus,
 		},
 	}, nil
 }
@@ -450,7 +512,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		},
 	}
 
-	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient}
+	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient, walReceiverStatus: "stopping"}
 	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
 
 	// Add replica and primary
@@ -492,6 +554,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	})
 
 	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
+	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
 	problem := types.Problem{
 		Code: types.ProblemReplicaNotReplicating,
@@ -505,15 +568,14 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	err := action.Execute(ctx, problem)
 
-	// Should fail because replication didn't start even after pg_rewind
-	// pg_rewind was not feasible so pooler was marked as DRAINED,
-	// but we still tried to configure replication and it failed
+	// Should fail: pg_rewind marked pooler as DRAINED (returned nil), then
+	// re-verification fails because the replica is not actually replicating.
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "replication did not start after configuration")
+	assert.Contains(t, err.Error(), "replication did not start after pg_rewind")
 
-	// Verify SetPrimaryConnInfo was still called (configuration was attempted after failed pg_rewind)
+	// Verify SetPrimaryConnInfo was called (configuration was attempted)
 	assert.Contains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
-	// Verify pg_rewind was tried as fallback when timeline divergence detected
+	// Verify pg_rewind was tried after replication failed to start
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
 
 	// Verify the pooler was marked as DRAINED in topology when pg_rewind wasn't feasible

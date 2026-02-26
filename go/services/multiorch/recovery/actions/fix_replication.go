@@ -60,12 +60,23 @@ var _ types.RecoveryAction = (*FixReplicationAction)(nil)
 // (SetPrimaryConnInfo, UpdateSynchronousStandbyList) are implemented as idempotent
 // operations at the pooler level and serialized by action locks on the poolers,
 // so concurrent calls are safe and produce the same final state.
+
+// Default polling parameters for verifyReplicationStarted.
+const (
+	DefaultVerifyMaxAttempts  = 10
+	DefaultVerifyPollInterval = 500 * time.Millisecond
+)
+
 type FixReplicationAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
 	poolerStore *store.PoolerStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
+
+	// Polling parameters for verifyReplicationStarted.
+	verifyMaxAttempts  int
+	verifyPollInterval time.Duration
 }
 
 // NewFixReplicationAction creates a new fix replication action.
@@ -76,12 +87,22 @@ func NewFixReplicationAction(
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *FixReplicationAction {
+	maxAttempts := DefaultVerifyMaxAttempts
+	pollInterval := DefaultVerifyPollInterval
+	if cfg != nil {
+		timeout := cfg.GetVerifyReplicationTimeout()
+		if timeout > 0 {
+			maxAttempts = max(int(timeout/DefaultVerifyPollInterval), 1)
+		}
+	}
 	return &FixReplicationAction{
-		config:      cfg,
-		rpcClient:   rpcClient,
-		poolerStore: poolerStore,
-		topoStore:   topoStore,
-		logger:      logger,
+		config:             cfg,
+		rpcClient:          rpcClient,
+		poolerStore:        poolerStore,
+		topoStore:          topoStore,
+		logger:             logger,
+		verifyMaxAttempts:  maxAttempts,
+		verifyPollInterval: pollInterval,
 	}
 }
 
@@ -185,10 +206,16 @@ func (a *FixReplicationAction) fixNotReplicating(
 		a.logger.WarnContext(ctx, "replication did not start after configuration",
 			"replica", replica.MultiPooler.Id.Name,
 			"primary", primary.MultiPooler.Id.Name)
+
 		if rewindErr := a.tryPgRewind(ctx, primary, replica); rewindErr != nil {
-			return mterrors.Wrap(rewindErr, "pg_rewind failed for diverged timelines")
+			return mterrors.Wrap(rewindErr, "pg_rewind failed")
 		}
-		return mterrors.Wrap(err, "replication did not start after configuration")
+		// Re-verify replication after rewind. RewindToSource restarts
+		// PostgreSQL as a standby, and primary_conninfo in
+		// postgresql.auto.conf is preserved (pg_rewind doesn't touch it).
+		if verifyErr := a.verifyReplicationStarted(ctx, replica); verifyErr != nil {
+			return mterrors.Wrap(verifyErr, "replication did not start after pg_rewind")
+		}
 	}
 
 	// Add replica to the primary's synchronous standby list if it's a REPLICA type
@@ -409,14 +436,11 @@ func (a *FixReplicationAction) isReplicaInStandbyList(
 // verifyReplicationStarted checks that replication is actively streaming.
 // It polls a few times to allow the WAL receiver to connect.
 func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, replica *multiorchdatapb.PoolerHealthState) error {
-	const maxAttempts = 5
-	const pollInterval = 500 * time.Millisecond
-
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(a.verifyPollInterval)
 	defer ticker.Stop()
 
 	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= a.verifyMaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
 			return mterrors.Wrap(ctx.Err(), "context cancelled while verifying replication")

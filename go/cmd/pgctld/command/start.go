@@ -176,6 +176,11 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		logger.Info("Ensured Unix socket directory exists", "socket_dir", config.UnixSocketDirectories)
 	}
 
+	// Enforce PGDATA permission invariant before pg_ctl start
+	if err := ensurePGDATAPermissions(logger, config.PostgresDataDir); err != nil {
+		return nil, fmt.Errorf("PGDATA permission check failed: %w", err)
+	}
+
 	// Start PostgreSQL
 	logger.Info("Starting PostgreSQL server", "data_dir", config.PostgresDataDir)
 	if err := startPostgreSQLWithConfig(logger, config); err != nil {
@@ -209,6 +214,46 @@ func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	if result.Message != "" && !result.AlreadyRunning {
 		logger.Info(result.Message)
 	}
+
+	return nil
+}
+
+// ensurePGDATAPermissions ensures PGDATA is owned by the effective UID and set to 0700 before pg_ctl start.
+// initdb sets this on bootstrap, but restore, rewind, or volume remounts may change it.
+func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
+	info, err := os.Stat(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to stat PGDATA %s: %w", dataDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("PGDATA %s is not a directory", dataDir)
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("failed to get syscall stat for PGDATA %s", dataDir)
+	}
+
+	currentUID := uint32(os.Geteuid())
+	if stat.Uid != currentUID {
+		return fmt.Errorf("PGDATA %s owned by UID %d, expected %d, refusing to start (ownership mismatch is a configuration error)",
+			dataDir, stat.Uid, currentUID)
+	}
+
+	if info.Mode().Perm() == 0o700 && (info.Mode()&os.ModeSetgid) == 0 {
+		return nil
+	}
+
+	oldMode := fmt.Sprintf("%04o", stat.Mode&0o7777)
+	if err := os.Chmod(dataDir, 0o700); err != nil {
+		return fmt.Errorf("failed to chmod PGDATA %s to 0700: %w", dataDir, err)
+	}
+
+	logger.Debug("Normalized PGDATA permissions",
+		"path", dataDir,
+		"old_mode", oldMode,
+		"new_mode", "0700",
+	)
 
 	return nil
 }

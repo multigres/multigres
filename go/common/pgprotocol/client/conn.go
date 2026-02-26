@@ -446,6 +446,53 @@ func (c *Conn) ReadCopyDoneResponse(ctx context.Context) (string, uint64, error)
 	}
 }
 
+// ReadCopyFailResponse reads the expected ErrorResponse + ReadyForQuery sequence
+// after sending CopyFail. Unlike ReadCopyDoneResponse, this treats ErrorResponse
+// as the expected (normal) response and continues reading until ReadyForQuery,
+// leaving the connection in a clean protocol state.
+func (c *Conn) ReadCopyFailResponse(ctx context.Context) error {
+	c.bufmu.Lock()
+	defer c.bufmu.Unlock()
+
+	gotError := false
+
+	for {
+		msgType, err := c.readMessageType()
+		if err != nil {
+			return fmt.Errorf("failed to read message type: %w", err)
+		}
+
+		length, err := c.readMessageLength()
+		if err != nil {
+			return fmt.Errorf("failed to read message length: %w", err)
+		}
+
+		body, err := c.readMessageBody(length)
+		if err != nil {
+			return fmt.Errorf("failed to read message body: %w", err)
+		}
+
+		switch msgType {
+		case protocol.MsgErrorResponse:
+			// Expected after CopyFail — consume it and continue to ReadyForQuery.
+			_ = body
+			gotError = true
+
+		case protocol.MsgNoticeResponse:
+			continue
+
+		case protocol.MsgReadyForQuery:
+			if gotError {
+				return nil // clean abort: ErrorResponse + ReadyForQuery consumed
+			}
+			return errors.New("received ReadyForQuery without ErrorResponse after CopyFail")
+
+		default:
+			return fmt.Errorf("unexpected message type after CopyFail: '%c'", msgType)
+		}
+	}
+}
+
 // ReadCopyInResponse reads and parses a CopyInResponse ('G') message from PostgreSQL
 // This message is sent in response to a COPY FROM STDIN command
 // Returns the overall format and per-column formats

@@ -133,6 +133,7 @@ type QueryService interface {
 		target *query.Target,
 		copyQuery string,
 		options *query.ExecuteOptions,
+		reservationOptions *multipoolerpb.ReservationOptions,
 	) (format int16, columnFormats []int16, reservedState ReservedState, err error)
 
 	// CopySendData sends a chunk of data for an active COPY operation.
