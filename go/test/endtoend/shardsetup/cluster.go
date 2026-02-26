@@ -380,13 +380,16 @@ func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 				continue
 			}
 
-			var result int
+			// Verify both read and write paths work. SELECT 1 may succeed
+			// via a REPLICA before multigateway learns about the PRIMARY.
+			// CREATE TABLE forces routing to PRIMARY, confirming that
+			// multigateway has discovered the primary pooler.
 			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			err = db.QueryRowContext(queryCtx, "SELECT 1").Scan(&result)
+			_, err = db.ExecContext(queryCtx, "CREATE TABLE IF NOT EXISTS _mgw_ready_check (x int); DROP TABLE IF EXISTS _mgw_ready_check")
 			cancel()
 			db.Close()
 
-			if err == nil && result == 1 {
+			if err == nil {
 				elapsed := time.Since(startTime)
 				t.Logf("Multigateway can execute queries (ready after %v)", elapsed)
 				return
