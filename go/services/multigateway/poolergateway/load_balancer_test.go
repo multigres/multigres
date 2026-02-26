@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clus
 
 func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Initially empty
 	assert.Equal(t, 0, lb.ConnectionCount())
@@ -96,7 +96,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add a primary
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -114,7 +114,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add replicas in both cells
 	localReplica := createTestMultiPooler("local-replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
@@ -134,7 +134,7 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add primary only in remote cell
 	remotePrimary := createTestMultiPooler("remote-primary", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -150,9 +150,18 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	assert.Equal(t, poolerID(remotePrimary), conn.ID(), "Should find primary in remote cell")
 }
 
+func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+	_, err := lb.GetConnection(nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target cannot be nil")
+}
+
 func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add a primary
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -170,7 +179,7 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add primaries for different shards
 	shard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -191,7 +200,7 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_ExcludePoolers(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add two replicas
 	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
@@ -225,7 +234,7 @@ func TestLoadBalancer_GetConnection_ExcludePoolers(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add both primary and replica
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -245,7 +254,7 @@ func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 
 func TestLoadBalancer_Close(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Add some poolers
 	pooler1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -268,9 +277,14 @@ func TestLoadBalancer_Close(t *testing.T) {
 // simulateHealthUpdate simulates receiving a health update from the stream.
 // This uses the same code path as real health updates, ensuring any callbacks are triggered.
 func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.PoolerServingStatus, observation *multipoolerservice.PrimaryObservation) {
+	info := conn.PoolerInfo()
 	conn.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
-		Target:             nil,
-		PoolerId:           conn.poolerInfo.Id,
+		Target: &query.Target{
+			TableGroup: info.GetTableGroup(),
+			Shard:      info.GetShard(),
+			PoolerType: info.Type,
+		},
+		PoolerId:           info.Id,
 		ServingStatus:      status,
 		PrimaryObservation: observation,
 	})
@@ -278,7 +292,7 @@ func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.Poole
 
 func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Create poolers in the same shard
 	primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
@@ -483,7 +497,7 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 
 func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Create UNKNOWN-type poolers (simulating initial discovery before multiorch assigns types)
 	unknown1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_UNKNOWN)
@@ -543,7 +557,7 @@ func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 
 func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
 	// Create replicas in different cells
 	localReplica1 := createTestMultiPooler("local-replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
@@ -609,7 +623,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 
 func TestLoadBalancerListener(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger, context.Background())
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 	listener := NewLoadBalancerListener(lb)
 
 	// OnPoolerChanged should add pooler
