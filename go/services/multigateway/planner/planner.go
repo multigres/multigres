@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
@@ -103,6 +104,45 @@ func (p *Planner) planDefault(sql string, conn *server.Conn) (*engine.Plan, erro
 		"plan", plan.String(),
 		"tablegroup", p.defaultTableGroup)
 	return plan, nil
+}
+
+// PlanPortal creates an execution plan for the extended query protocol (portal path).
+// Unlike Plan, which handles all statements, PlanPortal only returns a non-nil plan
+// for statements that require local handling by the gateway. For all other statements,
+// it returns (nil, nil) to indicate they should be sent to PostgreSQL via
+// PortalStreamExecute with the portal's bound parameters.
+//
+// Statements that produce a plan are delegated to Plan to reuse existing planning logic.
+//
+// Currently handles:
+//   - Gateway-managed SET/SHOW/RESET (e.g., statement_timeout) — executed locally
+//     without a PostgreSQL round-trip.
+//   - RESET ALL — must be sent to PostgreSQL AND also reset gateway-managed variables.
+//     The returned plan handles both via Sequence[Route, ApplySessionState].
+func (p *Planner) PlanPortal(
+	portalInfo *preparedstatement.PortalInfo,
+	conn *server.Conn,
+) (*engine.Plan, error) {
+	stmt := portalInfo.PreparedStatementInfo.AstStmt()
+
+	switch stmt.NodeTag() {
+	case ast.T_VariableSetStmt:
+		setStmt := stmt.(*ast.VariableSetStmt)
+		if isGatewayManagedVariable(setStmt.Name) || setStmt.Kind == ast.VAR_RESET_ALL {
+			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+		}
+		return nil, nil
+
+	case ast.T_VariableShowStmt:
+		showStmt := stmt.(*ast.VariableShowStmt)
+		if isGatewayManagedVariable(showStmt.Name) {
+			return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+		}
+		return nil, nil
+
+	default:
+		return nil, nil
+	}
 }
 
 // SetDefaultTableGroup updates the default tablegroup for routing.

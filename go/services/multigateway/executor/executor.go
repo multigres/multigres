@@ -124,10 +124,22 @@ func (e *Executor) PortalStreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO: We will need to plan the query to find wether it can
-	// be served by a single shard or not. For now, since we only
-	// support unsharded, we don't have to do much.
-	// We just send the query to the default table group.
+	// Plan the portal query to check if it needs special handling (e.g., gateway-managed
+	// variables like statement_timeout, RESET ALL). PlanPortal returns a non-nil plan
+	// only for statements that the gateway handles locally; all other statements are
+	// sent to the multipooler via PortalStreamExecute with the portal's bound parameters.
+	plan, err := e.planner.PlanPortal(portalInfo, conn)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "portal query planning failed",
+			"query", portalInfo.PreparedStatementInfo.Query,
+			"error", err)
+		return err
+	}
+	if plan != nil {
+		e.logger.DebugContext(ctx, "executing portal plan locally",
+			"plan", plan.String())
+		return plan.StreamExecute(ctx, e.exec, conn, state, callback)
+	}
 
 	return e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
 }
