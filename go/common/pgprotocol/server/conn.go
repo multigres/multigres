@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -321,7 +322,7 @@ func (c *Conn) serve() error {
 	if err := c.handleStartup(); err != nil {
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
-		_ = c.writeSimpleErrorWithDetail("FATAL", "08P01", "connection startup failed", err.Error(), "")
+		_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
 		_ = c.flush()
 		return err
 	}
@@ -349,7 +350,7 @@ func (c *Conn) serve() error {
 		if err := c.handleMessage(msgType); err != nil {
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
-			_ = c.writeSimpleErrorWithDetail("ERROR", "XX000", "internal error", err.Error(), "")
+			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))
 			_ = c.writeReadyForQuery()
 			_ = c.flush()
 			// For now, close connection on any error.
@@ -533,7 +534,7 @@ func (c *Conn) handleParse() error {
 	// Call the handler to validate and prepare the statement.
 	// The handler is responsible for storing any state it needs.
 	if err := c.handler.HandleParse(c.ctx, c, stmtName, queryStr, paramTypes); err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "parse failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD04.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -627,7 +628,7 @@ func (c *Conn) handleBind() error {
 
 	// Call the handler to create and bind the portal with parameters.
 	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD05.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -763,7 +764,7 @@ func (c *Conn) handleDescribe() error {
 	// Call the handler.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "describe failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD06.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -826,7 +827,7 @@ func (c *Conn) handleClose() error {
 
 	// Call the handler.
 	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "close failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD07.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -857,7 +858,7 @@ func (c *Conn) handleSync() error {
 	// Call the handler.
 	if err := c.handler.HandleSync(c.ctx, c); err != nil {
 		// Even if handler returns error, we still send ReadyForQuery after Sync.
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "sync failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD08.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 	}

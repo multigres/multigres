@@ -16,6 +16,7 @@ package backup
 
 import (
 	"errors"
+	"os"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/safepath"
@@ -172,8 +173,13 @@ func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) 
 			// Do not include them in the main config
 			config["repo1-s3-key-type"] = "shared"
 		} else {
-			// Use automatic detection (e.g. IRSA)
-			config["repo1-s3-key-type"] = "auto"
+			// Use web-id for IRSA, since pgBackRest's "auto" only checks EC2 metadata.
+			if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
+				config["repo1-s3-key-type"] = "web-id"
+			} else {
+				// Fall back to auto for EC2 instance metadata
+				config["repo1-s3-key-type"] = "auto"
+			}
 		}
 
 		if loc.S3.Endpoint == "" {

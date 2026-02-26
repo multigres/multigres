@@ -15,8 +15,7 @@
 package planner
 
 import (
-	"errors"
-
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
@@ -30,7 +29,8 @@ func (p *Planner) planCopyStmt(
 ) (*engine.Plan, error) {
 	// SECURITY: Reject COPY FROM/TO PROGRAM (arbitrary command execution)
 	if stmt.IsProgram {
-		return nil, errors.New("COPY with PROGRAM not supported for security reasons")
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
+			"COPY with PROGRAM not supported for security reasons", "")
 	}
 
 	// Decision tree based on IsFrom and Filename
@@ -65,7 +65,8 @@ func (p *Planner) planCopyStmt(
 		// COPY TO ...
 		if stmt.Filename == "" {
 			// COPY TO STDOUT - not yet supported
-			return nil, errors.New("COPY TO STDOUT not yet supported")
+			return nil, mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported,
+				"COPY TO STDOUT not yet supported", "")
 		} else {
 			// COPY TO file - simple Route (PostgreSQL writes server-side file)
 			// TODO(multigateway): Future enhancement - similar to FROM file,
