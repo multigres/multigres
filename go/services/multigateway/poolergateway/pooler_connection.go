@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -115,8 +115,9 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 // Only connections that are serving should be used for query routing.
 // This follows the Vitess tabletHealthCheck pattern.
 type PoolerConnection struct {
-	// poolerInfo contains the pooler metadata from discovery
-	poolerInfo *topoclient.MultiPoolerInfo
+	// poolerInfo contains the pooler metadata from discovery.
+	// Accessed atomically to avoid data races between UpdatePoolerInfo and readers.
+	poolerInfo atomic.Pointer[topoclient.MultiPoolerInfo]
 
 	// conn is the underlying gRPC connection
 	conn *grpc.ClientConn
@@ -201,7 +202,6 @@ func NewPoolerConnection(
 	}
 
 	pc := &PoolerConnection{
-		poolerInfo:     poolerInfo,
 		conn:           conn,
 		client:         multipoolerservice.NewMultiPoolerServiceClient(conn),
 		queryService:   queryService,
@@ -216,6 +216,7 @@ func NewPoolerConnection(
 			LastError:     errPoolerUninitialized,
 		},
 	}
+	pc.poolerInfo.Store(poolerInfo)
 
 	// Start health stream goroutine
 	go pc.checkConn()
@@ -229,24 +230,24 @@ func NewPoolerConnection(
 
 // ID returns the unique identifier for this pooler connection.
 func (pc *PoolerConnection) ID() string {
-	return topoclient.MultiPoolerIDString(pc.poolerInfo.Id)
+	return topoclient.MultiPoolerIDString(pc.poolerInfo.Load().Id)
 }
 
 // Cell returns the cell where this pooler is located.
 func (pc *PoolerConnection) Cell() string {
-	return pc.poolerInfo.Id.GetCell()
+	return pc.poolerInfo.Load().Id.GetCell()
 }
 
 // Type returns the pooler type (PRIMARY or REPLICA).
 func (pc *PoolerConnection) Type() clustermetadatapb.PoolerType {
-	return pc.poolerInfo.Type
+	return pc.poolerInfo.Load().Type
 }
 
 // UpdatePoolerInfo updates the pooler metadata (e.g., when type changes from UNKNOWN to PRIMARY).
 // This is called when topology watch detects updates to the pooler.
 func (pc *PoolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.MultiPooler) {
-	oldType := pc.poolerInfo.Type
-	pc.poolerInfo = &topoclient.MultiPoolerInfo{MultiPooler: pooler}
+	oldType := pc.poolerInfo.Load().Type
+	pc.poolerInfo.Store(&topoclient.MultiPoolerInfo{MultiPooler: pooler})
 	if oldType != pooler.Type {
 		pc.logger.Info("pooler type updated",
 			"pooler_id", pc.ID(),
@@ -257,7 +258,7 @@ func (pc *PoolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.MultiPool
 
 // PoolerInfo returns the underlying pooler metadata.
 func (pc *PoolerConnection) PoolerInfo() *topoclient.MultiPoolerInfo {
-	return pc.poolerInfo
+	return pc.poolerInfo.Load()
 }
 
 // ServiceClient returns the MultiPoolerServiceClient for admin operations.

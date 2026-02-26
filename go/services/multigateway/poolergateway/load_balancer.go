@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -55,7 +55,7 @@ type LoadBalancer struct {
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
-func NewLoadBalancer(localCell string, logger *slog.Logger, ctx context.Context) *LoadBalancer {
+func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger) *LoadBalancer {
 	return &LoadBalancer{
 		localCell:   localCell,
 		logger:      logger,
@@ -126,6 +126,10 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 // - For PRIMARY: uses term-based reconciliation across all shard poolers
 // - For REPLICA: prefers local cell serving replicas, with randomization
 func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionOptions) (*PoolerConnection, error) {
+	if target == nil {
+		return nil, errors.New("target cannot be nil")
+	}
+
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()
 

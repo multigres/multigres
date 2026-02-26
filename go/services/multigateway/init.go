@@ -222,7 +222,7 @@ func (mg *MultiGateway) Init() error {
 	logger.Info("Global pooler discovery started", "local_cell", mg.cell.Get())
 
 	// Create LoadBalancer and register with discovery for real-time updates
-	loadBalancer := poolergateway.NewLoadBalancer(mg.cell.Get(), logger, mg.shutdownCtx)
+	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger)
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.Info("LoadBalancer registered with pooler discovery")
 

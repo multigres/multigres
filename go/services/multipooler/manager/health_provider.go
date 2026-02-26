@@ -171,10 +171,7 @@ func (hs *healthStreamer) subscribe() (*poolerserver.HealthState, chan *poolerse
 	ch := make(chan *poolerserver.HealthState, defaultHealthStreamBufferSize)
 	hs.clients[ch] = struct{}{}
 
-	// Send current state immediately
 	state := hs.buildStateLocked()
-	ch <- state
-
 	return state, ch
 }
 
