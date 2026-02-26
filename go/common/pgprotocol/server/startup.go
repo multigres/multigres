@@ -20,6 +20,7 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
@@ -545,7 +546,7 @@ func (c *Conn) readSASLResponse() (string, error) {
 
 // sendAuthError sends an authentication error to the client.
 func (c *Conn) sendAuthError(message string) error {
-	if err := c.writeSimpleErrorWithDetail("FATAL", "28P01", message, "", ""); err != nil {
+	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed, message, "")); err != nil {
 		return err
 	}
 	return c.flush()
