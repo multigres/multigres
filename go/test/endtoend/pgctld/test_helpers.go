@@ -77,8 +77,8 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 
 	// Ensure cert files exist
 	require.FileExists(t, certPaths.CACertFile)
-	require.FileExists(t, certPaths.ServerCertFile)
-	require.FileExists(t, certPaths.ServerKeyFile)
+	require.FileExists(t, certPaths.PgCtldCertFile)
+	require.FileExists(t, certPaths.PgCtldKeyFile)
 
 	// Allocate dynamic ports (port 0 = let OS choose)
 	pgPort := 15432 // PostgreSQL needs a specific port for mock binaries

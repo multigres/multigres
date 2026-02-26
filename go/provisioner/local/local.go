@@ -806,8 +806,8 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Add pgbackrest TLS certificate paths and port
 	args = append(args,
-		"--pgbackrest-cert-file", p.pgCertPaths.ServerCertFile,
-		"--pgbackrest-key-file", p.pgCertPaths.ServerKeyFile,
+		"--pgbackrest-cert-file", p.pgCertPaths.PgBackrestCertFile,
+		"--pgbackrest-key-file", p.pgCertPaths.PgBackrestKeyFile,
 		"--pgbackrest-ca-file", p.pgCertPaths.CACertFile,
 		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
 	)

@@ -27,7 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 )
 
-func TestGeneratePgBackRestCerts(t *testing.T) {
+func TestGeneratePgCerts(t *testing.T) {
 	// Create temp directory for certificates
 	tempDir := t.TempDir()
 
@@ -40,6 +40,10 @@ func TestGeneratePgBackRestCerts(t *testing.T) {
 	assert.FileExists(t, certPaths.CACertFile, "CA certificate file should exist")
 	assert.FileExists(t, certPaths.ServerCertFile, "server certificate file should exist")
 	assert.FileExists(t, certPaths.ServerKeyFile, "server key file should exist")
+	assert.FileExists(t, certPaths.PgBackrestCertFile, "pgbackrest certificate file should exist")
+	assert.FileExists(t, certPaths.PgBackrestKeyFile, "pgbackrest key file should exist")
+	assert.FileExists(t, certPaths.PgCtldCertFile, "pgctld certificate file should exist")
+	assert.FileExists(t, certPaths.PgCtldKeyFile, "pgctld key file should exist")
 
 	// Test CA certificate properties
 	t.Run("CA certificate", func(t *testing.T) {
@@ -145,6 +149,27 @@ func TestGeneratePgBackRestCerts(t *testing.T) {
 		caCert, err := x509.ParseCertificate(block.Bytes)
 		require.NoError(t, err)
 
+		// Create cert pool with CA
+		roots := x509.NewCertPool()
+		roots.AddCert(caCert)
+
+		// Verify certificates was signed by CA
+		opts := x509.VerifyOptions{
+			Roots:     roots,
+			DNSName:   "localhost",
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}
+
+		// Read pgbackrest certificate
+		pgBackrestCertPEM, err := os.ReadFile(certPaths.PgBackrestCertFile)
+		require.NoError(t, err)
+		block, _ = pem.Decode(pgBackrestCertPEM)
+		pgBackrestCert, err := x509.ParseCertificate(block.Bytes)
+		require.NoError(t, err)
+
+		_, err = pgBackrestCert.Verify(opts)
+		assert.NoError(t, err, "pgbackrest certificate should be verifiable with CA certificate")
+
 		// Read server certificate
 		serverCertPEM, err := os.ReadFile(certPaths.ServerCertFile)
 		require.NoError(t, err)
@@ -152,18 +177,17 @@ func TestGeneratePgBackRestCerts(t *testing.T) {
 		serverCert, err := x509.ParseCertificate(block.Bytes)
 		require.NoError(t, err)
 
-		// Create cert pool with CA
-		roots := x509.NewCertPool()
-		roots.AddCert(caCert)
-
-		// Verify server certificate was signed by CA
-		opts := x509.VerifyOptions{
-			Roots:     roots,
-			DNSName:   "localhost",
-			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		}
-
 		_, err = serverCert.Verify(opts)
 		assert.NoError(t, err, "server certificate should be verifiable with CA certificate")
+
+		// Read pgctld certificate
+		pgCtlCertPEM, err := os.ReadFile(certPaths.PgCtldCertFile)
+		require.NoError(t, err)
+		block, _ = pem.Decode(pgCtlCertPEM)
+		pgCtldCert, err := x509.ParseCertificate(block.Bytes)
+		require.NoError(t, err)
+
+		_, err = pgCtldCert.Verify(opts)
+		assert.NoError(t, err, "pgctld certificate should be verifiable with CA certificate")
 	})
 }
