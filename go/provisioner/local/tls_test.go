@@ -92,36 +92,36 @@ func TestGeneratePgCerts(t *testing.T) {
 	})
 
 	// Test server certificate properties
-	t.Run("server certificate", func(t *testing.T) {
+	t.Run("pgbackrest certificate", func(t *testing.T) {
 		// Read and parse server certificate
-		serverCertPEM, err := os.ReadFile(certPaths.ServerCertFile)
-		require.NoError(t, err, "failed to read server certificate")
+		pgBackrestCertPEM, err := os.ReadFile(certPaths.PgBackrestCertFile)
+		require.NoError(t, err, "failed to read pgbackrest certificate")
 
-		block, _ := pem.Decode(serverCertPEM)
-		require.NotNil(t, block, "failed to decode server certificate PEM")
+		block, _ := pem.Decode(pgBackrestCertPEM)
+		require.NotNil(t, block, "failed to decode pgbackrest certificate PEM")
 		assert.Equal(t, "CERTIFICATE", block.Type)
 
-		serverCert, err := x509.ParseCertificate(block.Bytes)
-		require.NoError(t, err, "failed to parse server certificate")
+		pgBackrestCert, err := x509.ParseCertificate(block.Bytes)
+		require.NoError(t, err, "failed to parse pgbackrest certificate")
 
 		// Verify it's RSA (not ECDSA)
-		serverPublicKey, ok := serverCert.PublicKey.(*rsa.PublicKey)
-		require.True(t, ok, "server certificate should use RSA key, not ECDSA")
+		pgBackrestPublicKey, ok := pgBackrestCert.PublicKey.(*rsa.PublicKey)
+		require.True(t, ok, "pgbackrest certificate should use RSA key, not ECDSA")
 
-		// Verify server key size is 2048 bits
-		assert.Equal(t, 2048, serverPublicKey.N.BitLen(), "server RSA key should be 2048 bits")
+		// Verify pgbackrest key size is 2048 bits
+		assert.Equal(t, 2048, pgBackrestPublicKey.N.BitLen(), "pgbackrest RSA key should be 2048 bits")
 
-		// Verify server certificate properties
-		assert.False(t, serverCert.IsCA, "server certificate should not be marked as CA")
-		assert.Equal(t, "pgbackrest", serverCert.Subject.CommonName)
+		// Verify pgbackrest certificate properties
+		assert.False(t, pgBackrestCert.IsCA, "pgbackrest certificate should not be marked as CA")
+		assert.Equal(t, "pgbackrest", pgBackrestCert.Subject.CommonName)
 
 		// Verify SANs (Subject Alternative Names)
-		assert.Contains(t, serverCert.DNSNames, "localhost", "server cert should have localhost in SANs")
-		assert.Contains(t, serverCert.DNSNames, "pgbackrest", "server cert should have pgbackrest in SANs")
+		assert.Contains(t, pgBackrestCert.DNSNames, "localhost", "pgbackrest cert should have localhost in SANs")
+		assert.Contains(t, pgBackrestCert.DNSNames, "pgbackrest", "pgbackrest cert should have pgbackrest in SANs")
 
 		// Verify key usage
-		assert.Equal(t, x509.KeyUsageDigitalSignature|x509.KeyUsageKeyEncipherment, serverCert.KeyUsage)
-		assert.Contains(t, serverCert.ExtKeyUsage, x509.ExtKeyUsageServerAuth)
+		assert.Equal(t, x509.KeyUsageDigitalSignature|x509.KeyUsageKeyEncipherment, pgBackrestCert.KeyUsage)
+		assert.Contains(t, pgBackrestCert.ExtKeyUsage, x509.ExtKeyUsageServerAuth)
 	})
 
 	// Test server private key
