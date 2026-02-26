@@ -67,11 +67,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
 	execute := func(stmt ast.Stmt) error {
-		// Use stmt.SqlString() for directive parsing — AST-reconstructed SQL strips comments,
-		// so directives are intentionally not supported in multi-statement batches.
-		stmtSQL := stmt.SqlString()
 		return h.executeWithTimeout(ctx, state, stmt, func(ctx context.Context) error {
-			return h.executor.StreamExecute(ctx, conn, state, stmtSQL, stmt, callback)
+			return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt, callback)
 		})
 	}
 	// silentExecute runs a statement without sending results to the client.
@@ -165,9 +162,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		// CommandComplete message — that waits for the commit outcome.
 		var execErr error
 		if i == len(stmts)-1 && isImplicitTx {
-			stmtSQL := stmt.SqlString()
 			execErr = h.executeWithTimeout(ctx, state, stmt, func(ctx context.Context) error {
-				return h.executor.StreamExecute(ctx, conn, state, stmtSQL, stmt,
+				return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
 					func(ctx context.Context, result *sqltypes.Result) error {
 						if result.CommandTag != "" {
 							// Hold the CommandTag — we'll send it after a successful commit,
