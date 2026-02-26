@@ -27,6 +27,10 @@ echo "Installing PostgreSQL..."
 sudo apt-get update
 sudo apt-get install -y postgresql postgresql-contrib postgresql-client-common postgresql-common
 
+# Check status of clusters
+echo "PostgreSQL clusters running..."
+pg_lsclusters
+
 # Set up postgres user password for tests
 echo "Configuring PostgreSQL authentication..."
 sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';" || true

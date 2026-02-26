@@ -417,7 +417,6 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_init_test")
 		defer cleanup()
 
-		// Init is now pure initdb (no temporary PostgreSQL start needed), so mock binaries suffice.
 		binDir := filepath.Join(baseDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
