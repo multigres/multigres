@@ -148,35 +148,35 @@ display format.
 
 ## Error Behavior
 
-| Cause                   | SQLSTATE | Message                                           |
-|-------------------------|----------|---------------------------------------------------|
-| Query timeout exceeded  | `57014`  | `canceling statement due to statement timeout`    |
-| Client cancelled        | `57014`  | `canceling statement due to user request`         |
-| Invalid SET value       | `22023`  | `invalid value for parameter "statement_timeout"` |
-| Negative SET value      | `22023`  | `<value> is outside the valid range ...`          |
+| Cause                  | SQLSTATE | Message                                           |
+| ---------------------- | -------- | ------------------------------------------------- |
+| Query timeout exceeded | `57014`  | `canceling statement due to statement timeout`    |
+| Client cancelled       | `57014`  | `canceling statement due to user request`         |
+| Invalid SET value      | `22023`  | `invalid value for parameter "statement_timeout"` |
+| Negative SET value     | `22023`  | `<value> is outside the valid range ...`          |
 
 ## File Organization
 
-| File                                | Role                                           |
-|-------------------------------------|-------------------------------------------------|
-| `handler/handler.go`               | `executeWithTimeout`, `getConnectionState` init |
-| `handler/statement_timeout.go`     | `ResolveStatementTimeout`, `ParsePostgresInterval`, `ParseStatementTimeoutDirective` (stub) |
-| `handler/connection_state.go`      | `GatewayManagedVariable` storage, `Set`/`Reset`/`Get`/`Show`/`Init` methods |
-| `handler/gateway_managed_variable.go` | Generic `GatewayManagedVariable[T]` type     |
-| `planner/variable_set_stmt.go`     | `isGatewayManagedVariable`, `planGatewayManagedVariable` |
-| `planner/variable_show_stmt.go`    | Gateway-managed SHOW interception               |
-| `engine/gateway_session_state.go`  | `GatewaySessionState` SET/RESET primitive       |
-| `engine/gateway_show_variable.go`  | `GatewayShowVariable` SHOW primitive            |
-| `engine/apply_session_state.go`    | RESET ALL support for gateway-managed vars      |
-| `init.go`                          | `--statement-timeout` flag registration          |
+| File                                  | Role                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `handler/handler.go`                  | `executeWithTimeout`, `getConnectionState` init                                             |
+| `handler/statement_timeout.go`        | `ResolveStatementTimeout`, `ParsePostgresInterval`, `ParseStatementTimeoutDirective` (stub) |
+| `handler/connection_state.go`         | `GatewayManagedVariable` storage, `Set`/`Reset`/`Get`/`Show`/`Init` methods                 |
+| `handler/gateway_managed_variable.go` | Generic `GatewayManagedVariable[T]` type                                                    |
+| `planner/variable_set_stmt.go`        | `isGatewayManagedVariable`, `planGatewayManagedVariable`                                    |
+| `planner/variable_show_stmt.go`       | Gateway-managed SHOW interception                                                           |
+| `engine/gateway_session_state.go`     | `GatewaySessionState` SET/RESET primitive                                                   |
+| `engine/gateway_show_variable.go`     | `GatewayShowVariable` SHOW primitive                                                        |
+| `engine/apply_session_state.go`       | RESET ALL support for gateway-managed vars                                                  |
+| `init.go`                             | `--statement-timeout` flag registration                                                     |
 
 ## Test Coverage
 
-| File                                          | Covers                                    |
-|-----------------------------------------------|-------------------------------------------|
-| `handler/statement_timeout_test.go`           | `ResolveStatementTimeout`, `ParsePostgresInterval`, `GatewayManagedVariable`, connection state |
-| `handler/handler_test.go`                     | `executeWithTimeout` integration with handler |
-| `test/endtoend/queryserving/statement_timeout_test.go` | Full e2e: SET/SHOW/RESET, timeout enforcement, startup params, error codes |
+| File                                                   | Covers                                                                                         |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `handler/statement_timeout_test.go`                    | `ResolveStatementTimeout`, `ParsePostgresInterval`, `GatewayManagedVariable`, connection state |
+| `handler/handler_test.go`                              | `executeWithTimeout` integration with handler                                                  |
+| `test/endtoend/queryserving/statement_timeout_test.go` | Full e2e: SET/SHOW/RESET, timeout enforcement, startup params, error codes                     |
 
 ## Future Work
 
