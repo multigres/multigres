@@ -54,11 +54,10 @@ func intToInt32(v int) (int32, error) {
 
 // PgCtldServerCmd holds the server command configuration
 type PgCtldServerCmd struct {
-	pgCtlCmd          *PgCtlCommand
-	grpcServer        *servenv.GrpcServer
-	senv              *servenv.ServEnv
-	pgbackrestPort    viperutil.Value[int]
-	pgbackrestCertDir viperutil.Value[string]
+	pgCtlCmd       *PgCtlCommand
+	grpcServer     *servenv.GrpcServer
+	senv           *servenv.ServEnv
+	pgbackrestPort viperutil.Value[int]
 }
 
 // AddServerCommand adds the server subcommand to the root command
@@ -70,11 +69,6 @@ func AddServerCommand(root *cobra.Command, pc *PgCtlCommand) {
 		pgbackrestPort: viperutil.Configure(pc.reg, "pgbackrest-port", viperutil.Options[int]{
 			Default:  0,
 			FlagName: "pgbackrest-port",
-			Dynamic:  false,
-		}),
-		pgbackrestCertDir: viperutil.Configure(pc.reg, "pgbackrest-cert-dir", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "pgbackrest-cert-dir",
 			Dynamic:  false,
 		}),
 	}
@@ -107,8 +101,7 @@ func (s *PgCtldServerCmd) createCommand() *cobra.Command {
 
 	// pgBackRest TLS server flags (server command only)
 	cmd.Flags().Int("pgbackrest-port", s.pgbackrestPort.Default(), "pgBackRest TLS server port")
-	cmd.Flags().String("pgbackrest-cert-dir", s.pgbackrestCertDir.Default(), "Directory containing ca.crt, pgbackrest.crt, pgbackrest.key")
-	viperutil.BindFlags(cmd.Flags(), s.pgbackrestPort, s.pgbackrestCertDir)
+	viperutil.BindFlags(cmd.Flags(), s.pgbackrestPort)
 
 	return cmd
 }
@@ -140,7 +133,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	// Create and register our service
 	poolerDir := s.pgCtlCmd.GetPoolerDir()
 	pgbackrestPort := s.pgbackrestPort.Get()
-	pgbackrestCertDir := s.pgbackrestCertDir.Get()
+	pgCertsDir := s.pgCtlCmd.pgCertsDir.Get()
 
 	pgctldService, err := NewPgCtldService(
 		logger,
@@ -151,7 +144,8 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		poolerDir,
 		s.pgCtlCmd.pgListenAddresses.Get(),
 		pgbackrestPort,
-		pgbackrestCertDir,
+		pgCertsDir,
+		s.pgCtlCmd.pgCtldUser.Get(),
 	)
 	if err != nil {
 		return err
@@ -214,6 +208,8 @@ type PgCtldService struct {
 	pgDatabase string
 	timeout    int
 	poolerDir  string
+	pgCtldUser string
+	pgCertsDir string // Directory containing all TLS certs; empty means no TLS
 	config     *pgctld.PostgresCtlConfig
 
 	// pgBackRest management
@@ -241,7 +237,8 @@ func NewPgCtldService(
 	poolerDir string,
 	listenAddresses string,
 	pgbackrestPort int,
-	pgbackrestCertDir string,
+	pgCertsDir string,
+	pgCtldUser string,
 ) (*PgCtldService, error) {
 	// Validate essential parameters for service creation
 	// Note: We don't validate postgresDataDir or postgresConfigFile existence here
@@ -276,16 +273,17 @@ func NewPgCtldService(
 		poolerDir,
 		listenAddresses,
 		pgctld.PostgresSocketDir(poolerDir),
+		pgCertsDir,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PostgreSQL config: %w", err)
 	}
 
 	// Generate pgbackrest-server.conf if pgbackrest port and cert dir provided
-	if pgbackrestPort > 0 && pgbackrestCertDir != "" {
+	if pgbackrestPort > 0 && pgCertsDir != "" {
 		configPath, err := backup.WriteServerConfig(backup.ServerConfigOpts{
 			PoolerDir:     poolerDir,
-			CertDir:       pgbackrestCertDir,
+			CertDir:       pgCertsDir,
 			Port:          pgbackrestPort,
 			Pg1Port:       pgPort,
 			Pg1SocketPath: pgctld.PostgresSocketDir(poolerDir),
@@ -307,6 +305,8 @@ func NewPgCtldService(
 		pgDatabase: pgDatabase,
 		timeout:    timeout,
 		poolerDir:  poolerDir,
+		pgCtldUser: pgCtldUser,
+		pgCertsDir: pgCertsDir,
 		config:     config,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -481,7 +481,7 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.logger, s.config)
+	result, err := StartPostgreSQLWithResult(s.logger, s.config, s.pgCtldUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -668,12 +668,6 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		}
 	}
 
-	// Resolve password using existing function
-	password, err := resolvePassword(s.poolerDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve password: %w", err)
-	}
-
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
 	// Include application_name if provided (used for replication identification)
 	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
@@ -683,7 +677,7 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}
 
 	// Use the shared rewind function with detailed result, passing password separately
-	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
+	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, req.GetDryRun(), req.GetExtraArgs())
 	if err != nil {
 		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
 		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)

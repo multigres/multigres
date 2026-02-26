@@ -318,7 +318,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			pgctld.PostgresConfigFile(baseDir),
 			baseDir,
 			"localhost",
-			pgctld.PostgresSocketDir(baseDir),
+			pgctld.PostgresSocketDir(baseDir), "",
 		)
 		require.NoError(t, err)
 
@@ -353,7 +353,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			pgctld.PostgresConfigFile(baseDir),
 			baseDir,
 			"localhost",
-			pgctld.PostgresSocketDir(baseDir),
+			pgctld.PostgresSocketDir(baseDir), "",
 		)
 		require.NoError(t, err)
 
@@ -393,7 +393,7 @@ func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
 			pgctld.PostgresConfigFile(baseDir),
 			baseDir,
 			"localhost",
-			pgctld.PostgresSocketDir(baseDir),
+			pgctld.PostgresSocketDir(baseDir), "",
 		)
 		require.NoError(t, err)
 

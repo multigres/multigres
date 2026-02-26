@@ -134,7 +134,7 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 }
 
 func (s *PgCtlStatusCmd) runStatus(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgListenAddresses.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgListenAddresses.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), "" /* pgCertsDir: not used by status */)
 	if err != nil {
 		return err
 	}

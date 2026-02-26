@@ -140,7 +140,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 		logger.Info("Starting PostgreSQL server")
 	}
 
-	startResult, err := StartPostgreSQLWithResult(logger, config)
+	startResult, err := StartPostgreSQLWithResult(logger, config, "")
 	if err != nil {
 		// Enhanced error logging for standby mode
 		if asStandby {
@@ -166,7 +166,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 }
 
 func (r *PgCtlRestartCmd) runRestart(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.GetPoolerDir(), r.pgCtlCmd.pgPort.Get(), r.pgCtlCmd.pgListenAddresses.Get(), r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(r.pgCtlCmd.GetPoolerDir(), r.pgCtlCmd.pgPort.Get(), r.pgCtlCmd.pgListenAddresses.Get(), r.pgCtlCmd.pgUser.Get(), r.pgCtlCmd.pgDatabase.Get(), r.pgCtlCmd.timeout.Get(), r.pgCtlCmd.pgCertsDir.Get())
 	if err != nil {
 		return err
 	}

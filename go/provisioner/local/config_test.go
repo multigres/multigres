@@ -299,11 +299,11 @@ local:
 func TestProvisionerConfig_PgBackRestUnderPgctld(t *testing.T) {
 	cfg := &CellServicesConfig{
 		Pgctld: PgctldConfig{
-			PgBackRestPort:    8443,
-			PgBackRestCertDir: "/certs/pgbackrest",
+			PgBackRestPort: 8443,
+			PgCertsDir:     "/certs/pgbackrest",
 		},
 	}
 
 	assert.Equal(t, 8443, cfg.Pgctld.PgBackRestPort)
-	assert.Equal(t, "/certs/pgbackrest", cfg.Pgctld.PgBackRestCertDir)
+	assert.Equal(t, "/certs/pgbackrest", cfg.Pgctld.PgCertsDir)
 }

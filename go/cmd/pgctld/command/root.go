@@ -41,10 +41,12 @@ type PgCtlCommand struct {
 	pgUser             viperutil.Value[string]
 	poolerDir          viperutil.Value[string]
 	timeout            viperutil.Value[int]
+	pgCtldUser         viperutil.Value[string]
 	pgPort             viperutil.Value[int]
 	pgListenAddresses  viperutil.Value[string]
 	pgHbaTemplate      viperutil.Value[string]
 	postgresConfigTmpl viperutil.Value[string]
+	pgCertsDir         viperutil.Value[string]
 
 	vc        *viperutil.ViperConfig
 	lg        *servenv.Logger
@@ -77,6 +79,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			FlagName: "pooler-dir",
 			Dynamic:  false,
 		}),
+		pgCtldUser: viperutil.Configure(reg, "pg-ctld-user", viperutil.Options[string]{
+			Default:  constants.DefaultMultigresUser,
+			FlagName: "pg-ctld-user",
+			EnvVars:  []string{"MULTIGRES_USER"},
+			Dynamic:  false,
+		}),
 		pgPort: viperutil.Configure(reg, "pg-port", viperutil.Options[int]{
 			Default:  5432,
 			FlagName: "pg-port",
@@ -95,6 +103,11 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		postgresConfigTmpl: viperutil.Configure(reg, "postgres-config-template", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "postgres-config-template",
+			Dynamic:  false,
+		}),
+		pgCertsDir: viperutil.Configure(reg, "pg-certs-dir", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-certs-dir",
 			Dynamic:  false,
 		}),
 		vc:        viperutil.NewViperConfig(reg),
@@ -143,6 +156,8 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
+	root.PersistentFlags().String("pg-ctld-user", pc.pgCtldUser.Default(), "PostgreSQL role used by pgctld for internal operations (overrides MULTIGRES_USER env var)")
+	root.PersistentFlags().String("pg-certs-dir", pc.pgCertsDir.Default(), "Directory containing TLS certificates (ca.crt, pgbackrest.crt/key, server.crt/key, <controller>.crt/key)")
 
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
@@ -156,6 +171,8 @@ management for PostgreSQL servers.`,
 		pc.pgListenAddresses,
 		pc.pgHbaTemplate,
 		pc.postgresConfigTmpl,
+		pc.pgCtldUser,
+		pc.pgCertsDir,
 	)
 
 	// Add all subcommands

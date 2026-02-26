@@ -32,6 +32,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/tools/grpccommon"
@@ -219,6 +220,7 @@ func createTestGRPCServerWithPgBackRest(t *testing.T, setup *TestSetup) (net.Lis
 		"localhost",
 		setup.PgBackRestPort,
 		setup.CertDir,
+		constants.DefaultMultigresUser,
 	)
 	require.NoError(t, err)
 

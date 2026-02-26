@@ -18,12 +18,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/provisioner/local"
 )
 
-// generatePgBackRestCerts creates TLS certificates for pgBackRest server.
-// Returns the certificate paths.
-// Uses the public function from go/provisioner/local package.
+// generatePgBackRestCerts creates TLS certificates for pgBackRest and PostgreSQL.
+// Mirrors what the production provisioner does in generatePgBackRestCertsOnce:
+// both GeneratePgBackRestCerts and GeneratePgCerts are called so the shared CA
+// covers pgBackRest, the PostgreSQL server, and the pgctld client role.
 func (s *ShardSetup) generatePgBackRestCerts(t *testing.T) *local.PgBackRestCertPaths {
 	t.Helper()
 
@@ -33,7 +35,13 @@ func (s *ShardSetup) generatePgBackRestCerts(t *testing.T) *local.PgBackRestCert
 		t.Fatalf("failed to generate pgBackRest certificates: %v", err)
 	}
 
-	t.Logf("Generated pgBackRest certificates in %s", certDir)
+	// Generate PostgreSQL server SSL certs (server.crt/key) and the pgctld client
+	// cert into the same directory so PostgreSQL can start with ssl=on.
+	if err := local.GeneratePgCerts(certDir, constants.DefaultMultigresUser); err != nil {
+		t.Fatalf("failed to generate PostgreSQL SSL certificates: %v", err)
+	}
+
+	t.Logf("Generated pgBackRest and PostgreSQL SSL certificates in %s", certDir)
 
 	return certPaths
 }

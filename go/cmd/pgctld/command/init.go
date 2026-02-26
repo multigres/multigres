@@ -17,9 +17,7 @@ package command
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -58,9 +56,6 @@ start the PostgreSQL server. Configuration can be provided via config file,
 environment variables, or CLI flags. CLI flags take precedence over config
 file and environment variable settings.
 
-Password can be set via PGPASSWORD environment variable or by placing a
-password file at <pooler-dir>/pgpassword.txt.
-
 Examples:
   # Initialize data directory
   pgctld init --pooler-dir /var/lib/pooler-dir
@@ -79,7 +74,8 @@ Examples:
 	return cmd
 }
 
-// InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information
+// InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information.
+// The internal pgctld role is created later during the first pgctld start.
 func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string) (*InitResult, error) {
 	result := &InitResult{}
 	dataDir := pgctld.PostgresDataDir(poolerDir)
@@ -129,56 +125,12 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 	// Derive dataDir from poolerDir using the standard convention
 	dataDir := pgctld.PostgresDataDir(poolerDir)
 
-	// Note: initdb will create the data directory itself if it doesn't exist.
-	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
-
-	// Get the effective password and validate it
-	effectivePassword, err := resolvePassword(poolerDir)
-	if err != nil {
-		return fmt.Errorf("failed to resolve password: %w", err)
-	}
-
-	// Determine password source for logging
-	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
-	passwordSource := "default"
-	if _, err := os.Stat(pwfile); err == nil {
-		passwordSource = "password file"
-	} else if os.Getenv("PGPASSWORD") != "" {
-		passwordSource = "PGPASSWORD environment variable"
-	}
-
 	// Build initdb command
 	// It's generally a good idea to enable page data checksums. Furthermore,
 	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
 	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", pgUser}
-
-	// If password is provided, create a temporary password file for initdb
-	var tempPwFile string
-	if effectivePassword != "" {
-		// Create temporary password file
-		tmpFile, err := os.CreateTemp("", "pgpassword-*.txt")
-		if err != nil {
-			return fmt.Errorf("failed to create temporary password file: %w", err)
-		}
-		tempPwFile = tmpFile.Name()
-		defer os.Remove(tempPwFile)
-
-		if _, err := tmpFile.WriteString(effectivePassword); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("failed to write password to temporary file: %w", err)
-		}
-		if err := tmpFile.Close(); err != nil {
-			return fmt.Errorf("failed to close temporary password file: %w", err)
-		}
-
-		// Add pwfile argument to initdb
-		args = append(args, "--pwfile="+tempPwFile)
-		logger.Info("Setting password during initdb", "user", pgUser, "password_source", passwordSource)
-	} else {
-		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
-	}
 
 	cmd := exec.Command("initdb", args...)
 
@@ -188,10 +140,6 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
-
-	if effectivePassword != "" {
-		logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
-	}
 
 	return nil
 }

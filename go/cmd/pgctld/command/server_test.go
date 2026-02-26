@@ -136,7 +136,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 			require.NoError(t, err)
 
 			resp, err := service.Start(context.Background(), tt.request)
@@ -160,7 +160,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 
 func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
 	t.Run("missing pooler-dir", func(t *testing.T) {
-		_, err := NewPgCtldService(testLogger(), 0, "", "", 0, "", "", 0, "")
+		_, err := NewPgCtldService(testLogger(), 0, "", "", 0, "", "", 0, "", "multigres")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
 	})
@@ -225,7 +225,7 @@ func TestPgCtldServiceStop(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 			require.NoError(t, err)
 
 			resp, err := service.Stop(context.Background(), tt.request)
@@ -290,7 +290,7 @@ func TestPgCtldServiceStatus(t *testing.T) {
 
 			_ = tt.setupDataDir(baseDir)
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 			require.NoError(t, err)
 
 			resp, err := service.Status(context.Background(), tt.request)
@@ -319,7 +319,7 @@ func TestPgCtldServiceRestart(t *testing.T) {
 
 		poolerDir := baseDir
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 		require.NoError(t, err)
 
 		request := &pb.RestartRequest{
@@ -351,7 +351,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 		testutil.CreatePIDFile(t, dataDir, 12345)
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -372,7 +372,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -395,7 +395,7 @@ func TestPgCtldServiceVersion(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 		require.NoError(t, err)
 
 		request := &pb.VersionRequest{
@@ -417,13 +417,14 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_grpc_init_test")
 		defer cleanup()
 
+		// Init is now pure initdb (no temporary PostgreSQL start needed), so mock binaries suffice.
 		binDir := filepath.Join(baseDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0o755))
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{
@@ -445,7 +446,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		_ = testutil.CreateDataDir(t, baseDir, true)
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", "multigres")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{}
@@ -492,7 +493,7 @@ func TestGetPoolerDir(t *testing.T) {
 func TestPgCtldService_PgBackRestFields(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, t.TempDir(), "localhost", 0, "")
+	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, t.TempDir(), "localhost", 0, "", "multigres")
 	require.NoError(t, err)
 
 	// Verify service has pgBackRest management fields
@@ -502,7 +503,7 @@ func TestPgCtldService_PgBackRestFields(t *testing.T) {
 
 func TestPgCtldService_StatusMethods(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, t.TempDir(), "localhost", 0, "")
+	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, t.TempDir(), "localhost", 0, "", "multigres")
 	require.NoError(t, err)
 	defer service.Close()
 
@@ -530,7 +531,7 @@ func TestPgCtldService_StartPgBackRest_ValidationErrors(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "")
+	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "", "multigres")
 	require.NoError(t, err)
 	defer service.Close()
 
@@ -544,7 +545,7 @@ func TestPgCtldService_ManagePgBackRest_Lifecycle(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "")
+	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "", "multigres")
 	require.NoError(t, err)
 
 	// Create minimal config to prevent immediate failure
@@ -575,7 +576,7 @@ func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "")
+	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "", "multigres")
 	require.NoError(t, err)
 	defer service.Close()
 

@@ -273,7 +273,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 
 		serverArgs = append(serverArgs,
 			"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
-			"--pgbackrest-cert-dir", p.certDir(),
+			"--pg-certs-dir", p.certDir(),
 		)
 	}
 

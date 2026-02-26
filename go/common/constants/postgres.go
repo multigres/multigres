@@ -22,6 +22,11 @@ const (
 	// This is the administrative user that owns the database cluster.
 	DefaultPostgresUser = "postgres"
 
+	// DefaultMultigresUser is the dedicated PostgreSQL role used by pgctld for all internal operations.
+	// It authenticates locally via peer auth (Unix socket, no password) and remotely via certificate
+	// auth (mutual TLS, CN=multigres). It has SUPERUSER privileges.
+	DefaultMultigresUser = "multigres"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"

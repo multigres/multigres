@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
 )
 
@@ -28,7 +27,7 @@ type PgRewindResult struct {
 	Output  string
 }
 
-func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sourceServer, password string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
+func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sourceServer string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
 	result := &PgRewindResult{}
 
 	args := []string{
@@ -48,12 +47,6 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 		"dry_run", dryRun)
 
 	cmd := exec.CommandContext(ctx, "pg_rewind", args...)
-
-	// Set PGPASSWORD environment variable for pg_rewind to use
-	// pg_rewind doesn't reliably use passwords from connection strings
-	if password != "" {
-		cmd.Env = append(os.Environ(), "PGPASSWORD="+password)
-	}
 
 	// Capture both Stdout and Stderr
 	output, err := cmd.CombinedOutput()

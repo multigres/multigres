@@ -62,3 +62,34 @@ func GeneratePgBackRestCerts(certDir string) (*PgBackRestCertPaths, error) {
 		ServerKeyFile:  keyFile,
 	}, nil
 }
+
+// GeneratePgCerts generates PostgreSQL SSL server and client certificates into certDir.
+// Must be called after GeneratePgBackRestCerts, as it reuses the same CA (ca.crt / ca.key).
+// Creates:
+//   - server.crt / server.key  — PostgreSQL server SSL certificate (SAN=localhost)
+//   - <pgCtldUser>.crt / <pgCtldUser>.key — client certificate (CN=pgCtldUser)
+//
+// The client certificate CN must exactly match the PostgreSQL role name for
+// cert authentication (clientcert=verify-full) to succeed.
+func GeneratePgCerts(certDir string, pgCtldUser string) error {
+	caCertFile := filepath.Join(certDir, "ca.crt")
+	caKeyFile := filepath.Join(certDir, "ca.key")
+
+	// PostgreSQL server SSL certificate
+	if err := generateCert(caCertFile, caKeyFile,
+		filepath.Join(certDir, "server.crt"),
+		filepath.Join(certDir, "server.key"),
+		"postgres-server", []string{"localhost"}); err != nil {
+		return fmt.Errorf("failed to generate PG server cert: %w", err)
+	}
+
+	// Client certificate for the controller role (CN must match role name for cert auth)
+	if err := generateCert(caCertFile, caKeyFile,
+		filepath.Join(certDir, pgCtldUser+".crt"),
+		filepath.Join(certDir, pgCtldUser+".key"),
+		pgCtldUser, []string{}); err != nil {
+		return fmt.Errorf("failed to generate %s client cert: %w", pgCtldUser, err)
+	}
+
+	return nil
+}

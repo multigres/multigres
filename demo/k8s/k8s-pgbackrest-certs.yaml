@@ -67,3 +67,52 @@ spec:
   issuerRef:
     name: multigres-ca-issuer
     kind: Issuer
+---
+# PostgreSQL server SSL certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pg-server-cert
+  namespace: default
+spec:
+  secretName: pg-server-tls
+  duration: 87600h # 10 years
+  renewBefore: 720h # Renew 30 days before expiry
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  dnsNames:
+    - "*.multipooler-zone1.default.svc.cluster.local"
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  issuerRef:
+    name: multigres-ca-issuer
+    kind: Issuer
+---
+# PostgreSQL client certificate for the multigres internal role.
+# CN must exactly match the PostgreSQL role name for cert auth (clientcert=verify-full).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pg-client-cert
+  namespace: default
+spec:
+  secretName: pg-client-tls
+  duration: 87600h # 10 years
+  renewBefore: 720h # Renew 30 days before expiry
+  commonName: multigres
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth
+  issuerRef:
+    name: multigres-ca-issuer
+    kind: Issuer

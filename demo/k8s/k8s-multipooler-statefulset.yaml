@@ -32,6 +32,11 @@ data:
     host    replication     all             0.0.0.0/0               trust
     host    replication     all             ::0/0                   trust
 
+    # Remote connections: certificate authentication for Multigres internal user
+    # Used by pg_rewind --source-server (normal DB connection, not replication protocol)
+    hostssl all             multigres       0.0.0.0/0               cert clientcert=verify-full
+    hostssl all             multigres       ::0/0                   cert clientcert=verify-full
+
     # IPv4 local connections:
     host    all     all             0.0.0.0/0                       trust
     host    all     all             ::0/0                           trust
@@ -96,11 +101,19 @@ spec:
               cp /certs-secret/ca.crt /certs/ca.crt
               cp /certs-secret/tls.crt /certs/pgbackrest.crt
               cp /certs-secret/tls.key /certs/pgbackrest.key
+              cp /pg-server-secret/tls.crt /certs/server.crt
+              cp /pg-server-secret/tls.key /certs/server.key
+              cp /pg-client-secret/tls.crt /certs/multigres.crt
+              cp /pg-client-secret/tls.key /certs/multigres.key
               chmod 600 /certs/*.key
               chmod 644 /certs/*.crt
           volumeMounts:
             - name: certs-secret
               mountPath: /certs-secret
+            - name: pg-server-secret
+              mountPath: /pg-server-secret
+            - name: pg-client-secret
+              mountPath: /pg-client-secret
             - name: certs
               mountPath: /certs
       containers:
@@ -186,7 +199,7 @@ spec:
             - --grpc-socket-file=/data/pgctld.sock
             - --pg-hba-template=/etc/pgctld/pg_hba_template.conf
             - --pgbackrest-port=8432
-            - --pgbackrest-cert-dir=/certs
+            - --pg-certs-dir=/certs
             - --pprof-http=true
           ports:
             - containerPort: 16200
@@ -224,9 +237,15 @@ spec:
         - name: certs-secret
           secret:
             secretName: pgbackrest-tls
+        - name: pg-server-secret
+          secret:
+            secretName: pg-server-tls
+        - name: pg-client-secret
+          secret:
+            secretName: pg-client-tls
         - name: certs
           hostPath:
-            path: /data/certs
+            path: /root/certs
             type: DirectoryOrCreate
         - name: backup-data
           hostPath:

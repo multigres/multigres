@@ -85,6 +85,8 @@ echo "Creating pgBackRest TLS certificates..."
 kubectl apply -f k8s-pgbackrest-certs.yaml
 kubectl wait --for=condition=ready certificate/multigres-ca --timeout=120s
 kubectl wait --for=condition=ready certificate/pgbackrest-cert --timeout=120s
+kubectl wait --for=condition=ready certificate/pg-server-cert --timeout=120s
+kubectl wait --for=condition=ready certificate/pg-client-cert --timeout=120s
 
 # Make sure the cluster metadata job is complete before proceeding
 kubectl wait --for=condition=complete job/createclustermetadata --timeout=120s

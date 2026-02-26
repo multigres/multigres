@@ -28,10 +28,10 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
-	"github.com/multigres/multigres/go/tools/grpccommon"
-
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
 // TestGRPCServerIntegration tests the gRPC server with mock PostgreSQL
@@ -429,8 +429,9 @@ func TestGRPCPortableConfig(t *testing.T) {
 			30,
 			dataDir,
 			"localhost",
-			0,  // pgbackrestPort
-			"", // pgbackrestCertDir
+			0,                              // pgbackrestPort
+			"",                             // pgCertsDir
+			constants.DefaultMultigresUser, // pgCtldUser
 		)
 		require.NoError(t, err)
 
@@ -454,8 +455,9 @@ func TestGRPCPortableConfig(t *testing.T) {
 			30,
 			dataDir,
 			"localhost",
-			0,  // pgbackrestPort
-			"", // pgbackrestCertDir
+			0,                              // pgbackrestPort
+			"",                             // pgCertsDir
+			constants.DefaultMultigresUser, // pgCtldUser
 		)
 		require.NoError(t, err)
 		assert.NotNil(t, service2, "Should be able to create service with different port for portability")
@@ -483,8 +485,9 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 		30,
 		dataDir,
 		"localhost",
-		0,  // pgbackrestPort
-		"", // pgbackrestCertDir
+		0,                              // pgbackrestPort
+		"",                             // pgCertsDir
+		constants.DefaultMultigresUser, // pgCtldUser
 	)
 
 	require.NoError(t, err)

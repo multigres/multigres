@@ -42,6 +42,6 @@ func TestPgBackRestFlags(t *testing.T) {
 	portFlag := serverCmd.Flags().Lookup("pgbackrest-port")
 	assert.NotNil(t, portFlag, "pgbackrest-port flag should be registered on server command")
 
-	certDirFlag := serverCmd.Flags().Lookup("pgbackrest-cert-dir")
-	assert.NotNil(t, certDirFlag, "pgbackrest-cert-dir flag should be registered on server command")
+	certDirFlag := serverCmd.Flags().Lookup("pg-certs-dir")
+	assert.NotNil(t, certDirFlag, "pg-certs-dir flag should be registered on server command")
 }

@@ -89,8 +89,13 @@ timeout: 30
 	require.NoError(t, err)
 
 	t.Run("basic_commands_with_real_postgresql", func(t *testing.T) {
+		// Get a free port to write into postgresql.conf via pgctld init.
+		// init no longer starts PostgreSQL, but --pg-port is still required.
+		pgPort := utils.GetFreePort(t)
+		t.Logf("End-to-end test using port: %d", pgPort)
+
 		// Step 1: Initialize the database first
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
+		initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(pgPort), "--config-file", pgctldConfigFile)
 		setupTestEnv(initCmd)
 		initOutput, err := initCmd.CombinedOutput()
 		if err != nil {
@@ -486,7 +491,10 @@ timeout: 30
 	require.NoError(t, err)
 }
 
-// TestPostgreSQLAuthentication tests PostgreSQL authentication with PGPASSWORD
+// TestPostgreSQLAuthentication tests PostgreSQL authentication after pgctld init.
+// The init command no longer sets passwords for the postgres user; authentication
+// is via Unix socket trust (local) or certificate (remote for internal roles).
+// These tests verify that the expected roles exist and are accessible via socket.
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping authentication tests in short mode")
@@ -497,116 +505,53 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		t.Fatal("PostgreSQL binaries not found, skipping authentication test")
 	}
 
-	t.Run("pgpassword_authentication", func(t *testing.T) {
+	t.Run("socket_authentication", func(t *testing.T) {
 		// Set up temporary directory
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_auth_test")
 		defer cleanup()
 
 		t.Logf("Base directory: %s", baseDir)
-		t.Logf("Base directory is absolute: %v", filepath.IsAbs(baseDir))
-
-		// Use cached pgctld binary for testing
 
 		// Get available port for PostgreSQL
 		port := utils.GetFreePort(t)
 		t.Logf("Authentication test using port: %d", port)
 
-		// Test password
-		testPassword := "secure_test_password_123"
-
-		// Initialize with PGPASSWORD
-		t.Logf("Initializing PostgreSQL with PGPASSWORD")
+		// Initialize
+		t.Logf("Initializing PostgreSQL")
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-
-		initCmd.Env = append(os.Environ(),
-			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
-		)
+		setupTestEnv(initCmd)
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"PGPASSWORD environment variable\"", "Should use PGPASSWORD")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		startCmd.Env = append(os.Environ(),
-			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
-		)
+		setupTestEnv(startCmd)
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
 
 		// Give the server a moment to be fully ready
 		time.Sleep(2 * time.Second)
 
-		// Test socket connection (should work without password)
-		t.Logf("Testing Unix socket connection (no password required)")
 		socketDir := filepath.Join(baseDir, "pg_sockets")
 		t.Logf("Socket directory path: %s", socketDir)
-		t.Logf("Socket directory absolute path: %s", filepath.Join(socketDir))
 
+		// Test socket connection as postgres (trust auth via --auth-local=trust)
+		t.Logf("Testing Unix socket connection as postgres user")
 		socketCmd := exec.Command("psql",
 			"-h", socketDir,
-			"-p", strconv.Itoa(port), // Need to specify port even for socket connections
+			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
 			"-c", "SELECT current_user, current_database();",
 		)
-		t.Logf("psql command: %v", socketCmd.Args)
+		setupTestEnv(socketCmd)
 		output, err = socketCmd.CombinedOutput()
 		require.NoError(t, err, "Socket connection should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "Should connect as postgres user")
 
-		// Get the actual port from the status output
-		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", baseDir)
-		statusOutput, err := statusCmd.CombinedOutput()
-		require.NoError(t, err, "pgctld status should succeed")
-		t.Logf("Status output: %s", string(statusOutput))
-
-		// Test TCP connection with correct password
-		t.Logf("Testing TCP connection with correct password")
-		tcpCmd := exec.Command("psql",
-			"-h", "localhost",
-			"-p", strconv.Itoa(port), // Use the same port that was configured
-			"-U", "postgres",
-			"-d", "postgres",
-			"-c", "SELECT current_user, current_database();",
-		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
-		output, err = tcpCmd.CombinedOutput()
-		require.NoError(t, err, "TCP connection with correct password should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "postgres", "Should connect as postgres user")
-
-		// Test TCP connection with wrong password (should fail)
-		t.Logf("Testing TCP connection with wrong password")
-		wrongPasswordCmd := exec.Command("psql",
-			"-h", "localhost",
-			"-p", strconv.Itoa(port),
-			"-U", "postgres",
-			"-d", "postgres",
-			"-c", "SELECT 1;",
-		)
-		wrongPasswordCmd.Env = append(os.Environ(), "PGPASSWORD=wrong_password")
-		output, err = wrongPasswordCmd.CombinedOutput()
-		assert.Error(t, err, "TCP connection with wrong password should fail")
-		assert.Contains(t, string(output), "password authentication failed", "Should fail with authentication error")
-
-		// Verify role and database exist via socket connection
-		t.Logf("Verifying postgres role and database exist")
-
-		// Check that postgres role exists
-		roleCheckCmd := exec.Command("psql",
-			"-h", socketDir,
-			"-p", strconv.Itoa(port),
-			"-U", "postgres",
-			"-d", "postgres",
-			"-t", "-c", "SELECT rolname FROM pg_roles WHERE rolname = 'postgres';",
-		)
-		output, err = roleCheckCmd.CombinedOutput()
-		require.NoError(t, err, "Role check should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "postgres", "postgres role should exist")
-
-		// Check that postgres database exists
+		// Verify the postgres database exists
+		t.Logf("Verifying postgres database exists")
 		dbCheckCmd := exec.Command("psql",
 			"-h", socketDir,
 			"-p", strconv.Itoa(port),
@@ -614,11 +559,13 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-t", "-c", "SELECT datname FROM pg_database WHERE datname = 'postgres';",
 		)
+		setupTestEnv(dbCheckCmd)
 		output, err = dbCheckCmd.CombinedOutput()
 		require.NoError(t, err, "Database check should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "postgres", "postgres database should exist")
 
-		// Check role privileges
+		// Check postgres role has superuser privileges
+		t.Logf("Verifying postgres role has superuser privileges")
 		privilegeCheckCmd := exec.Command("psql",
 			"-h", socketDir,
 			"-p", strconv.Itoa(port),
@@ -626,108 +573,32 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"-d", "postgres",
 			"-t", "-c", "SELECT rolsuper FROM pg_roles WHERE rolname = 'postgres';",
 		)
+		setupTestEnv(privilegeCheckCmd)
 		output, err = privilegeCheckCmd.CombinedOutput()
 		require.NoError(t, err, "Privilege check should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "t", "postgres role should have superuser privileges")
 
-		// Clean shutdown
-		t.Logf("Shutting down PostgreSQL")
-		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
-		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
-		err = stopCmd.Run()
-		require.NoError(t, err, "pgctld stop should succeed")
-	})
-
-	t.Run("password_file_authentication", func(t *testing.T) {
-		// Set up temporary directory
-		baseDir, cleanup := testutil.TempDir(t, "pgctld_pwfile_test")
-		defer cleanup()
-
-		// Use cached pgctld binary for testing
-
-		// Get available port for PostgreSQL
-		port := utils.GetFreePort(t)
-		t.Logf("Password file test using port: %d", port)
-
-		// Test password
-		testPassword := "file_password_secure_456"
-
-		// Create password file at conventional location (poolerDir/pgpassword.txt)
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte(testPassword), 0o600)
-		require.NoError(t, err, "Should create password file")
-
-		// Build environment without PGPASSWORD to avoid conflicts with password file
-		cleanEnv := make([]string, 0, len(os.Environ()))
-		for _, env := range os.Environ() {
-			if !strings.HasPrefix(env, "PGPASSWORD=") {
-				cleanEnv = append(cleanEnv, env)
-			}
-		}
-		cleanEnv = append(cleanEnv, "PGCONNECT_TIMEOUT=5")
-
-		// Initialize - pgctld will find password file at conventional location
-		t.Logf("Initializing PostgreSQL with password file at conventional location")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		initCmd.Env = cleanEnv
-		output, err := initCmd.CombinedOutput()
-		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"password file\"", "Should use password file")
-
-		// Start the PostgreSQL server
-		t.Logf("Starting PostgreSQL server")
-		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		startCmd.Env = cleanEnv
-		output, err = startCmd.CombinedOutput()
-		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
-
-		// Give the server a moment to be fully ready
-		time.Sleep(2 * time.Second)
-
-		// Test TCP connection with password from file
-		t.Logf("Testing TCP connection with password from file")
-		tcpCmd := exec.Command("psql",
-			"-h", "localhost",
+		// Verify the internal multigres role was created by pgctld start
+		t.Logf("Verifying multigres internal role exists")
+		roleCheckCmd := exec.Command("psql",
+			"-h", socketDir,
 			"-p", strconv.Itoa(port),
 			"-U", "postgres",
 			"-d", "postgres",
-			"-c", "SELECT 'Password file authentication works!' as result;",
+			"-t", "-c", "SELECT rolname, rolsuper FROM pg_roles WHERE rolname = 'multigres';",
 		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
-		output, err = tcpCmd.CombinedOutput()
-		require.NoError(t, err, "TCP connection with password from file should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "Password file authentication works!", "Should connect successfully")
+		setupTestEnv(roleCheckCmd)
+		output, err = roleCheckCmd.CombinedOutput()
+		require.NoError(t, err, "Role check should succeed, output: %s", string(output))
+		assert.Contains(t, string(output), "multigres", "multigres role should exist")
+		assert.Contains(t, string(output), "t", "multigres role should have superuser privileges")
 
 		// Clean shutdown
 		t.Logf("Shutting down PostgreSQL")
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
-		stopCmd.Env = cleanEnv
+		setupTestEnv(stopCmd)
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")
-	})
-
-	t.Run("password_source_conflict", func(t *testing.T) {
-		// Set up temporary directory
-		baseDir, cleanup := testutil.TempDir(t, "pgctld_conflict_test")
-		defer cleanup()
-
-		// Use cached pgctld binary for testing
-
-		// Create password file at conventional location
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte("file_password"), 0o600)
-		require.NoError(t, err, "Should create password file")
-
-		// Try to initialize with both PGPASSWORD and password file at conventional location (should fail)
-		t.Logf("Testing conflict between PGPASSWORD and password file")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir)
-		initCmd.Env = append(os.Environ(),
-			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD=env_password",
-		)
-		output, err := initCmd.CombinedOutput()
-		assert.Error(t, err, "pgctld init should fail with both password sources")
-		assert.Contains(t, string(output), "both password file", "Should show conflict error")
 	})
 }
 
@@ -1179,10 +1050,10 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	// Wait for orphan detection to stop postgres
 	time.Sleep(2 * time.Second)
 
-	// Verify postgres is stopped
+	// Verify postgres is stopped (Signal(0) returns an error when the process no longer exists)
 	require.Eventually(t, func() bool {
 		err = pgProcess.Signal(syscall.Signal(0))
-		return err == nil
+		return err != nil
 	}, 5*time.Second, 100*time.Millisecond)
 }
 

@@ -200,8 +200,8 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	pgbackrestPort := utils.GetFreePort(t)
 
 	// Create pgctld instance
-	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
-	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
+	pgCertsDir := filepath.Join(s.TempDir, "certs")
+	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgCertsDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
@@ -221,7 +221,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgCertsDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -232,16 +232,16 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 	require.NoError(t, err)
 
 	return &ProcessInstance{
-		Name:              name,
-		DataDir:           dataDir,
-		LogFile:           logFile,
-		GrpcPort:          grpcPort,
-		PgPort:            pgPort,
-		Binary:            "pgctld",
-		PgBackRestPort:    pgbackrestPort,
-		PgBackRestCertDir: pgbackrestCertDir,
-		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Name:           name,
+		DataDir:        dataDir,
+		LogFile:        logFile,
+		GrpcPort:       grpcPort,
+		PgPort:         pgPort,
+		Binary:         "pgctld",
+		PgBackRestPort: pgbackrestPort,
+		PgCertsDir:     pgCertsDir,
+		BackupLocation: backupLocation,
+		Environment:    append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
 	}
 }
 

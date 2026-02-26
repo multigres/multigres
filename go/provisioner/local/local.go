@@ -71,36 +71,15 @@ func (p *localProvisioner) Name() string {
 	return "local"
 }
 
-// createPoolerDirectoryWithPassword creates the pooler directory structure and password file
-// at the conventional location (poolerDir/pgpassword.txt).
-// If sourcePasswordFile is provided and exists, its content is copied; otherwise "postgres" is used.
-func createPoolerDirectoryWithPassword(poolerDir, sourcePasswordFile string) error {
-	// Create the pooler directory structure
+// createPoolerDirectory creates the pooler directory structure.
+func createPoolerDirectory(poolerDir string) error {
 	if err := os.MkdirAll(poolerDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create pooler directory %s: %w", poolerDir, err)
 	}
-
-	// Conventional password file location
-	conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
-
-	// Determine password content
-	password := []byte("postgres")
-	if sourcePasswordFile != "" {
-		if content, err := os.ReadFile(sourcePasswordFile); err == nil {
-			password = content
-		}
-		// If source file doesn't exist, fall back to default "postgres"
-	}
-
-	// Create the password file at the conventional location
-	if err := os.WriteFile(conventionalPwfile, password, 0o600); err != nil {
-		return fmt.Errorf("failed to create password file %s: %w", conventionalPwfile, err)
-	}
-
 	return nil
 }
 
-// initializePgctldDirectories initializes all pgctld directories and password files based on the config
+// initializePgctldDirectories initializes all pgctld directories based on the config
 func (p *localProvisioner) initializePgctldDirectories() error {
 	// Get the typed configuration
 	config := p.config
@@ -115,13 +94,11 @@ func (p *localProvisioner) initializePgctldDirectories() error {
 			return fmt.Errorf("pooler-dir not found in config for pgtctld in cell %s", cellName)
 		}
 
-		if err := createPoolerDirectoryWithPassword(poolerDir, cellConfig.Pgctld.PgPwfile); err != nil {
+		if err := createPoolerDirectory(poolerDir); err != nil {
 			return fmt.Errorf("failed to initialize pgctld directory for cell %s: %w", cellName, err)
 		}
 
-		conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
 		fmt.Printf("✓ Created pooler directory: %s\n", poolerDir)
-		fmt.Printf("✓ Created password file: %s\n", conventionalPwfile)
 	}
 
 	return nil
@@ -805,7 +782,7 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pooler-dir", poolerDir,
 		"--pg-port", strconv.Itoa(pgPort),
 		"--hostname", "localhost",
-		"--connpool-admin-password", "postgres", // Password created in initializePgctldDirectories
+		"--connpool-admin-password", "postgres",
 		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
 	}
 
@@ -1810,6 +1787,17 @@ func (p *localProvisioner) generatePgBackRestCertsOnce(ctx context.Context) erro
 	}
 	// Store the cert paths for later use
 	p.pgBackRestCertPaths = certPaths
+
+	// Generate PostgreSQL SSL server and client certificates into the same directory.
+	// These share the CA with pgBackRest so all internal services trust each other.
+	// Use MULTIGRES_USER env var if set, otherwise fall back to the default.
+	pgCtldUser := constants.DefaultMultigresUser
+	if v := os.Getenv("MULTIGRES_USER"); v != "" {
+		pgCtldUser = v
+	}
+	if err := GeneratePgCerts(certDir, pgCtldUser); err != nil {
+		return fmt.Errorf("failed to generate PG SSL certs: %w", err)
+	}
 	fmt.Println("")
 	return nil
 }

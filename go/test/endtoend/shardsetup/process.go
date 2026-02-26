@@ -66,7 +66,7 @@ type ProcessInstance struct {
 	// PgBackRest-specific fields (used by multipooler and pgctld)
 	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
 	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
-	PgBackRestCertDir   string                     // pgBackRest TLS certificate directory (pgctld)
+	PgCertsDir          string                     // TLS certificate directory (pgctld)
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
@@ -112,8 +112,8 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 	if p.PgBackRestPort > 0 {
 		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
 	}
-	if p.PgBackRestCertDir != "" {
-		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
+	if p.PgCertsDir != "" {
+		args = append(args, "--pg-certs-dir", p.PgCertsDir)
 	}
 
 	p.Process = exec.Command(p.Binary, args...)

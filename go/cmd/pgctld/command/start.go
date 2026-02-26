@@ -41,49 +41,20 @@ type StartResult struct {
 }
 
 // NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig using command-line parameters
-// Port, listen_addresses, and unix_socket_directories come from CLI flags, not from the config file
-func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddresses string, pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
+// Port, listen_addresses, and unix_socket_directories come from CLI flags, not from the config file.
+// pgCertsDir is the directory containing PG SSL certificates; empty string disables SSL.
+func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddresses string, pgUser string, pgDatabase string, timeout int, pgCertsDir string) (*pgctld.PostgresCtlConfig, error) {
 	postgresConfigFile := pgctld.PostgresConfigFile(poolerDir)
 
 	effectivePort := pgPort
 	effectiveListenAddresses := pgListenAddresses
 	effectiveUnixSocketDirectories := pgctld.PostgresSocketDir(poolerDir)
 
-	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir, effectiveListenAddresses, effectiveUnixSocketDirectories)
+	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir, effectiveListenAddresses, effectiveUnixSocketDirectories, pgCertsDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 	return config, nil
-}
-
-// resolvePassword handles password resolution from file or environment variable.
-// It checks for a password file at the conventional location (poolerDir/pgpassword.txt).
-// If the file exists, it reads the password from it. Otherwise, it falls back to PGPASSWORD env var.
-// Returns error if both password file and PGPASSWORD are set.
-func resolvePassword(poolerDir string) (string, error) {
-	envPassword := os.Getenv("PGPASSWORD")
-	var filePassword string
-	var fileExists bool
-
-	// Check for password file at conventional location
-	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
-	if filePasswordBytes, readErr := os.ReadFile(pwfile); readErr == nil {
-		// Remove trailing newline if present
-		filePassword = strings.TrimRight(string(filePasswordBytes), "\n\r")
-		fileExists = true
-	}
-
-	// Check if both file and environment variable are set
-	if fileExists && envPassword != "" {
-		return "", fmt.Errorf("both password file (%s) and PGPASSWORD environment variable are set, please use only one", pwfile)
-	}
-
-	// Use file password if set, otherwise use environment variable
-	if fileExists {
-		return filePassword, nil
-	}
-
-	return envPassword, nil
 }
 
 // AddStartCommand adds the start subcommand to the root command
@@ -128,12 +99,12 @@ Examples:
 }
 
 func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
-	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgListenAddresses.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get())
+	config, err := NewPostgresCtlConfigFromDefaults(s.pgCtlCmd.GetPoolerDir(), s.pgCtlCmd.pgPort.Get(), s.pgCtlCmd.pgListenAddresses.Get(), s.pgCtlCmd.pgUser.Get(), s.pgCtlCmd.pgDatabase.Get(), s.pgCtlCmd.timeout.Get(), s.pgCtlCmd.pgCertsDir.Get())
 	if err != nil {
 		return err
 	}
 
-	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
+	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config, s.pgCtlCmd.pgCtldUser.Get())
 	if err != nil {
 		return err
 	}
@@ -148,8 +119,9 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information
-func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StartResult, error) {
+// StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information.
+// pgCtldUser is the internal PostgreSQL role to create after startup (idempotent); pass "" to skip.
+func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig, pgCtldUser string) (*StartResult, error) {
 	result := &StartResult{}
 
 	// Check if PostgreSQL is already running
@@ -193,6 +165,14 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
+	// Ensure the internal pgctld role exists. This is idempotent: the role is
+	// created on first start and silently confirmed present on subsequent starts.
+	if pgCtldUser != "" {
+		if err := ensureInternalUser(logger, config, pgCtldUser); err != nil {
+			return nil, fmt.Errorf("failed to ensure internal user: %w", err)
+		}
+	}
+
 	// Get PID of started instance
 	if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
 		result.PID = pid
@@ -203,9 +183,33 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	return result, nil
 }
 
-// StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
+// ensureInternalUser creates the pgCtldUser superuser role if it does not already exist.
+// It runs against a live PostgreSQL server via the Unix socket (trust auth).
+// Uses a DO block for idempotency since CREATE ROLE has no IF NOT EXISTS in PG17/18.
+func ensureInternalUser(logger *slog.Logger, config *pgctld.PostgresCtlConfig, pgCtldUser string) error {
+	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
+	sql := fmt.Sprintf(
+		"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s WITH SUPERUSER LOGIN; END IF; END $$;",
+		pgCtldUser, pgCtldUser,
+	)
+	cmd := exec.Command("psql",
+		"-h", socketDir,
+		"-p", strconv.Itoa(config.Port),
+		"-U", config.User,
+		"-d", config.Database,
+		"-c", sql,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to ensure role %s: %w\nOutput: %s", pgCtldUser, err, string(out))
+	}
+	logger.Info("Internal user ensured", "user", pgCtldUser)
+	return nil
+}
+
+// StartPostgreSQLWithConfig starts PostgreSQL with the given configuration.
+// The internal pgctld role is not created by this path; use StartPostgreSQLWithResult directly when needed.
 func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	result, err := StartPostgreSQLWithResult(logger, config)
+	result, err := StartPostgreSQLWithResult(logger, config, "")
 	if err != nil {
 		return err
 	}
@@ -279,6 +283,31 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	// Pass port, listen_addresses, and unix_socket_directories as command-line parameters for portability
 	postgresOpts := fmt.Sprintf("-c config_file=%s -c port=%d -c listen_addresses=%s -c unix_socket_directories=%s",
 		config.PostgresConfigFile, config.Port, config.ListenAddresses, config.UnixSocketDirectories)
+
+	// Add SSL parameters if cert directory is configured and all required cert files exist.
+	// SSL parameters are passed as -c flags rather than written to postgresql.conf to keep
+	// the config file portable across environments (e.g. backups restored to a different host).
+	if config.PgCertsDir != "" {
+		caCert := filepath.Join(config.PgCertsDir, "ca.crt")
+		serverCert := filepath.Join(config.PgCertsDir, "server.crt")
+		serverKey := filepath.Join(config.PgCertsDir, "server.key")
+		_, caCertErr := os.Stat(caCert)
+		_, serverCertErr := os.Stat(serverCert)
+		_, serverKeyErr := os.Stat(serverKey)
+		switch {
+		case caCertErr != nil:
+			logger.Warn("PgCertsDir set but ca.crt not found, starting without SSL", "certs_dir", config.PgCertsDir)
+		case serverCertErr != nil:
+			logger.Warn("PgCertsDir set but server.crt not found, starting without SSL", "certs_dir", config.PgCertsDir)
+		case serverKeyErr != nil:
+			logger.Warn("PgCertsDir set but server.key not found, starting without SSL", "certs_dir", config.PgCertsDir)
+		default:
+			postgresOpts += fmt.Sprintf(
+				" -c ssl=on -c ssl_ca_file=%s -c ssl_cert_file=%s -c ssl_key_file=%s",
+				caCert, serverCert, serverKey)
+			logger.Info("Enabling PostgreSQL SSL", "certs_dir", config.PgCertsDir)
+		}
+	}
 
 	args := []string{
 		"start",

@@ -33,10 +33,11 @@ type PostgresCtlConfig struct {
 	PoolerDir             string
 	ListenAddresses       string
 	UnixSocketDirectories string
+	PgCertsDir            string // Directory containing ca.crt, server.crt/key, <controller>.crt/key; empty means no SSL
 }
 
 // NewPostgresCtlConfig creates a PostgresCtlConfig with the given parameters
-func NewPostgresCtlConfig(port int, user string, database string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string, listenAddresses string, unixSocketDirectories string) (*PostgresCtlConfig, error) {
+func NewPostgresCtlConfig(port int, user string, database string, timeout int, postgresDataDir string, postgresConfigFile string, poolerDir string, listenAddresses string, unixSocketDirectories string, pgCertsDir string) (*PostgresCtlConfig, error) {
 	if postgresDataDir == "" {
 		return nil, errors.New("postgres-data-dir needs to be set")
 	}
@@ -62,6 +63,7 @@ func NewPostgresCtlConfig(port int, user string, database string, timeout int, p
 		PoolerDir:             poolerDir,
 		ListenAddresses:       listenAddresses,
 		UnixSocketDirectories: unixSocketDirectories,
+		PgCertsDir:            pgCertsDir,
 	}, nil
 }
 
