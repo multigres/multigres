@@ -76,23 +76,16 @@ func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 
 // invalidParamError returns a PgDiagnostic for an invalid parameter value (SQLSTATE 22023).
 func invalidParamError(paramName, value, hint string) *mterrors.PgDiagnostic {
-	return &mterrors.PgDiagnostic{
-		MessageType: 'E',
-		Severity:    "ERROR",
-		Code:        "22023", // invalid_parameter_value
-		Message:     fmt.Sprintf("invalid value for parameter %q: %q", paramName, value),
-		Hint:        hint,
-	}
+	diag := mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+		fmt.Sprintf("invalid value for parameter %q: %q", paramName, value), "")
+	diag.Hint = hint
+	return diag
 }
 
 // outOfRangeParamError returns a PgDiagnostic for an out-of-range parameter value (SQLSTATE 22023).
 func outOfRangeParamError(paramName, value string) *mterrors.PgDiagnostic {
-	return &mterrors.PgDiagnostic{
-		MessageType: 'E',
-		Severity:    "ERROR",
-		Code:        "22023", // invalid_parameter_value
-		Message:     fmt.Sprintf("%s is outside the valid range for parameter %q (0 .. 2147483647)", value, paramName),
-	}
+	return mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
+		fmt.Sprintf("%s is outside the valid range for parameter %q (0 .. 2147483647)", value, paramName), "")
 }
 
 // formatDurationAsMs formats a time.Duration as a PostgreSQL-compatible milliseconds string.

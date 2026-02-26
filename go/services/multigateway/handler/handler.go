@@ -83,13 +83,8 @@ var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTr
 
 // errStatementTimeout is the error returned when a statement exceeds the configured timeout.
 // PostgreSQL returns SQLSTATE 57014 (query_canceled) for this condition.
-// TODO: Change to use the NewPGErrors function once https://github.com/multigres/multigres/pull/657 is merged.
-var errStatementTimeout = &mterrors.PgDiagnostic{
-	MessageType: 'E',
-	Severity:    "ERROR",
-	Code:        "57014",
-	Message:     "canceling statement due to statement timeout",
-}
+var errStatementTimeout = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
+	"canceling statement due to statement timeout", "")
 
 // executeWithTimeout wraps a function call with statement timeout enforcement.
 // It resolves the effective timeout from per-query directive, session variable, and flag,

@@ -56,12 +56,8 @@ func (g *GatewayShowVariable) StreamExecute(
 	case "statement_timeout":
 		value = state.ShowStatementTimeout()
 	default:
-		return &mterrors.PgDiagnostic{
-			MessageType: 'E',
-			Severity:    "ERROR",
-			Code:        "42704", // undefined_object
-			Message:     fmt.Sprintf("unrecognized configuration parameter %q", g.variable),
-		}
+		return mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedObject,
+			fmt.Sprintf("unrecognized configuration parameter %q", g.variable), "")
 	}
 
 	return callback(ctx, &sqltypes.Result{

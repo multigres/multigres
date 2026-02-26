@@ -129,12 +129,8 @@ func (p *Planner) planGatewayManagedVariable(
 				"value", value, "parsed", d)
 			return engine.NewStatementTimeoutSet(sql, d), nil
 		default:
-			return nil, &mterrors.PgDiagnostic{
-				MessageType: 'E',
-				Severity:    "ERROR",
-				Code:        "42704", // undefined_object
-				Message:     fmt.Sprintf("unrecognized configuration parameter %q", name),
-			}
+			return nil, mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedObject,
+				fmt.Sprintf("unrecognized configuration parameter %q", name), "")
 		}
 
 	case ast.VAR_RESET, ast.VAR_SET_DEFAULT, ast.VAR_RESET_ALL:
@@ -143,12 +139,8 @@ func (p *Planner) planGatewayManagedVariable(
 		return engine.NewGatewaySessionStateReset(sql, name), nil
 
 	default:
-		return nil, &mterrors.PgDiagnostic{
-			MessageType: 'E',
-			Severity:    "ERROR",
-			Code:        "42601", // syntax_error
-			Message:     fmt.Sprintf("unsupported operation for parameter %q", name),
-		}
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSSyntaxError,
+			fmt.Sprintf("unsupported operation for parameter %q", name), "")
 	}
 }
 
