@@ -60,13 +60,13 @@ func (c *Conn) readAndDispatchStartup() error {
 	switch protocolCode {
 	case protocol.SSLRequestCode:
 		if c.sslDone {
-			return errors.New("duplicate SSLRequest: SSL negotiation already completed")
+			return mterrors.NewPgError("FATAL", "0A000", "duplicate SSLRequest: SSL negotiation already completed", "")
 		}
 		return c.handleSSLRequest()
 
 	case protocol.GSSENCRequestCode:
 		if c.gssDone {
-			return errors.New("duplicate GSSENCRequest: GSSAPI encryption negotiation already completed")
+			return mterrors.NewPgError("FATAL", "0A000", "duplicate GSSENCRequest: GSSAPI encryption negotiation already completed", "")
 		}
 		return c.handleGSSENCRequest()
 

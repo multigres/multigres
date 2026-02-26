@@ -341,7 +341,14 @@ func (c *Conn) serve() error {
 	if err := c.handleStartup(); err != nil {
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
-		_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
+		// with native SQLSTATE), send it directly. Otherwise, wrap with MTE01.
+		var diag *mterrors.PgDiagnostic
+		if errors.As(err, &diag) {
+			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+		} else {
+			_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		}
 		_ = c.flush()
 		return err
 	}
