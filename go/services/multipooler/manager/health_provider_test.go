@@ -43,10 +43,6 @@ func TestHealthStreamer_BroadcastToSubscribers(t *testing.T) {
 
 	assert.Equal(t, 2, hs.clientCount())
 
-	// Drain the initial state from both channels
-	<-ch1
-	<-ch2
-
 	// Update serving status (triggers broadcast)
 	hs.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 
@@ -80,19 +76,10 @@ func TestHealthStreamer_SubscribeReceivesCurrentState(t *testing.T) {
 	// Set initial state via update
 	hs.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 
-	// Subscribe should return current state and send it on channel
-	state, ch := hs.subscribe()
+	// Subscribe should return current state
+	state, _ := hs.subscribe()
 	assert.Equal(t, "initial", state.Target.TableGroup)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, state.ServingStatus)
-
-	// Channel should also receive the current state
-	select {
-	case received := <-ch:
-		assert.Equal(t, "initial", received.Target.TableGroup)
-		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("channel did not receive initial state")
-	}
 }
 
 func TestHealthStreamer_UnsubscribeRemovesClient(t *testing.T) {
@@ -113,7 +100,6 @@ func TestHealthStreamer_FullBufferClosesChannel(t *testing.T) {
 	_, ch := hs.subscribe()
 
 	// Send more than buffer size without draining
-	// subscribe sends initial state, so we need buffer size + more
 	for range defaultHealthStreamBufferSize + 5 {
 		hs.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 	}
@@ -220,9 +206,6 @@ func TestHealthStreamer_UpdateServingStatus(t *testing.T) {
 	// Subscribe before the state change
 	_, ch := hs.subscribe()
 
-	// Drain the initial state
-	<-ch
-
 	// Update serving status
 	hs.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 
@@ -248,9 +231,8 @@ func TestHealthStreamer_UpdatePoolerType(t *testing.T) {
 	}
 	hs := newHealthStreamer(logger, serviceID, "tg1", "0")
 
-	// Subscribe and drain initial state
+	// Subscribe
 	_, ch := hs.subscribe()
-	<-ch
 
 	// Update pooler type
 	hs.UpdatePoolerType(clustermetadatapb.PoolerType_PRIMARY)
@@ -274,9 +256,8 @@ func TestHealthStreamer_UpdatePrimaryObservation(t *testing.T) {
 	}
 	hs := newHealthStreamer(logger, serviceID, "tg1", "0")
 
-	// Subscribe and drain initial state
+	// Subscribe
 	_, ch := hs.subscribe()
-	<-ch
 
 	// Update primary observation
 	obs := &poolerserver.PrimaryObservation{
@@ -311,9 +292,6 @@ func TestHealthHeartbeat_BroadcastsPeriodically(t *testing.T) {
 	// Subscribe to get heartbeat broadcasts
 	_, ch, err := pm.SubscribeHealth(t.Context())
 	require.NoError(t, err)
-
-	// Drain the initial state
-	<-ch
 
 	// Create a context that we'll cancel to stop the heartbeat loop
 	ctx, cancel := context.WithCancel(t.Context())
