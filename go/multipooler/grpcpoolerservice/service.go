@@ -343,9 +343,11 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 				abortState, _ := exec.CopyAbort(ctx, req.Target, "failed to write data", copyOptions)
 				// Send ERROR response with reserved state so gateway can update shard state
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
-					Phase:            multipoolerpb.CopyBidiExecuteResponse_ERROR,
-					Error:            err.Error(),
-					RemainingReasons: abortState.ReservationReasons,
+					Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
+					Error:                err.Error(),
+					ReservedConnectionId: abortState.ReservedConnectionId,
+					PoolerId:             abortState.PoolerID,
+					RemainingReasons:     abortState.ReservationReasons,
 				}
 				_ = stream.Send(errorResp)
 				return status.Errorf(codes.Internal, "failed to handle COPY data: %v", err)
@@ -361,9 +363,11 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 
 				// Send ERROR response with reserved state from abort
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
-					Phase:            multipoolerpb.CopyBidiExecuteResponse_ERROR,
-					Error:            err.Error(),
-					RemainingReasons: abortState.ReservationReasons,
+					Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
+					Error:                err.Error(),
+					ReservedConnectionId: abortState.ReservedConnectionId,
+					PoolerId:             abortState.PoolerID,
+					RemainingReasons:     abortState.ReservationReasons,
 				}
 				_ = stream.Send(errorResp)
 				return status.Errorf(codes.Internal, "COPY operation failed: %v", err)
@@ -371,9 +375,11 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 
 			// Send RESULT response with final result and reserved state
 			resultResp := &multipoolerpb.CopyBidiExecuteResponse{
-				Phase:            multipoolerpb.CopyBidiExecuteResponse_RESULT,
-				Result:           result.ToProto(),
-				RemainingReasons: reservedState.ReservationReasons,
+				Phase:                multipoolerpb.CopyBidiExecuteResponse_RESULT,
+				Result:               result.ToProto(),
+				ReservedConnectionId: reservedState.ReservedConnectionId,
+				PoolerId:             reservedState.PoolerID,
+				RemainingReasons:     reservedState.ReservationReasons,
 			}
 			if err := stream.Send(resultResp); err != nil {
 				return status.Errorf(codes.Internal, "failed to send RESULT: %v", err)
@@ -395,9 +401,11 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 
 			// Send ERROR response with reserved state
 			errorResp := &multipoolerpb.CopyBidiExecuteResponse{
-				Phase:            multipoolerpb.CopyBidiExecuteResponse_ERROR,
-				Error:            errorMsg,
-				RemainingReasons: abortState.ReservationReasons,
+				Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
+				Error:                errorMsg,
+				ReservedConnectionId: abortState.ReservedConnectionId,
+				PoolerId:             abortState.PoolerID,
+				RemainingReasons:     abortState.ReservationReasons,
 			}
 			_ = stream.Send(errorResp)
 			return status.Errorf(codes.Aborted, "COPY aborted: %s", errorMsg)
@@ -406,9 +414,11 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 			abortState, _ := exec.CopyAbort(ctx, req.Target, "unexpected phase", copyOptions)
 			// Send ERROR response with reserved state so gateway can update shard state
 			errorResp := &multipoolerpb.CopyBidiExecuteResponse{
-				Phase:            multipoolerpb.CopyBidiExecuteResponse_ERROR,
-				Error:            fmt.Sprintf("unexpected phase: %v", req.Phase),
-				RemainingReasons: abortState.ReservationReasons,
+				Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
+				Error:                fmt.Sprintf("unexpected phase: %v", req.Phase),
+				ReservedConnectionId: abortState.ReservedConnectionId,
+				PoolerId:             abortState.PoolerID,
+				RemainingReasons:     abortState.ReservationReasons,
 			}
 			_ = stream.Send(errorResp)
 			return status.Errorf(codes.InvalidArgument, "unexpected phase: %v", req.Phase)
