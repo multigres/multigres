@@ -77,8 +77,10 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	// silentExecute runs a statement without sending results to the client.
 	// Used for synthetic BEGIN/COMMIT/ROLLBACK injected by implicit transaction handling.
 	silentExecute := func(stmt ast.Stmt) error {
-		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
-			func(context.Context, *sqltypes.Result) error { return nil })
+		return h.executeWithTimeout(ctx, state, stmt, func(ctx context.Context) error {
+			return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
+				func(context.Context, *sqltypes.Result) error { return nil })
+		})
 	}
 
 	// If already in a transaction, don't inject BEGIN at start

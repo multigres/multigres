@@ -101,6 +101,27 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 		assert.Equal(t, "30000", result, "RESET should revert to flag default (30s = 30000ms)")
 	})
 
+	t.Run("SET TO DEFAULT reverts to flag default", func(t *testing.T) {
+		conn := connectPgx(t, ctx, setup)
+		defer conn.Close(ctx)
+
+		_, err := conn.Exec(ctx, "SET statement_timeout = 1000")
+		require.NoError(t, err)
+
+		var result string
+		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
+		require.NoError(t, err)
+		assert.Equal(t, "1000", result)
+
+		// SET TO DEFAULT should behave like RESET
+		_, err = conn.Exec(ctx, "SET statement_timeout TO DEFAULT")
+		require.NoError(t, err)
+
+		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
+		require.NoError(t, err)
+		assert.Equal(t, "30000", result, "SET TO DEFAULT should revert to flag default (30s = 30000ms)")
+	})
+
 	t.Run("RESET ALL also resets statement_timeout", func(t *testing.T) {
 		conn := connectPgx(t, ctx, setup)
 		defer conn.Close(ctx)
