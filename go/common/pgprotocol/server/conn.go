@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -69,6 +70,19 @@ type Conn struct {
 	// trustAuthProvider enables trust authentication for testing.
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
 	trustAuthProvider TrustAuthProvider
+
+	// tlsConfig holds the TLS configuration for SSL connections.
+	// When set, the server accepts SSLRequest and upgrades to TLS.
+	// When nil, SSLRequest is declined with 'N'.
+	tlsConfig *tls.Config
+
+	// sslDone indicates that an SSLRequest has already been handled
+	// (accepted or declined) for this connection. Prevents double negotiation.
+	sslDone bool
+
+	// gssDone indicates that a GSSENCRequest has already been handled
+	// for this connection. Prevents double negotiation.
+	gssDone bool
 
 	// logger for connection-specific logging.
 	logger *slog.Logger
@@ -318,11 +332,23 @@ func generateBackendKey() uint32 {
 // serve is the main command processing loop for the connection.
 // It reads messages from the client and processes them until the connection is closed.
 func (c *Conn) serve() error {
+	// TODO: Add startup phase timeout (equivalent to PostgreSQL's authentication_timeout).
+	// Set c.conn.SetDeadline() here and clear it after handleStartup() returns.
+	// Without this, a client can hold a goroutine indefinitely by stalling during
+	// SSL handshake, startup packet reading, or SCRAM authentication exchange.
+
 	// First, handle the startup phase.
 	if err := c.handleStartup(); err != nil {
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
-		_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
+		// with native SQLSTATE), send it directly. Otherwise, wrap with MTE01.
+		var diag *mterrors.PgDiagnostic
+		if errors.As(err, &diag) {
+			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+		} else {
+			_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		}
 		_ = c.flush()
 		return err
 	}
