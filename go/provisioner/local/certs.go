@@ -81,7 +81,7 @@ func GeneratePgCerts(certDir, pgCtldUser string) (*PgCertPaths, error) {
 	if err := generateCert(caCertFile, caKeyFile,
 		ctldCertFile,
 		ctldKeyFile,
-		pgCtldUser, []string{}); err != nil {
+		pgCtldUser, []string{"localhost"}); err != nil {
 		return nil, fmt.Errorf("failed to generate %s client cert: %w", pgCtldUser, err)
 	}
 
