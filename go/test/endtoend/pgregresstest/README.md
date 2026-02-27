@@ -1,6 +1,6 @@
-# PostgreSQL Regression Tests
+# PostgreSQL Compatibility Tests
 
-This test package validates multigres compatibility by running PostgreSQL's official regression test suite against a multigres cluster.
+This test package validates multigres compatibility by running PostgreSQL's official regression and isolation test suites against a multigres cluster.
 
 ## Overview
 
@@ -8,10 +8,12 @@ The test performs the following steps:
 
 1. **Checkout PostgreSQL source**: Clones PostgreSQL 17.6 (REL_17_6) from GitHub
 2. **Build with make**: Compiles PostgreSQL using traditional ./configure and make
-3. **Configure PATH**: Prepends the built PostgreSQL bin directory to PATH
-4. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway using the built PostgreSQL
-5. **Run regression tests**: Executes specific PostgreSQL tests through multigateway using make installcheck-tests
-6. **Report results**: Logs test outcomes (failures are logged but don't fail the test)
+3. **Build isolation tools** (if enabled): Builds `isolationtester` and `pg_isolation_regress`
+4. **Configure PATH**: Prepends the built PostgreSQL bin directory to PATH
+5. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway using the built PostgreSQL
+6. **Run regression tests** (if enabled): Executes PostgreSQL regression tests through multigateway
+7. **Run isolation tests** (if enabled): Executes multi-connection concurrency tests through multigateway
+8. **Report results**: Generates a unified compatibility report (failures are logged but don't fail the test)
 
 **Important**: The test builds PostgreSQL from source and uses those binaries for the test cluster. This ensures the PostgreSQL server and the regression test library (`regress.so`) are from the same version, avoiding symbol compatibility issues.
 
@@ -44,15 +46,31 @@ xcode-select --install
 
 ### Basic Usage
 
-The test is **disabled by default**. Set `RUN_PGREGRESS=1` to enable it:
+The test is **disabled by default**. Set `RUN_PGREGRESS=1` and/or `RUN_PGISOLATION=1` to enable:
 
 ```bash
-# Run regression tests (requires explicit opt-in)
+# Run regression tests only
 RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
-# Without the environment variable, tests are skipped
+# Run isolation tests only
+RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run both suites (unified report)
+RUN_PGREGRESS=1 RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Without either variable, all tests are skipped
 go test -v ./go/test/endtoend/pgregresstest/...
-# Output: "skipping pg_regress tests (set RUN_PGREGRESS=1 to run)"
+# Output: "skipping pg_regress/isolation tests (set RUN_PGREGRESS=1 and/or RUN_PGISOLATION=1 to run)"
+```
+
+### Running Specific Tests
+
+```bash
+# Run specific regression tests only
+PGREGRESS_TESTS="boolean char" RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
+
+# Run specific isolation tests only
+PGISOLATION_TESTS="deadlock-simple tuplelock-update" RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
 
 ### First Run vs Cached Runs
@@ -206,7 +224,7 @@ go/test/endtoend/pgregresstest/
 ├── README.md              # This file
 ├── main_test.go          # TestMain, shared setup management
 ├── postgres_builder.go   # PostgreSQL build and test execution
-└── pgregress_test.go     # Main test implementation
+└── pgregress_test.go     # Regression + isolation test implementation
 ```
 
 <!-- markdownlint-enable MD013 -->
