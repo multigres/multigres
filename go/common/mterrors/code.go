@@ -23,13 +23,17 @@ import (
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
-	PgSSProtocolViolation   = "08P01" // protocol_violation
-	PgSSFeatureNotSupported = "0A000" // feature_not_supported
-	PgSSActiveTransaction   = "25001" // active_sql_transaction
-	PgSSInFailedTransaction = "25P02" // in_failed_sql_transaction
-	PgSSAuthFailed          = "28P01" // invalid_authorization_specification
-	PgSSInvalidCursorName   = "34000" // invalid_cursor_name
-	PgSSInternalError       = "XX000" // internal_error
+	PgSSProtocolViolation     = "08P01" // protocol_violation
+	PgSSFeatureNotSupported   = "0A000" // feature_not_supported
+	PgSSInvalidParameterValue = "22023" // invalid_parameter_value
+	PgSSActiveTransaction     = "25001" // active_sql_transaction
+	PgSSInFailedTransaction   = "25P02" // in_failed_sql_transaction
+	PgSSAuthFailed            = "28P01" // invalid_authorization_specification
+	PgSSInvalidCursorName     = "34000" // invalid_cursor_name
+	PgSSSyntaxError           = "42601" // syntax_error
+	PgSSUndefinedObject       = "42704" // undefined_object
+	PgSSQueryCanceled         = "57014" // query_canceled
+	PgSSInternalError         = "XX000" // internal_error
 )
 
 // MTError defines a Multigres-specific error code for conditions that have no
@@ -139,6 +143,14 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 		Message:     message,
 		Detail:      detail,
 	}
+}
+
+// NewUnrecognizedParameter creates a PgDiagnostic for an unrecognized configuration
+// parameter (SQLSTATE 42704 undefined_object). This matches PostgreSQL's error for
+// SHOW/SET/RESET of unknown GUC parameters.
+func NewUnrecognizedParameter(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSUndefinedObject,
+		fmt.Sprintf("unrecognized configuration parameter %q", name), "")
 }
 
 // IsError checks whether err (or a wrapped cause) is an MT error matching code.

@@ -64,6 +64,8 @@ func (a *ApplySessionState) StreamExecute(
 	case ast.VAR_RESET_ALL:
 		// RESET ALL
 		state.ResetAllSessionVariables()
+		// Also reset gateway-managed variables that live outside SessionSettings.
+		state.ResetStatementTimeout()
 
 		// VAR_SET_DEFAULT, VAR_SET_CURRENT, VAR_SET_MULTI are not tracked locally
 		// They are passed through to PostgreSQL only

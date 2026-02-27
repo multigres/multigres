@@ -67,13 +67,17 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
 	execute := func(stmt ast.Stmt) error {
-		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt, callback)
+		return h.executeWithTimeout(ctx, state, stmt, func(ctx context.Context) error {
+			return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt, callback)
+		})
 	}
 	// silentExecute runs a statement without sending results to the client.
 	// Used for synthetic BEGIN/COMMIT/ROLLBACK injected by implicit transaction handling.
 	silentExecute := func(stmt ast.Stmt) error {
-		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
-			func(context.Context, *sqltypes.Result) error { return nil })
+		return h.executeWithTimeout(ctx, state, stmt, func(ctx context.Context) error {
+			return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
+				func(context.Context, *sqltypes.Result) error { return nil })
+		})
 	}
 
 	// If already in a transaction, don't inject BEGIN at start
@@ -154,29 +158,31 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		// CommandComplete message — that waits for the commit outcome.
 		var execErr error
 		if i == len(stmts)-1 && isImplicitTx {
-			execErr = h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
-				func(ctx context.Context, result *sqltypes.Result) error {
-					if result.CommandTag != "" {
-						// Hold the CommandTag — we'll send it after a successful commit,
-						// or discard it if the commit fails.
-						heldCommandTag = result.CommandTag
+			execErr = h.executeWithTimeout(ctx, state, stmt, func(ctx context.Context) error {
+				return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
+					func(ctx context.Context, result *sqltypes.Result) error {
+						if result.CommandTag != "" {
+							// Hold the CommandTag — we'll send it after a successful commit,
+							// or discard it if the commit fails.
+							heldCommandTag = result.CommandTag
 
-						// The final callback may also carry the last batch of rows and
-						// any notices. Forward those immediately — only the CommandComplete
-						// (derived from CommandTag) should be deferred.
-						if len(result.Rows) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
-							return callback(ctx, &sqltypes.Result{
-								Fields:  result.Fields,
-								Rows:    result.Rows,
-								Notices: result.Notices,
-							})
+							// The final callback may also carry the last batch of rows and
+							// any notices. Forward those immediately — only the CommandComplete
+							// (derived from CommandTag) should be deferred.
+							if len(result.Rows) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
+								return callback(ctx, &sqltypes.Result{
+									Fields:  result.Fields,
+									Rows:    result.Rows,
+									Notices: result.Notices,
+								})
+							}
+							return nil
 						}
-						return nil
-					}
-					// Intermediate callback (rows streaming) — forward as-is.
-					return callback(ctx, result)
-				},
-			)
+						// Intermediate callback (rows streaming) — forward as-is.
+						return callback(ctx, result)
+					},
+				)
+			})
 		} else {
 			execErr = execute(stmt)
 		}

@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -68,6 +69,8 @@ type MultiGateway struct {
 	scatterConn *scatterconn.ScatterConn
 	// executor handles query execution and routing
 	executor *executor.Executor
+	// statementTimeout is the default statement execution timeout
+	statementTimeout viperutil.Value[time.Duration]
 	// senv is the serving environment
 	senv *servenv.ServEnv
 	// topoConfig holds topology configuration
@@ -103,6 +106,12 @@ func NewMultiGateway() *MultiGateway {
 			FlagName: "pg-bind-address",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_BIND_ADDRESS"},
+		}),
+		statementTimeout: viperutil.Configure(reg, "statement-timeout", viperutil.Options[time.Duration]{
+			Default:  30 * time.Second,
+			FlagName: "statement-timeout",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_STATEMENT_TIMEOUT"},
 		}),
 		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
 			Default:  "",
@@ -148,6 +157,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
 	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
+	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	viperutil.BindFlags(fs,
@@ -155,6 +165,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.serviceID,
 		mg.pgPort,
 		mg.pgBindAddress,
+		mg.statementTimeout,
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
 	)
@@ -228,7 +239,7 @@ func (mg *MultiGateway) Init() error {
 	}
 
 	// Create and start PostgreSQL protocol listener
-	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger)
+	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:      pgAddr,
