@@ -145,6 +145,14 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 	}
 }
 
+// NewUnrecognizedParameter creates a PgDiagnostic for an unrecognized configuration
+// parameter (SQLSTATE 42704 undefined_object). This matches PostgreSQL's error for
+// SHOW/SET/RESET of unknown GUC parameters.
+func NewUnrecognizedParameter(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSUndefinedObject,
+		fmt.Sprintf("unrecognized configuration parameter %q", name), "")
+}
+
 // IsError checks whether err (or a wrapped cause) is an MT error matching code.
 // For *PgDiagnostic errors it compares the SQLSTATE Code field directly;
 // otherwise it falls back to substring matching on the error string.

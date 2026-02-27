@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -80,8 +79,10 @@ func (g *GatewaySessionState) StreamExecute(
 			state.SetStatementTimeout(g.statementTimeout)
 		}
 	default:
-		return mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedObject,
-			fmt.Sprintf("unrecognized configuration parameter %q", g.variable), "")
+		// Unreachable: the planner validates the variable name before creating
+		// this primitive. If we get here, there's a code bug (new variable added
+		// to isGatewayManagedVariable but not here).
+		panic(fmt.Sprintf("BUG: unhandled gateway-managed variable %q in GatewaySessionState", g.variable))
 	}
 
 	return callback(ctx, &sqltypes.Result{CommandTag: commandTag})

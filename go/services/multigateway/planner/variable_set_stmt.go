@@ -129,12 +129,15 @@ func (p *Planner) planGatewayManagedVariable(
 				"value", value, "parsed", d)
 			return engine.NewStatementTimeoutSet(sql, d), nil
 		default:
-			return nil, mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedObject,
-				fmt.Sprintf("unrecognized configuration parameter %q", name), "")
+			return nil, mterrors.NewUnrecognizedParameter(name)
 		}
 
-	case ast.VAR_RESET, ast.VAR_SET_DEFAULT, ast.VAR_RESET_ALL:
-		// RESET, SET ... TO DEFAULT, and RESET ALL all revert to the flag default.
+	case ast.VAR_RESET, ast.VAR_SET_DEFAULT:
+		// RESET and SET ... TO DEFAULT revert to the flag default.
+		// Note: VAR_RESET_ALL is not listed here because RESET ALL has stmt.Name=""
+		// which never passes isGatewayManagedVariable. RESET ALL is handled by
+		// ApplySessionState (after routing to PostgreSQL) which resets both
+		// PostgreSQL session settings and gateway-managed variables.
 		p.logger.Debug("planning RESET gateway-managed variable", "variable", name)
 		return engine.NewGatewaySessionStateReset(sql, name), nil
 

@@ -259,8 +259,8 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	}
 
 	// Use the original query string for directive parsing (extended protocol preserves comments).
-	ast := portalInfo.PreparedStatementInfo.AstStmt()
-	err := h.executeWithTimeout(ctx, state, ast, func(ctx context.Context) error {
+	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
+	err := h.executeWithTimeout(ctx, state, astStmt, func(ctx context.Context) error {
 		return h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
 	})
 	if err != nil {
