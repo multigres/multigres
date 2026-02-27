@@ -1,0 +1,41 @@
+/*
+Copyright 2026 Supabase, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// This file contains the RPC service definition for multigateway.
+
+syntax = "proto3";
+
+package multigatewayservice;
+
+option go_package = "github.com/multigres/multigres/go/pb/multigatewayservice";
+
+// MultiGatewayService provides cross-gateway communication for query cancellation.
+service MultiGatewayService {
+  // CancelQuery forwards a cancel request to the gateway that owns the connection.
+  rpc CancelQuery(CancelQueryRequest) returns (CancelQueryResponse);
+}
+
+// CancelQueryRequest contains the cancel key data from the PostgreSQL cancel request.
+message CancelQueryRequest {
+  // process_id is the PID sent by the client, encoding gateway prefix + local conn ID.
+  uint32 process_id = 1;
+  // TODO: Do we really need this?
+  // secret_key is the backend key data for authentication.
+  uint32 secret_key = 2;
+}
+
+// CancelQueryResponse is empty on success.
+message CancelQueryResponse {}
