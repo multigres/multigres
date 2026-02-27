@@ -106,11 +106,10 @@ func assertBackupComplete(t *testing.T, backup *multipoolermanagerdata.BackupMet
 
 // connectToPostgresViaSocket establishes a connection to PostgreSQL using Unix socket.
 // The connection is automatically closed via defer in the caller.
-func connectToPostgresViaSocket(t *testing.T, socketDir string, port int) *sql.DB {
+func connectToPostgresViaSocket(t *testing.T, connStr string) *sql.DB {
 	t.Helper()
 
 	// Use Unix socket connection which uses trust authentication
-	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable", socketDir, port)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "Failed to open database connection")
 

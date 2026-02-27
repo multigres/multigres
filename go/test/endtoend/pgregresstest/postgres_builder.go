@@ -214,7 +214,7 @@ func (pb *PostgresBuilder) Build(t *testing.T, ctx context.Context) error {
 }
 
 // RunRegressionTests runs PostgreSQL regression tests against multigateway
-func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort int, password string) (*TestResults, error) {
+func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort int, multigresUser string) (*TestResults, error) {
 	t.Helper()
 
 	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
@@ -280,8 +280,7 @@ func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context,
 	cmd.Env = append(os.Environ(),
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
-		"PGUSER=postgres",
-		"PGPASSWORD="+password,
+		"PGUSER="+multigresUser,
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
 	)

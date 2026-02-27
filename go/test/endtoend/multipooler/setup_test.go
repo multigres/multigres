@@ -43,9 +43,6 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// testPostgresPassword is exposed from shardsetup for backward compatibility.
-const testPostgresPassword = shardsetup.TestPostgresPassword
-
 // ProcessInstance is an alias to shardsetup.ProcessInstance for backward compatibility.
 type ProcessInstance = shardsetup.ProcessInstance
 

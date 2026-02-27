@@ -101,8 +101,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Connect to primary PostgreSQL database using Unix socket
 			var err error
 			db := connectToPostgresViaSocket(t,
-				getPostgresSocketPath(setup.PrimaryPgctld.DataDir),
-				setup.PrimaryPgctld.PgPort)
+				setup.GetLocalConnectionString(getPostgresSocketPath(setup.PrimaryPgctld.DataDir)))
 			defer db.Close()
 
 			t.Log("Creating test table and inserting initial data...")
@@ -265,9 +264,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					require.NoError(t, err, "Should be able to configure replication after restore")
 
 					// Connect to the standby database after restore
-					standbyDB := connectToPostgresViaSocket(t,
-						getPostgresSocketPath(setup.StandbyPgctld.DataDir),
-						setup.StandbyPgctld.PgPort)
+					standbyConnString := setup.GetLocalConnectionString(getPostgresSocketPath(setup.StandbyPgctld.DataDir))
+					standbyDB := connectToPostgresViaSocket(t, standbyConnString)
 					defer standbyDB.Close()
 
 					t.Log("Verifying standby database is accessible after restore...")
@@ -657,9 +655,8 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Log("Step 7: Verifying standby is accessible after restore...")
 
 				// Connect to standby and verify it's in recovery mode
-				standbyDB := connectToPostgresViaSocket(t,
-					getPostgresSocketPath(setup.StandbyPgctld.DataDir),
-					setup.StandbyPgctld.PgPort)
+				standbyConnString := setup.GetLocalConnectionString(getPostgresSocketPath(setup.StandbyPgctld.DataDir))
+				standbyDB := connectToPostgresViaSocket(t, standbyConnString)
 				defer standbyDB.Close()
 
 				var isInRecovery bool

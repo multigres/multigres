@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -95,8 +96,8 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	disableMonitoringOnAllNodes(t, setup)
 
 	// Connect to multigateway for continuous writes (automatically routes to current primary)
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := fmt.Sprintf("host=localhost port=%d user=%s dbname=postgres sslmode=disable connect_timeout=5",
+		setup.MultigatewayPgPort, constants.DefaultMultigresUser)
 	gatewayDB, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer gatewayDB.Close()
@@ -326,7 +327,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Verify we can connect and query
 		socketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
+		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort, setup.PgUser)
 		defer db.Close()
 
 		var result int
@@ -342,7 +343,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
 
 		socketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
+		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort, setup.PgUser)
 		defer db.Close()
 
 		var syncStandbyNames string
@@ -363,7 +364,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
 
 		socketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
+		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort, setup.PgUser)
 		defer db.Close()
 
 		// Query the leadership_history table for the latest record
@@ -471,7 +472,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		// Connect to primary and get row count and checksum
 		primarySocketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
-		primaryDB := connectToPostgres(t, primarySocketDir, finalPrimaryInst.Pgctld.PgPort)
+		primaryDB := connectToPostgres(t, primarySocketDir, finalPrimaryInst.Pgctld.PgPort, setup.PgUser)
 		defer primaryDB.Close()
 
 		var primaryRowCount int
@@ -502,7 +503,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.MultipoolerInstance, countQuery, checksumQuery string, expectedRowCount int, expectedChecksum string) {
 	t.Helper()
 	standbySocketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
-	standbyDB := connectToPostgres(t, standbySocketDir, inst.Pgctld.PgPort)
+	standbyDB := connectToPostgres(t, standbySocketDir, inst.Pgctld.PgPort, constants.DefaultMultigresUser)
 	defer standbyDB.Close()
 
 	// Check row count matches
@@ -795,7 +796,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	// Verify we can still query postgres on the primary directly (it's still running)
 	t.Run("verify primary postgres is still running", func(t *testing.T) {
 		socketDir := filepath.Join(primary.Pgctld.DataDir, "pg_sockets")
-		db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort)
+		db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort, setup.PgUser)
 		defer db.Close()
 
 		var result int
@@ -821,7 +822,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 func verifyStandbyIsQueryable(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
 	t.Helper()
 	socketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
-	db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort)
+	db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort, constants.DefaultMultigresUser)
 	defer db.Close()
 
 	var result int

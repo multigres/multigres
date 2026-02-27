@@ -668,9 +668,9 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		}
 	}
 
-	// Construct source server connection string (without password - will use PGPASSWORD env var)
+	// Construct source server connection string
 	// Include application_name if provided (used for replication identification)
-	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
+	sourceServer := fmt.Sprintf("host=%s port=%d user=multigres dbname=postgres",
 		req.GetSourceHost(), req.GetSourcePort())
 	if req.GetApplicationName() != "" {
 		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())

@@ -148,7 +148,7 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 }
 
 // parseAndRedactPrimaryConnInfo parses a PostgreSQL primary_conninfo connection string into structured fields
-// Example input: "host=localhost port=5432 user=postgres application_name=cell_name"
+// Example input: "host=localhost port=5432 user=multigres application_name=cell_name"
 // Returns a PrimaryConnInfo message with parsed fields, or an error if parsing fails
 // Note: Passwords are redacted in the raw field for security
 func parseAndRedactPrimaryConnInfo(connInfoStr string) (*multipoolermanagerdata.PrimaryConnInfo, error) {

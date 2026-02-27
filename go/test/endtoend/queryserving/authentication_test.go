@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -39,8 +38,7 @@ func TestMultiGateway_Authentication(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect as postgres (superuser) to create test users
-	adminConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	adminConnStr := setup.GetMultigatewayConnectionString("localhost")
 	adminDB, err := sql.Open("postgres", adminConnStr)
 	require.NoError(t, err)
 	defer adminDB.Close()

@@ -67,6 +67,9 @@ type ShardSetup struct {
 	Multigateway       *ProcessInstance
 	MultigatewayPgPort int // PostgreSQL protocol port for multigateway
 
+	PgUser string // PostgreSQL user for connecting to PostgreSQL instance (e.g., "multigres")
+	PgPort int    // PostgreSQL port for connecting to PostgreSQL instance (e.g., primary's pgPort, which is the same for all nodes since they run on localhost with different ports)
+
 	// PgCertPaths stores the paths to PostgreSQL TLS certificates
 	PgCertPaths *local.PgCertPaths
 
@@ -88,6 +91,33 @@ func (s *ShardSetup) GetMultipoolerInstance(name string) *MultipoolerInstance {
 		return nil
 	}
 	return s.Multipoolers[name]
+}
+
+// GetLocalConnectionString returns a connection string for connecting
+// to PostgreSQL on localhost with the configured port and user.
+func (s *ShardSetup) GetLocalConnectionString(host string) string {
+	connStr := fmt.Sprintf(
+		"host=%s port=%d user=%s dbname=postgres sslmode=disable",
+		host, s.PgPort, s.PgUser)
+	return connStr
+}
+
+// GetMultigatewayConnectionString returns a connection string for connecting
+// to multigateway's PostgreSQL port.
+func (s *ShardSetup) GetMultigatewayConnectionString(host string) string {
+	connStr := fmt.Sprintf(
+		"host=%s port=%d user=%s dbname=postgres sslmode=disable",
+		host, s.MultigatewayPgPort, s.PgUser)
+	return connStr
+}
+
+// GetDirectConnectionString returns a connection string for connecting directly
+// to PostgreSQL on a specified port with the configured user.
+func (s *ShardSetup) GetDirectConnectionString(host string, port int) string {
+	connStr := fmt.Sprintf(
+		"host=%s port=%d user=%s dbname=postgres sslmode=disable",
+		host, port, s.PgUser)
+	return connStr
 }
 
 // GetMultipooler returns the multipooler process for an instance by name.
@@ -201,7 +231,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 	// Create pgctld instance
 	pgCertsDir := filepath.Join(s.TempDir, "certs")
-	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgCertsDir, s.BackupLocation)
+	pgctld := CreatePgctldInstance(t, name, s.PgUser, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgCertsDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
@@ -221,7 +251,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgCertsDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, multigresUser, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgCertsDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -241,7 +271,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		PgBackRestPort: pgbackrestPort,
 		PgCertsDir:     pgCertsDir,
 		BackupLocation: backupLocation,
-		Environment:    append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Environment:    append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "MULTIGRES_USER="+multigresUser),
 	}
 }
 
@@ -361,8 +391,7 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
-		s.MultigatewayPgPort, TestPostgresPassword)
+	connStr := s.GetMultigatewayConnectionString("localhost")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)

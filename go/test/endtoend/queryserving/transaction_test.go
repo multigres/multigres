@@ -72,8 +72,7 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 			conn, err := client.Connect(ctx, ctx, &client.Config{
 				Host:        "localhost",
 				Port:        setup.MultigatewayPgPort,
-				User:        "postgres",
-				Password:    shardsetup.TestPostgresPassword,
+				User:        setup.PgUser,
 				Database:    "postgres",
 				DialTimeout: 5 * time.Second,
 			})
@@ -89,8 +88,7 @@ func runTransactionTests(t *testing.T, setup *shardsetup.ShardSetup, testCases [
 				cleanupConn, cleanupErr := client.Connect(cleanupCtx, cleanupCtx, &client.Config{
 					Host:        "localhost",
 					Port:        setup.MultigatewayPgPort,
-					User:        "postgres",
-					Password:    shardsetup.TestPostgresPassword,
+					User:        setup.PgUser,
 					Database:    "postgres",
 					DialTimeout: 5 * time.Second,
 				})

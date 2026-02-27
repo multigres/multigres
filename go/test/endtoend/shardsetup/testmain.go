@@ -99,14 +99,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
-)
-
-const (
-	// TestPostgresPassword is the password used for the postgres user in tests.
-	// This is set via PGPASSWORD env var before pgctld initializes PostgreSQL.
-	TestPostgresPassword = "test_password_123"
 )
 
 // SetupFunc is a function that creates a ShardSetup for testing.
@@ -144,7 +139,7 @@ func RunTestMain(m *testing.M) int {
 	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
 
 	// Set PGPASSWORD to a known value so tests can authenticate
-	os.Setenv("PGPASSWORD", TestPostgresPassword)
+	os.Setenv("MULTIGRES_USER", constants.DefaultMultigresUser)
 
 	// Initialize telemetry (no-op if OTEL environment variables aren't set)
 	tel := telemetry.NewTelemetry()

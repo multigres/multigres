@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -58,10 +57,8 @@ func (nc *noticeCollector) reset() {
 }
 
 // connectWithNotices creates a pgx connection with an OnNotice handler that collects notices.
-func connectWithNotices(ctx context.Context, t *testing.T, host string, port int, password string) (*pgx.Conn, *noticeCollector) {
+func connectWithNotices(ctx context.Context, t *testing.T, connStr string) (*pgx.Conn, *noticeCollector) {
 	t.Helper()
-	connStr := fmt.Sprintf("host=%s port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		host, port, password)
 	config, err := pgx.ParseConfig(connStr)
 	require.NoError(t, err)
 
@@ -88,7 +85,8 @@ func TestNoticeFormat_TableInheritanceColumnMerge(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	t.Run("simple_query_inheritance_notice", func(t *testing.T) {
-		conn, collector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		connStr := setup.GetMultigatewayConnectionString("localhost")
+		conn, collector := connectWithNotices(ctx, t, connStr)
 		defer conn.Close(ctx)
 
 		parentTable := fmt.Sprintf("parent_notice_%d", time.Now().UnixNano())
@@ -121,10 +119,10 @@ func TestNoticeFormat_TableInheritanceColumnMerge(t *testing.T) {
 	})
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
-		directConn, directCollector := connectWithNotices(ctx, t, "localhost", setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConn, directCollector := connectWithNotices(ctx, t, setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort))
 		defer directConn.Close(ctx)
 
-		mgConn, mgCollector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConn, mgCollector := connectWithNotices(ctx, t, setup.GetMultigatewayConnectionString("localhost"))
 		defer mgConn.Close(ctx)
 
 		suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -179,7 +177,7 @@ func TestNoticeFormat_RaiseNotice(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	t.Run("single_raise_notice", func(t *testing.T) {
-		conn, collector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		conn, collector := connectWithNotices(ctx, t, setup.GetMultigatewayConnectionString("localhost"))
 		defer conn.Close(ctx)
 
 		_, err := conn.Exec(ctx, "DO $$ BEGIN RAISE NOTICE 'test notice message'; END $$")
@@ -196,7 +194,7 @@ func TestNoticeFormat_RaiseNotice(t *testing.T) {
 	})
 
 	t.Run("multiple_notices", func(t *testing.T) {
-		conn, collector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		conn, collector := connectWithNotices(ctx, t, setup.GetMultigatewayConnectionString("localhost"))
 		defer conn.Close(ctx)
 
 		_, err := conn.Exec(ctx, `DO $$
@@ -217,7 +215,7 @@ func TestNoticeFormat_RaiseNotice(t *testing.T) {
 	})
 
 	t.Run("no_notice_on_simple_select", func(t *testing.T) {
-		conn, collector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		conn, collector := connectWithNotices(ctx, t, setup.GetMultigatewayConnectionString("localhost"))
 		defer conn.Close(ctx)
 
 		_, err := conn.Exec(ctx, "SELECT 1")
@@ -228,10 +226,10 @@ func TestNoticeFormat_RaiseNotice(t *testing.T) {
 	})
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
-		directConn, directCollector := connectWithNotices(ctx, t, "localhost", setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConn, directCollector := connectWithNotices(ctx, t, setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort))
 		defer directConn.Close(ctx)
 
-		mgConn, mgCollector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConn, mgCollector := connectWithNotices(ctx, t, setup.GetMultigatewayConnectionString("localhost"))
 		defer mgConn.Close(ctx)
 
 		query := "DO $$ BEGIN RAISE NOTICE 'comparison notice'; END $$"
@@ -268,7 +266,7 @@ func TestNoticeFormat_DetailAndHint(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	t.Run("notice_with_detail_and_hint", func(t *testing.T) {
-		conn, collector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		conn, collector := connectWithNotices(ctx, t, setup.GetMultigatewayConnectionString("localhost"))
 		defer conn.Close(ctx)
 
 		_, err := conn.Exec(ctx, `DO $$
@@ -293,10 +291,12 @@ func TestNoticeFormat_DetailAndHint(t *testing.T) {
 	})
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
-		directConn, directCollector := connectWithNotices(ctx, t, "localhost", setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConnStr := setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort)
+		directConn, directCollector := connectWithNotices(ctx, t, directConnStr)
 		defer directConn.Close(ctx)
 
-		mgConn, mgCollector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConnStr := setup.GetMultigatewayConnectionString("localhost")
+		mgConn, mgCollector := connectWithNotices(ctx, t, mgConnStr)
 		defer mgConn.Close(ctx)
 
 		query := `DO $$
@@ -340,7 +340,7 @@ func TestNoticeFormat_PLpgSQLWhereField(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	conn, collector := connectWithNotices(ctx, t, "localhost", setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	conn, collector := connectWithNotices(ctx, t, setup.GetMultigatewayConnectionString("localhost"))
 	defer conn.Close(ctx)
 
 	innerFunc := fmt.Sprintf("notice_inner_%d", time.Now().UnixNano())
@@ -389,7 +389,8 @@ func TestNoticeFormat_PLpgSQLWhereField(t *testing.T) {
 	})
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
-		directConn, directCollector := connectWithNotices(ctx, t, "localhost", setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConnStr := setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort)
+		directConn, directCollector := connectWithNotices(ctx, t, directConnStr)
 		defer directConn.Close(ctx)
 
 		// Create the same functions on direct connection

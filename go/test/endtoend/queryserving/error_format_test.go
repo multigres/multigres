@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -49,8 +48,7 @@ func TestErrorFormat_UndefinedColumnPosition(t *testing.T) {
 
 	t.Run("simple_query_undefined_column", func(t *testing.T) {
 		// Connect to multigateway
-		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		connStr := setup.GetMultigatewayConnectionString("localhost")
 		conn, err := pgx.Connect(ctx, connStr)
 		require.NoError(t, err)
 		defer conn.Close(ctx)
@@ -86,15 +84,14 @@ func TestErrorFormat_UndefinedColumnPosition(t *testing.T) {
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
 		// Connect directly to PostgreSQL
-		directConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConnStr := fmt.Sprintf("host=localhost port=%d user=%s dbname=postgres sslmode=disable",
+			setup.GetPrimary(t).Pgctld.PgPort, setup.PgUser)
 		directConn, err := pgx.Connect(ctx, directConnStr)
 		require.NoError(t, err)
 		defer directConn.Close(ctx)
 
 		// Connect to multigateway
-		mgConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConnStr := setup.GetMultigatewayConnectionString("localhost")
 		mgConn, err := pgx.Connect(ctx, mgConnStr)
 		require.NoError(t, err)
 		defer mgConn.Close(ctx)
@@ -143,8 +140,7 @@ func TestErrorFormat_TypeErrorSQLState(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
 	t.Run("simple_query_type_error", func(t *testing.T) {
-		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		connStr := setup.GetMultigatewayConnectionString("localhost")
 		conn, err := pgx.Connect(ctx, connStr)
 		require.NoError(t, err)
 		defer conn.Close(ctx)
@@ -167,15 +163,14 @@ func TestErrorFormat_TypeErrorSQLState(t *testing.T) {
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
 		// Connect directly to PostgreSQL
-		directConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConnStr := fmt.Sprintf("host=localhost port=%d user=%s dbname=postgres sslmode=disable",
+			setup.GetPrimary(t).Pgctld.PgPort, setup.PgUser)
 		directConn, err := pgx.Connect(ctx, directConnStr)
 		require.NoError(t, err)
 		defer directConn.Close(ctx)
 
 		// Connect to multigateway
-		mgConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConnStr := setup.GetMultigatewayConnectionString("localhost")
 		mgConn, err := pgx.Connect(ctx, mgConnStr)
 		require.NoError(t, err)
 		defer mgConn.Close(ctx)
@@ -211,8 +206,7 @@ func TestErrorFormat_ConstraintViolation(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := setup.GetMultigatewayConnectionString("localhost")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)
@@ -289,15 +283,13 @@ func TestErrorFormat_ConstraintViolation(t *testing.T) {
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
 		// Connect directly to PostgreSQL
-		directConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
-		directConn, err := pgx.Connect(ctx, directConnStr)
+		directConnString := setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort)
+		directConn, err := pgx.Connect(ctx, directConnString)
 		require.NoError(t, err)
 		defer directConn.Close(ctx)
 
 		// Connect to multigateway
-		mgConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConnStr := setup.GetMultigatewayConnectionString("localhost")
 		mgConn, err := pgx.Connect(ctx, mgConnStr)
 		require.NoError(t, err)
 		defer mgConn.Close(ctx)
@@ -335,8 +327,7 @@ func TestErrorFormat_PLpgSQLWhereField(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := setup.GetMultigatewayConnectionString("localhost")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)
@@ -394,15 +385,13 @@ func TestErrorFormat_PLpgSQLWhereField(t *testing.T) {
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
 		// Connect directly to PostgreSQL
-		directConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConnStr := setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort)
 		directConn, err := pgx.Connect(ctx, directConnStr)
 		require.NoError(t, err)
 		defer directConn.Close(ctx)
 
 		// Connect to multigateway
-		mgConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConnStr := setup.GetMultigatewayConnectionString("localhost")
 		mgConn, err := pgx.Connect(ctx, mgConnStr)
 		require.NoError(t, err)
 		defer mgConn.Close(ctx)
@@ -438,8 +427,7 @@ func TestErrorFormat_HintAndDetail(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := setup.GetMultigatewayConnectionString("localhost")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)
@@ -471,15 +459,13 @@ func TestErrorFormat_HintAndDetail(t *testing.T) {
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
 		// Connect directly to PostgreSQL
-		directConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConnStr := setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort)
 		directConn, err := pgx.Connect(ctx, directConnStr)
 		require.NoError(t, err)
 		defer directConn.Close(ctx)
 
 		// Connect to multigateway
-		mgConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConnStr := setup.GetMultigatewayConnectionString("localhost")
 		mgConn, err := pgx.Connect(ctx, mgConnStr)
 		require.NoError(t, err)
 		defer mgConn.Close(ctx)
@@ -523,8 +509,7 @@ func TestErrorFormat_UndefinedTable(t *testing.T) {
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := setup.GetMultigatewayConnectionString("localhost")
 	conn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	defer conn.Close(ctx)
@@ -545,15 +530,13 @@ func TestErrorFormat_UndefinedTable(t *testing.T) {
 
 	t.Run("compare_with_direct_postgres", func(t *testing.T) {
 		// Connect directly to PostgreSQL
-		directConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.GetPrimary(t).Pgctld.PgPort, shardsetup.TestPostgresPassword)
+		directConnStr := setup.GetDirectConnectionString("localhost", setup.GetPrimary(t).Pgctld.PgPort)
 		directConn, err := pgx.Connect(ctx, directConnStr)
 		require.NoError(t, err)
 		defer directConn.Close(ctx)
 
 		// Connect to multigateway
-		mgConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		mgConnStr := setup.GetMultigatewayConnectionString("localhost")
 		mgConn, err := pgx.Connect(ctx, mgConnStr)
 		require.NoError(t, err)
 		defer mgConn.Close(ctx)

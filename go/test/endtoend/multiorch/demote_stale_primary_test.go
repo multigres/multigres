@@ -229,7 +229,7 @@ func writeDataToNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, primaryNa
 	require.NotNil(t, primary, "primary instance should exist")
 
 	socketDir := filepath.Join(primary.Pgctld.DataDir, "pg_sockets")
-	db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort)
+	db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort, setup.PgUser)
 	require.NotNil(t, db, "should connect to new primary")
 	defer db.Close()
 

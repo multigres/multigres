@@ -1,6 +1,6 @@
-// Copyright 2025 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
+// Copyright 2025 Supabase, Inc.
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
@@ -463,7 +463,7 @@ func checkHeartbeatsWritten(multipoolerAddr string) (bool, error) {
 // poolers yet, and lib/pq Ping uses an empty query (";") that bypasses pooler discovery.
 // With multi-cell discovery, any multigateway can find the primary in any zone,
 // so we only need to wait on the first port.
-func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) error {
+func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int, pgUser string) error {
 	t.Helper()
 
 	r := retry.New(1*time.Millisecond, 500*time.Millisecond)
@@ -472,8 +472,7 @@ func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) err
 			return fmt.Errorf("timeout waiting for multigateway to be ready after %d attempts: %w", attempt, err)
 		}
 
-		// Local provisioner creates PostgreSQL with default password "postgres"
-		connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=2", pgPort)
+		connStr := fmt.Sprintf("host=localhost port=%d user=%s dbname=postgres sslmode=disable connect_timeout=2", pgPort, pgUser)
 		db, err := sql.Open("postgres", connStr)
 		if err != nil {
 			continue
@@ -1603,7 +1602,7 @@ func setupTestCluster(t *testing.T) (*testClusterSetup, func()) {
 	readyPort := testPorts.Zones[0].MultigatewayPGPort
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer waitCancel()
-	err = waitForMultigatewayReady(t, waitCtx, readyPort)
+	err = waitForMultigatewayReady(t, waitCtx, readyPort, constants.DefaultMultigresUser)
 	require.NoError(t, err, "multigateway should be ready after bootstrap")
 
 	return &testClusterSetup{

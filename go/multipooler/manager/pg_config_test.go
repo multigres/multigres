@@ -15,11 +15,13 @@
 package manager
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -284,13 +286,13 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 	}{
 		{
 			name:     "Complete connection string",
-			connInfo: "host=localhost port=5432 user=postgres application_name=test_cell_standby1",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s application_name=test_cell_standby1", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "test_cell_standby1",
-				Raw:             "host=localhost port=5432 user=postgres application_name=test_cell_standby1",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s application_name=test_cell_standby1", constants.DefaultMultigresUser),
 			},
 		},
 		{
@@ -306,13 +308,13 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 		},
 		{
 			name:     "Missing port",
-			connInfo: "host=localhost user=postgres application_name=test_app",
+			connInfo: fmt.Sprintf("host=localhost user=%s application_name=test_app", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            0,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "test_app",
-				Raw:             "host=localhost user=postgres application_name=test_app",
+				Raw:             fmt.Sprintf("host=localhost user=%s application_name=test_app", constants.DefaultMultigresUser),
 			},
 		},
 		{
@@ -328,101 +330,101 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 		},
 		{
 			name:     "Extra parameters ignored",
-			connInfo: "host=localhost port=5432 user=postgres application_name=test keepalives_idle=30 keepalives_interval=10",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s application_name=test keepalives_idle=30 keepalives_interval=10", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "test",
-				Raw:             "host=localhost port=5432 user=postgres application_name=test keepalives_idle=30 keepalives_interval=10",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s application_name=test keepalives_idle=30 keepalives_interval=10", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Invalid port ignored",
-			connInfo: "host=localhost port=invalid user=postgres",
+			connInfo: "host=localhost port=invalid user=" + constants.DefaultMultigresUser,
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            0,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=invalid user=postgres",
+				Raw:             "host=localhost port=invalid user=" + constants.DefaultMultigresUser,
 			},
 		},
 		{
 			name:     "Connection with sslmode",
-			connInfo: "host=localhost port=5432 user=postgres sslmode=require",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s sslmode=require", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres sslmode=require",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s sslmode=require", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with password (redacted)",
-			connInfo: "host=localhost port=5432 user=postgres password=secret123",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s password=secret123", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres password=[REDACTED]",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s password=[REDACTED]", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with passfile",
-			connInfo: "host=localhost port=5432 user=postgres passfile=/home/user/.pgpass",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s passfile=/home/user/.pgpass", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres passfile=/home/user/.pgpass",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s passfile=/home/user/.pgpass", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with multiple SSL parameters",
-			connInfo: "host=localhost port=5432 user=postgres sslmode=verify-full sslcert=/path/to/cert.pem sslkey=/path/to/key.pem sslrootcert=/path/to/ca.pem",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s sslmode=verify-full sslcert=/path/to/cert.pem sslkey=/path/to/key.pem sslrootcert=/path/to/ca.pem", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres sslmode=verify-full sslcert=/path/to/cert.pem sslkey=/path/to/key.pem sslrootcert=/path/to/ca.pem",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s sslmode=verify-full sslcert=/path/to/cert.pem sslkey=/path/to/key.pem sslrootcert=/path/to/ca.pem", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with keepalive and timeout parameters",
-			connInfo: "host=localhost port=5432 user=postgres keepalives_idle=30 keepalives_interval=10 keepalives_count=5 connect_timeout=10",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s keepalives_idle=30 keepalives_interval=10 keepalives_count=5 connect_timeout=10", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres keepalives_idle=30 keepalives_interval=10 keepalives_count=5 connect_timeout=10",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s keepalives_idle=30 keepalives_interval=10 keepalives_count=5 connect_timeout=10", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with channel_binding",
-			connInfo: "host=localhost port=5432 user=postgres channel_binding=require",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s channel_binding=require", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres channel_binding=require",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s channel_binding=require", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with gssencmode",
-			connInfo: "host=localhost port=5432 user=postgres gssencmode=prefer",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s gssencmode=prefer", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres gssencmode=prefer",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s gssencmode=prefer", constants.DefaultMultigresUser),
 			},
 		},
 		{
@@ -431,108 +433,108 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "primary.db.local",
 				Port:            5433,
-				User:            "replicator",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "zone1_standby2",
-				Raw:             "host=primary.db.local port=5433 user=replicator application_name=zone1_standby2 sslmode=require keepalives_idle=60 connect_timeout=30",
+				Raw:             fmt.Sprintf("host=primary.db.local port=5433 user=%s application_name=zone1_standby2 sslmode=require keepalives_idle=60 connect_timeout=30", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with hostaddr",
-			connInfo: "hostaddr=172.28.40.9 port=5432 user=postgres",
+			connInfo: "hostaddr=172.28.40.9 port=5432 user=" + constants.DefaultMultigresUser,
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "hostaddr=172.28.40.9 port=5432 user=postgres",
+				Raw:             "hostaddr=172.28.40.9 port=5432 user=" + constants.DefaultMultigresUser,
 			},
 		},
 		{
 			name:     "Connection with dbname",
-			connInfo: "host=localhost port=5432 dbname=mydb user=postgres",
+			connInfo: "host=localhost port=5432 dbname=mydb user=" + constants.DefaultMultigresUser,
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 dbname=mydb user=postgres",
+				Raw:             "host=localhost port=5432 dbname=mydb user=" + constants.DefaultMultigresUser,
 			},
 		},
 		{
 			name:     "Connection with client_encoding",
-			connInfo: "host=localhost port=5432 user=postgres client_encoding=UTF8",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s client_encoding=UTF8", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres client_encoding=UTF8",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s client_encoding=UTF8", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with options parameter",
-			connInfo: "host=localhost port=5432 user=postgres options=-c\\ geqo=off",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s options=-c\\ geqo=off", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres options=-c\\ geqo=off",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s options=-c\\ geqo=off", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with replication mode",
-			connInfo: "host=localhost port=5432 user=postgres replication=database",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s replication=database", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres replication=database",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s replication=database", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with target_session_attrs",
-			connInfo: "host=localhost port=5432 user=postgres target_session_attrs=read-write",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s target_session_attrs=read-write", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres target_session_attrs=read-write",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s target_session_attrs=read-write", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with sslcrl and sslcompression",
-			connInfo: "host=localhost port=5432 user=postgres sslmode=verify-full sslcrl=/path/to/crl.pem sslcompression=1",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s sslmode=verify-full sslcrl=/path/to/crl.pem sslcompression=1", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres sslmode=verify-full sslcrl=/path/to/crl.pem sslcompression=1",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s sslmode=verify-full sslcrl=/path/to/crl.pem sslcompression=1", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with requirepeer",
-			connInfo: "host=localhost port=5432 user=postgres requirepeer=postgres",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s requirepeer=postgres", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres requirepeer=postgres",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s requirepeer=postgres", constants.DefaultMultigresUser),
 			},
 		},
 		{
 			name:     "Connection with krbsrvname and gsslib",
-			connInfo: "host=localhost port=5432 user=postgres krbsrvname=postgres gsslib=gssapi",
+			connInfo: fmt.Sprintf("host=localhost port=5432 user=%s krbsrvname=postgres gsslib=gssapi", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres krbsrvname=postgres gsslib=gssapi",
+				Raw:             fmt.Sprintf("host=localhost port=5432 user=%s krbsrvname=postgres gsslib=gssapi", constants.DefaultMultigresUser),
 			},
 		},
 		{
@@ -564,34 +566,34 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 		},
 		{
 			name:        "Invalid format - missing equals sign in one parameter",
-			connInfo:    "host=localhost port 5432 user=postgres",
+			connInfo:    "host=localhost port 5432 user=" + constants.DefaultMultigresUser,
 			expectError: true,
 		},
 		{
 			name:        "Invalid format - empty key",
-			connInfo:    "host=localhost =5432 user=postgres",
+			connInfo:    "host=localhost =5432 user=" + constants.DefaultMultigresUser,
 			expectError: true,
 		},
 		{
 			name:     "Connection with multiple spaces between parameters",
-			connInfo: "host=localhost   port=5432  user=postgres",
+			connInfo: "host=localhost   port=5432  user=" + constants.DefaultMultigresUser,
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres", // Spaces normalized due to split/join
+				Raw:             "host=localhost port=5432 user=" + constants.DefaultMultigresUser, // Spaces normalized due to split/join
 			},
 		},
 		{
 			name:     "Connection with leading and trailing spaces",
-			connInfo: "  host=localhost port=5432 user=postgres  ",
+			connInfo: fmt.Sprintf("  host=localhost port=5432 user=%s  ", constants.DefaultMultigresUser),
 			expected: &multipoolermanagerdata.PrimaryConnInfo{
 				Host:            "localhost",
 				Port:            5432,
-				User:            "postgres",
+				User:            constants.DefaultMultigresUser,
 				ApplicationName: "",
-				Raw:             "host=localhost port=5432 user=postgres", // Leading/trailing spaces trimmed
+				Raw:             "host=localhost port=5432 user=" + constants.DefaultMultigresUser, // Leading/trailing spaces trimmed
 			},
 		},
 	}

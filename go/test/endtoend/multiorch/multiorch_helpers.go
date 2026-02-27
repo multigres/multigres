@@ -31,10 +31,10 @@ import (
 )
 
 // connectToPostgres establishes a connection to PostgreSQL using Unix socket
-func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
+func connectToPostgres(t *testing.T, socketDir string, port int, user string) *sql.DB {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable", socketDir, port)
+	connStr := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres sslmode=disable", socketDir, port, user)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "Failed to open database connection")
 

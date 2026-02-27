@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -90,7 +89,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// Phase 5: Run regression tests
 	t.Run("run_regression_tests", func(t *testing.T) {
 		// Run tests against multigateway
-		results, err := builder.RunRegressionTests(t, ctx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		results, err := builder.RunRegressionTests(t, ctx, setup.MultigatewayPgPort, setup.PgUser)
 
 		// Handle nil results gracefully
 		if results == nil {

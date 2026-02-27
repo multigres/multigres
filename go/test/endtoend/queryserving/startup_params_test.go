@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -45,9 +44,8 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 	ctx := utils.WithTimeout(t, 150*time.Second)
 
 	t.Run("DateStyle via pgx RuntimeParams", func(t *testing.T) {
-		connCfg, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		connStr := setup.GetMultigatewayConnectionString("localhost")
+		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["DateStyle"] = "German"
 
@@ -62,9 +60,8 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 	})
 
 	t.Run("multiple startup parameters", func(t *testing.T) {
-		connCfg, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		connStr := setup.GetMultigatewayConnectionString("localhost")
+		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["DateStyle"] = "SQL"
 		connCfg.RuntimeParams["TimeZone"] = "US/Pacific"
@@ -91,9 +88,8 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 	})
 
 	t.Run("SET overrides startup parameter", func(t *testing.T) {
-		connCfg, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		connStr := setup.GetMultigatewayConnectionString("localhost")
+		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["idle_in_transaction_session_timeout"] = "7s"
 
@@ -120,10 +116,9 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 	})
 
 	t.Run("connection pooling isolation", func(t *testing.T) {
+		connStr := setup.GetMultigatewayConnectionString("localhost")
 		// Connection 1 with lock_timeout=11s
-		connCfg1, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		connCfg1, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg1.RuntimeParams["lock_timeout"] = "11s"
 
@@ -132,9 +127,7 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 		defer conn1.Close(ctx)
 
 		// Connection 2 with lock_timeout=22s
-		connCfg2, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		connCfg2, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg2.RuntimeParams["lock_timeout"] = "22s"
 
@@ -157,10 +150,9 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 	})
 
 	t.Run("server_version unchanged", func(t *testing.T) {
+		connStr := setup.GetMultigatewayConnectionString("localhost")
 		// Get baseline server_version without startup params
-		baselineCfg, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		baselineCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 
 		baselineConn, err := pgx.ConnectConfig(ctx, baselineCfg)
@@ -171,9 +163,7 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 		baselineConn.Close(ctx)
 
 		// Connect with startup params and verify server_version is the same
-		connCfg, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["TimeZone"] = "US/Eastern"
 
@@ -188,9 +178,8 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 	})
 
 	t.Run("invalid startup parameter allows connection but fails queries", func(t *testing.T) {
-		connCfg, err := pgx.ParseConfig(fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword))
+		connStr := setup.GetMultigatewayConnectionString("localhost")
+		connCfg, err := pgx.ParseConfig(connStr)
 		require.NoError(t, err)
 		connCfg.RuntimeParams["completely_invalid_guc_12345"] = "some_value"
 
@@ -223,8 +212,8 @@ func TestMultiGateway_PGOPTIONSMultipleFlags(t *testing.T) {
 
 	t.Run("single -c flag via lib/pq", func(t *testing.T) {
 		connStr := fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5 options='-c work_mem=64MB'",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			"host=localhost port=%d user=%s dbname=postgres sslmode=disable connect_timeout=5 options='-c work_mem=64MB'",
+			setup.MultigatewayPgPort, setup.PgUser)
 
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)
@@ -238,8 +227,8 @@ func TestMultiGateway_PGOPTIONSMultipleFlags(t *testing.T) {
 
 	t.Run("multiple -c flags", func(t *testing.T) {
 		connStr := fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5 options='-c work_mem=32MB -c lock_timeout=5s'",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			"host=localhost port=%d user=%s dbname=postgres sslmode=disable connect_timeout=5 options='-c work_mem=32MB -c lock_timeout=5s'",
+			setup.MultigatewayPgPort, setup.PgUser)
 
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)
@@ -258,8 +247,8 @@ func TestMultiGateway_PGOPTIONSMultipleFlags(t *testing.T) {
 
 	t.Run("--key=value with hyphen-to-underscore", func(t *testing.T) {
 		connStr := fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5 options='--statement-timeout=10s'",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			"host=localhost port=%d user=%s dbname=postgres sslmode=disable connect_timeout=5 options='--statement-timeout=10s'",
+			setup.MultigatewayPgPort, setup.PgUser)
 
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)
@@ -273,8 +262,8 @@ func TestMultiGateway_PGOPTIONSMultipleFlags(t *testing.T) {
 
 	t.Run("mixed -c and -- formats", func(t *testing.T) {
 		connStr := fmt.Sprintf(
-			"host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5 options='-c work_mem=48MB --lock-timeout=3s'",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			"host=localhost port=%d user=%s dbname=postgres sslmode=disable connect_timeout=5 options='-c work_mem=48MB --lock-timeout=3s'",
+			setup.MultigatewayPgPort, setup.PgUser)
 
 		db, err := sql.Open("postgres", connStr)
 		require.NoError(t, err)

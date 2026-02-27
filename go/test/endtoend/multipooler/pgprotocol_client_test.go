@@ -44,8 +44,7 @@ func TestPgProtocolClientConnection(t *testing.T) {
 		conn, err := client.Connect(ctx, ctx, &client.Config{
 			Host:        "localhost",
 			Port:        setup.PrimaryPgctld.PgPort,
-			User:        "postgres",
-			Password:    testPostgresPassword,
+			User:        setup.PgUser,
 			Database:    "postgres",
 			DialTimeout: 5 * time.Second,
 		})
@@ -74,8 +73,7 @@ func TestPgProtocolClientConnection(t *testing.T) {
 		conn, err := client.Connect(ctx, ctx, &client.Config{
 			Host:        "localhost",
 			Port:        setup.PrimaryPgctld.PgPort,
-			User:        "postgres",
-			Password:    testPostgresPassword,
+			User:        setup.PgUser,
 			Database:    "postgres",
 			DialTimeout: 5 * time.Second,
 		})
@@ -104,8 +102,7 @@ func TestPgProtocolClientSimpleQuery(t *testing.T) {
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
-		Password:    testPostgresPassword,
+		User:        setup.PgUser,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
 	})
@@ -218,8 +215,7 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
-		Password:    testPostgresPassword,
+		User:        setup.PgUser,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
 	})
@@ -339,8 +335,7 @@ func TestPgProtocolClientDataTypes(t *testing.T) {
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
-		Password:    testPostgresPassword,
+		User:        setup.PgUser,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
 	})
@@ -460,8 +455,7 @@ func TestPgProtocolClientErrors(t *testing.T) {
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
-		Password:    testPostgresPassword,
+		User:        setup.PgUser,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
 	})
@@ -524,8 +518,7 @@ func TestPgProtocolClientTransactions(t *testing.T) {
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
-		Password:    testPostgresPassword,
+		User:        setup.PgUser,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
 	})
@@ -596,8 +589,7 @@ func TestPgProtocolClientStreaming(t *testing.T) {
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.PrimaryPgctld.PgPort,
-		User:        "postgres",
-		Password:    testPostgresPassword,
+		User:        setup.PgUser,
 		Database:    "postgres",
 		DialTimeout: 5 * time.Second,
 	})
