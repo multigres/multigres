@@ -60,7 +60,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "5000", result, "should display as milliseconds")
+		assert.Equal(t, "5s", result, "should display using PG GUC_UNIT_MS format")
 
 		// SET with Go duration string
 		_, err = conn.Exec(ctx, "SET statement_timeout = '2s'")
@@ -68,7 +68,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "2000", result, "2s should display as 2000ms")
+		assert.Equal(t, "2s", result, "2s should display as 2s")
 
 		// SET to 0 disables timeout
 		_, err = conn.Exec(ctx, "SET statement_timeout = 0")
@@ -90,7 +90,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "1000", result)
+		assert.Equal(t, "1s", result)
 
 		// RESET should revert to the --statement-timeout flag default (30s)
 		_, err = conn.Exec(ctx, "RESET statement_timeout")
@@ -98,7 +98,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "30000", result, "RESET should revert to flag default (30s = 30000ms)")
+		assert.Equal(t, "30s", result, "RESET should revert to flag default (30s)")
 	})
 
 	t.Run("SET TO DEFAULT reverts to flag default", func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "1000", result)
+		assert.Equal(t, "1s", result)
 
 		// SET TO DEFAULT should behave like RESET
 		_, err = conn.Exec(ctx, "SET statement_timeout TO DEFAULT")
@@ -119,7 +119,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "30000", result, "SET TO DEFAULT should revert to flag default (30s = 30000ms)")
+		assert.Equal(t, "30s", result, "SET TO DEFAULT should revert to flag default (30s)")
 	})
 
 	t.Run("RESET ALL also resets statement_timeout", func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "30000", result, "RESET ALL should revert statement_timeout to flag default")
+		assert.Equal(t, "30s", result, "RESET ALL should revert statement_timeout to flag default")
 	})
 
 	t.Run("timeout enforced on slow query", func(t *testing.T) {
@@ -280,7 +280,7 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "500", result)
+		assert.Equal(t, "500ms", result)
 
 		// Timeout should be enforced via extended protocol too
 		start := time.Now()
@@ -369,7 +369,7 @@ func TestMultiGateway_StatementTimeoutStartupParam(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "2000", result, "startup param should set the default to 2000ms")
+		assert.Equal(t, "2s", result, "startup param should set the default to 2s")
 	})
 
 	t.Run("SET overrides startup param", func(t *testing.T) {
@@ -389,7 +389,7 @@ func TestMultiGateway_StatementTimeoutStartupParam(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "5000", result, "SET should override startup param")
+		assert.Equal(t, "5s", result, "SET should override startup param")
 	})
 
 	t.Run("RESET reverts to startup param default", func(t *testing.T) {
@@ -412,7 +412,7 @@ func TestMultiGateway_StatementTimeoutStartupParam(t *testing.T) {
 		var result string
 		err = conn.QueryRow(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "7000", result, "RESET should revert to startup param default, not flag default")
+		assert.Equal(t, "7s", result, "RESET should revert to startup param default, not flag default")
 	})
 
 	t.Run("startup param enforces timeout", func(t *testing.T) {

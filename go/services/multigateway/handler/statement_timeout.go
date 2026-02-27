@@ -88,8 +88,32 @@ func outOfRangeParamError(paramName, value string) *mterrors.PgDiagnostic {
 		fmt.Sprintf("%s is outside the valid range for parameter %q (0 .. 2147483647)", value, paramName), "")
 }
 
-// formatDurationAsMs formats a time.Duration as a PostgreSQL-compatible milliseconds string.
-// This matches PostgreSQL's display format for statement_timeout.
-func formatDurationAsMs(d time.Duration) string {
-	return strconv.FormatInt(d.Milliseconds(), 10)
+// formatDurationPg formats a time.Duration using PostgreSQL's GUC_UNIT_MS display
+// convention. PostgreSQL picks the largest unit that divides evenly into the value:
+//
+//	0        → "0"
+//	500ms    → "500ms"
+//	5s       → "5s"
+//	90s      → "1min 30s"  (but we use "90s" — PG only splits at clean boundaries)
+//	60s      → "1min"
+//	3600s    → "1h"
+//
+// Values that don't divide evenly into the next-larger unit stay in the smaller unit
+// (e.g., 1500ms → "1500ms", not "1.5s").
+func formatDurationPg(d time.Duration) string {
+	ms := d.Milliseconds()
+	if ms == 0 {
+		return "0"
+	}
+
+	switch {
+	case ms%(3600*1000) == 0:
+		return strconv.FormatInt(ms/(3600*1000), 10) + "h"
+	case ms%(60*1000) == 0:
+		return strconv.FormatInt(ms/(60*1000), 10) + "min"
+	case ms%1000 == 0:
+		return strconv.FormatInt(ms/1000, 10) + "s"
+	default:
+		return strconv.FormatInt(ms, 10) + "ms"
+	}
 }

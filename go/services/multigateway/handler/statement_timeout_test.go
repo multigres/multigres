@@ -207,15 +207,28 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 		require.Equal(t, 30*time.Second, s.GetStatementTimeout())
 	})
 
-	t.Run("show formats as milliseconds", func(t *testing.T) {
+	t.Run("show formats using PG GUC_UNIT_MS convention", func(t *testing.T) {
 		s := NewMultiGatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
-		require.Equal(t, "30000", s.ShowStatementTimeout())
+		require.Equal(t, "30s", s.ShowStatementTimeout())
 
 		s.SetStatementTimeout(5 * time.Second)
-		require.Equal(t, "5000", s.ShowStatementTimeout())
+		require.Equal(t, "5s", s.ShowStatementTimeout())
 
 		s.SetStatementTimeout(0)
 		require.Equal(t, "0", s.ShowStatementTimeout())
+
+		s.SetStatementTimeout(500 * time.Millisecond)
+		require.Equal(t, "500ms", s.ShowStatementTimeout())
+
+		s.SetStatementTimeout(2 * time.Minute)
+		require.Equal(t, "2min", s.ShowStatementTimeout())
+
+		s.SetStatementTimeout(time.Hour)
+		require.Equal(t, "1h", s.ShowStatementTimeout())
+
+		// Non-even values stay in ms
+		s.SetStatementTimeout(1500 * time.Millisecond)
+		require.Equal(t, "1500ms", s.ShowStatementTimeout())
 	})
 }

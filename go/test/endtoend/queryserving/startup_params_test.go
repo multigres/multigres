@@ -268,7 +268,7 @@ func TestMultiGateway_PGOPTIONSMultipleFlags(t *testing.T) {
 		var result string
 		err = db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&result)
 		require.NoError(t, err)
-		assert.Equal(t, "10000", result, "statement_timeout should be 10000ms (gateway-managed, displayed as milliseconds)")
+		assert.Equal(t, "10s", result, "statement_timeout should be 10s (gateway-managed, PG display format)")
 	})
 
 	t.Run("mixed -c and -- formats", func(t *testing.T) {

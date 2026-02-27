@@ -268,11 +268,11 @@ func (m *MultiGatewayConnectionState) GetStatementTimeout() time.Duration {
 }
 
 // ShowStatementTimeout returns the effective statement timeout formatted
-// as a PostgreSQL-compatible milliseconds string for SHOW output.
+// using PostgreSQL's GUC_UNIT_MS display convention for SHOW output.
 func (m *MultiGatewayConnectionState) ShowStatementTimeout() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return formatDurationAsMs(m.statementTimeout.GetEffective())
+	return formatDurationPg(m.statementTimeout.GetEffective())
 }
 
 // InitStatementTimeout sets the default for the statement timeout variable.
