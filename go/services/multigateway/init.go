@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/cancelkey"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -65,6 +66,8 @@ type MultiGateway struct {
 	pgListener *server.Listener
 	// pgHandler is the PostgreSQL protocol handler
 	pgHandler *handler.MultiGatewayHandler
+	// cancelManager handles cross-gateway query cancellation
+	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
 	scatterConn *scatterconn.ScatterConn
 	// executor handles query execution and routing
@@ -238,12 +241,21 @@ func (mg *MultiGateway) Init() error {
 		logger.Info("TLS configured for PostgreSQL listener", "cert_file", certFile, "key_file", keyFile)
 	}
 
+	// Assign a globally unique PID prefix for cross-gateway cancel routing.
+	// TODO: We should assign PID, when storing in topo to ensure there is no PID collision.
+	pidPrefix, err := mg.assignPIDPrefix(context.TODO(), cell, serviceID)
+	if err != nil {
+		return fmt.Errorf("failed to assign PID prefix: %w", err)
+	}
+	logger.Info("assigned PID prefix", "pid_prefix", pidPrefix)
+
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:      pgAddr,
 		Handler:      mg.pgHandler,
+		GatewayID:    pidPrefix,
 		HashProvider: hashProvider,
 		TLSConfig:    pgTLSConfig,
 		Logger:       logger,
@@ -251,6 +263,16 @@ func (mg *MultiGateway) Init() error {
 	if err != nil {
 		return fmt.Errorf("failed to create PostgreSQL listener on port %d: %w", mg.pgPort.Get(), err)
 	}
+
+	// Set up cross-gateway cancel request handling.
+	mg.cancelManager = NewCancelManager(
+		mg.pgListener.CancelLocalConnection,
+		pidPrefix,
+		mg.ts,
+		logger,
+	)
+	mg.pgListener.SetCancelHandler(mg.cancelManager)
+	mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
 
 	// Start the PostgreSQL listener in a goroutine
 	go func() {
@@ -266,6 +288,7 @@ func (mg *MultiGateway) Init() error {
 		"http_port", mg.senv.GetHTTPPort(),
 		"grpc_port", mg.grpcServer.Port(),
 		"pg_port", mg.pgPort.Get(),
+		"pid_prefix", pidPrefix,
 	)
 
 	// Create multigateway record with all fields now that servenv.Init() has set them up
@@ -273,6 +296,7 @@ func (mg *MultiGateway) Init() error {
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
+	multigateway.PidPrefix = pidPrefix
 
 	mg.tr = toporeg.Register(
 		func(ctx context.Context) error { return mg.ts.RegisterMultiGateway(ctx, multigateway, true) },
@@ -331,6 +355,46 @@ func (mg *MultiGateway) Shutdown() {
 
 	mg.tr.Unregister()
 	mg.ts.Close()
+}
+
+// assignPIDPrefix assigns a globally unique PID prefix for this gateway.
+// It first checks if this gateway already exists in topology (re-registration)
+// and reuses its prefix. Otherwise, it scans all cells for used prefixes
+// and picks the lowest unused value starting from 1.
+func (mg *MultiGateway) assignPIDPrefix(ctx context.Context, cell, serviceID string) (uint32, error) {
+	// Try to reuse existing prefix if this gateway is re-registering.
+	existingGW, err := mg.ts.GetMultiGateway(ctx, topoclient.NewMultiGateway(serviceID, cell, "").Id)
+	if err == nil && existingGW != nil && existingGW.GetPidPrefix() > 0 {
+		return existingGW.GetPidPrefix(), nil
+	}
+
+	// Scan all cells to collect used prefixes.
+	usedPrefixes := make(map[uint32]bool)
+	cells, err := mg.ts.GetCellNames(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("getting cell names: %w", err)
+	}
+
+	for _, c := range cells {
+		gateways, err := mg.ts.GetMultiGatewaysByCell(ctx, c)
+		if err != nil {
+			continue // Cell may not have gateways yet.
+		}
+		for _, gw := range gateways {
+			if p := gw.GetPidPrefix(); p > 0 {
+				usedPrefixes[p] = true
+			}
+		}
+	}
+
+	// Pick the lowest unused prefix starting from 1.
+	for prefix := uint32(1); prefix <= cancelkey.MaxPrefix; prefix++ {
+		if !usedPrefixes[prefix] {
+			return prefix, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", cancelkey.MaxPrefix)
 }
 
 // buildPGTLSConfig validates TLS flag combinations and loads the certificate.

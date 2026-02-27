@@ -163,6 +163,7 @@ func (c *Conn) handleGSSENCRequest() error {
 
 // handleCancelRequest handles a query cancellation request.
 // This is sent by clients to cancel a running query on another connection.
+// Per PostgreSQL protocol, the cancel connection is always closed after processing.
 func (c *Conn) handleCancelRequest(reader *MessageReader) error {
 	// Read the process ID (connection ID).
 	processID, err := reader.ReadUint32()
@@ -176,11 +177,17 @@ func (c *Conn) handleCancelRequest(reader *MessageReader) error {
 		return fmt.Errorf("failed to read secret key: %w", err)
 	}
 
-	c.logger.Info("received cancel request", "process_id", processID, "secret_key", secretKey)
+	c.logger.Info("received cancel request", "process_id", processID)
 
-	// TODO(GuptaManan100): Implement query cancellation.
-	// For now, we just close the connection as per protocol spec.
-	// The client should not expect a response to a cancel request.
+	// TODO: we don't really need this if check i think. The cancel handler should always be there.
+	if c.listener.cancelHandler != nil {
+		// Delegate to the cancel handler which may forward to a remote gateway.
+		c.listener.cancelHandler.HandleCancelRequest(c.ctx, processID, secretKey)
+	} else {
+		// No cross-gateway handler; try to cancel locally.
+		c.listener.CancelLocalConnection(processID, secretKey)
+	}
+
 	return c.Close()
 }
 
@@ -350,6 +357,9 @@ func (c *Conn) authenticateTrust() error {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
 
+	// Register connection for cancel request lookup now that the client knows the PID.
+	c.listener.RegisterConn(c)
+
 	// Send initial ParameterStatus messages.
 	if err := c.sendParameterStatuses(); err != nil {
 		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
@@ -436,6 +446,9 @@ func (c *Conn) authenticateSCRAM() error {
 	if err := c.sendBackendKeyData(); err != nil {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
+
+	// Register connection for cancel request lookup now that the client knows the PID.
+	c.listener.RegisterConn(c)
 
 	// Send initial ParameterStatus messages.
 	if err := c.sendParameterStatuses(); err != nil {
