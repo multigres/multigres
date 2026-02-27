@@ -55,17 +55,19 @@ type Executor interface {
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
 // It routes PostgreSQL protocol queries to the appropriate multipooler instances.
 type MultiGatewayHandler struct {
-	executor Executor
-	logger   *slog.Logger
-	psc      *preparedstatement.Consolidator
+	executor         Executor
+	logger           *slog.Logger
+	psc              *preparedstatement.Consolidator
+	statementTimeout time.Duration
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
-func NewMultiGatewayHandler(executor Executor, logger *slog.Logger) *MultiGatewayHandler {
+func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTimeout time.Duration) *MultiGatewayHandler {
 	return &MultiGatewayHandler{
-		executor: executor,
-		logger:   logger.With("component", "multigateway_handler"),
-		psc:      preparedstatement.NewConsolidator(),
+		executor:         executor,
+		logger:           logger.With("component", "multigateway_handler"),
+		psc:              preparedstatement.NewConsolidator(),
+		statementTimeout: statementTimeout,
 	}
 }
 
@@ -76,11 +78,36 @@ func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
 // PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
-var errAbortedTransaction = &mterrors.PgDiagnostic{
-	MessageType: 'E',
-	Severity:    "ERROR",
-	Code:        "25P02",
-	Message:     "current transaction is aborted, commands ignored until end of transaction block",
+var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTransaction,
+	"current transaction is aborted, commands ignored until end of transaction block", "")
+
+// errStatementTimeout is the error returned when a statement exceeds the configured timeout.
+// PostgreSQL returns SQLSTATE 57014 (query_canceled) for this condition.
+var errStatementTimeout = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
+	"canceling statement due to statement timeout", "")
+
+// executeWithTimeout wraps a function call with statement timeout enforcement.
+// It resolves the effective timeout from per-query directive, session variable, and flag,
+// then wraps ctx with context.WithTimeout if the timeout is > 0.
+// If the function returns an error and the context deadline was exceeded, it returns
+// errStatementTimeout (SQLSTATE 57014) to match PostgreSQL behavior.
+func (h *MultiGatewayHandler) executeWithTimeout(ctx context.Context, state *MultiGatewayConnectionState, query ast.Stmt, fn func(ctx context.Context) error) error {
+	timeout := ResolveStatementTimeout(
+		ParseStatementTimeoutDirective(query),
+		state.GetStatementTimeout(),
+	)
+
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	err := fn(ctx)
+	if timeout > 0 && err != nil && ctx.Err() == context.DeadlineExceeded {
+		return errStatementTimeout
+	}
+	return err
 }
 
 // HandleQuery processes a simple query protocol message ('Q').
@@ -122,8 +149,10 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		return h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, callback)
 	}
 
-	// Single statement - execute normally
-	err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], callback)
+	// Single statement - execute with timeout enforcement
+	err = h.executeWithTimeout(ctx, st, asts[0], func(ctx context.Context) error {
+		return h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], callback)
+	})
 	if err != nil {
 		// If we're in an active transaction and the query failed,
 		// transition to aborted state. The client must ROLLBACK to recover.
@@ -150,6 +179,21 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 	if state == nil {
 		newState := NewMultiGatewayConnectionState()
 		newState.StartupParams = conn.GetStartupParams()
+
+		// Initialize gateway-managed variables. Startup params take precedence
+		// over the flag default (matching PostgreSQL's GUC priority).
+		stDefault := h.statementTimeout
+		if v, ok := newState.StartupParams["statement_timeout"]; ok {
+			if d, err := ParsePostgresInterval("statement_timeout", v); err == nil {
+				stDefault = d
+			} else {
+				h.logger.Warn("ignoring invalid statement_timeout startup parameter, using flag default",
+					"value", v, "default", h.statementTimeout, "error", err)
+			}
+			delete(newState.StartupParams, "statement_timeout")
+		}
+		newState.InitStatementTimeout(stDefault)
+
 		conn.SetConnectionState(newState)
 		return newState
 	}
@@ -202,7 +246,8 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
-		return fmt.Errorf("portal \"%s\" does not exist", portalName)
+		return mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
+			fmt.Sprintf("portal \"%s\" does not exist", portalName), "")
 	}
 
 	// Reject queries in aborted transaction state, except ROLLBACK which is the
@@ -213,7 +258,11 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		}
 	}
 
-	err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
+	// Use the original query string for directive parsing (extended protocol preserves comments).
+	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
+	err := h.executeWithTimeout(ctx, state, astStmt, func(ctx context.Context) error {
+		return h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
+	})
 	if err != nil {
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)

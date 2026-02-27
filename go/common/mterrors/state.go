@@ -16,26 +16,8 @@ package mterrors
 
 import mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 
-// State represents an error state that we will later use to mimic PostgreSQL errors
-type State int
-
-// All the error states
-const (
-	// Undefined is the default error state for errors that don't have a specific state
-	Undefined State = iota
-	// invalid argument
-	BadFieldError
-	// We can keep porting errors from Vitess here as we go.
-)
-
 // ErrorWithCode is an interface for errors that have an associated error code
 type ErrorWithCode interface {
 	error
 	ErrorCode() mtrpcpb.Code
-}
-
-// ErrorWithState is an interface for errors that have an associated state
-type ErrorWithState interface {
-	error
-	ErrorState() State
 }

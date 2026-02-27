@@ -15,13 +15,16 @@
 package planner
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // planVariableSetStmt plans SET/RESET commands.
@@ -36,6 +39,23 @@ func (p *Planner) planVariableSetStmt(
 		p.logger.Debug("SET LOCAL detected, passing through",
 			"variable", stmt.Name)
 		return p.planDefault(sql, conn)
+	}
+
+	// Gateway-managed variables are handled locally without routing to PostgreSQL.
+	// This check happens before the Kind filter because VAR_SET_DEFAULT also needs
+	// to be intercepted for gateway-managed variables (it should behave like RESET).
+	if isGatewayManagedVariable(stmt.Name) {
+		value := ""
+		if stmt.Kind == ast.VAR_SET_VALUE {
+			value = extractVariableValue(stmt.Args)
+		}
+		primitive, err := p.planGatewayManagedVariable(sql, stmt, value)
+		if err != nil {
+			return nil, err
+		}
+		plan := engine.NewPlan(sql, primitive)
+		p.logger.Debug("created gateway-managed plan", "plan", plan.String())
+		return plan, nil
 	}
 
 	// Only track VAR_SET_VALUE, VAR_RESET, VAR_RESET_ALL
@@ -72,6 +92,59 @@ func (p *Planner) planVariableSetStmt(
 	plan := engine.NewPlan(sql, seq)
 	p.logger.Debug("created SET/RESET plan", "plan", plan.String())
 	return plan, nil
+}
+
+// isGatewayManagedVariable returns true for session variables that are managed
+// entirely by the gateway and should NOT be forwarded to PostgreSQL.
+// These variables control gateway-level behavior (e.g., timeouts) and sending
+// them to PostgreSQL would be redundant or counterproductive for connection pooling.
+func isGatewayManagedVariable(name string) bool {
+	switch strings.ToLower(name) {
+	case "statement_timeout":
+		return true
+	default:
+		return false
+	}
+}
+
+// planGatewayManagedVariable creates a GatewaySessionState primitive for a
+// gateway-managed variable. All parsing and validation happens here at plan
+// time so the primitive's execute path is a simple assignment.
+func (p *Planner) planGatewayManagedVariable(
+	sql string,
+	stmt *ast.VariableSetStmt,
+	value string,
+) (engine.Primitive, error) {
+	name := strings.ToLower(stmt.Name)
+
+	switch stmt.Kind {
+	case ast.VAR_SET_VALUE:
+		switch name {
+		case "statement_timeout":
+			d, err := handler.ParsePostgresInterval(name, value)
+			if err != nil {
+				return nil, err
+			}
+			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
+				"value", value, "parsed", d)
+			return engine.NewStatementTimeoutSet(sql, d), nil
+		default:
+			return nil, mterrors.NewUnrecognizedParameter(name)
+		}
+
+	case ast.VAR_RESET, ast.VAR_SET_DEFAULT:
+		// RESET and SET ... TO DEFAULT revert to the flag default.
+		// Note: VAR_RESET_ALL is not listed here because RESET ALL has stmt.Name=""
+		// which never passes isGatewayManagedVariable. RESET ALL is handled by
+		// ApplySessionState (after routing to PostgreSQL) which resets both
+		// PostgreSQL session settings and gateway-managed variables.
+		p.logger.Debug("planning RESET gateway-managed variable", "variable", name)
+		return engine.NewGatewaySessionStateReset(sql, name), nil
+
+	default:
+		return nil, mterrors.NewPgError("ERROR", mterrors.PgSSSyntaxError,
+			fmt.Sprintf("unsupported operation for parameter %q", name), "")
+	}
 }
 
 // extractVariableValue converts AST NodeList arguments to a string value.
