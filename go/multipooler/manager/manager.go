@@ -329,8 +329,7 @@ func (pm *MultiPoolerManager) Open() {
 // Note: Pause() cancels the manager's context, but Open() creates a fresh one.
 func (pm *MultiPoolerManager) Pause() (resume func()) {
 	if !pm.closeLocked("paused") {
-		// Already closed, return no-op resume
-		return func() {}
+		pm.logger.Error("MultiPoolerManager: Pause() called on already-closed manager")
 	}
 
 	return func() {
