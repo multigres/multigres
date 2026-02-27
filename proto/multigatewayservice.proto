@@ -38,4 +38,5 @@ message CancelQueryRequest {
 }
 
 // CancelQueryResponse is empty on success.
-message CancelQueryResponse {}
+message CancelQueryResponse {
+}

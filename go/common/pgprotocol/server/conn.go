@@ -43,6 +43,10 @@ const (
 	defaultFlushDelay = 100 * time.Millisecond
 )
 
+// errQueryCanceled is the sentinel error used when a query is canceled via CancelRequest.
+var errQueryCanceled = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
+	"canceling statement due to user request", "")
+
 // Conn represents the server side connection with a PostgreSQL client.
 // It handles the wire protocol encoding/decoding and connection state management.
 type Conn struct {
@@ -108,6 +112,12 @@ type Conn struct {
 	// Handlers can store their own state here by calling SetConnectionState.
 	// This allows different handler implementations to maintain their own state.
 	state any
+
+	// queryCancelMu protects queryCancelFunc.
+	queryCancelMu sync.Mutex
+	// queryCancelFunc cancels the current in-flight query context.
+	// Set by BeginQueryCancel, cleared by EndQueryCancel.
+	queryCancelFunc context.CancelCauseFunc
 
 	// closed indicates whether the connection has been closed.
 	closed atomic.Bool
@@ -245,6 +255,49 @@ func (c *Conn) GetConnectionState() any {
 // This allows handlers to store their own state per connection.
 func (c *Conn) SetConnectionState(state any) {
 	c.state = state
+}
+
+// BackendKeyData returns the secret key for this connection.
+func (c *Conn) BackendKeyData() uint32 {
+	return c.backendKeyData
+}
+
+// BeginQueryCancel creates a child context for the current query that can be
+// independently canceled. Returns the query context that should be passed to
+// handler methods. Must be paired with EndQueryCancel.
+func (c *Conn) BeginQueryCancel() context.Context {
+	c.queryCancelMu.Lock()
+	defer c.queryCancelMu.Unlock()
+
+	queryCtx, cancel := context.WithCancelCause(c.ctx)
+	c.queryCancelFunc = cancel
+	return queryCtx
+}
+
+// EndQueryCancel clears the query cancel function, signaling that no query
+// is in flight. Calls the cancel function with nil to release context resources.
+func (c *Conn) EndQueryCancel() {
+	c.queryCancelMu.Lock()
+	defer c.queryCancelMu.Unlock()
+
+	if c.queryCancelFunc != nil {
+		c.queryCancelFunc(nil)
+		c.queryCancelFunc = nil
+	}
+}
+
+// CancelQuery cancels the in-flight query on this connection.
+// Returns true if a query was in flight and was canceled.
+func (c *Conn) CancelQuery() bool {
+	c.queryCancelMu.Lock()
+	defer c.queryCancelMu.Unlock()
+
+	if c.queryCancelFunc != nil {
+		c.queryCancelFunc(errQueryCanceled)
+		c.queryCancelFunc = nil
+		return true
+	}
+	return false
 }
 
 // returnReader returns the buffered reader to the pool.
@@ -440,6 +493,10 @@ func (c *Conn) handleQuery() error {
 
 	c.logger.Debug("received query", "query", queryStr)
 
+	// Create a cancelable query context so cancel requests can interrupt this query.
+	queryCtx := c.BeginQueryCancel()
+	defer c.EndQueryCancel()
+
 	// Track state for current result set.
 	// This is reset when we complete a result set (when CommandTag is set).
 	sentRowDescription := false
@@ -448,7 +505,7 @@ func (c *Conn) handleQuery() error {
 	// The callback will be invoked multiple times for:
 	// 1. Large result sets (streamed in chunks)
 	// 2. Multiple statements in a single query (each potentially with large result sets)
-	err = c.handler.HandleQuery(c.ctx, c, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
+	err = c.handler.HandleQuery(queryCtx, c, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
 		// Handle empty query (nil result signals empty query).
 		if result == nil {
 			return c.writeEmptyQueryResponse()
@@ -491,6 +548,12 @@ func (c *Conn) handleQuery() error {
 		return nil
 	})
 	if err != nil {
+		// If the query was canceled, report the cancel error to the client.
+		// TODO: Can we also handle timeout error here.
+		// TODO: Use errors.Is
+		if context.Cause(queryCtx) == errQueryCanceled {
+			err = errQueryCanceled
+		}
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
@@ -707,12 +770,16 @@ func (c *Conn) handleExecute() error {
 
 	c.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
 
+	// Create a cancelable query context so cancel requests can interrupt this execution.
+	queryCtx := c.BeginQueryCancel()
+	defer c.EndQueryCancel()
+
 	// Track state for streaming results.
 	sentRowDescription := false
 
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
-	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
+	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
 		// Send notices immediately (zero-buffering delivery).
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {
@@ -745,6 +812,12 @@ func (c *Conn) handleExecute() error {
 		return nil
 	})
 	if err != nil {
+		// If the query was canceled, report the cancel error to the client.
+		// TODO: Can we also handle timeout error here.
+		// TODO: Use errors.Is
+		if context.Cause(queryCtx) == errQueryCanceled {
+			err = errQueryCanceled
+		}
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
 		}
