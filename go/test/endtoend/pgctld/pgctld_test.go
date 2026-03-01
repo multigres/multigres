@@ -62,6 +62,47 @@ func setupTestEnv(cmd *exec.Cmd) {
 	}
 }
 
+// waitForPostgresReady waits for PostgreSQL to be ready to accept TCP connections on the given port.
+func waitForPostgresReady(t *testing.T, port int, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, timeout, 200*time.Millisecond,
+		"PostgreSQL should be ready to accept connections on port %d", port)
+}
+
+// waitForPostgresSocket waits for PostgreSQL to be ready to accept Unix socket connections.
+func waitForPostgresSocket(t *testing.T, socketDir string, port int, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("unix", filepath.Join(socketDir, fmt.Sprintf(".s.PGSQL.%d", port)), 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, timeout, 200*time.Millisecond,
+		"PostgreSQL should be ready to accept socket connections at %s", socketDir)
+}
+
+// waitForPostgresStopped waits for PostgreSQL to stop accepting connections on the given port.
+func waitForPostgresStopped(t *testing.T, port int, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), 200*time.Millisecond)
+		if conn != nil {
+			conn.Close()
+		}
+		return err != nil // Returns true when connection fails (server stopped)
+	}, timeout, 100*time.Millisecond,
+		"PostgreSQL should be stopped on port %d", port)
+}
+
 // TestEndToEndWithRealPostgreSQL tests pgctld with real PostgreSQL binaries
 // This test requires PostgreSQL to be installed on the system
 func TestEndToEndWithRealPostgreSQL(t *testing.T) {
@@ -196,29 +237,28 @@ timeout: 30
 			}
 		}()
 
-		deadline := time.Now().Add(20 * time.Second)
-		serverStarted := false
-
-		for time.Now().Before(deadline) {
+		// Wait for gRPC server to start accepting connections
+		require.Eventually(t, func() bool {
 			// Check if server process is still running (not crashed)
 			if serverCmd.Process != nil {
 				// Check if process is still alive by checking if ProcessState is nil
 				// If the process has exited, ProcessState will be non-nil
-				require.Nil(t, serverCmd.ProcessState, "gRPC server process died: exit code %d", serverCmd.ProcessState.ExitCode())
+				if serverCmd.ProcessState != nil {
+					t.Logf("gRPC server process died: exit code %d", serverCmd.ProcessState.ExitCode())
+					return false
+				}
 
 				// Test basic gRPC connectivity by checking if the server is listening
 				// Try to connect to the gRPC port to verify it's listening
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", grpcPort), 100*time.Millisecond)
 				if err == nil {
 					conn.Close()
-					serverStarted = true
-					break
+					return true
 				}
 			}
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		require.True(t, serverStarted, "timeout: gRPC server failed to start listening")
+			return false
+		}, 20*time.Second, 100*time.Millisecond,
+			"gRPC server failed to start listening within 20 seconds")
 	})
 }
 
@@ -301,8 +341,8 @@ timeout: 30
 			}
 			require.NoError(t, err)
 
-			// Brief wait
-			time.Sleep(1 * time.Second)
+			// Wait for PostgreSQL to be ready to accept connections
+			waitForPostgresReady(t, perfTestPort, 5*time.Second)
 
 			// Stop
 			stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--mode", "fast", "--config-file", pgctldConfigFile)
@@ -310,8 +350,8 @@ timeout: 30
 			err = stopCmd.Run()
 			require.NoError(t, err)
 
-			// Brief wait before next cycle
-			time.Sleep(500 * time.Millisecond)
+			// Wait for PostgreSQL to be fully stopped before next cycle
+			waitForPostgresStopped(t, perfTestPort, 5*time.Second)
 		}
 	})
 }
@@ -536,12 +576,12 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
 
-		// Give the server a moment to be fully ready
-		time.Sleep(2 * time.Second)
+		// Wait for PostgreSQL to be ready to accept connections
+		socketDir := filepath.Join(baseDir, "pg_sockets")
+		waitForPostgresSocket(t, socketDir, port, 10*time.Second)
 
 		// Test socket connection (should work without password)
 		t.Logf("Testing Unix socket connection (no password required)")
-		socketDir := filepath.Join(baseDir, "pg_sockets")
 		t.Logf("Socket directory path: %s", socketDir)
 		t.Logf("Socket directory absolute path: %s", filepath.Join(socketDir))
 
@@ -681,8 +721,8 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
 
-		// Give the server a moment to be fully ready
-		time.Sleep(2 * time.Second)
+		// Wait for PostgreSQL to be ready to accept connections
+		waitForPostgresReady(t, port, 10*time.Second)
 
 		// Test TCP connection with password from file
 		t.Logf("Testing TCP connection with password from file")
@@ -1167,23 +1207,15 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, pgProcess.Signal(syscall.Signal(0)))
 
-	// Kill the pgctld server subprocess abruptly
+	// Kill the pgctld server subprocess abruptly to trigger watchdog via parent death detection
 	require.NoError(t, serverCmd.Process.Kill())
 	_, _ = serverCmd.Process.Wait()
 
-	// TODO(dweitzman): Start a process using sleep command and use that PID for orphan detection
+	// Wait for watchdog to detect parent death and stop PostgreSQL
+	waitForPostgresStopped(t, pgPort, 15*time.Second)
 
-	// Delete the temp directory, triggering orphan detection
+	// Cleanup: delete temp directory after PostgreSQL is stopped
 	os.RemoveAll(tempDir)
-
-	// Wait for orphan detection to stop postgres
-	time.Sleep(2 * time.Second)
-
-	// Verify postgres is stopped
-	require.Eventually(t, func() bool {
-		err = pgProcess.Signal(syscall.Signal(0))
-		return err == nil
-	}, 5*time.Second, 100*time.Millisecond)
 }
 
 func readPostmasterPID(dataDir string) (int, error) {
