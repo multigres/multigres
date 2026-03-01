@@ -31,4 +31,9 @@ service MultiPoolerConsensus {
 
   // Replication
   rpc CanReachPrimary(consensusdata.CanReachPrimaryRequest) returns (consensusdata.CanReachPrimaryResponse);
+
+  // Leader Appointment - Consensus Operations
+  rpc WaitForLSN(consensusdata.WaitForLSNRequest) returns (consensusdata.WaitForLSNResponse);
+  rpc SetPrimaryConnInfo(consensusdata.SetPrimaryConnInfoRequest) returns (consensusdata.SetPrimaryConnInfoResponse);
+  rpc Promote(consensusdata.PromoteRequest) returns (consensusdata.PromoteResponse);
 }

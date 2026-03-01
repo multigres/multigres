@@ -184,26 +184,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		method func() error
 	}{
 		{
-			name: "SetPrimaryConnInfo",
-			method: func() error {
-				req := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
-					Primary: &clustermetadata.MultiPooler{
-						Id: &clustermetadata.ID{
-							Component: clustermetadata.ID_MULTIPOOLER,
-							Cell:      "zone1",
-							Name:      "test-primary-id",
-						},
-						Hostname: "primary.example.com",
-						PortMap: map[string]int32{
-							"postgres": 5432,
-						},
-					},
-				}
-				_, err := svc.SetPrimaryConnInfo(ctx, req)
-				return err
-			},
-		},
-		{
 			name: "StartReplication",
 			method: func() error {
 				req := &multipoolermanagerdata.StartReplicationRequest{}
@@ -316,14 +296,6 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 			method: func() error {
 				req := &multipoolermanagerdata.UndoDemoteRequest{}
 				_, err := svc.UndoDemote(ctx, req)
-				return err
-			},
-		},
-		{
-			name: "Promote",
-			method: func() error {
-				req := &multipoolermanagerdata.PromoteRequest{}
-				_, err := svc.Promote(ctx, req)
 				return err
 			},
 		},

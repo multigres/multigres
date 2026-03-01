@@ -438,7 +438,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			require.NoError(t, err)
 
 			// Wait for replica to catch up to the final primary's LSN
-			_, err = client.Manager.WaitForLSN(utils.WithTimeout(t, 2*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
+			_, err = client.Consensus.WaitForLSN(utils.WithTimeout(t, 2*time.Second), &consensusdatapb.WaitForLSNRequest{
 				TargetLsn: primaryLSN,
 			})
 			require.NoError(t, err, "Replica %s should catch up to final primary LSN", name)

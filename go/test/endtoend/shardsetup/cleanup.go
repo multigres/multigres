@@ -94,24 +94,24 @@ func ValidateTerm(ctx context.Context, client consensuspb.MultiPoolerConsensusCl
 
 // RestorePrimaryAfterDemotion restores the original primary to primary state after it was demoted.
 // Uses Force=true to bypass term validation for simplicity in test cleanup.
-func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) error {
+func RestorePrimaryAfterDemotion(ctx context.Context, t *testing.T, manager multipoolermanagerpb.MultiPoolerManagerClient, consensus consensuspb.MultiPoolerConsensusClient) error {
 	t.Helper()
 
 	// Stop replication on primary
-	_, err := client.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
+	_, err := manager.StopReplication(ctx, &multipoolermanagerdatapb.StopReplicationRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to stop replication on primary: %w", err)
 	}
 
 	// Get current LSN
-	statusResp, err := client.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
+	statusResp, err := manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to get primary replication status: %w", err)
 	}
 
 	// Force promote primary back - term value doesn't matter when Force=true
 	// (Force bypasses term validation)
-	_, err = client.Promote(ctx, &multipoolermanagerdatapb.PromoteRequest{
+	_, err = consensus.Promote(ctx, &consensusdatapb.PromoteRequest{
 		ConsensusTerm: 0, // Ignored when Force=true
 		ExpectedLsn:   statusResp.Status.LastReplayLsn,
 		Force:         true,

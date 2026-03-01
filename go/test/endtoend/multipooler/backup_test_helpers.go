@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -56,6 +57,21 @@ func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultiPo
 	t.Cleanup(func() { conn.Close() })
 
 	return multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+}
+
+// createConsensusClient creates a gRPC consensus client for the given port.
+// The connection is automatically closed via t.Cleanup.
+func createConsensusClient(t *testing.T, grpcPort int) consensuspb.MultiPoolerConsensusClient {
+	t.Helper()
+
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", grpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err, "Failed to create gRPC connection for consensus client")
+	t.Cleanup(func() { conn.Close() })
+
+	return consensuspb.NewMultiPoolerConsensusClient(conn)
 }
 
 // assertBackupIDFormat verifies the backup ID matches the expected format.

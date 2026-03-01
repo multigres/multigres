@@ -507,6 +507,47 @@ func TestConsensusService_AllMethods(t *testing.T) {
 			},
 			shouldSucceed: true, // Returns non-error response even if not reachable
 		},
+		{
+			name: "WaitForLSN",
+			method: func() error {
+				req := &consensusdata.WaitForLSNRequest{
+					TargetLsn: "0/1000000",
+				}
+				_, err := svc.WaitForLSN(ctx, req)
+				return err
+			},
+			shouldSucceed: false, // No database connection
+		},
+		{
+			name: "SetPrimaryConnInfo",
+			method: func() error {
+				req := &consensusdata.SetPrimaryConnInfoRequest{
+					Primary: &clustermetadata.MultiPooler{
+						Id: &clustermetadata.ID{
+							Component: clustermetadata.ID_MULTIPOOLER,
+							Cell:      "zone1",
+							Name:      "test-primary-id",
+						},
+						Hostname: "primary.example.com",
+						PortMap: map[string]int32{
+							"postgres": 5432,
+						},
+					},
+				}
+				_, err := svc.SetPrimaryConnInfo(ctx, req)
+				return err
+			},
+			shouldSucceed: false, // No database connection
+		},
+		{
+			name: "Promote",
+			method: func() error {
+				req := &consensusdata.PromoteRequest{}
+				_, err := svc.Promote(ctx, req)
+				return err
+			},
+			shouldSucceed: false, // No database connection
+		},
 	}
 
 	for _, tt := range tests {

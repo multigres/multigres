@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -52,12 +53,14 @@ func TestReplicationAPIs(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryClient.Close() })
 	primaryManagerClient := primaryClient.Manager
+	primaryConsensusClient := primaryClient.Consensus
 	primaryPoolerClient := primaryClient.Pooler
 
 	standbyClient, err := shardsetup.NewMultipoolerClient(setup.StandbyMultipooler.GrpcPort)
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyClient.Close() })
 	standbyManagerClient := standbyClient.Manager
+	standbyConsensusClient := standbyClient.Consensus
 	standbyPoolerClient := standbyClient.Pooler
 
 	t.Run("ConfigureReplicationAndValidate", func(t *testing.T) {
@@ -85,10 +88,10 @@ func TestReplicationAPIs(t *testing.T) {
 		// This should timeout since replication is not configured
 		ctx = utils.WithTimeout(t, 1*time.Second)
 
-		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq := &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: primaryLSN,
 		}
-		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		_, err = standbyConsensusClient.WaitForLSN(ctx, waitReq)
 		require.Error(t, err, "WaitForLSN should timeout without replication configured")
 		// Check that the error is a timeout (gRPC code DEADLINE_EXCEEDED or CANCELED)
 		st, ok := status.FromError(err)
@@ -120,14 +123,14 @@ func TestReplicationAPIs(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 		t.Log("Replication configured successfully")
 
@@ -136,10 +139,10 @@ func TestReplicationAPIs(t *testing.T) {
 
 		ctx = utils.WithTimeout(t, 1*time.Second)
 
-		waitReq = &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq = &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: primaryLSN,
 		}
-		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		_, err = standbyConsensusClient.WaitForLSN(ctx, waitReq)
 		require.NoError(t, err, "Standby should catch up to primary LSN after replication is configured")
 
 		// Verify the table now exists in standby
@@ -177,20 +180,20 @@ func TestReplicationAPIs(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           0, // Stale term (lower than current term 1)
 			Force:                 false,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.Error(t, err, "SetPrimaryConnInfo should fail with stale term")
 		assert.Contains(t, err.Error(), "consensus term too old", "Error should mention term is too old")
 
 		// Try again with force=true, should succeed
 		setPrimaryReq.Force = true
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed with force=true")
 	})
 
@@ -235,14 +238,14 @@ func TestReplicationAPIs(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: true,  // Stop before
 			CurrentTerm:           currentTerm,
 			Force:                 false,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Verify that WAL replay is now paused
@@ -295,14 +298,14 @@ func TestReplicationAPIs(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: false, // Don't start after
 			StopReplicationBefore: false,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Verify replication is still paused (not started)
@@ -317,7 +320,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// Now call again with StartReplicationAfter=true
 		t.Log("Calling SetPrimaryConnInfo with StartReplicationAfter=true...")
 		setPrimaryReq.StartReplicationAfter = true
-		_, err = standbyManagerClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(ctx, setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Verify replication is now running
@@ -355,10 +358,10 @@ func TestReplicationAPIs(t *testing.T) {
 		t.Log("Waiting for standby to reach target LSN...")
 		ctx = utils.WithTimeout(t, 1*time.Second)
 
-		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq := &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: targetLSN,
 		}
-		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		_, err = standbyConsensusClient.WaitForLSN(ctx, waitReq)
 		require.NoError(t, err, "WaitForLSN should succeed on standby")
 
 		t.Log("Standby successfully reached target LSN")
@@ -377,10 +380,10 @@ func TestReplicationAPIs(t *testing.T) {
 		// WaitForLSN should fail on PRIMARY pooler type
 		ctx := utils.WithTimeout(t, 1*time.Second)
 
-		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq := &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: "0/1000000",
 		}
-		_, err = primaryManagerClient.WaitForLSN(ctx, waitReq)
+		_, err = primaryConsensusClient.WaitForLSN(ctx, waitReq)
 		require.Error(t, err, "WaitForLSN should fail on primary")
 		assert.Contains(t, err.Error(), "operation not allowed", "Error should indicate operation not allowed on PRIMARY")
 	})
@@ -396,10 +399,10 @@ func TestReplicationAPIs(t *testing.T) {
 
 		ctx := utils.WithTimeout(t, 1*time.Second)
 
-		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq := &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: unreachableLSN,
 		}
-		_, err = standbyManagerClient.WaitForLSN(ctx, waitReq)
+		_, err = standbyConsensusClient.WaitForLSN(ctx, waitReq)
 		st, ok := status.FromError(err)
 		require.True(t, ok, "Error should be a gRPC status error")
 		assert.Contains(t, []string{"DeadlineExceeded", "Canceled"}, st.Code().String(),
@@ -916,14 +919,14 @@ func TestReplicationAPIs(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Verify replication is working by checking pg_stat_wal_receiver
@@ -972,10 +975,10 @@ func TestReplicationAPIs(t *testing.T) {
 
 		// Verify standby CANNOT reach the primary LSN (replication is disconnected)
 		t.Log("Verifying standby cannot reach primary LSN (replication disconnected)...")
-		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq := &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: primaryLSNAfterInsert,
 		}
-		_, err = standbyManagerClient.WaitForLSN(utils.WithShortDeadline(t), waitReq)
+		_, err = standbyConsensusClient.WaitForLSN(utils.WithShortDeadline(t), waitReq)
 		require.Error(t, err, "WaitForLSN should timeout since replication is disconnected")
 		t.Log("Confirmed: Standby cannot reach primary LSN (data did NOT replicate)")
 
@@ -995,23 +998,23 @@ func TestReplicationAPIs(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq = &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq = &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           currentTerm,
 			Force:                 false,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for standby to catch up to primary's LSN
 		t.Logf("Waiting for standby to catch up to primary LSN: %s", primaryLSNAfterInsert)
 
-		waitReq = &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq = &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: primaryLSNAfterInsert,
 		}
-		_, err = standbyManagerClient.WaitForLSN(utils.WithShortDeadline(t), waitReq)
+		_, err = standbyConsensusClient.WaitForLSN(utils.WithShortDeadline(t), waitReq)
 		require.NoError(t, err, "Standby should catch up after re-enabling replication")
 
 		// Verify the table now exists on standby
@@ -1061,6 +1064,7 @@ func TestStandbyReplicationStatus(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyClient.Close() })
 	standbyManagerClient := standbyClient.Manager
+	standbyConsensusClient := standbyClient.Consensus
 
 	t.Run("StandbyReplicationStatus_Primary_Fails", func(t *testing.T) {
 		setupPoolerTest(t, setup)
@@ -1132,14 +1136,14 @@ func TestStandbyReplicationStatus(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           currentTerm,
 			Force:                 false,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for config to take effect (pg_reload_conf is async)
@@ -1191,14 +1195,14 @@ func TestStandbyReplicationStatus(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: false,
 			StopReplicationBefore: true,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err := standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err := standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for config to take effect and WAL replay to be paused
@@ -1253,6 +1257,14 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 	t.Cleanup(func() { standbyManagerConn.Close() })
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyManagerConn)
 
+	standbyConsensusConn, err := grpc.NewClient(
+		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyConsensusConn.Close() })
+	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConsensusConn)
+
 	// Ensure managers are ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
@@ -1296,14 +1308,14 @@ func TestStopReplicationAndGetStatus(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for replication to be running
@@ -1439,6 +1451,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
 
 	primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
@@ -1755,14 +1768,14 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = standbyManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed")
 
 		// Wait for config to take effect and replication to establish (pg_reload_conf is async)
@@ -1811,10 +1824,10 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 		primaryLSN := primaryPosResp.LsnPosition
 		t.Logf("Primary LSN after write: %s", primaryLSN)
 
-		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
+		waitReq := &consensusdatapb.WaitForLSNRequest{
 			TargetLsn: primaryLSN,
 		}
-		_, err = standbyManagerClient.WaitForLSN(utils.WithShortDeadline(t), waitReq)
+		_, err = standbyConsensusClient.WaitForLSN(utils.WithShortDeadline(t), waitReq)
 		require.NoError(t, err, "Standby should have caught up to primary after successful write")
 		t.Log("Standby successfully caught up to primary")
 

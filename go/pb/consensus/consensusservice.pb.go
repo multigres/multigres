@@ -39,37 +39,53 @@ var File_consensusservice_proto protoreflect.FileDescriptor
 
 const file_consensusservice_proto_rawDesc = "" +
 	"\n" +
-	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto2\xf1\x02\n" +
+	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto2\xf9\x04\n" +
 	"\x14MultiPoolerConsensus\x12N\n" +
 	"\tBeginTerm\x12\x1f.consensusdata.BeginTermRequest\x1a .consensusdata.BeginTermResponse\x12E\n" +
 	"\x06Status\x12\x1c.consensusdata.StatusRequest\x1a\x1d.consensusdata.StatusResponse\x12`\n" +
 	"\x11GetLeadershipView\x12$.consensusdata.LeadershipViewRequest\x1a%.consensusdata.LeadershipViewResponse\x12`\n" +
-	"\x0fCanReachPrimary\x12%.consensusdata.CanReachPrimaryRequest\x1a&.consensusdata.CanReachPrimaryResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
+	"\x0fCanReachPrimary\x12%.consensusdata.CanReachPrimaryRequest\x1a&.consensusdata.CanReachPrimaryResponse\x12Q\n" +
+	"\n" +
+	"WaitForLSN\x12 .consensusdata.WaitForLSNRequest\x1a!.consensusdata.WaitForLSNResponse\x12i\n" +
+	"\x12SetPrimaryConnInfo\x12(.consensusdata.SetPrimaryConnInfoRequest\x1a).consensusdata.SetPrimaryConnInfoResponse\x12H\n" +
+	"\aPromote\x12\x1d.consensusdata.PromoteRequest\x1a\x1e.consensusdata.PromoteResponseB0Z.github.com/multigres/multigres/go/pb/consensusb\x06proto3"
 
 var file_consensusservice_proto_goTypes = []any{
-	(*consensusdata.BeginTermRequest)(nil),        // 0: consensusdata.BeginTermRequest
-	(*consensusdata.StatusRequest)(nil),           // 1: consensusdata.StatusRequest
-	(*consensusdata.LeadershipViewRequest)(nil),   // 2: consensusdata.LeadershipViewRequest
-	(*consensusdata.CanReachPrimaryRequest)(nil),  // 3: consensusdata.CanReachPrimaryRequest
-	(*consensusdata.BeginTermResponse)(nil),       // 4: consensusdata.BeginTermResponse
-	(*consensusdata.StatusResponse)(nil),          // 5: consensusdata.StatusResponse
-	(*consensusdata.LeadershipViewResponse)(nil),  // 6: consensusdata.LeadershipViewResponse
-	(*consensusdata.CanReachPrimaryResponse)(nil), // 7: consensusdata.CanReachPrimaryResponse
+	(*consensusdata.BeginTermRequest)(nil),           // 0: consensusdata.BeginTermRequest
+	(*consensusdata.StatusRequest)(nil),              // 1: consensusdata.StatusRequest
+	(*consensusdata.LeadershipViewRequest)(nil),      // 2: consensusdata.LeadershipViewRequest
+	(*consensusdata.CanReachPrimaryRequest)(nil),     // 3: consensusdata.CanReachPrimaryRequest
+	(*consensusdata.WaitForLSNRequest)(nil),          // 4: consensusdata.WaitForLSNRequest
+	(*consensusdata.SetPrimaryConnInfoRequest)(nil),  // 5: consensusdata.SetPrimaryConnInfoRequest
+	(*consensusdata.PromoteRequest)(nil),             // 6: consensusdata.PromoteRequest
+	(*consensusdata.BeginTermResponse)(nil),          // 7: consensusdata.BeginTermResponse
+	(*consensusdata.StatusResponse)(nil),             // 8: consensusdata.StatusResponse
+	(*consensusdata.LeadershipViewResponse)(nil),     // 9: consensusdata.LeadershipViewResponse
+	(*consensusdata.CanReachPrimaryResponse)(nil),    // 10: consensusdata.CanReachPrimaryResponse
+	(*consensusdata.WaitForLSNResponse)(nil),         // 11: consensusdata.WaitForLSNResponse
+	(*consensusdata.SetPrimaryConnInfoResponse)(nil), // 12: consensusdata.SetPrimaryConnInfoResponse
+	(*consensusdata.PromoteResponse)(nil),            // 13: consensusdata.PromoteResponse
 }
 var file_consensusservice_proto_depIdxs = []int32{
-	0, // 0: consensus.MultiPoolerConsensus.BeginTerm:input_type -> consensusdata.BeginTermRequest
-	1, // 1: consensus.MultiPoolerConsensus.Status:input_type -> consensusdata.StatusRequest
-	2, // 2: consensus.MultiPoolerConsensus.GetLeadershipView:input_type -> consensusdata.LeadershipViewRequest
-	3, // 3: consensus.MultiPoolerConsensus.CanReachPrimary:input_type -> consensusdata.CanReachPrimaryRequest
-	4, // 4: consensus.MultiPoolerConsensus.BeginTerm:output_type -> consensusdata.BeginTermResponse
-	5, // 5: consensus.MultiPoolerConsensus.Status:output_type -> consensusdata.StatusResponse
-	6, // 6: consensus.MultiPoolerConsensus.GetLeadershipView:output_type -> consensusdata.LeadershipViewResponse
-	7, // 7: consensus.MultiPoolerConsensus.CanReachPrimary:output_type -> consensusdata.CanReachPrimaryResponse
-	4, // [4:8] is the sub-list for method output_type
-	0, // [0:4] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0,  // 0: consensus.MultiPoolerConsensus.BeginTerm:input_type -> consensusdata.BeginTermRequest
+	1,  // 1: consensus.MultiPoolerConsensus.Status:input_type -> consensusdata.StatusRequest
+	2,  // 2: consensus.MultiPoolerConsensus.GetLeadershipView:input_type -> consensusdata.LeadershipViewRequest
+	3,  // 3: consensus.MultiPoolerConsensus.CanReachPrimary:input_type -> consensusdata.CanReachPrimaryRequest
+	4,  // 4: consensus.MultiPoolerConsensus.WaitForLSN:input_type -> consensusdata.WaitForLSNRequest
+	5,  // 5: consensus.MultiPoolerConsensus.SetPrimaryConnInfo:input_type -> consensusdata.SetPrimaryConnInfoRequest
+	6,  // 6: consensus.MultiPoolerConsensus.Promote:input_type -> consensusdata.PromoteRequest
+	7,  // 7: consensus.MultiPoolerConsensus.BeginTerm:output_type -> consensusdata.BeginTermResponse
+	8,  // 8: consensus.MultiPoolerConsensus.Status:output_type -> consensusdata.StatusResponse
+	9,  // 9: consensus.MultiPoolerConsensus.GetLeadershipView:output_type -> consensusdata.LeadershipViewResponse
+	10, // 10: consensus.MultiPoolerConsensus.CanReachPrimary:output_type -> consensusdata.CanReachPrimaryResponse
+	11, // 11: consensus.MultiPoolerConsensus.WaitForLSN:output_type -> consensusdata.WaitForLSNResponse
+	12, // 12: consensus.MultiPoolerConsensus.SetPrimaryConnInfo:output_type -> consensusdata.SetPrimaryConnInfoResponse
+	13, // 13: consensus.MultiPoolerConsensus.Promote:output_type -> consensusdata.PromoteResponse
+	7,  // [7:14] is the sub-list for method output_type
+	0,  // [0:7] is the sub-list for method input_type
+	0,  // [0:0] is the sub-list for extension type_name
+	0,  // [0:0] is the sub-list for extension extendee
+	0,  // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_consensusservice_proto_init() }

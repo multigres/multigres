@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -383,7 +384,7 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 
 	// Wait for replica to catch up to primary's LSN
 	t.Logf("Waiting for replica %s to catch up to primary LSN %s...", replicaName, primaryLSN)
-	_, err = replicaClient.Manager.WaitForLSN(utils.WithTimeout(t, 10*time.Second), &multipoolermanagerdatapb.WaitForLSNRequest{
+	_, err = replicaClient.Consensus.WaitForLSN(utils.WithTimeout(t, 10*time.Second), &consensusdatapb.WaitForLSNRequest{
 		TargetLsn: primaryLSN,
 	})
 	require.NoError(t, err, "replica should catch up to primary LSN")

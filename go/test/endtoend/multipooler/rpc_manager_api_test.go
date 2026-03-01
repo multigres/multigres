@@ -245,14 +245,14 @@ func TestPrimaryStatus(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.PrimaryPgctld.PgPort)},
 		}
-		setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
+		setPrimaryReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StartReplicationAfter: true,
 			StopReplicationBefore: false,
 			CurrentTerm:           currentTerm,
 			Force:                 false,
 		}
-		_, err = standbyClient.Manager.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
+		_, err = standbyClient.Consensus.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryReq)
 		require.NoError(t, err)
 
 		// Wait for replication to be established

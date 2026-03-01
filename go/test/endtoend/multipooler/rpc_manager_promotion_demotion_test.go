@@ -32,6 +32,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -67,7 +68,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
 	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
-	_ = consensuspb.NewMultiPoolerConsensusClient(standbyConn) // Available if needed in future tests
+	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
 
 	t.Run("FullCycle_EmergencyDemoteAndPromote", func(t *testing.T) {
 		setupPoolerTest(t, setup)
@@ -119,14 +120,14 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
 		}
-		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryConnInfoReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true, // Start replication immediately
 			CurrentTerm:           0,    // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
 		// Verify standby.signal exists after demotion and replication config
@@ -154,13 +155,13 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		t.Logf("Current LSN before promotion: %s", currentLSN)
 
 		// Perform promotion with Force=true (testing promote functionality, not term validation)
-		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+		promoteReq := &consensusdatapb.PromoteRequest{
 			ConsensusTerm:         0, // Ignored when Force=true
 			ExpectedLsn:           currentLSN,
 			SyncReplicationConfig: nil, // Don't configure sync replication for now
 			Force:                 true,
 		}
-		promoteResp, err := standbyManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		promoteResp, err := standbyConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote should succeed")
 		require.NotNil(t, promoteResp)
 
@@ -220,13 +221,13 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		currentLSN2 := statusResp2.Status.LastReplayLsn
 
 		// Promote original primary back with Force=true
-		promoteReq2 := &multipoolermanagerdatapb.PromoteRequest{
+		promoteReq2 := &consensusdatapb.PromoteRequest{
 			ConsensusTerm:         0, // Ignored when Force=true
 			ExpectedLsn:           currentLSN2,
 			SyncReplicationConfig: nil,
 			Force:                 true,
 		}
-		promoteResp2, err := primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
+		promoteResp2, err := primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq2)
 		require.NoError(t, err, "Promote should succeed")
 		assert.False(t, promoteResp2.WasAlreadyPrimary)
 		t.Logf("Original primary restored. LSN: %s", promoteResp2.LsnPosition)
@@ -282,14 +283,14 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
 		}
-		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryConnInfoReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err)
 
 		// Second demotion should fail with guard rail error (server is now REPLICA in topology)
@@ -327,14 +328,14 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
 		}
-		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryConnInfoReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err)
 
 		// Now test promote idempotency
@@ -348,19 +349,19 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		currentLSN := statusResp.Status.LastReplayLsn
 
 		// First promotion with Force=true
-		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+		promoteReq := &consensusdatapb.PromoteRequest{
 			ConsensusTerm:         0, // Ignored when Force=true
 			ExpectedLsn:           currentLSN,
 			SyncReplicationConfig: nil,
 			Force:                 true,
 		}
-		promoteResp1, err := primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		promoteResp1, err := primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "First promote should succeed")
 		assert.False(t, promoteResp1.WasAlreadyPrimary)
 
 		// Second promotion should SUCCEED with idempotent behavior (server is now PRIMARY in topology)
 		// The new guard rail logic detects that everything is already complete and returns success
-		promoteResp2, err := primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		promoteResp2, err := primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Second promote should succeed - idempotent operation")
 		assert.True(t, promoteResp2.WasAlreadyPrimary, "Should report as already primary")
 
@@ -437,14 +438,14 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
 		}
-		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryConnInfoReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err)
 
 		// Now test promote term validation
@@ -459,19 +460,19 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		t.Logf("Testing promote with stale term %d (current: %d)", staleTerm, updatedTerm)
 
 		// Try with stale term (should fail)
-		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+		promoteReq := &consensusdatapb.PromoteRequest{
 			ConsensusTerm:         staleTerm,
 			ExpectedLsn:           "",
 			SyncReplicationConfig: nil,
 			Force:                 false,
 		}
-		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		_, err = primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.Error(t, err, "Promote with stale term should fail")
 		assert.Contains(t, err.Error(), "term")
 
 		// Try with force flag (should succeed)
 		promoteReq.Force = true
-		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		_, err = primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote with force should succeed")
 
 		t.Log("Promote term validation verified")
@@ -505,14 +506,14 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": int32(setup.StandbyMultipooler.PgPort)},
 		}
-		setPrimaryConnInfoReq := &multipoolermanagerdatapb.SetPrimaryConnInfoRequest{
+		setPrimaryConnInfoReq := &consensusdatapb.SetPrimaryConnInfoRequest{
 			Primary:               primary,
 			StopReplicationBefore: false,
 			StartReplicationAfter: true,
 			CurrentTerm:           0, // Ignored when Force=true
 			Force:                 true,
 		}
-		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
+		_, err = primaryConsensusClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err, "SetPrimaryConnInfo should succeed after demotion")
 
 		// Now test LSN validation during promote
@@ -530,19 +531,19 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		currentTerm := shardsetup.MustGetCurrentTerm(t, ctx, primaryConsensusClient)
 
 		// Try with wrong LSN (should fail) - use correct term so only LSN validation triggers
-		promoteReq := &multipoolermanagerdatapb.PromoteRequest{
+		promoteReq := &consensusdatapb.PromoteRequest{
 			ConsensusTerm:         currentTerm,
 			ExpectedLsn:           "FF/FFFFFFFF",
 			SyncReplicationConfig: nil,
 			Force:                 false,
 		}
-		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		_, err = primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.Error(t, err, "Promote with wrong LSN should fail")
 		assert.Contains(t, err.Error(), "LSN")
 
 		// Try with correct LSN (should succeed)
 		promoteReq.ExpectedLsn = currentLSN
-		_, err = primaryManagerClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
+		_, err = primaryConsensusClient.Promote(utils.WithTimeout(t, 10*time.Second), promoteReq)
 		require.NoError(t, err, "Promote with correct LSN should succeed")
 
 		t.Log("Promote LSN validation verified")
