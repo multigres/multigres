@@ -232,6 +232,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 		if response.ReservedConnectionId != 0 {
 			reservedState.ReservedConnectionId = response.ReservedConnectionId
 			reservedState.PoolerID = response.PoolerId
+			reservedState.ReservationReasons = response.RemainingReasons
 			g.logger.DebugContext(ctx, "received reserved connection",
 				"reserved_connection_id", response.ReservedConnectionId,
 				"pooler_id", response.PoolerId.String())
@@ -571,12 +572,10 @@ func (g *grpcQueryService) CopyAbort(
 			"pooler_id", g.poolerID,
 			"reserved_conn_id", options.ReservedConnectionId,
 			"error", err)
-	} else if resp != nil {
+	} else if resp != nil && resp.ReservedConnectionId != 0 {
+		reservedState.ReservedConnectionId = resp.ReservedConnectionId
+		reservedState.PoolerID = resp.PoolerId
 		reservedState.ReservationReasons = resp.RemainingReasons
-		if resp.ReservedConnectionId != 0 {
-			reservedState.ReservedConnectionId = resp.ReservedConnectionId
-			reservedState.PoolerID = resp.PoolerId
-		}
 	}
 
 	g.logger.DebugContext(ctx, "COPY aborted",

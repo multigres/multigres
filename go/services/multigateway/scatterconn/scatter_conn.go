@@ -265,9 +265,10 @@ func (sc *ScatterConn) PortalStreamExecute(
 		// Portal is suspended (not all rows fetched) - store reservation
 		state.StoreReservedConnection(target, reservedState, protoutil.ReasonPortal)
 	} else {
-		// Portal completed - remove portal reason (if any previous suspension was stored).
-		// If no other reasons remain (no transaction, no COPY), the entry is cleaned up.
-		state.RemoveReservationReason(target, protoutil.ReasonPortal)
+		// Portal completed — use authoritative state from multipooler.
+		// The multipooler has already removed the portal reason internally;
+		// if no reasons remain (ReservedConnectionId == 0) the connection was released.
+		sc.updateShardState(conn, state, target, reservedState)
 	}
 
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
@@ -627,7 +628,8 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// Connection was destroyed or released — clear our tracking
+		// Clear all state: every error path in executor.CopyFinalize destroys the
+		// connection via Release(ReleaseError), so the multipooler no longer has it.
 		state.ClearReservedConnection(target)
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}

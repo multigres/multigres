@@ -160,6 +160,10 @@ message PortalStreamExecuteResponse {
 
   // pooler_id identifies which multipooler instance owns the reserved connection
   clustermetadata.ID pooler_id = 3;
+
+  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
+  // is still reserved. Zero means the connection was released.
+  uint32 remaining_reasons = 4;
 }
 
 // DescribeRequest represents a request to describe a prepared statement or portal

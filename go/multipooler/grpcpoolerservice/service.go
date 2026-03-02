@@ -92,7 +92,9 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 		return nil
 	})
 
-	// Send final message with reserved state if on a reserved connection
+	// Send final message with reserved state if on a reserved connection.
+	// The send error is intentionally discarded: if the stream is already broken
+	// the gateway will clean up via ReleaseReservedConnection on client disconnect.
 	if reservedState.ReservedConnectionId > 0 {
 		_ = stream.Send(&multipoolerpb.StreamExecuteResponse{
 			ReservedConnectionId: reservedState.ReservedConnectionId,
@@ -257,6 +259,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		return stream.Send(&multipoolerpb.PortalStreamExecuteResponse{
 			ReservedConnectionId: reservedState.ReservedConnectionId,
 			PoolerId:             reservedState.PoolerID,
+			RemainingReasons:     reservedState.ReservationReasons,
 		})
 	}
 
@@ -327,12 +330,27 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 	for {
 		req, err := stream.Recv()
 		if err != nil {
-			// Stream closed or error
+			// Stream closed or error — abort COPY and send best-effort ERROR response
+			// so the gateway can update its shard state even if the stream is degraded.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				_, _ = exec.CopyAbort(ctx, req.Target, "context canceled", copyOptions)
+				abortState, _ := exec.CopyAbort(ctx, req.Target, "context canceled", copyOptions)
+				_ = stream.Send(&multipoolerpb.CopyBidiExecuteResponse{
+					Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
+					Error:                fmt.Sprintf("stream canceled: %v", err),
+					ReservedConnectionId: abortState.ReservedConnectionId,
+					PoolerId:             abortState.PoolerID,
+					RemainingReasons:     abortState.ReservationReasons,
+				})
 				return status.Errorf(codes.Canceled, "stream canceled: %v", err)
 			}
-			_, _ = exec.CopyAbort(ctx, req.Target, "stream receive error", copyOptions)
+			abortState, _ := exec.CopyAbort(ctx, req.Target, "stream receive error", copyOptions)
+			_ = stream.Send(&multipoolerpb.CopyBidiExecuteResponse{
+				Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
+				Error:                fmt.Sprintf("failed to receive message: %v", err),
+				ReservedConnectionId: abortState.ReservedConnectionId,
+				PoolerId:             abortState.PoolerID,
+				RemainingReasons:     abortState.ReservationReasons,
+			})
 			return status.Errorf(codes.Internal, "failed to receive message: %v", err)
 		}
 

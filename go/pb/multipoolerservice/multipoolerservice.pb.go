@@ -630,9 +630,12 @@ type PortalStreamExecuteResponse struct {
 	// This is returned in the first response and should be used for subsequent queries
 	ReservedConnectionId uint64 `protobuf:"varint,2,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
 	// pooler_id identifies which multipooler instance owns the reserved connection
-	PoolerId      *clustermetadata.ID `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PoolerId *clustermetadata.ID `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	// remaining_reasons is a bitmask of ReservationReason values indicating why the connection
+	// is still reserved. Zero means the connection was released.
+	RemainingReasons uint32 `protobuf:"varint,4,opt,name=remaining_reasons,json=remainingReasons,proto3" json:"remaining_reasons,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PortalStreamExecuteResponse) Reset() {
@@ -684,6 +687,13 @@ func (x *PortalStreamExecuteResponse) GetPoolerId() *clustermetadata.ID {
 		return x.PoolerId
 	}
 	return nil
+}
+
+func (x *PortalStreamExecuteResponse) GetRemainingReasons() uint32 {
+	if x != nil {
+		return x.RemainingReasons
+	}
+	return 0
 }
 
 // DescribeRequest represents a request to describe a prepared statement or portal
@@ -1642,11 +1652,12 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x12prepared_statement\x18\x02 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12%\n" +
 	"\x06portal\x18\x03 \x01(\v2\r.query.PortalR\x06portal\x12,\n" +
 	"\tcaller_id\x18\x04 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
-	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\xb8\x01\n" +
+	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\xe5\x01\n" +
 	"\x1bPortalStreamExecuteResponse\x121\n" +
 	"\x06result\x18\x01 \x01(\v2\x19.query.QueryResultPayloadR\x06result\x124\n" +
 	"\x16reserved_connection_id\x18\x02 \x01(\x04R\x14reservedConnectionId\x120\n" +
-	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"\x87\x02\n" +
+	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12+\n" +
+	"\x11remaining_reasons\x18\x04 \x01(\rR\x10remainingReasons\"\x87\x02\n" +
 	"\x0fDescribeRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12G\n" +
 	"\x12prepared_statement\x18\x02 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12%\n" +
