@@ -708,7 +708,7 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	if settings := conn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
 		pool.Metrics.resetState.Add(1)
 
-		err = conn.Conn.ResetSettings(ctx)
+		err = conn.Conn.ResetAllSettings(ctx)
 		if err != nil {
 			conn.Close()
 			err = pool.connReopen(ctx, conn, monotonicNow())
@@ -790,7 +790,7 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 		if connSettings != nil && !connSettings.IsEmpty() {
 			pool.Metrics.diffState.Add(1)
 
-			err = conn.Conn.ResetSettings(ctx)
+			err = conn.Conn.ResetAllSettings(ctx)
 			if err != nil {
 				conn.Close()
 				err = pool.connReopen(ctx, conn, monotonicNow())

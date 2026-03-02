@@ -35,12 +35,13 @@ type Connection interface {
 	// Close closes the connection and releases associated resources.
 	Close() error
 
-	// ApplySettings applies the given settings to the connection by executing
-	// the necessary SQL commands (e.g., SET commands).
-	// Returns an error if the settings cannot be applied.
-	ApplySettings(ctx context.Context, settings *connstate.Settings) error
+	// ApplySettings transitions the connection to the desired settings state.
+	// It diffs current tracked settings against desired: executes individual
+	// RESET commands for removed variables, then SET SESSION commands for all
+	// desired variables. Updates tracked state to desired.
+	ApplySettings(ctx context.Context, desired *connstate.Settings) error
 
-	// ResetSettings resets the connection to a clean state with no settings.
-	// This typically involves running RESET ALL or equivalent SQL.
-	ResetSettings(ctx context.Context) error
+	// ResetAllSettings resets the connection to a clean state with no settings.
+	// This executes RESET ALL to clear all session variables at once.
+	ResetAllSettings(ctx context.Context) error
 }

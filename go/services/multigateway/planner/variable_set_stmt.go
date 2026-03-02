@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -28,7 +27,9 @@ import (
 )
 
 // planVariableSetStmt plans SET/RESET commands.
-// Creates a sequence that executes on PostgreSQL first, then updates local state.
+// Creates an ApplySessionState that handles SET and RESET as local state updates
+// with synthetic responses. PG validation is deferred to the next query when
+// the pool applies settings to the backend connection.
 func (p *Planner) planVariableSetStmt(
 	sql string,
 	stmt *ast.VariableSetStmt,
@@ -64,32 +65,17 @@ func (p *Planner) planVariableSetStmt(
 	case ast.VAR_SET_VALUE, ast.VAR_RESET, ast.VAR_RESET_ALL:
 		// These are tracked locally
 	default:
-		// VAR_SET_DEFAULT, VAR_SET_CURRENT, VAR_SET_MULTI - pass through
-		return p.planDefault(sql, conn)
+		// TODO: support VAR_SET_DEFAULT, VAR_SET_CURRENT, VAR_SET_MULTI when needed
+		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))
 	}
 
-	// Extract value for SET commands
-	value := ""
-	if stmt.Kind == ast.VAR_SET_VALUE {
-		value = extractVariableValue(stmt.Args)
-	}
-
-	// SET/RESET command: Execute on PostgreSQL, then update local state
 	p.logger.Debug("planning SET/RESET command",
 		"kind", stmt.Kind,
-		"variable", stmt.Name,
-		"value", value)
+		"variable", stmt.Name)
 
-	// 1. Route: Send to PostgreSQL for validation and execution
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql)
+	primitive := engine.NewApplySessionState(sql, stmt)
 
-	// 2. ApplySessionState: Update local tracking after successful execution
-	applyState := engine.NewApplySessionState(stmt, value)
-
-	// 3. Compose in sequence (pessimistic: state update only if remote succeeds)
-	seq := engine.NewSequence([]engine.Primitive{route, applyState})
-
-	plan := engine.NewPlan(sql, seq)
+	plan := engine.NewPlan(sql, primitive)
 	p.logger.Debug("created SET/RESET plan", "plan", plan.String())
 	return plan, nil
 }
