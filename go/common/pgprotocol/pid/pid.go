@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cancelkey provides encoding and decoding of PostgreSQL process IDs (PIDs)
+// Package pid provides encoding and decoding of PostgreSQL process IDs (PIDs)
 // for cross-gateway query cancellation. The 32-bit PID is split into a gateway prefix
 // and a local connection ID, allowing any gateway to route cancel requests to the
 // correct origin gateway.
-// TODO: Possible rename package to pid instead.
-package cancelkey
+package pid
 
 const (
 	// PrefixBits is the number of bits used for the gateway PID prefix.

@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/pgprotocol/cancelkey"
+	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/topoclient"
 	multigatewayservicepb "github.com/multigres/multigres/go/pb/multigatewayservice"
 )
@@ -34,7 +34,7 @@ func testCancelLogger() *slog.Logger {
 
 func TestCancelManager_LocalCancel(t *testing.T) {
 	ownPrefix := uint32(5)
-	pid := cancelkey.EncodePID(ownPrefix, 42)
+	pid := pid.EncodePID(ownPrefix, 42)
 
 	var canceledPID, canceledSecret uint32
 	localCancelFn := func(p, s uint32) bool {
@@ -55,7 +55,7 @@ func TestCancelManager_LocalCancel(t *testing.T) {
 func TestCancelManager_RemoteForward(t *testing.T) {
 	ownPrefix := uint32(5)
 	targetPrefix := uint32(10)
-	pid := cancelkey.EncodePID(targetPrefix, 42)
+	pid := pid.EncodePID(targetPrefix, 42)
 
 	localCalled := false
 	localCancelFn := func(p, s uint32) bool {
@@ -88,7 +88,7 @@ func TestCancelManager_RemoteForward(t *testing.T) {
 
 func TestCancelManager_GRPCHandler(t *testing.T) {
 	ownPrefix := uint32(5)
-	pid := cancelkey.EncodePID(ownPrefix, 42)
+	pid := pid.EncodePID(ownPrefix, 42)
 
 	var canceledPID, canceledSecret uint32
 	localCancelFn := func(p, s uint32) bool {

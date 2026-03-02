@@ -27,7 +27,7 @@ import (
 	"sync/atomic"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
-	"github.com/multigres/multigres/go/common/pgprotocol/cancelkey"
+	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
 
@@ -282,9 +282,9 @@ func (l *Listener) Close() error {
 // It encodes the gateway prefix into the upper bits and skips PIDs that
 // are already in use or have a zero local ID (PID 0 is reserved in PostgreSQL).
 func (l *Listener) assignConnectionID() (uint32, bool) {
-	for range cancelkey.MaxLocalConnID {
+	for range pid.MaxLocalConnID {
 		localID := l.nextLocalID()
-		pid := cancelkey.EncodePID(l.gatewayID, localID)
+		pid := pid.EncodePID(l.gatewayID, localID)
 
 		l.connsMu.Lock()
 		_, exists := l.conns[pid]
@@ -304,7 +304,7 @@ func (l *Listener) nextLocalID() uint32 {
 	for {
 		cur := l.nextConnectionID.Load()
 		next := cur + 1
-		if next > cancelkey.MaxLocalConnID {
+		if next > pid.MaxLocalConnID {
 			next = 1
 		}
 		if l.nextConnectionID.CompareAndSwap(cur, next) {

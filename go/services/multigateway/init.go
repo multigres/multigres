@@ -30,7 +30,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/pgprotocol/cancelkey"
+	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -407,14 +407,14 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 	}
 
 	// Collect all unused prefixes and pick one at random.
-	unused := make([]uint32, 0, cancelkey.MaxPrefix-len(usedPrefixes))
-	for prefix := uint32(1); prefix <= cancelkey.MaxPrefix; prefix++ {
+	unused := make([]uint32, 0, pid.MaxPrefix-len(usedPrefixes))
+	for prefix := uint32(1); prefix <= pid.MaxPrefix; prefix++ {
 		if !usedPrefixes[prefix] {
 			unused = append(unused, prefix)
 		}
 	}
 	if len(unused) == 0 {
-		return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", cancelkey.MaxPrefix)
+		return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", pid.MaxPrefix)
 	}
 	return unused[rand.IntN(len(unused))], nil
 }

@@ -24,7 +24,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/multigres/multigres/go/common/pgprotocol/cancelkey"
+	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/topoclient"
 	multigatewayservicepb "github.com/multigres/multigres/go/pb/multigatewayservice"
 	"github.com/multigres/multigres/go/tools/grpccommon"
@@ -108,7 +108,7 @@ func (cm *CancelManager) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 // HandleCancelRequest implements server.CancelHandler.
 // It decodes the PID prefix and either cancels locally or forwards to the owning gateway.
 func (cm *CancelManager) HandleCancelRequest(ctx context.Context, processID, secretKey uint32) {
-	prefix, _ := cancelkey.DecodePID(processID)
+	prefix, _ := pid.DecodePID(processID)
 
 	if prefix == cm.ownPrefix {
 		cm.localCancelFn(processID, secretKey)
