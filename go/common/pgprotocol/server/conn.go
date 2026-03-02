@@ -48,8 +48,8 @@ var errQueryCanceled = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
 	"canceling statement due to user request", "")
 
 // errStatementTimeout is the error returned when a query exceeds the statement timeout.
-// Handlers that use executeWithTimeout already return their own equivalent; this is a
-// fallback for any DeadlineExceeded that reaches the protocol layer unconverted.
+// Handlers apply context.WithTimeout for statement timeouts; queryContextError maps
+// the resulting DeadlineExceeded to this PostgreSQL protocol error.
 var errStatementTimeout = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
 	"canceling statement due to statement timeout", "")
 
@@ -318,10 +318,8 @@ func queryContextError(queryCtx context.Context, err error) error {
 	if errors.Is(context.Cause(queryCtx), errQueryCanceled) {
 		return errQueryCanceled
 	}
-	// Fallback: if the error chain contains DeadlineExceeded, treat it as a
-	// statement timeout. Handlers that use executeWithTimeout already convert
-	// this to a PgDiagnostic, so this branch is a safety net for any
-	// unconverted deadline errors.
+	// Statement timeout: the handler applies context.WithTimeout for statement
+	// timeouts, and DeadlineExceeded propagates up through the error chain.
 	if errors.Is(err, context.DeadlineExceeded) {
 		return errStatementTimeout
 	}
