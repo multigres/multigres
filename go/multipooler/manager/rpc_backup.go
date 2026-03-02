@@ -225,12 +225,21 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 
 // restoreFromBackupLocked performs the restore. Caller must hold the action lock
 // and monitoring must be disabled to avoid interference.
-func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) error {
+func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 
 	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_type", pm.backupConfig.Type(), "backup_id", backupID)
+
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.StandbyInit{})
+	defer func() {
+		if retErr != nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.StandbyInit{}, "error", retErr)
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.StandbyInit{})
+		}
+	}()
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()
