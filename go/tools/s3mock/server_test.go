@@ -17,6 +17,7 @@ package s3mock
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"io"
 	"log"
@@ -229,4 +230,57 @@ func TestServerLoggingConditional(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServer_PutCallback(t *testing.T) {
+	var called []string
+	unblock := make(chan struct{})
+
+	cb := func(ctx context.Context, bucket, key string) error {
+		called = append(called, key)
+		<-unblock
+		return nil
+	}
+
+	srv, err := NewServer(0, WithPutCallback(cb))
+	if err != nil {
+		t.Fatalf("NewServer() failed: %v", err)
+	}
+	defer func() { _ = srv.Stop() }()
+
+	_ = srv.CreateBucket("test-bucket")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, // #nosec G402 - test code using self-signed certificates
+			},
+		},
+	}
+
+	// Start PUT in background (callback will block until unblock is closed)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req, _ := http.NewRequest("PUT", srv.Endpoint()+"/test-bucket/my-key", bytes.NewReader([]byte("data")))
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Errorf("PUT request failed: %v", err)
+			return
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	}()
+
+	// Give the callback a moment to be invoked
+	time.Sleep(50 * time.Millisecond)
+	if len(called) != 1 || called[0] != "my-key" {
+		t.Fatalf("expected callback called with 'my-key', got %v", called)
+	}
+
+	// Unblock and wait for PUT to finish
+	close(unblock)
+	<-done
 }
