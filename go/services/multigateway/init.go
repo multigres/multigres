@@ -311,7 +311,11 @@ func (mg *MultiGateway) Init() error {
 		logger,
 	)
 	mg.pgListener.SetCancelHandler(mg.cancelManager)
-	mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+	// Register the gRPC service via OnRun because grpcServer.Server is only
+	// created in servenv.Run() (after Create()), which runs after Init().
+	mg.senv.OnRun(func() {
+		mg.cancelManager.RegisterWithGRPCServer(mg.grpcServer.Server)
+	})
 
 	// Start the PostgreSQL listener in a goroutine
 	go func() {
