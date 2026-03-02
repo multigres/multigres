@@ -232,12 +232,12 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_type", pm.backupConfig.Type(), "backup_id", backupID)
 
-	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.StandbyInit{})
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.StandbyInit{PoolerName: pm.serviceID.Name})
 	defer func() {
 		if retErr != nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.StandbyInit{}, "error", retErr)
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.StandbyInit{PoolerName: pm.serviceID.Name}, "error", retErr)
 		} else {
-			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.StandbyInit{})
+			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.StandbyInit{PoolerName: pm.serviceID.Name})
 		}
 	}()
 

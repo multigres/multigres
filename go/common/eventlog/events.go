@@ -16,15 +16,19 @@ package eventlog
 
 import "log/slog"
 
-type PrimaryInit struct{}
+type PrimaryInit struct{ PoolerName string }
 
-func (PrimaryInit) EventType() string     { return "primary.init" }
-func (PrimaryInit) LogAttrs() []slog.Attr { return nil }
+func (PrimaryInit) EventType() string { return "primary.init" }
+func (e PrimaryInit) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("pooler_name", e.PoolerName)}
+}
 
-type StandbyInit struct{}
+type StandbyInit struct{ PoolerName string }
 
-func (StandbyInit) EventType() string     { return "standby.init" }
-func (StandbyInit) LogAttrs() []slog.Attr { return nil }
+func (StandbyInit) EventType() string { return "standby.init" }
+func (e StandbyInit) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("pooler_name", e.PoolerName)}
+}
 
 type NodeJoin struct{ NodeName string }
 
