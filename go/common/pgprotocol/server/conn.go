@@ -47,6 +47,12 @@ const (
 var errQueryCanceled = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
 	"canceling statement due to user request", "")
 
+// errStatementTimeout is the error returned when a query exceeds the statement timeout.
+// Handlers that use executeWithTimeout already return their own equivalent; this is a
+// fallback for any DeadlineExceeded that reaches the protocol layer unconverted.
+var errStatementTimeout = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
+	"canceling statement due to statement timeout", "")
+
 // Conn represents the server side connection with a PostgreSQL client.
 // It handles the wire protocol encoding/decoding and connection state management.
 type Conn struct {
@@ -300,6 +306,28 @@ func (c *Conn) CancelQuery() bool {
 	return false
 }
 
+// queryContextError maps context-related errors to the appropriate PostgreSQL
+// protocol error. Cancel requests take priority since they indicate explicit
+// user action. If no context-related error is detected, the original error is
+// returned unchanged.
+func queryContextError(queryCtx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	// CancelRequest sets errQueryCanceled as the cause on the query context.
+	if errors.Is(context.Cause(queryCtx), errQueryCanceled) {
+		return errQueryCanceled
+	}
+	// Fallback: if the error chain contains DeadlineExceeded, treat it as a
+	// statement timeout. Handlers that use executeWithTimeout already convert
+	// this to a PgDiagnostic, so this branch is a safety net for any
+	// unconverted deadline errors.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errStatementTimeout
+	}
+	return err
+}
+
 // returnReader returns the buffered reader to the pool.
 func (c *Conn) returnReader() {
 	c.bufMu.Lock()
@@ -548,12 +576,7 @@ func (c *Conn) handleQuery() error {
 		return nil
 	})
 	if err != nil {
-		// If the query was canceled, report the cancel error to the client.
-		// TODO: Can we also handle timeout error here.
-		// TODO: Use errors.Is
-		if context.Cause(queryCtx) == errQueryCanceled {
-			err = errQueryCanceled
-		}
+		err = queryContextError(queryCtx, err)
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
@@ -812,12 +835,7 @@ func (c *Conn) handleExecute() error {
 		return nil
 	})
 	if err != nil {
-		// If the query was canceled, report the cancel error to the client.
-		// TODO: Can we also handle timeout error here.
-		// TODO: Use errors.Is
-		if context.Cause(queryCtx) == errQueryCanceled {
-			err = errQueryCanceled
-		}
+		err = queryContextError(queryCtx, err)
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
 		}
