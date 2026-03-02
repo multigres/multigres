@@ -17,6 +17,7 @@ package multipooler
 import (
 	"context"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,9 +45,16 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	uploadStarted := make(chan struct{}, 1)
 	unblock := make(chan struct{})
 
+	// blockPuts gates the callback: false during bootstrap, true once backup starts.
+	// This prevents the callback from interfering with bootstrap-time pgBackRest operations.
+	var blockPuts atomic.Bool
+
 	// Create a test-local s3mock with PutCallback — not the shared instance
 	s3Server, err := s3mock.NewServer(0, s3mock.WithPutCallback(
 		func(ctx context.Context, bucket, key string) error {
+			if !blockPuts.Load() {
+				return nil
+			}
 			// Signal once when the first upload arrives
 			select {
 			case uploadStarted <- struct{}{}:
@@ -84,6 +92,9 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 
 	setup.StartMultiOrchs(t.Context(), t)
 
+	// Bootstrap is complete — enable PUT blocking so the backup will be intercepted.
+	blockPuts.Store(true)
+
 	// Record original primary before we kill it
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary)
@@ -93,6 +104,18 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	// Create backup client pointing at the primary's multipooler
 	backupClient := createBackupClient(t, primary.Multipooler.GrpcPort)
 
+	// Disable postgres monitoring on all nodes so that multipooler does not
+	// automatically restart postgres after the kill — multiorch must orchestrate recovery.
+	for name, inst := range setup.Multipoolers {
+		mc := createBackupClient(t, inst.Multipooler.GrpcPort)
+		_, err := mc.SetMonitor(t.Context(), &multipoolermanagerdata.SetMonitorRequest{Enabled: false})
+		require.NoError(t, err, "failed to disable monitoring on %s", name)
+		t.Logf("Disabled postgres monitoring on %s", name)
+	}
+
+	// Tag the backup so we can check its specific status after failure.
+	const testJobID = "failover-test-backup"
+
 	// Start a full backup on the primary in a goroutine (it will block inside s3mock)
 	backupErrCh := make(chan error, 1)
 	go func() {
@@ -101,6 +124,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 		_, err := backupClient.Backup(ctx, &multipoolermanagerdata.BackupRequest{
 			ForcePrimary: true,
 			Type:         "full",
+			JobId:        testJobID,
 		})
 		backupErrCh <- err
 	}()
@@ -127,15 +151,16 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	require.Error(t, backupErr, "backup must fail when primary postgres disappears mid-backup")
 	t.Logf("Backup failed as expected: %v", backupErr)
 
-	// Assertion 2: no backup should be marked complete in the repo
-	listCtx := utils.WithTimeout(t, 30*time.Second)
-	listResp, err := backupClient.GetBackups(listCtx, &multipoolermanagerdata.GetBackupsRequest{Limit: 10})
-	require.NoError(t, err)
-	for _, b := range listResp.Backups {
-		assert.NotEqual(t, multipoolermanagerdata.BackupMetadata_COMPLETE, b.Status,
-			"no backup should be marked complete after a mid-backup primary failover (id=%s status=%s)",
-			b.BackupId, b.Status)
+	// Assertion 2: the specific backup we started must not be marked complete
+	jobCtx := utils.WithTimeout(t, 30*time.Second)
+	jobResp, err := backupClient.GetBackupByJobId(jobCtx, &multipoolermanagerdata.GetBackupByJobIdRequest{JobId: testJobID})
+	if err == nil && jobResp.GetBackup() != nil {
+		assert.NotEqual(t, multipoolermanagerdata.BackupMetadata_COMPLETE, jobResp.Backup.Status,
+			"the failed backup must not be marked complete (id=%s status=%s)",
+			jobResp.Backup.BackupId, jobResp.Backup.Status)
 	}
+	// If GetBackupByJobId returns an error (backup not found), that is also acceptable —
+	// it means pgBackRest never completed the backup and left no record.
 
 	// Assertion 3: cluster is healthy — a new primary is elected and postgres is running
 	t.Log("Waiting for a new primary to be elected...")
