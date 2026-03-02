@@ -32,8 +32,9 @@ service MultiGatewayService {
 message CancelQueryRequest {
   // process_id is the PID sent by the client, encoding gateway prefix + local conn ID.
   uint32 process_id = 1;
-  // TODO: Do we really need this?
-  // secret_key is the backend key data for authentication.
+  // secret_key is the backend key data for cancel request authentication.
+  // Required: the receiving gateway verifies this matches before canceling.
+  // Without it, any client that can guess a PID could cancel arbitrary queries.
   uint32 secret_key = 2;
 }
 

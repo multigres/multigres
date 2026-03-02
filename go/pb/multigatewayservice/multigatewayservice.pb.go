@@ -43,7 +43,9 @@ type CancelQueryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// process_id is the PID sent by the client, encoding gateway prefix + local conn ID.
 	ProcessId uint32 `protobuf:"varint,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
-	// secret_key is the backend key data for authentication.
+	// secret_key is the backend key data for cancel request authentication.
+	// Required: the receiving gateway verifies this matches before canceling.
+	// Without it, any client that can guess a PID could cancel arbitrary queries.
 	SecretKey     uint32 `protobuf:"varint,2,opt,name=secret_key,json=secretKey,proto3" json:"secret_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

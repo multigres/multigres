@@ -179,12 +179,11 @@ func (c *Conn) handleCancelRequest(reader *MessageReader) error {
 
 	c.logger.Info("received cancel request", "process_id", processID)
 
-	// TODO: we don't really need this if check i think. The cancel handler should always be there.
 	if c.listener.cancelHandler != nil {
 		// Delegate to the cancel handler which may forward to a remote gateway.
 		c.listener.cancelHandler.HandleCancelRequest(c.ctx, processID, secretKey)
 	} else {
-		// No cross-gateway handler; try to cancel locally.
+		// No cross-gateway handler (e.g., tests); try to cancel locally.
 		c.listener.CancelLocalConnection(processID, secretKey)
 	}
 
