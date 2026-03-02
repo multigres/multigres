@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -174,10 +175,24 @@ func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *multiorchdatapb.PoolerHealthState,
 	primary *multiorchdatapb.PoolerHealthState,
-) error {
+) (retErr error) {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
 		"replica", replica.MultiPooler.Id.Name,
 		"primary", primary.MultiPooler.Id.Name)
+	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.NodeJoin{
+		NodeName: replica.MultiPooler.Id.Name,
+	})
+	defer func() {
+		if retErr != nil {
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.NodeJoin{
+				NodeName: replica.MultiPooler.Id.Name,
+			}, "error", retErr)
+		} else {
+			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.NodeJoin{
+				NodeName: replica.MultiPooler.Id.Name,
+			})
+		}
+	}()
 
 	// Get the current consensus term from the primary
 	consensusResp, err := a.rpcClient.ConsensusStatus(ctx, primary.MultiPooler, &consensusdatapb.StatusRequest{})
