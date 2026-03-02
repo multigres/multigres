@@ -472,6 +472,119 @@ func TestManager_SettingsCacheIntegration(t *testing.T) {
 	assert.Same(t, settings1, settings2)
 }
 
+// --- ApplySettingsToConn tests ---
+
+func TestManager_ApplySettingsToConn(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Accept SET commands.
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	// Create a reserved connection with initial settings.
+	initialSettings := map[string]string{"search_path": "public"}
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser")
+	require.NoError(t, err)
+	defer conn.Release(reserved.ReleaseCommit)
+
+	// Record how many SET calls have been made so far.
+	setsBefore := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+
+	// Apply different settings — should trigger SET commands.
+	newSettings := map[string]string{"search_path": "public", "statement_timeout": "200ms"}
+	err = manager.ApplySettingsToConn(ctx, conn.Conn(), newSettings)
+	require.NoError(t, err)
+
+	// Verify SET was called again.
+	setsAfter := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+	assert.Greater(t, setsAfter, setsBefore, "SET should have been called for new settings")
+}
+
+func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Accept SET commands.
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	settings := map[string]string{"search_path": "public"}
+	conn, err := manager.NewReservedConn(ctx, settings, "testuser")
+	require.NoError(t, err)
+	defer conn.Release(reserved.ReleaseCommit)
+
+	// Record SET calls.
+	setsBefore := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+
+	// Apply the same settings — should be a no-op (pointer equality via cache).
+	err = manager.ApplySettingsToConn(ctx, conn.Conn(), settings)
+	require.NoError(t, err)
+
+	setsAfter := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+	assert.Equal(t, setsBefore, setsAfter, "no SET should have been called for same settings")
+}
+
+func TestManager_ApplySettingsToConn_NilSettings(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser")
+	require.NoError(t, err)
+	defer conn.Release(reserved.ReleaseCommit)
+
+	// Apply nil settings — should be a no-op.
+	err = manager.ApplySettingsToConn(ctx, conn.Conn(), nil)
+	require.NoError(t, err)
+}
+
+func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Accept SET, individual RESET, and combined RESET+SET commands.
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET search_path`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET search_path; SET SESSION .+ = .+`, &sqltypes.Result{})
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+
+	// Create a reserved connection with two settings.
+	initialSettings := map[string]string{"search_path": "public", "work_mem": "256MB"}
+	conn, err := manager.NewReservedConn(ctx, initialSettings, "testuser")
+	require.NoError(t, err)
+	defer conn.Release(reserved.ReleaseCommit)
+
+	// Record calls so far.
+	combinedBefore := server.GetPatternCalledNum(`RESET search_path; SET SESSION .+ = .+`)
+
+	// Apply new settings with search_path removed.
+	newSettings := map[string]string{"work_mem": "256MB"}
+	err = manager.ApplySettingsToConn(ctx, conn.Conn(), newSettings)
+	require.NoError(t, err)
+
+	// Verify combined RESET+SET was called for the removed setting.
+	combinedAfter := server.GetPatternCalledNum(`RESET search_path; SET SESSION .+ = .+`)
+	assert.Greater(t, combinedAfter, combinedBefore, "combined RESET+SET should have been called for removed setting")
+}
+
 // --- InternalUser tests ---
 
 func TestManager_InternalUser_Default(t *testing.T) {
