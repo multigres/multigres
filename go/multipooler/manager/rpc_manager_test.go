@@ -130,7 +130,7 @@ func TestPrimaryPosition(t *testing.T) {
 			}
 			manager, err := NewMultiPoolerManager(logger, multipooler, config)
 			require.NoError(t, err)
-			defer manager.Close()
+			defer manager.Shutdown()
 
 			// Set up mock query service for isInRecovery check during startup
 			mockQueryService := mock.NewQueryService()
@@ -208,7 +208,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	}
 	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer manager.Close()
+	defer manager.Shutdown()
 
 	// Set up mock query service for isInRecovery check during startup
 	mockQueryService := mock.NewQueryService()
@@ -443,7 +443,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { pm.Close() })
+	t.Cleanup(func() { pm.Shutdown() })
 
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	err = pm.setInitialized()
@@ -1141,7 +1141,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { pm.Close() })
+	t.Cleanup(func() { pm.Shutdown() })
 
 	err = pm.setInitialized()
 	require.NoError(t, err)
@@ -1301,7 +1301,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	}
 	pm, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer pm.Close()
+	defer pm.Shutdown()
 
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
 	err = pm.setInitialized()
@@ -1408,7 +1408,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 
 		// Create mock query service and inject it
 		mockQueryService := mock.NewQueryService()
@@ -1485,7 +1485,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -1567,7 +1567,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 
 		// Create mock query service and inject it
 		mockQueryService := mock.NewQueryService()
@@ -1647,7 +1647,7 @@ func TestReplicationStatus(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -1734,7 +1734,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -1796,7 +1796,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -1857,7 +1857,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 
 		// Don't start the manager - isOpen should be false
 
@@ -1911,7 +1911,7 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		defer pm.Close()
+		defer pm.Shutdown()
 
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -1981,7 +1981,7 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		defer pm.Close()
+		defer pm.Shutdown()
 
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -2043,7 +2043,7 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		defer pm.Close()
+		defer pm.Shutdown()
 
 		// Create demotion state
 		state := &demotionState{
@@ -2104,7 +2104,7 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -2165,7 +2165,7 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		}
 		pm, err := NewMultiPoolerManager(logger, multipooler, config)
 		require.NoError(t, err)
-		t.Cleanup(func() { pm.Close() })
+		t.Cleanup(func() { pm.Shutdown() })
 
 		err = pm.setInitialized()
 		require.NoError(t, err)
@@ -2242,7 +2242,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 	}
 	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer manager.Close()
+	defer manager.Shutdown()
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
@@ -2354,7 +2354,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	}
 	manager, err := NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
-	defer manager.Close()
+	defer manager.Shutdown()
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
@@ -2418,4 +2418,102 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	// CRITICAL: Verify that NO ALTER SYSTEM queries were executed
 	assert.NoError(t, mockQueryService.ExpectationsWereMet(),
 		"If this fails, it means applySynchronousStandbyNames was called despite history insert failure")
+}
+
+// TestRewindToSource_ManagerReopenedOnError is a regression test for a bug where
+// RewindToSource would leave the manager closed if an error occurred after pausing.
+// The fix uses the Pause()/resume() pattern with defer to guarantee the manager
+// is always reopened, even on error paths.
+func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx := context.Background()
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerDir := t.TempDir()
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+
+	multipooler := &clustermetadatapb.MultiPooler{
+		Id:         serviceID,
+		PoolerDir:  poolerDir,
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+		Type:       clustermetadatapb.PoolerType_REPLICA,
+		Database:   "postgres",
+		PortMap: map[string]int32{
+			"postgres": 5432,
+		},
+	}
+
+	// Start a mock pgctld server that will fail the Stop call (after Pause() is called)
+	mockPgctld := &testutil.MockPgCtldService{
+		StopError: errors.New("mock error: PostgreSQL stop failed"),
+	}
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
+	t.Cleanup(cleanupPgctld)
+
+	// Create mock query service to avoid hanging during Open()
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: pgctldAddr,
+	}
+
+	manager, err := NewMultiPoolerManager(logger, multipooler, config)
+	require.NoError(t, err)
+	defer manager.Shutdown()
+
+	// Create pg_data directory so setInitialized() can write marker file
+	createPgDataDir(t, poolerDir)
+
+	err = manager.setInitialized()
+	require.NoError(t, err)
+
+	// Assign mock pooler controller BEFORE opening to avoid race conditions
+	manager.qsc = &mockPoolerController{queryService: mockQueryService}
+
+	// Simulate the manager being open and ready (set internal state without starting goroutines)
+	manager.mu.Lock()
+	manager.isOpen = true
+	manager.state = ManagerStateReady
+	manager.ctx, manager.cancel = context.WithCancel(ctx)
+	manager.mu.Unlock()
+
+	// Create a source pooler
+	sourceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "source-pooler",
+	}
+	source := &clustermetadatapb.MultiPooler{
+		Id:       sourceID,
+		Hostname: "source-host",
+		PortMap: map[string]int32{
+			"postgres": 5432,
+		},
+	}
+
+	// Call RewindToSource - this should fail during the Stop call (after Pause() is called)
+	_, err = manager.RewindToSource(ctx, source)
+
+	// Verify the call failed as expected
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PostgreSQL stop failed")
+
+	// CRITICAL REGRESSION TEST: Verify the manager was reopened despite the error.
+	// This is the bug we're testing for - without the defer resume() pattern,
+	// the manager would stay closed on this error path after Pause() was called.
+	require.Eventually(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return manager.isOpen
+	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails after Pause()")
 }
