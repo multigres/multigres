@@ -122,6 +122,13 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	t.Log("Verifying data replication works after pg_rewind...")
 	verifyDataReplication(t, setup, oldPrimaryName, newPrimaryName)
 
+	// Step 8: Verify primary.demotion event was emitted in multiorch log
+	t.Log("Verifying primary.demotion event in multiorch log...")
+	mo := setup.GetMultiOrch("multiorch")
+	require.NotNil(t, mo, "multiorch instance should exist")
+	shardsetup.WaitForEvent(t, mo.LogFile, "primary.demotion", "success", 5*time.Second)
+	t.Log("Verified primary.demotion event in multiorch log")
+
 	t.Log("TestDemoteStalePrimary_SIGKILL completed successfully")
 }
 

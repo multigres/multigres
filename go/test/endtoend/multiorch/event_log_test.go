@@ -33,7 +33,8 @@ import (
 // Events checked:
 //   - primary.init started/success  (multipooler log of primary)
 //   - backup.attempt started/success (multipooler log of primary)
-//   - standby.init started/success   (multipooler log of each standby)
+//   - term.begin started/success     (multipooler log of primary)
+//   - restore.attempt started/success (multipooler log of each standby)
 //   - primary.promotion started/success (multiorch log)
 func TestEventLog_Bootstrap(t *testing.T) {
 	if testing.Short() {
@@ -67,7 +68,7 @@ func TestEventLog_Bootstrap(t *testing.T) {
 	primary := setup.GetMultipoolerInstance(setup.PrimaryName)
 	require.NotNil(t, primary)
 
-	t.Run("primary.init and backup.attempt events in primary multipooler log", func(t *testing.T) {
+	t.Run("primary.init, backup.attempt, and term.begin events in primary multipooler log", func(t *testing.T) {
 		data, err := os.ReadFile(primary.Multipooler.LogFile)
 		require.NoError(t, err, "should read primary multipooler log")
 
@@ -83,23 +84,28 @@ func TestEventLog_Bootstrap(t *testing.T) {
 			"expected backup.attempt started in primary multipooler log; got events: %v", events)
 		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "success"),
 			"expected backup.attempt success in primary multipooler log; got events: %v", events)
+
+		assert.True(t, shardsetup.HasEvent(events, "term.begin", "started"),
+			"expected term.begin started in primary multipooler log; got events: %v", events)
+		assert.True(t, shardsetup.HasEvent(events, "term.begin", "success"),
+			"expected term.begin success in primary multipooler log; got events: %v", events)
 	})
 
-	t.Run("standby.init events in standby multipooler logs", func(t *testing.T) {
+	t.Run("restore.attempt events in standby multipooler logs", func(t *testing.T) {
 		for name, inst := range setup.Multipoolers {
 			if name == setup.PrimaryName {
 				continue
 			}
-			// Wait for standby.init success — the restore may still be running even
+			// Wait for restore.attempt success — the restore may still be running even
 			// after waitForStandbysInitialized returns, because isInitialized() can
 			// return true (via the marker file extracted from the backup) before
 			// restoreFromBackupLocked completes and emits its success event.
 			events := shardsetup.WaitForEvent(t, inst.Multipooler.LogFile,
-				"standby.init", "success", 30*time.Second)
+				"restore.attempt", "success", 30*time.Second)
 			t.Logf("Found %d events in standby %s multipooler log", len(events), name)
 
-			assert.True(t, shardsetup.HasEvent(events, "standby.init", "started"),
-				"expected standby.init started in standby %s log; got events: %v", name, events)
+			assert.True(t, shardsetup.HasEvent(events, "restore.attempt", "started"),
+				"expected restore.attempt started in standby %s log; got events: %v", name, events)
 		}
 	})
 
