@@ -20,6 +20,7 @@
 package multiorch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -100,6 +101,41 @@ func TestBootstrapInitialization(t *testing.T) {
 	// Get primary instance for verification tests
 	primary := setup.GetMultipoolerInstance(setup.PrimaryName)
 	require.NotNil(t, primary, "Primary instance should exist")
+
+	// Verify lifecycle events were emitted during bootstrap
+	t.Run("verify primary.init, backup.attempt, term.begin events", func(t *testing.T) {
+		data, err := os.ReadFile(primary.Multipooler.LogFile)
+		require.NoError(t, err)
+		events := shardsetup.ParseEvents(t, bytes.NewReader(data))
+		assert.True(t, shardsetup.HasEvent(events, "primary.init", "started"))
+		assert.True(t, shardsetup.HasEvent(events, "primary.init", "success"))
+		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "started"))
+		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "success"))
+		assert.True(t, shardsetup.HasEvent(events, "term.begin", "started"))
+		assert.True(t, shardsetup.HasEvent(events, "term.begin", "success"))
+	})
+
+	t.Run("verify restore.attempt events in standby logs", func(t *testing.T) {
+		for name, inst := range setup.Multipoolers {
+			if name == setup.PrimaryName {
+				continue
+			}
+			// WaitForEvent handles the timing race: isInitialized() can return true
+			// before restoreFromBackupLocked emits its success event.
+			events := shardsetup.WaitForEvent(t, inst.Multipooler.LogFile,
+				"restore.attempt", "success", 30*time.Second)
+			assert.True(t, shardsetup.HasEvent(events, "restore.attempt", "started"),
+				"expected restore.attempt started in standby %s log", name)
+		}
+	})
+
+	t.Run("verify primary.promotion event in multiorch log", func(t *testing.T) {
+		data, err := os.ReadFile(mo.LogFile)
+		require.NoError(t, err)
+		events := shardsetup.ParseEvents(t, bytes.NewReader(data))
+		assert.True(t, shardsetup.HasEvent(events, "primary.promotion", "started"))
+		assert.True(t, shardsetup.HasEvent(events, "primary.promotion", "success"))
+	})
 
 	// Verify bootstrap results
 	t.Run("verify primary initialized", func(t *testing.T) {
