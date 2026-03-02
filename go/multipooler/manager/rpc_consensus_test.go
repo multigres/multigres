@@ -58,6 +58,8 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	replayStateCols := []string{"replay_lsn", "is_paused"}
 	replayStateRow := [][]any{{lsn, false}}
 
+	// pre-executeRevoke role check for term.begin event RevokedRole field
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// health check
 	m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 	// determine role (standby)
@@ -257,6 +259,8 @@ func TestBeginTerm(t *testing.T) {
 				Name:      "new-candidate",
 			},
 			setupMocks: func(m *mock.QueryService) {
+				// pre-executeRevoke role check for term.begin event RevokedRole field
+				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 				// executeRevoke: health check
 				m.AddQueryPatternOnce("^SELECT 1$", mock.MakeQueryResult(nil, nil))
 				// executeRevoke: isInRecovery check - returns false (not in recovery = primary)
