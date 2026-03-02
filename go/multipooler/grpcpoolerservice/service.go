@@ -325,6 +325,8 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 		SessionSettings:      req.Options.GetSessionSettings(),
 		ReservedConnectionId: reservedState.ReservedConnectionId,
 	}
+	// Capture target from INITIATE for use in error paths where req may be nil.
+	initiateTarget := req.Target
 
 	// Phase 2: Handle DATA/DONE/FAIL messages
 	for {
@@ -332,8 +334,9 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 		if err != nil {
 			// Stream closed or error — abort COPY and send best-effort ERROR response
 			// so the gateway can update its shard state even if the stream is degraded.
+			// Note: req may be nil when Recv fails, so we use initiateTarget.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				abortState, _ := exec.CopyAbort(ctx, req.Target, "context canceled", copyOptions)
+				abortState, _ := exec.CopyAbort(ctx, initiateTarget, "context canceled", copyOptions)
 				_ = stream.Send(&multipoolerpb.CopyBidiExecuteResponse{
 					Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:                fmt.Sprintf("stream canceled: %v", err),
@@ -343,7 +346,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 				})
 				return status.Errorf(codes.Canceled, "stream canceled: %v", err)
 			}
-			abortState, _ := exec.CopyAbort(ctx, req.Target, "stream receive error", copyOptions)
+			abortState, _ := exec.CopyAbort(ctx, initiateTarget, "stream receive error", copyOptions)
 			_ = stream.Send(&multipoolerpb.CopyBidiExecuteResponse{
 				Phase:                multipoolerpb.CopyBidiExecuteResponse_ERROR,
 				Error:                fmt.Sprintf("failed to receive message: %v", err),
