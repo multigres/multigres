@@ -16,9 +16,14 @@ package shardsetup
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
+	"os"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // ParseEvents scans a reader for multigres.event log lines.
@@ -50,4 +55,22 @@ func HasEvent(events []map[string]any, eventType, outcome string) bool {
 		}
 	}
 	return false
+}
+
+// WaitForEvent polls logFile until the given event_type+outcome appears or timeout expires.
+// Returns the full set of events found in the file at the time the target event was seen.
+// Fails the test (fatally) if the event is not seen within the timeout.
+func WaitForEvent(t *testing.T, logFile, eventType, outcome string, timeout time.Duration) []map[string]any {
+	t.Helper()
+	var events []map[string]any
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(logFile)
+		if err != nil {
+			return false
+		}
+		events = ParseEvents(t, bytes.NewReader(data))
+		return HasEvent(events, eventType, outcome)
+	}, timeout, 500*time.Millisecond,
+		"timed out waiting for event_type=%q outcome=%q in %s", eventType, outcome, logFile)
+	return events
 }
