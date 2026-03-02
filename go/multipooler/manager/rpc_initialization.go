@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -35,7 +36,7 @@ import (
 
 // InitializeEmptyPrimary initializes this pooler as an empty primary
 // Used during bootstrap initialization of a new shard
-func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
+func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (_ *multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, retErr error) {
 	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 
 	// Wait for topology to be loaded (needed for backup location)
@@ -69,6 +70,16 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 	}
+
+	// Emit Started now that we know we're doing actual initialization work.
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PrimaryInit{})
+	defer func() {
+		if retErr != nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PrimaryInit{}, "error", retErr)
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PrimaryInit{})
+		}
+	}()
 
 	// Initialize data directory via pgctld if needed
 	if !pm.hasDataDirectory() {
