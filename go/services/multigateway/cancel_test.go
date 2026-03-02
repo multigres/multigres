@@ -44,6 +44,7 @@ func TestCancelManager_LocalCancel(t *testing.T) {
 	}
 
 	cm := NewCancelManager(localCancelFn, ownPrefix, nil, testCancelLogger())
+	defer cm.Close()
 
 	cm.HandleCancelRequest(context.Background(), pid, 99999)
 
@@ -76,6 +77,7 @@ func TestCancelManager_RemoteForward(t *testing.T) {
 	}
 
 	cm := NewCancelManager(localCancelFn, ownPrefix, mockTS, testCancelLogger())
+	defer cm.Close()
 
 	// HandleCancelRequest should try to forward but will fail at the gRPC dial
 	// since there's no real server. The important thing is it doesn't call local cancel.
@@ -96,6 +98,7 @@ func TestCancelManager_GRPCHandler(t *testing.T) {
 	}
 
 	cm := NewCancelManager(localCancelFn, ownPrefix, nil, testCancelLogger())
+	defer cm.Close()
 
 	resp, err := cm.CancelQuery(context.Background(), &multigatewayservicepb.CancelQueryRequest{
 		ProcessId: pid,

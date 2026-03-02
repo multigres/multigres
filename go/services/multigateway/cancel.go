@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -28,9 +30,22 @@ import (
 	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
+const (
+	// prefixCacheRefreshInterval is how often the prefix cache is fully
+	// rebuilt from topo, regardless of cache hits.
+	prefixCacheRefreshInterval = 5 * time.Minute
+
+	// grpcIdleTimeout is how long a gateway-to-gateway gRPC connection sits
+	// idle before gRPC automatically closes the underlying transport.
+	grpcIdleTimeout = 5 * time.Minute
+)
+
 // CancelManager handles cross-gateway query cancellation.
 // It implements both server.CancelHandler (for incoming PostgreSQL cancel requests)
 // and MultiGatewayServiceServer (for gRPC forwarded cancel requests).
+//
+// Query cancellation is best-effort: if a forwarded cancel fails, the query
+// will eventually complete or time out on its own.
 type CancelManager struct {
 	multigatewayservicepb.UnimplementedMultiGatewayServiceServer
 
@@ -43,10 +58,24 @@ type CancelManager struct {
 	// logger for cancel operations.
 	logger *slog.Logger
 
+	// prefixCache maps PID prefix to gateway gRPC address. Replaced atomically
+	// on cache miss or periodic refresh; reads are lock-free.
+	prefixCache atomic.Pointer[map[uint32]string]
+
 	// clientsMu protects clients.
 	clientsMu sync.Mutex
-	// clients caches gRPC clients by address.
-	clients map[string]multigatewayservicepb.MultiGatewayServiceClient
+	// clients caches gRPC connections by address. gRPC's WithIdleTimeout
+	// handles closing unused transports automatically.
+	clients map[string]*gatewayConn
+
+	// stop cancels the background prefix cache refresh goroutine.
+	stop context.CancelFunc
+}
+
+// gatewayConn holds a gRPC client and its underlying connection.
+type gatewayConn struct {
+	client multigatewayservicepb.MultiGatewayServiceClient
+	conn   *grpc.ClientConn
 }
 
 // NewCancelManager creates a new CancelManager.
@@ -56,13 +85,19 @@ func NewCancelManager(
 	ts topoclient.Store,
 	logger *slog.Logger,
 ) *CancelManager {
-	return &CancelManager{
+	ctx, cancel := context.WithCancel(context.TODO())
+	cm := &CancelManager{
 		localCancelFn: localCancelFn,
 		ownPrefix:     ownPrefix,
 		ts:            ts,
 		logger:        logger,
-		clients:       make(map[string]multigatewayservicepb.MultiGatewayServiceClient),
+		clients:       make(map[string]*gatewayConn),
+		stop:          cancel,
 	}
+	empty := make(map[uint32]string)
+	cm.prefixCache.Store(&empty)
+	go cm.refreshPrefixCachePeriodically(ctx)
+	return cm
 }
 
 // RegisterWithGRPCServer registers the CancelManager as a gRPC service.
@@ -82,7 +117,7 @@ func (cm *CancelManager) HandleCancelRequest(ctx context.Context, processID, sec
 
 	// Forward to the gateway that owns this PID prefix.
 	if err := cm.forwardCancel(ctx, prefix, processID, secretKey); err != nil {
-		cm.logger.Warn("failed to forward cancel request",
+		cm.logger.WarnContext(ctx, "failed to forward cancel request",
 			"target_prefix", prefix,
 			"process_id", processID,
 			"error", err,
@@ -98,10 +133,18 @@ func (cm *CancelManager) CancelQuery(ctx context.Context, req *multigatewayservi
 }
 
 // forwardCancel finds the gateway with the given PID prefix and forwards the cancel request.
+// Cancellation is best-effort — no retries on failure.
 func (cm *CancelManager) forwardCancel(ctx context.Context, targetPrefix, processID, secretKey uint32) error {
-	addr, err := cm.findGatewayByPrefix(ctx, targetPrefix)
-	if err != nil {
-		return err
+	cache := *cm.prefixCache.Load()
+	addr, ok := cache[targetPrefix]
+	if !ok {
+		// Cache miss — rebuild from topo and try again.
+		cm.rebuildPrefixCache(ctx)
+		cache = *cm.prefixCache.Load()
+		addr, ok = cache[targetPrefix]
+		if !ok {
+			return fmt.Errorf("no gateway found with pid_prefix=%d", targetPrefix)
+		}
 	}
 
 	client, err := cm.getClient(addr)
@@ -116,55 +159,85 @@ func (cm *CancelManager) forwardCancel(ctx context.Context, targetPrefix, proces
 	return err
 }
 
-// findGatewayByPrefix scans all cells to find the gateway with the given PID prefix.
-func (cm *CancelManager) findGatewayByPrefix(ctx context.Context, prefix uint32) (string, error) {
-	// TODO: It should be a good idea to cache gateways by prefix, and only fetch if we don't
-	// find any one from our cached already. Reduces topo pressure.
+// rebuildPrefixCache reads all gateways from topo and atomically replaces the
+// prefix cache.
+func (cm *CancelManager) rebuildPrefixCache(ctx context.Context) {
 	cells, err := cm.ts.GetCellNames(ctx)
 	if err != nil {
-		return "", fmt.Errorf("getting cell names: %w", err)
+		cm.logger.WarnContext(ctx, "failed to get cell names for prefix cache rebuild", "error", err)
+		return
 	}
 
+	cache := make(map[uint32]string)
 	for _, cell := range cells {
 		gateways, err := cm.ts.GetMultiGatewaysByCell(ctx, cell)
 		if err != nil {
-			cm.logger.Warn("failed to get gateways for cell", "cell", cell, "error", err)
+			cm.logger.WarnContext(ctx, "failed to get gateways for cell", "cell", cell, "error", err)
 			continue
 		}
-
 		for _, gw := range gateways {
-			if gw.GetPidPrefix() == prefix {
-				grpcPort := gw.PortMap["grpc"]
-				if grpcPort == 0 {
-					return "", fmt.Errorf("gateway %s has no grpc port", gw.GetHostname())
-				}
-				return fmt.Sprintf("%s:%d", gw.GetHostname(), grpcPort), nil
+			prefix := gw.GetPidPrefix()
+			grpcPort := gw.PortMap["grpc"]
+			if prefix > 0 && grpcPort > 0 {
+				cache[prefix] = fmt.Sprintf("%s:%d", gw.GetHostname(), grpcPort)
 			}
 		}
 	}
 
-	return "", fmt.Errorf("no gateway found with pid_prefix=%d", prefix)
+	cm.prefixCache.Store(&cache)
+}
+
+// refreshPrefixCachePeriodically rebuilds the prefix cache on a regular interval
+// so that gateway additions/removals are picked up even without a cache miss.
+func (cm *CancelManager) refreshPrefixCachePeriodically(ctx context.Context) {
+	ticker := time.NewTicker(prefixCacheRefreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cm.rebuildPrefixCache(ctx)
+		}
+	}
 }
 
 // getClient returns a cached gRPC client for the given address, creating one if needed.
+// Connections use gRPC's built-in idle timeout to close unused transports.
 func (cm *CancelManager) getClient(addr string) (multigatewayservicepb.MultiGatewayServiceClient, error) {
-	// TODO: client's should have a timeout to be auto-closed eventually so that we don't
-	// keep too many gateway-gateway connections open if they're not being used.
 	cm.clientsMu.Lock()
 	defer cm.clientsMu.Unlock()
 
-	if client, ok := cm.clients[addr]; ok {
-		return client, nil
+	if gc, ok := cm.clients[addr]; ok {
+		return gc.client, nil
 	}
 
+	dialOpts := append(grpccommon.LocalClientDialOptions(), grpc.WithIdleTimeout(grpcIdleTimeout))
 	conn, err := grpccommon.NewClient(addr,
-		grpccommon.WithDialOptions(grpccommon.LocalClientDialOptions()...),
+		grpccommon.WithDialOptions(dialOpts...),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	client := multigatewayservicepb.NewMultiGatewayServiceClient(conn)
-	cm.clients[addr] = client
-	return client, nil
+	gc := &gatewayConn{
+		client: multigatewayservicepb.NewMultiGatewayServiceClient(conn),
+		conn:   conn,
+	}
+	cm.clients[addr] = gc
+	return gc.client, nil
+}
+
+// Close stops the background refresh goroutine and closes all cached gRPC connections.
+func (cm *CancelManager) Close() {
+	cm.stop()
+
+	cm.clientsMu.Lock()
+	defer cm.clientsMu.Unlock()
+
+	for addr, gc := range cm.clients {
+		gc.conn.Close()
+		delete(cm.clients, addr)
+	}
 }

@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -383,7 +384,9 @@ func (mg *MultiGateway) Shutdown() {
 	mg.ts.Close()
 }
 
-// findUnusedPrefix scans all cells for used PID prefixes and returns the lowest unused one.
+// findUnusedPrefix scans all cells for used PID prefixes and returns a random
+// unused one. Randomization reduces the chance of two gateways starting
+// simultaneously and picking the same prefix.
 func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 	usedPrefixes := make(map[uint32]bool)
 	cells, err := mg.ts.GetCellNames(ctx)
@@ -403,13 +406,17 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 		}
 	}
 
+	// Collect all unused prefixes and pick one at random.
+	unused := make([]uint32, 0, cancelkey.MaxPrefix-len(usedPrefixes))
 	for prefix := uint32(1); prefix <= cancelkey.MaxPrefix; prefix++ {
 		if !usedPrefixes[prefix] {
-			return prefix, nil
+			unused = append(unused, prefix)
 		}
 	}
-
-	return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", cancelkey.MaxPrefix)
+	if len(unused) == 0 {
+		return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", cancelkey.MaxPrefix)
+	}
+	return unused[rand.IntN(len(unused))], nil
 }
 
 // hasPrefixCollision checks if any other gateway in topo has the same PID prefix.
