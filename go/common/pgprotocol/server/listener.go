@@ -75,7 +75,7 @@ type Listener struct {
 	nextConnectionID atomic.Uint32
 
 	// connsMu protects conns.
-	connsMu sync.RWMutex
+	connsMu sync.Mutex
 	// conns maps encoded PID to active connections for cancel request lookup.
 	conns map[uint32]*Conn
 
@@ -201,11 +201,14 @@ func (l *Listener) Serve() error {
 			}
 		}
 
-		// Assign connection ID: encode gateway prefix into upper bits for
-		// cross-gateway cancel request routing.
-		// TODO: What happens if the nextConnectionID recycles? Do we need to handle it?
-		localID := l.nextConnectionID.Add(1)
-		connID := cancelkey.EncodePID(l.gatewayID, localID)
+		// Assign a unique connection PID, skipping IDs already in use.
+		connID, ok := l.assignConnectionID()
+		if !ok {
+			l.logger.Error("no available connection ID, rejecting connection",
+				"remote_addr", netConn.RemoteAddr())
+			netConn.Close()
+			continue
+		}
 		conn := newConn(netConn, l, connID)
 		conn.handler = l.handler
 		conn.hashProvider = l.hashProvider
@@ -275,6 +278,41 @@ func (l *Listener) Close() error {
 	return err
 }
 
+// assignConnectionID returns the next unused PID for a new connection.
+// It encodes the gateway prefix into the upper bits and skips PIDs that
+// are already in use or have a zero local ID (PID 0 is reserved in PostgreSQL).
+func (l *Listener) assignConnectionID() (uint32, bool) {
+	for range cancelkey.MaxLocalConnID {
+		localID := l.nextLocalID()
+		pid := cancelkey.EncodePID(l.gatewayID, localID)
+
+		l.connsMu.Lock()
+		_, exists := l.conns[pid]
+		l.connsMu.Unlock()
+
+		if !exists {
+			return pid, true
+		}
+	}
+	return 0, false
+}
+
+// nextLocalID atomically increments the connection counter, wrapping back to 1
+// when it reaches MaxLocalConnID. This keeps the counter bounded and avoids
+// producing localID=0 (which is reserved in PostgreSQL).
+func (l *Listener) nextLocalID() uint32 {
+	for {
+		cur := l.nextConnectionID.Load()
+		next := cur + 1
+		if next > cancelkey.MaxLocalConnID {
+			next = 1
+		}
+		if l.nextConnectionID.CompareAndSwap(cur, next) {
+			return next
+		}
+	}
+}
+
 // SetCancelHandler sets the handler for cancel requests.
 // Must be called before Serve().
 func (l *Listener) SetCancelHandler(ch CancelHandler) {
@@ -298,9 +336,9 @@ func (l *Listener) UnregisterConn(pid uint32) {
 // CancelLocalConnection looks up a connection by PID, verifies the secret key,
 // and cancels its in-flight query. Returns true if the cancel was successful.
 func (l *Listener) CancelLocalConnection(pid, secret uint32) bool {
-	l.connsMu.RLock()
+	l.connsMu.Lock()
 	conn, ok := l.conns[pid]
-	l.connsMu.RUnlock()
+	l.connsMu.Unlock()
 
 	if !ok {
 		return false
