@@ -686,8 +686,10 @@ func (e *Executor) CopyAbort(
 
 	if writeFailed || readErr != nil {
 		// Connection is in a bad protocol state — release it.
+		// We intentionally return nil error: abort is best-effort cleanup and
+		// the caller needs a zero ReservedState to know the connection is gone.
 		reservedConn.Release(reserved.ReleaseError)
-		return queryservice.ReservedState{}, nil
+		return queryservice.ReservedState{}, nil //nolint:nilerr // intentional: abort is best-effort
 	}
 
 	// Clean abort — remove the COPY reason. If other reasons remain
