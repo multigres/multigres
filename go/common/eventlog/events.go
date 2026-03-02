@@ -48,3 +48,50 @@ func (BackupAttempt) EventType() string { return "backup.attempt" }
 func (e BackupAttempt) LogAttrs() []slog.Attr {
 	return []slog.Attr{slog.String("backup_name", e.BackupName)}
 }
+
+type RestoreAttempt struct {
+	BackupName string
+	NodeName   string
+}
+
+func (RestoreAttempt) EventType() string { return "restore.attempt" }
+func (e RestoreAttempt) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("backup_name", e.BackupName), slog.String("node_name", e.NodeName)}
+}
+
+type PrimaryDemotion struct {
+	NodeName string
+	Reason   string // "stale" | "emergency"
+}
+
+func (PrimaryDemotion) EventType() string { return "primary.demotion" }
+func (e PrimaryDemotion) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("node_name", e.NodeName), slog.String("reason", e.Reason)}
+}
+
+type NodeDrain struct {
+	NodeName string
+	Reason   string // e.g. "rewind_not_feasible"
+}
+
+func (NodeDrain) EventType() string { return "node.drain" }
+func (e NodeDrain) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("node_name", e.NodeName), slog.String("reason", e.Reason)}
+}
+
+type TermBegin struct {
+	NodeName     string
+	NewTerm      int64
+	PreviousTerm int64
+	RevokedRole  string // "primary" | "standby" | "" (empty = no revoke)
+}
+
+func (TermBegin) EventType() string { return "term.begin" }
+func (e TermBegin) LogAttrs() []slog.Attr {
+	return []slog.Attr{
+		slog.String("node_name", e.NodeName),
+		slog.Int64("new_term", e.NewTerm),
+		slog.Int64("previous_term", e.PreviousTerm),
+		slog.String("revoked_role", e.RevokedRole),
+	}
+}
