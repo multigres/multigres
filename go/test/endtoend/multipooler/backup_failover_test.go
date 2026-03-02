@@ -17,6 +17,7 @@ package multipooler
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -101,8 +102,19 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	originalPrimaryName := setup.PrimaryName
 	t.Logf("Primary before backup: %s", originalPrimaryName)
 
-	// Create backup client pointing at the primary's multipooler
-	backupClient := createBackupClient(t, primary.Multipooler.GrpcPort)
+	// Find the standby instance for the backup client.
+	// Backing up from a standby exercises the pgBackRest TLS server code path:
+	// shardsetup always generates pgBackRest TLS certs, so the standby's pgBackRest
+	// connects to the primary via --pg2-host-type=tls.
+	var standbyInst *shardsetup.MultipoolerInstance
+	for name, inst := range setup.Multipoolers {
+		if name != originalPrimaryName {
+			standbyInst = inst
+			break
+		}
+	}
+	require.NotNil(t, standbyInst, "expected a standby instance")
+	backupClient := createBackupClient(t, standbyInst.Multipooler.GrpcPort)
 
 	// Disable postgres monitoring on all nodes so that multipooler does not
 	// automatically restart postgres after the kill — multiorch must orchestrate recovery.
@@ -116,15 +128,20 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	// Tag the backup so we can check its specific status after failure.
 	const testJobID = "failover-test-backup"
 
-	// Start a full backup on the primary in a goroutine (it will block inside s3mock)
+	// pg2-path is required even in TLS mode (pgBackRest 2.58+).
+	// Pass the primary's pg_data directory so pgBackRest can connect to it remotely.
+	primaryPg2Path := filepath.Join(primary.Pgctld.DataDir, "pg_data")
+
+	// Start a full backup from the standby in a goroutine (it will block inside s3mock).
+	// The standby connects to the primary's pgBackRest TLS server (pg2-host-type=tls).
 	backupErrCh := make(chan error, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, err := backupClient.Backup(ctx, &multipoolermanagerdata.BackupRequest{
-			ForcePrimary: true,
-			Type:         "full",
-			JobId:        testJobID,
+			Type:      "full",
+			JobId:     testJobID,
+			Overrides: map[string]string{"pg2_path": primaryPg2Path},
 		})
 		backupErrCh <- err
 	}()
@@ -148,7 +165,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	backupErr := <-backupErrCh
 
 	// Assertion 1: backup must fail
-	require.Error(t, backupErr, "backup must fail when primary postgres disappears mid-backup")
+	require.Error(t, backupErr, "standby backup must fail when primary postgres disappears mid-backup")
 	t.Logf("Backup failed as expected: %v", backupErr)
 
 	// Assertion 2: the specific backup we started must not be marked complete
