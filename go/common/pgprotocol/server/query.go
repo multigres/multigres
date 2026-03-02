@@ -321,38 +321,6 @@ func (c *Conn) writeEmptyQueryResponse() error {
 	return nil
 }
 
-// writeSimpleError writes an 'E' (ErrorResponse) message for non-PostgreSQL errors.
-// It creates a minimal PgDiagnostic and uses the unified writePgDiagnosticResponse.
-// Use this for internal errors that don't originate from PostgreSQL.
-//
-// For PostgreSQL errors with full diagnostic information, use writeErrorFromDiagnostic instead.
-func (c *Conn) writeSimpleError(sqlState, message string) error {
-	diag := &mterrors.PgDiagnostic{
-		MessageType: protocol.MsgErrorResponse,
-		Severity:    "ERROR",
-		Code:        sqlState,
-		Message:     message,
-	}
-	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
-}
-
-// writeSimpleErrorWithDetail writes an 'E' (ErrorResponse) message with detail and hint.
-// It creates a PgDiagnostic with the provided fields and uses the unified writePgDiagnosticResponse.
-// Use this for internal errors that don't originate from PostgreSQL but need additional context.
-//
-// For PostgreSQL errors with full diagnostic information, use writeErrorFromDiagnostic instead.
-func (c *Conn) writeSimpleErrorWithDetail(severity, sqlState, message, detail, hint string) error {
-	diag := &mterrors.PgDiagnostic{
-		MessageType: protocol.MsgErrorResponse,
-		Severity:    severity,
-		Code:        sqlState,
-		Message:     message,
-		Detail:      detail,
-		Hint:        hint,
-	}
-	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
-}
-
 // writeNoticeResponse writes an 'N' (NoticeResponse) message.
 // Format is identical to ErrorResponse but with different severity levels.
 func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
@@ -377,13 +345,8 @@ func (c *Conn) writeError(err error) error {
 	}
 
 	// Generic error: use outer message for context
-	synthetic := &mterrors.PgDiagnostic{
-		MessageType: protocol.MsgErrorResponse,
-		Severity:    "ERROR",
-		Code:        "XX000",     // internal_error
-		Message:     err.Error(), // Full wrapped message
-	}
-	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, synthetic)
+	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse,
+		mterrors.NewPgError("ERROR", mterrors.PgSSInternalError, err.Error(), ""))
 }
 
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).
