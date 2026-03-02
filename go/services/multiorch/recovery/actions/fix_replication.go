@@ -183,14 +183,14 @@ func (a *FixReplicationAction) fixNotReplicating(
 		NodeName: replica.MultiPooler.Id.Name,
 	})
 	defer func() {
-		if retErr != nil {
-			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.NodeJoin{
-				NodeName: replica.MultiPooler.Id.Name,
-			}, "error", retErr)
-		} else {
+		if retErr == nil {
 			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.NodeJoin{
 				NodeName: replica.MultiPooler.Id.Name,
 			})
+		} else {
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.NodeJoin{
+				NodeName: replica.MultiPooler.Id.Name,
+			}, "error", retErr)
 		}
 	}()
 

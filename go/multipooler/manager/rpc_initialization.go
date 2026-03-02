@@ -74,10 +74,10 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	// Emit Started now that we know we're doing actual initialization work.
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PrimaryInit{PoolerName: pm.serviceID.Name})
 	defer func() {
-		if retErr != nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PrimaryInit{PoolerName: pm.serviceID.Name}, "error", retErr)
-		} else {
+		if retErr == nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PrimaryInit{PoolerName: pm.serviceID.Name})
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PrimaryInit{PoolerName: pm.serviceID.Name}, "error", retErr)
 		}
 	}()
 

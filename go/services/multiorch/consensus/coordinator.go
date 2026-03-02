@@ -116,14 +116,14 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		NewPrimary: candidate.MultiPooler.Id.Name,
 	})
 	defer func() {
-		if retErr != nil {
-			eventlog.Emit(ctx, c.logger, eventlog.Failed, eventlog.PrimaryPromotion{
-				NewPrimary: candidate.MultiPooler.Id.Name,
-			}, "error", retErr)
-		} else {
+		if retErr == nil {
 			eventlog.Emit(ctx, c.logger, eventlog.Success, eventlog.PrimaryPromotion{
 				NewPrimary: candidate.MultiPooler.Id.Name,
 			})
+		} else {
+			eventlog.Emit(ctx, c.logger, eventlog.Failed, eventlog.PrimaryPromotion{
+				NewPrimary: candidate.MultiPooler.Id.Name,
+			}, "error", retErr)
 		}
 	}()
 

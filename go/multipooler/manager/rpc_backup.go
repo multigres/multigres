@@ -107,11 +107,11 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	// BackupName uses effectiveJobID since the actual pgbackrest label isn't assigned yet.
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.BackupAttempt{BackupName: effectiveJobID})
 	defer func() {
-		if retErr != nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.BackupAttempt{BackupName: effectiveJobID}, "error", retErr)
-		} else {
+		if retErr == nil {
 			// retBackupID is set to the actual pgbackrest label by the success return.
 			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.BackupAttempt{BackupName: retBackupID})
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.BackupAttempt{BackupName: effectiveJobID}, "error", retErr)
 		}
 	}()
 
@@ -234,10 +234,10 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.StandbyInit{PoolerName: pm.serviceID.Name})
 	defer func() {
-		if retErr != nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.StandbyInit{PoolerName: pm.serviceID.Name}, "error", retErr)
-		} else {
+		if retErr == nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.StandbyInit{PoolerName: pm.serviceID.Name})
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.StandbyInit{PoolerName: pm.serviceID.Name}, "error", retErr)
 		}
 	}()
 
