@@ -103,7 +103,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	require.NotNil(t, primary, "Primary instance should exist")
 
 	// Verify lifecycle events were emitted during bootstrap
-	t.Run("verify primary.init, backup.attempt, term.begin events", func(t *testing.T) {
+	t.Run("verify primary.init and backup.attempt events", func(t *testing.T) {
 		data, err := os.ReadFile(primary.Multipooler.LogFile)
 		require.NoError(t, err)
 		events := shardsetup.ParseEvents(t, bytes.NewReader(data))
@@ -111,8 +111,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		assert.True(t, shardsetup.HasEvent(events, "primary.init", "success"))
 		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "started"))
 		assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "success"))
-		assert.True(t, shardsetup.HasEvent(events, "term.begin", "started"))
-		assert.True(t, shardsetup.HasEvent(events, "term.begin", "success"))
+		// Note: term.begin is NOT emitted during initial bootstrap because multiorch uses
+		// InitializeEmptyPrimary which sets the consensus term directly without going through
+		// the BeginTerm RPC. term.begin is only emitted during failover (AppointLeaderAction).
 	})
 
 	t.Run("verify restore.attempt events in standby logs", func(t *testing.T) {
