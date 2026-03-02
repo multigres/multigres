@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -88,7 +89,7 @@ func (a *BootstrapShardAction) WithStatusRPCTimeout(timeout time.Duration) *Boot
 }
 
 // Execute performs bootstrap initialization for a new shard
-func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
 	a.logger.InfoContext(ctx, "executing bootstrap shard action",
 		"database", problem.ShardKey.Database,
 		"tablegroup", problem.ShardKey.TableGroup,
@@ -181,6 +182,22 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	a.logger.InfoContext(ctx, "selected bootstrap candidate",
 		"shard_key", problem.ShardKey.String(),
 		"candidate", candidate.MultiPooler.Id.Name)
+
+	// We know the candidate now — emit Started before initializing primary.
+	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryPromotion{
+		NewPrimary: candidate.MultiPooler.Id.Name,
+	})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.PrimaryPromotion{
+				NewPrimary: candidate.MultiPooler.Id.Name,
+			})
+		} else {
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.PrimaryPromotion{
+				NewPrimary: candidate.MultiPooler.Id.Name,
+			}, "error", retErr)
+		}
+	}()
 
 	// Initialize the candidate as an empty primary with term=1
 	// This now also sets the pooler type to PRIMARY and creates the durability policy
