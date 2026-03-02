@@ -523,10 +523,11 @@ func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.StoreReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, queryservice.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-	}, protoutil.ReasonTransaction)
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
 
 	h.ConnectionClosed(conn)
 
@@ -549,10 +550,11 @@ func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.StoreReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, queryservice.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-	}, protoutil.ReasonCopy)
+		ReservationReasons:   protoutil.ReasonCopy,
+	})
 
 	h.ConnectionClosed(conn)
 

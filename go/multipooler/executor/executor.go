@@ -68,7 +68,8 @@ func (e *Executor) buildReservedState(reservedConn *reserved.Conn) queryservice.
 // ExecuteQuery implements queryservice.QueryService.
 // It executes a query using a pooled connection for the specified user.
 // If ReservedConnectionId is set in options, uses that reserved connection instead.
-func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
+// Returns ReservedState with the authoritative reservation state from the multipooler.
+func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, queryservice.ReservedState, error) {
 	if target == nil {
 		target = &query.Target{}
 	}
@@ -85,18 +86,20 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if options != nil && options.ReservedConnectionId > 0 {
 		reservedConn, _ := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
-			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+			// Connection destroyed — return zero state so gateway clears its tracking
+			return nil, queryservice.ReservedState{}, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
-			return nil, wrapQueryError(err)
+			// Query failed but connection still exists — return current state
+			return nil, e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
 
 		if len(results) == 0 {
-			return &sqltypes.Result{}, nil
+			return &sqltypes.Result{}, e.buildReservedState(reservedConn), nil
 		}
-		return results[0], nil
+		return results[0], e.buildReservedState(reservedConn), nil
 	}
 
 	// Get session settings from options
@@ -108,7 +111,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// Get a connection from the pool for this user
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return nil, queryservice.ReservedState{}, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer conn.Recycle()
 
@@ -117,14 +120,14 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// Uses retry variant since this is a stateless pool query.
 	results, err := conn.Conn.QueryWithRetry(ctx, sql)
 	if err != nil {
-		return nil, wrapQueryError(err)
+		return nil, queryservice.ReservedState{}, wrapQueryError(err)
 	}
 
 	// Return first result (simple query returns single result)
 	if len(results) == 0 {
-		return &sqltypes.Result{}, nil
+		return &sqltypes.Result{}, queryservice.ReservedState{}, nil
 	}
-	return results[0], nil
+	return results[0], queryservice.ReservedState{}, nil
 }
 
 // StreamExecute executes a query and streams results back via callback.

@@ -60,12 +60,15 @@ type QueryService interface {
 	// ExecuteQuery executes a query and returns the results.
 	// This should be used sparingly only when we know the result set is small,
 	// otherwise StreamExecute should be used.
+	//
+	// Returns ReservedState with the authoritative reservation state from the multipooler.
+	// If ReservedConnectionId is zero, the connection was destroyed or not reserved.
 	ExecuteQuery(
 		ctx context.Context,
 		target *query.Target,
 		sql string,
 		options *query.ExecuteOptions,
-	) (*sqltypes.Result, error)
+	) (*sqltypes.Result, ReservedState, error)
 
 	// StreamExecute executes a query and streams results back via callback.
 	// The callback will be called for each Result. If the callback returns

@@ -157,7 +157,7 @@ func (g *grpcQueryService) StreamExecute(
 // ExecuteQuery implements queryservice.QueryService.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
-func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
+func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, queryservice.ReservedState, error) {
 	g.logger.DebugContext(ctx, "Executing query",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
@@ -176,10 +176,19 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Targe
 	// Call the gRPC ExecuteQuery
 	res, err := g.client.ExecuteQuery(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, queryservice.ReservedState{}, err
 	}
+
+	// Extract reserved state from response
+	var reservedState queryservice.ReservedState
+	if res.ReservedConnectionId != 0 {
+		reservedState.ReservedConnectionId = res.ReservedConnectionId
+		reservedState.PoolerID = res.PoolerId
+		reservedState.ReservationReasons = res.RemainingReasons
+	}
+
 	// Convert proto result to sqltypes (preserves NULL vs empty string)
-	return sqltypes.ResultFromProto(res.GetResult()), nil
+	return sqltypes.ResultFromProto(res.GetResult()), reservedState, nil
 }
 
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
@@ -383,6 +392,7 @@ func (g *grpcQueryService) CopyReady(
 	reservedState := queryservice.ReservedState{
 		ReservedConnectionId: resp.ReservedConnectionId,
 		PoolerID:             resp.PoolerId,
+		ReservationReasons:   resp.RemainingReasons,
 	}
 
 	// Store the stream keyed by reserved connection ID
@@ -644,9 +654,10 @@ func (g *grpcQueryService) ReserveStreamExecute(
 		}
 
 		// Extract reserved state from response
-		if response.ReservedConnectionId != 0 && reservedState.ReservedConnectionId == 0 {
+		if response.ReservedConnectionId != 0 {
 			reservedState.ReservedConnectionId = response.ReservedConnectionId
 			reservedState.PoolerID = response.PoolerId
+			reservedState.ReservationReasons = response.RemainingReasons
 			g.logger.DebugContext(ctx, "received reserved connection",
 				"reserved_connection_id", response.ReservedConnectionId)
 		}

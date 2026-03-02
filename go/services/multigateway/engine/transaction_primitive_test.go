@@ -133,10 +133,11 @@ func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultiGa
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.StoreReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, queryservice.ReservedState{
 		ReservedConnectionId: 100,
 		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-	}, protoutil.ReasonTransaction)
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
 	return state
 }
 

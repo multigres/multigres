@@ -135,25 +135,24 @@ func (m *MultiGatewayConnectionState) GetMatchingShardState(target *query.Target
 	return nil
 }
 
-// StoreReservedConnection stores a new reserved connection that has been created.
-// The reasons parameter is a bitmask of protoutil.Reason* constants indicating why the
-// connection is reserved. If a shard state already exists for this target, the reasons
-// are OR'd together (added) and the connection ID is updated.
-func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Target, rs queryservice.ReservedState, reasons uint32) {
+// SetReservedConnection stores the authoritative reservation state from the multipooler.
+// The reasons in rs.ReservationReasons are set exactly as provided (not OR'd).
+// Creates a new entry if none exists for the target.
+func (m *MultiGatewayConnectionState) SetReservedConnection(target *query.Target, rs queryservice.ReservedState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ss := range m.ShardStates {
 		if protoutil.TargetEquals(ss.Target, target) {
 			ss.PoolerID = rs.PoolerID
 			ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
-			ss.ReservationReasons |= reasons
+			ss.ReservationReasons = rs.ReservationReasons
 			return
 		}
 	}
 	ss := NewShardState(target)
 	ss.PoolerID = rs.PoolerID
 	ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
-	ss.ReservationReasons = reasons
+	ss.ReservationReasons = rs.ReservationReasons
 	m.ShardStates = append(m.ShardStates, ss)
 }
 
@@ -170,40 +169,6 @@ func (m *MultiGatewayConnectionState) ClearReservedConnection(target *query.Targ
 				m.ShardStates[i] = m.ShardStates[lastIdx]
 			}
 			m.ShardStates = m.ShardStates[:lastIdx]
-			return
-		}
-	}
-}
-
-// RemoveReservationReason removes a reason from a shard's reservation bitmask.
-// If no reasons remain after removal, the shard state entry is cleared entirely.
-func (m *MultiGatewayConnectionState) RemoveReservationReason(target *query.Target, reason uint32) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i, ss := range m.ShardStates {
-		if protoutil.TargetEquals(ss.Target, target) {
-			ss.ReservationReasons &^= reason
-			if ss.ReservationReasons == 0 {
-				// No reasons left — remove the entry
-				lastIdx := len(m.ShardStates) - 1
-				if i != lastIdx {
-					m.ShardStates[i] = m.ShardStates[lastIdx]
-				}
-				m.ShardStates = m.ShardStates[:lastIdx]
-			}
-			return
-		}
-	}
-}
-
-// UpdateReservationReasons sets the reservation reasons for a given target.
-// Used after ConcludeTransaction to update the bitmask without removing the entry.
-func (m *MultiGatewayConnectionState) UpdateReservationReasons(target *query.Target, reasons uint32) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, ss := range m.ShardStates {
-		if protoutil.TargetEquals(ss.Target, target) {
-			ss.ReservationReasons = reasons
 			return
 		}
 	}

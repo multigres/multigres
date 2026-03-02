@@ -129,11 +129,11 @@ func (pg *PoolerGateway) StreamExecute(
 // otherwise StreamExecute should be used.
 //
 // TODO: Add retry logic for transient failures (UNAVAILABLE errors)
-func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
+func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, queryservice.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return nil, err
+		return nil, queryservice.ReservedState{}, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",

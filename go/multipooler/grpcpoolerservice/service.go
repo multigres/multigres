@@ -118,13 +118,16 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 	}
 
 	// Execute the query
-	res, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.Options)
+	res, reservedState, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.Options)
 	if err != nil {
 		// Convert errors to gRPC format, preserving PostgreSQL error details
 		return nil, mterrors.ToGRPC(err)
 	}
 	return &multipoolerpb.ExecuteQueryResponse{
-		Result: res.ToProto(),
+		Result:               res.ToProto(),
+		ReservedConnectionId: reservedState.ReservedConnectionId,
+		PoolerId:             reservedState.PoolerID,
+		RemainingReasons:     reservedState.ReservationReasons,
 	}, nil
 }
 
@@ -305,6 +308,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 		Phase:                multipoolerpb.CopyBidiExecuteResponse_READY,
 		ReservedConnectionId: reservedState.ReservedConnectionId,
 		PoolerId:             reservedState.PoolerID,
+		RemainingReasons:     reservedState.ReservationReasons,
 		Format:               int32(format),
 		ColumnFormats:        columnFormats32,
 	}
@@ -486,6 +490,7 @@ func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExe
 		return stream.Send(&multipoolerpb.ReserveStreamExecuteResponse{
 			ReservedConnectionId: reservedState.ReservedConnectionId,
 			PoolerId:             reservedState.PoolerID,
+			RemainingReasons:     reservedState.ReservationReasons,
 		})
 	}
 

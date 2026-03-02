@@ -79,7 +79,7 @@ func (sc *ScatterConn) updateShardState(
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
 		}
 	} else {
-		state.UpdateReservationReasons(target, rs.ReservationReasons)
+		state.SetReservedConnection(target, rs)
 	}
 }
 
@@ -164,8 +164,8 @@ func (sc *ScatterConn) StreamExecute(
 			return fmt.Errorf("reserve stream execute failed: %w", err)
 		}
 
-		// Store the reserved connection for subsequent queries with transaction reason
-		state.StoreReservedConnection(target, reservedState, protoutil.ReasonTransaction)
+		// Use authoritative state from multipooler (reasons already include transaction)
+		sc.updateShardState(conn, state, target, reservedState)
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
 			"reserved_conn_id", reservedState.ReservedConnectionId)
@@ -261,15 +261,10 @@ func (sc *ScatterConn) PortalStreamExecute(
 		}
 		return fmt.Errorf("portal execution failed: %w", err)
 	}
-	if reservedState.ReservedConnectionId != 0 {
-		// Portal is suspended (not all rows fetched) - store reservation
-		state.StoreReservedConnection(target, reservedState, protoutil.ReasonPortal)
-	} else {
-		// Portal completed — use authoritative state from multipooler.
-		// The multipooler has already removed the portal reason internally;
-		// if no reasons remain (ReservedConnectionId == 0) the connection was released.
-		sc.updateShardState(conn, state, target, reservedState)
-	}
+	// Use authoritative state from multipooler. The multipooler already OR'd in
+	// the portal reason (if suspended) or removed it (if completed). If no reasons
+	// remain (ReservedConnectionId == 0) the connection was released.
+	sc.updateShardState(conn, state, target, reservedState)
 
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
@@ -370,9 +365,9 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// We cannot call ClearReservedConnection during iteration because it
 	// uses swap-and-truncate which mutates the underlying slice.
 	type shardUpdate struct {
-		target           *query.Target
-		clear            bool   // true = remove entry, false = update reasons
-		remainingReasons uint32 // only used when clear == false
+		target        *query.Target
+		clear         bool                       // true = remove entry, false = set state
+		reservedState queryservice.ReservedState // only used when clear == false
 	}
 	var updates []shardUpdate
 	var errs []error
@@ -434,7 +429,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 		} else {
 			// Connection still reserved for other reasons — update our local tracking
-			updates = append(updates, shardUpdate{target: ss.Target, remainingReasons: reservedState.ReservationReasons})
+			updates = append(updates, shardUpdate{target: ss.Target, reservedState: reservedState})
 		}
 
 		// Keep the last successful result for the callback
@@ -446,7 +441,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 		if u.clear {
 			state.ClearReservedConnection(u.target)
 		} else {
-			state.UpdateReservationReasons(u.target, u.remainingReasons)
+			state.SetReservedConnection(u.target, u.reservedState)
 		}
 	}
 
@@ -529,12 +524,8 @@ func (sc *ScatterConn) CopyInitiate(
 		return 0, nil, fmt.Errorf("failed to initiate COPY: %w", err)
 	}
 
-	// Store reserved connection. For deferred-BEGIN, also store the transaction
-	// reason since the executor executed BEGIN on the new connection.
-	if reservationOpts != nil {
-		state.StoreReservedConnection(target, reservedState, protoutil.ReasonTransaction)
-	}
-	state.StoreReservedConnection(target, reservedState, protoutil.ReasonCopy)
+	// Use authoritative state from multipooler (reasons already include copy + transaction if applicable)
+	sc.updateShardState(conn, state, target, reservedState)
 
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",
 		"reserved_conn_id", reservedState.ReservedConnectionId,
@@ -628,9 +619,11 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// Clear all state: every error path in executor.CopyFinalize destroys the
-		// connection via Release(ReleaseError), so the multipooler no longer has it.
-		state.ClearReservedConnection(target)
+		// Every error path in executor.CopyFinalize destroys the connection via
+		// Release(ReleaseError), so the multipooler no longer has it. Pass a zero
+		// ReservedState to updateShardState so it clears state and (if in a transaction)
+		// marks TxnStatusFailed as defense-in-depth.
+		sc.updateShardState(conn, state, target, queryservice.ReservedState{})
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
