@@ -241,13 +241,51 @@ func (mg *MultiGateway) Init() error {
 		logger.Info("TLS configured for PostgreSQL listener", "cert_file", certFile, "key_file", keyFile)
 	}
 
-	// Assign a globally unique PID prefix for cross-gateway cancel routing.
-	// TODO: We should assign PID, when storing in topo to ensure there is no PID collision.
-	pidPrefix, err := mg.assignPIDPrefix(context.TODO(), cell, serviceID)
-	if err != nil {
-		return fmt.Errorf("failed to assign PID prefix: %w", err)
+	// Build the full gateway record. All info (hostname, ports) is available
+	// after servenv.Init(). PidPrefix is assigned during registration below.
+	multigateway := topoclient.NewMultiGateway(serviceID, cell, mg.senv.GetHostname())
+	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
+	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
+	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
+
+	// Reuse existing PID prefix on re-registration.
+	existingGW, err := mg.ts.GetMultiGateway(context.TODO(), multigateway.Id)
+	if err == nil && existingGW != nil && existingGW.GetPidPrefix() > 0 {
+		multigateway.PidPrefix = existingGW.GetPidPrefix()
 	}
-	logger.Info("assigned PID prefix", "pid_prefix", pidPrefix)
+
+	// Register gateway in topo with a unique PID prefix for cross-gateway
+	// cancel routing. The register function assigns the prefix, registers the
+	// full record, and verifies no collision. On collision, RegisterSynchronous
+	// retries with jitter until two racing gateways converge on different prefixes.
+	ownIDStr := topoclient.MultiGatewayIDString(multigateway.Id)
+	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
+	defer regCancel()
+	mg.tr, err = toporeg.RegisterSynchronous(regCtx,
+		func(ctx context.Context) error {
+			if multigateway.PidPrefix == 0 {
+				prefix, err := mg.findUnusedPrefix(ctx)
+				if err != nil {
+					return fmt.Errorf("finding unused prefix: %w", err)
+				}
+				multigateway.PidPrefix = prefix
+			}
+			if err := mg.ts.RegisterMultiGateway(ctx, multigateway, true); err != nil {
+				return err
+			}
+			if mg.hasPrefixCollision(ctx, multigateway.PidPrefix, ownIDStr) {
+				multigateway.PidPrefix = 0 // Reset for next retry.
+				return errors.New("PID prefix collision detected")
+			}
+			return nil
+		},
+		func(ctx context.Context) error { return mg.ts.UnregisterMultiGateway(ctx, multigateway.Id) },
+	)
+	if err != nil {
+		return fmt.Errorf("failed to register gateway: %w", err)
+	}
+	pidPrefix := multigateway.PidPrefix
+	logger.Info("registered gateway", "pid_prefix", pidPrefix)
 
 	// Create and start PostgreSQL protocol listener
 	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
@@ -291,23 +329,6 @@ func (mg *MultiGateway) Init() error {
 		"pid_prefix", pidPrefix,
 	)
 
-	// Create multigateway record with all fields now that servenv.Init() has set them up
-	multigateway := topoclient.NewMultiGateway(serviceID, cell, mg.senv.GetHostname())
-	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
-	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
-	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
-	multigateway.PidPrefix = pidPrefix
-
-	mg.tr = toporeg.Register(
-		func(ctx context.Context) error { return mg.ts.RegisterMultiGateway(ctx, multigateway, true) },
-		func(ctx context.Context) error { return mg.ts.UnregisterMultiGateway(ctx, multigateway.Id) },
-		func(s string) {
-			mg.serverStatus.mu.Lock()
-			defer mg.serverStatus.mu.Unlock()
-			mg.serverStatus.InitError = s
-		},
-	)
-
 	mg.senv.HTTPHandleFunc("/", mg.handleIndex)
 	mg.senv.HTTPHandleFunc("/ready", mg.handleReady)
 	mg.senv.HTTPHandleFunc("/debug/consolidator", mg.handleConsolidatorDebug)
@@ -338,6 +359,11 @@ func (mg *MultiGateway) Shutdown() {
 		}
 	}
 
+	// Close cancel manager's gRPC connections
+	if mg.cancelManager != nil {
+		mg.cancelManager.Close()
+	}
+
 	// Close pooler gateway connections
 	if mg.poolerGateway != nil {
 		if err := mg.poolerGateway.Close(); err != nil {
@@ -357,18 +383,8 @@ func (mg *MultiGateway) Shutdown() {
 	mg.ts.Close()
 }
 
-// assignPIDPrefix assigns a globally unique PID prefix for this gateway.
-// It first checks if this gateway already exists in topology (re-registration)
-// and reuses its prefix. Otherwise, it scans all cells for used prefixes
-// and picks the lowest unused value starting from 1.
-func (mg *MultiGateway) assignPIDPrefix(ctx context.Context, cell, serviceID string) (uint32, error) {
-	// Try to reuse existing prefix if this gateway is re-registering.
-	existingGW, err := mg.ts.GetMultiGateway(ctx, topoclient.NewMultiGateway(serviceID, cell, "").Id)
-	if err == nil && existingGW != nil && existingGW.GetPidPrefix() > 0 {
-		return existingGW.GetPidPrefix(), nil
-	}
-
-	// Scan all cells to collect used prefixes.
+// findUnusedPrefix scans all cells for used PID prefixes and returns the lowest unused one.
+func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 	usedPrefixes := make(map[uint32]bool)
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
@@ -387,7 +403,6 @@ func (mg *MultiGateway) assignPIDPrefix(ctx context.Context, cell, serviceID str
 		}
 	}
 
-	// Pick the lowest unused prefix starting from 1.
 	for prefix := uint32(1); prefix <= cancelkey.MaxPrefix; prefix++ {
 		if !usedPrefixes[prefix] {
 			return prefix, nil
@@ -395,6 +410,27 @@ func (mg *MultiGateway) assignPIDPrefix(ctx context.Context, cell, serviceID str
 	}
 
 	return 0, fmt.Errorf("no available PID prefix (all %d prefixes in use)", cancelkey.MaxPrefix)
+}
+
+// hasPrefixCollision checks if any other gateway in topo has the same PID prefix.
+func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownIDStr string) bool {
+	cells, err := mg.ts.GetCellNames(ctx)
+	if err != nil {
+		return false
+	}
+
+	for _, c := range cells {
+		gateways, err := mg.ts.GetMultiGatewaysByCell(ctx, c)
+		if err != nil {
+			continue
+		}
+		for _, gw := range gateways {
+			if gw.GetPidPrefix() == prefix && topoclient.MultiGatewayIDString(gw.GetId()) != ownIDStr {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // buildPGTLSConfig validates TLS flag combinations and loads the certificate.
