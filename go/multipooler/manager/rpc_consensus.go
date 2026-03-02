@@ -22,6 +22,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/multipooler/executor"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -40,7 +41,7 @@ import (
 // 2. Action Execution: Execute the specified action after term acceptance
 //   - NO_ACTION: Do nothing
 //   - REVOKE: Demote primary or pause standby replication to revoke old term
-func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (*consensusdatapb.BeginTermResponse, error) {
+func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatapb.BeginTermRequest) (_ *consensusdatapb.BeginTermResponse, retErr error) {
 	// Acquire the action lock to ensure only one consensus operation runs at a time
 	// This prevents split-brain acceptance and ensures term updates are serialized
 	var err error
@@ -108,6 +109,33 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	pm.logger.InfoContext(ctx, "Term accepted",
 		"term", req.Term,
 		"coordinator", req.CandidateId.GetName())
+
+	// Determine revoked role before executing any action (needed for event)
+	revokedRole := ""
+	if req.Action == consensusdatapb.BeginTermAction_BEGIN_TERM_ACTION_REVOKE {
+		if primary, err := pm.isPrimary(ctx); err == nil {
+			if primary {
+				revokedRole = "primary"
+			} else {
+				revokedRole = "standby"
+			}
+		}
+	}
+
+	termEvent := eventlog.TermBegin{
+		NodeName:     pm.serviceID.GetName(),
+		NewTerm:      req.Term,
+		PreviousTerm: currentTerm,
+		RevokedRole:  revokedRole,
+	}
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Success, termEvent)
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", retErr)
+		}
+	}()
 
 	response := &consensusdatapb.BeginTermResponse{
 		Term:     req.Term,
