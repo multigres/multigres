@@ -233,11 +233,11 @@ func TestServerLoggingConditional(t *testing.T) {
 }
 
 func TestServer_PutCallback(t *testing.T) {
-	var called []string
+	callbackInvoked := make(chan string, 1)
 	unblock := make(chan struct{})
 
 	cb := func(ctx context.Context, bucket, key string) error {
-		called = append(called, key)
+		callbackInvoked <- key
 		<-unblock
 		return nil
 	}
@@ -274,10 +274,14 @@ func TestServer_PutCallback(t *testing.T) {
 		}
 	}()
 
-	// Give the callback a moment to be invoked
-	time.Sleep(50 * time.Millisecond)
-	if len(called) != 1 || called[0] != "my-key" {
-		t.Fatalf("expected callback called with 'my-key', got %v", called)
+	// Wait for the callback to be invoked (no fixed sleep)
+	select {
+	case key := <-callbackInvoked:
+		if key != "my-key" {
+			t.Fatalf("expected callback called with 'my-key', got %q", key)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for PutCallback to be invoked")
 	}
 
 	// Unblock and wait for PUT to finish
