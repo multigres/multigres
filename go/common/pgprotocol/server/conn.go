@@ -43,15 +43,10 @@ const (
 	defaultFlushDelay = 100 * time.Millisecond
 )
 
-// errQueryCanceled is the sentinel error used when a query is canceled via CancelRequest.
-var errQueryCanceled = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
-	"canceling statement due to user request", "")
-
-// errStatementTimeout is the error returned when a query exceeds the statement timeout.
-// Handlers apply context.WithTimeout for statement timeouts; queryContextError maps
-// the resulting DeadlineExceeded to this PostgreSQL protocol error.
-var errStatementTimeout = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
-	"canceling statement due to statement timeout", "")
+// errQueryCanceled is the sentinel used as the cancel cause for CancelRequest.
+// Must be a single instance: CancelQuery sets it via context.WithCancelCause,
+// and queryContextError checks it with errors.Is (pointer equality).
+var errQueryCanceled = mterrors.NewQueryCanceled()
 
 // Conn represents the server side connection with a PostgreSQL client.
 // It handles the wire protocol encoding/decoding and connection state management.
@@ -321,7 +316,7 @@ func queryContextError(queryCtx context.Context, err error) error {
 	// Statement timeout: the handler applies context.WithTimeout for statement
 	// timeouts, and DeadlineExceeded propagates up through the error chain.
 	if errors.Is(err, context.DeadlineExceeded) {
-		return errStatementTimeout
+		return mterrors.NewStatementTimeout()
 	}
 	return err
 }

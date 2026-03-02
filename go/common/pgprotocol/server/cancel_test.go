@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/multigres/multigres/go/common/mterrors"
 )
 
 func TestQueryContextError_NilError(t *testing.T) {
@@ -41,14 +43,16 @@ func TestQueryContextError_CancelTakesPriority(t *testing.T) {
 func TestQueryContextError_DeadlineExceeded(t *testing.T) {
 	ctx := context.Background()
 	err := queryContextError(ctx, context.DeadlineExceeded)
-	assert.Equal(t, errStatementTimeout, err)
+	assert.True(t, mterrors.IsError(err, mterrors.PgSSQueryCanceled))
+	assert.Contains(t, err.Error(), "statement timeout")
 }
 
 func TestQueryContextError_WrappedDeadlineExceeded(t *testing.T) {
 	ctx := context.Background()
 	wrapped := fmt.Errorf("query failed: %w", context.DeadlineExceeded)
 	err := queryContextError(ctx, wrapped)
-	assert.Equal(t, errStatementTimeout, err)
+	assert.True(t, mterrors.IsError(err, mterrors.PgSSQueryCanceled))
+	assert.Contains(t, err.Error(), "statement timeout")
 }
 
 func TestQueryContextError_UnrelatedError(t *testing.T) {
