@@ -53,7 +53,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:           false,
-			IsInitialized:       true,
+			HasBackup:           true,
 			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 			PrimaryReachable:    true,
 			PrimaryConnInfoHost: "", // No primary_conninfo configured
@@ -74,7 +74,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:           false,
-			IsInitialized:       true,
+			HasBackup:           true,
 			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 			PrimaryReachable:    true,
 			PrimaryConnInfoHost: "primary.example.com",
@@ -92,7 +92,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:           false,
-			IsInitialized:       true,
+			HasBackup:           true,
 			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 			PrimaryReachable:    true,
 			PrimaryConnInfoHost: "primary.example.com",
@@ -109,7 +109,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:           true,
-			IsInitialized:       true,
+			HasBackup:           true,
 			PrimaryConnInfoHost: "", // Primaries don't have primary_conninfo
 		}
 
@@ -123,7 +123,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:           false,
-			IsInitialized:       false, // Not initialized
+			HasBackup:           false, // Not initialized
 			PrimaryConnInfoHost: "",
 		}
 
@@ -137,7 +137,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:           false,
-			IsInitialized:       true,
+			HasBackup:           true,
 			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 			PrimaryReachable:    false, // Primary unreachable - PrimaryIsDead handles this
 			PrimaryConnInfoHost: "",
@@ -158,7 +158,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 			PoolerID:            &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:            commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:           false,
-			IsInitialized:       true,
+			HasBackup:           true,
 			PrimaryPoolerID:     &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 			PrimaryReachable:    true,
 			PrimaryConnInfoHost: "",

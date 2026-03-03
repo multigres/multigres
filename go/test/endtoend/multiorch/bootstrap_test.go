@@ -68,11 +68,11 @@ func TestBootstrapInitialization(t *testing.T) {
 			require.NoError(t, err, "should get status from %s", name)
 
 			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, PostgresRole=%s, PoolerType=%s",
-				name, status.Status.IsInitialized, status.Status.HasDataDirectory,
+				name, status.Status.HasBackup, status.Status.HasDataDirectory,
 				status.Status.PostgresRunning, status.Status.PostgresRole, status.Status.PoolerType)
 
 			// Nodes should be completely uninitialized (no data directory at all)
-			require.False(t, status.Status.IsInitialized, "Node %s should not be initialized yet", name)
+			require.False(t, status.Status.HasBackup, "Node %s should not be initialized yet", name)
 			require.False(t, status.Status.HasDataDirectory, "Node %s should not have data directory yet", name)
 			require.False(t, status.Status.PostgresRunning, "Node %s should not have postgres running yet", name)
 			t.Logf("Node %s ready for bootstrap (no data directory, postgres not running)", name)
@@ -190,7 +190,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			client.Close()
 
 			require.NoError(t, err)
-			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+			if status.Status.HasBackup && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				standbyCount++
 
 				// Verify replica has primary_term = 0 (never been primary)
@@ -237,7 +237,7 @@ func TestBootstrapInitialization(t *testing.T) {
 					continue
 				}
 
-				if !status.Status.IsInitialized {
+				if !status.Status.HasBackup {
 					t.Logf("Node %s: not yet initialized", name)
 					allInitialized = false
 					continue
@@ -354,7 +354,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			client.Close()
 
-			if err == nil && status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
+			if err == nil && status.Status.HasBackup && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA {
 				standbyName = name
 				standbyInst = inst
 				break
@@ -396,7 +396,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm != nil && status.Status.ConsensusTerm.TermNumber > 0
+			return status.Status.HasBackup && status.Status.PostgresRunning && status.Status.ConsensusTerm != nil && status.Status.ConsensusTerm.TermNumber > 0
 		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
 
 		// Verify final state
@@ -408,13 +408,13 @@ func TestBootstrapInitialization(t *testing.T) {
 		status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
 
-		assert.True(t, status.Status.IsInitialized, "Standby should be initialized after auto-restore")
+		assert.True(t, status.Status.HasBackup, "Standby should be initialized after auto-restore")
 		assert.True(t, status.Status.HasDataDirectory, "Standby should have data directory after auto-restore")
 		assert.True(t, status.Status.PostgresRunning, "PostgreSQL should be running after auto-restore")
 		assert.Equal(t, "standby", status.Status.PostgresRole, "Should be in standby role after auto-restore")
 
 		t.Logf("Auto-restore succeeded: IsInitialized=%v, HasDataDirectory=%v, PostgresRunning=%v, Role=%s",
-			status.Status.IsInitialized, status.Status.HasDataDirectory,
+			status.Status.HasBackup, status.Status.HasDataDirectory,
 			status.Status.PostgresRunning, status.Status.PostgresRole)
 	})
 
@@ -454,7 +454,7 @@ func verifyMultigresTables(t *testing.T, name string, grpcPort int) {
 	ctx := utils.WithShortDeadline(t)
 
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-	if err != nil || !status.Status.IsInitialized {
+	if err != nil || !status.Status.HasBackup {
 		return
 	}
 

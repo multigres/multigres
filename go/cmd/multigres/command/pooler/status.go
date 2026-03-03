@@ -41,7 +41,7 @@ Key fields returned:
   - pooler_type: Whether this is a PRIMARY or REPLICA pooler
   - postgres_running: Whether the PostgreSQL process is running
   - postgres_role: Actual database role (primary/standby/unknown)
-  - is_initialized: Whether the pooler has been fully initialized
+  - has_backup: Whether the pooler has been fully initialized
   - wal_position: Current WAL position (for replication tracking)
   - consensus_term: Current consensus term for failover coordination
 

@@ -32,7 +32,7 @@ func NewPoolerHealthStore() *PoolerHealthStore {
 // A pooler is considered initialized based on the IsInitialized field from
 // the Status RPC, which is determined by the data directory state (not LSN).
 // The node must also be reachable for us to trust this information.
-func IsInitialized(p *multiorchdata.PoolerHealthState) bool {
+func HasBackup(p *multiorchdata.PoolerHealthState) bool {
 	if !p.IsLastCheckValid {
 		return false // unreachable nodes are considered uninitialized
 	}
@@ -43,5 +43,5 @@ func IsInitialized(p *multiorchdata.PoolerHealthState) bool {
 
 	// Use the IsInitialized field from Status RPC directly.
 	// This is based on data directory state, not LSN.
-	return p.IsInitialized
+	return p.HasBackup
 }

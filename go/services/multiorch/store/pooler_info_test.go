@@ -24,8 +24,8 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestPoolerHealthState_IsInitialized(t *testing.T) {
-	// IsInitialized() now uses the IsInitialized field from Status RPC directly,
+func TestPoolerHealthState_HasBackup(t *testing.T) {
+	// HasBackup() now uses the IsInitialized field from Status RPC directly,
 	// based on data directory state, not LSN values.
 	tests := []struct {
 		name     string
@@ -37,7 +37,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: false,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    true,
+				HasBackup:        true,
 			},
 			expected: false,
 		},
@@ -46,7 +46,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    true,
+				HasBackup:        true,
 			},
 			expected: true,
 		},
@@ -55,7 +55,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				IsInitialized:    false,
+				HasBackup:        false,
 			},
 			expected: false,
 		},
@@ -65,7 +65,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				IsInitialized:    true,
+				HasBackup:        true,
 				PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
 					Lsn: "0/123ABC",
 				},
@@ -78,7 +78,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				IsInitialized:    true,
+				HasBackup:        true,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					LastReplayLsn: "0/123ABC",
 				},
@@ -91,7 +91,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				IsInitialized:    false,
+				HasBackup:        false,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
 					LastReplayLsn: "0/123ABC",
 				},
@@ -102,7 +102,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsInitialized(tt.pooler)
+			got := HasBackup(tt.pooler)
 			require.Equal(t, tt.expected, got)
 		})
 	}

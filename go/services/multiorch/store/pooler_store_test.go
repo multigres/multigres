@@ -142,7 +142,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				"multipooler-cell1-primary": {
 					Response: &multipoolermanagerdatapb.StatusResponse{
 						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
+							HasBackup: true,
 						},
 					},
 				},
@@ -203,7 +203,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				"multipooler-cell1-primary": {
 					Response: &multipoolermanagerdatapb.StatusResponse{
 						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: false, // not initialized
+							HasBackup: false, // not initialized
 						},
 					},
 				},
@@ -233,7 +233,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				"multipooler-cell2-primary2": {
 					Response: &multipoolermanagerdatapb.StatusResponse{
 						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
+							HasBackup: true,
 						},
 					},
 				},
@@ -268,14 +268,14 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				"multipooler-cell1-primary1": {
 					Response: &multipoolermanagerdatapb.StatusResponse{
 						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
+							HasBackup: true,
 						},
 					},
 				},
 				"multipooler-cell2-primary2": {
 					Response: &multipoolermanagerdatapb.StatusResponse{
 						Status: &multipoolermanagerdatapb.Status{
-							IsInitialized: true,
+							HasBackup: true,
 						},
 					},
 				},

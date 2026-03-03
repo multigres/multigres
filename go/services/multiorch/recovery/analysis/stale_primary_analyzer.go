@@ -68,7 +68,7 @@ func (a *StalePrimaryAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysis
 	}
 
 	// Skip if not initialized
-	if !poolerAnalysis.IsInitialized {
+	if !poolerAnalysis.HasBackup {
 		return nil, nil
 	}
 

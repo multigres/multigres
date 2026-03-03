@@ -172,7 +172,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 	pooler.PoolerType = status.PoolerType
 	pooler.PrimaryStatus = status.PrimaryStatus
 	pooler.ReplicationStatus = status.ReplicationStatus
-	pooler.IsInitialized = status.IsInitialized
+	pooler.HasBackup = status.HasBackup
 	pooler.HasDataDirectory = status.HasDataDirectory
 	pooler.ConsensusTerm = status.ConsensusTerm
 
@@ -184,7 +184,7 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 		"pooler_id", poolerIDStr,
 		"topology_type", pooler.MultiPooler.Type,
 		"reported_type", status.PoolerType,
-		"is_initialized", status.IsInitialized,
+		"has_backup", status.HasBackup,
 		"postgres_running", status.PostgresRunning,
 		"latency", time.Since(totalStart),
 	)
@@ -228,7 +228,7 @@ func (re *Engine) pollPoolerStatus(ctx context.Context, poolerID *clustermetadat
 	re.logger.DebugContext(ctx, "pooler status received",
 		"pooler_id", poolerIDStr,
 		"pooler_type", resp.Status.PoolerType,
-		"is_initialized", resp.Status.IsInitialized,
+		"has_backup", resp.Status.HasBackup,
 		"postgres_running", resp.Status.PostgresRunning,
 		"has_primary_status", resp.Status.PrimaryStatus != nil,
 		"has_replication_status", resp.Status.ReplicationStatus != nil,

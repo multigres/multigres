@@ -73,7 +73,7 @@ func (a *ShardNeedsBootstrapAnalyzer) Analyze(poolerAnalysis *store.ReplicationA
 	}
 
 	// Only analyze if this pooler is uninitialized
-	if poolerAnalysis.IsInitialized {
+	if poolerAnalysis.HasBackup {
 		return nil, nil
 	}
 

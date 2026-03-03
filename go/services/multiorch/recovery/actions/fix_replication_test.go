@@ -143,7 +143,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+					Status: &multipoolermanagerdatapb.Status{HasBackup: true},
 				},
 			},
 		},
@@ -219,7 +219,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+					Status: &multipoolermanagerdatapb.Status{HasBackup: true},
 				},
 			},
 		},
@@ -310,7 +310,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
 				Response: &multipoolermanagerdatapb.StatusResponse{
-					Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+					Status: &multipoolermanagerdatapb.Status{HasBackup: true},
 				},
 			},
 		},
@@ -482,7 +482,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 
 	baseFakeClient := rpcclient.NewFakeClient()
 	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+		Status: &multipoolermanagerdatapb.Status{HasBackup: true},
 	})
 	baseFakeClient.ConsensusStatusResponses = map[string]*consensusdatapb.StatusResponse{
 		"multipooler-cell1-primary": {

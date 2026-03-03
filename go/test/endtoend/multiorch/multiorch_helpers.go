@@ -68,7 +68,7 @@ func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout tim
 				continue
 			}
 
-			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+			if status.Status.HasBackup && status.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 				t.Logf("Shard bootstrapped: primary is %s (pooler_type=%s)", name, status.Status.PoolerType)
 				return name
 			}
@@ -110,7 +110,7 @@ func waitForStandbysInitialized(t *testing.T, setup *shardsetup.ShardSetup, expe
 				continue
 			}
 
-			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && status.Status.PostgresRunning {
+			if status.Status.HasBackup && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && status.Status.PostgresRunning {
 				standbyCount++
 			}
 		}

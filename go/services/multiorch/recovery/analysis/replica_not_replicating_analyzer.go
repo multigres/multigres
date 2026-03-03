@@ -52,7 +52,7 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(poolerAnalysis *store.Replicatio
 	}
 
 	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
-	if !poolerAnalysis.IsInitialized {
+	if !poolerAnalysis.HasBackup {
 		return nil, nil
 	}
 

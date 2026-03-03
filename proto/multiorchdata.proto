@@ -64,10 +64,9 @@ message PoolerHealthState {
   // should trigger PrimaryIsDead recovery even if the previous PrimaryStatus data exists.
   bool is_postgres_running = 10;
 
-  // Whether the pooler considers itself initialized.
-  // Determined from the Status RPC's is_initialized field.
-  // This is based on the data directory state, not LSN.
-  bool is_initialized = 11;
+  // Whether the pooler has a usable backup (taken or restored from).
+  // Determined from the Status RPC's has_backup field.
+  bool has_backup = 11;
 
   // Whether the PostgreSQL data directory exists.
   // Determined from the Status RPC's has_data_directory field.

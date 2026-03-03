@@ -1306,8 +1306,11 @@ type Status struct {
 	PrimaryStatus *PrimaryStatus `protobuf:"bytes,2,opt,name=primary_status,json=primaryStatus,proto3" json:"primary_status,omitempty"`
 	// Replication status information (only populated if pooler is acting as standby AND db is connected)
 	ReplicationStatus *StandbyReplicationStatus `protobuf:"bytes,3,opt,name=replication_status,json=replicationStatus,proto3" json:"replication_status,omitempty"`
-	// Whether this pooler has been initialized (has data directory and multigres schema)
-	IsInitialized bool `protobuf:"varint,4,opt,name=is_initialized,json=isInitialized,proto3" json:"is_initialized,omitempty"`
+	// Whether this pooler has a usable backup: either it has taken one (primary)
+	// or restored from one (replica). True only after the full init sequence
+	// completes (initdb + schema + backup + etcd CAS for primaries;
+	// etcd check + restore + start for replicas).
+	HasBackup bool `protobuf:"varint,4,opt,name=has_backup,json=hasBackup,proto3" json:"has_backup,omitempty"`
 	// Whether data directory exists
 	HasDataDirectory bool `protobuf:"varint,5,opt,name=has_data_directory,json=hasDataDirectory,proto3" json:"has_data_directory,omitempty"`
 	// Whether PostgreSQL is currently running
@@ -1376,9 +1379,9 @@ func (x *Status) GetReplicationStatus() *StandbyReplicationStatus {
 	return nil
 }
 
-func (x *Status) GetIsInitialized() bool {
+func (x *Status) GetHasBackup() bool {
 	if x != nil {
-		return x.IsInitialized
+		return x.HasBackup
 	}
 	return false
 }
@@ -4125,13 +4128,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\x06status\"\x18\n" +
 	"\x16PrimaryPositionRequest\"<\n" +
 	"\x17PrimaryPositionResponse\x12!\n" +
-	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\xa6\x04\n" +
+	"\flsn_position\x18\x01 \x01(\tR\vlsnPosition\"\x9e\x04\n" +
 	"\x06Status\x12<\n" +
 	"\vpooler_type\x18\x01 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
 	"poolerType\x12L\n" +
 	"\x0eprimary_status\x18\x02 \x01(\v2%.multipoolermanagerdata.PrimaryStatusR\rprimaryStatus\x12_\n" +
-	"\x12replication_status\x18\x03 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x11replicationStatus\x12%\n" +
-	"\x0eis_initialized\x18\x04 \x01(\bR\risInitialized\x12,\n" +
+	"\x12replication_status\x18\x03 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x11replicationStatus\x12\x1d\n" +
+	"\n" +
+	"has_backup\x18\x04 \x01(\bR\thasBackup\x12,\n" +
 	"\x12has_data_directory\x18\x05 \x01(\bR\x10hasDataDirectory\x12)\n" +
 	"\x10postgres_running\x18\x06 \x01(\bR\x0fpostgresRunning\x12#\n" +
 	"\rpostgres_role\x18\a \x01(\tR\fpostgresRole\x12!\n" +

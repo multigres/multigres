@@ -1077,9 +1077,9 @@ func TestClusterLifecycle(t *testing.T) {
 
 		// Verify both outputs contain expected status fields
 		assert.Contains(t, zone1StatusOutput, "postgres_running", "zone1 getpoolerstatus should return postgres_running")
-		assert.Contains(t, zone1StatusOutput, "is_initialized", "zone1 getpoolerstatus should return is_initialized")
+		assert.Contains(t, zone1StatusOutput, "has_backup", "zone1 getpoolerstatus should return has_backup")
 		assert.Contains(t, zone2StatusOutput, "postgres_running", "zone2 getpoolerstatus should return postgres_running")
-		assert.Contains(t, zone2StatusOutput, "is_initialized", "zone2 getpoolerstatus should return is_initialized")
+		assert.Contains(t, zone2StatusOutput, "has_backup", "zone2 getpoolerstatus should return has_backup")
 
 		// Verify pooler types are correctly set in CLI output
 		// Parse JSON to avoid brittleness from formatting differences

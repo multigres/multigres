@@ -295,17 +295,17 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	// Status responses: all nodes uninitialized
 	mockClient.SetStatusResponse(poolerID, &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: false,
+			HasBackup: false,
 		},
 	})
 	mockClient.SetStatusResponse(standby1ID, &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: false,
+			HasBackup: false,
 		},
 	})
 	mockClient.SetStatusResponse(standby2ID, &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: false,
+			HasBackup: false,
 		},
 	})
 
@@ -423,7 +423,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: false,
+			HasBackup: false,
 		},
 	})
 	// pooler2 returns an error (unreachable)
@@ -499,12 +499,12 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: false,
+			HasBackup: false,
 		},
 	})
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: false,
+			HasBackup: false,
 		},
 	})
 
@@ -598,7 +598,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 		key := "multipooler-cell1-" + name
 		fakeClient.SetStatusResponse(key, &multipoolermanagerdatapb.StatusResponse{
 			Status: &multipoolermanagerdatapb.Status{
-				IsInitialized: false,
+				HasBackup: false,
 			},
 		})
 		fakeClient.ChangeTypeResponses[key] = &multipoolermanagerdatapb.ChangeTypeResponse{}
@@ -684,13 +684,13 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: true, // Already initialized!
-			PostgresRole:  "primary",
+			HasBackup:    true, // Already initialized!
+			PostgresRole: "primary",
 		},
 	})
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			IsInitialized: false,
+			HasBackup: false,
 		},
 	})
 
@@ -759,11 +759,11 @@ func TestBootstrapShardAction_CountReachablePoolers(t *testing.T) {
 
 	// pooler1 and pooler3 are reachable, pooler2 is not
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
+		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
 	})
 	fakeClient.Errors["multipooler-cell1-pooler2"] = errors.New("connection refused")
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler3", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
+		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
 	})
 
 	coord := newTestCoordinator(nil, fakeClient, logger)
@@ -814,10 +814,10 @@ func TestBootstrapShardAction_CountReachablePoolersTimeout(t *testing.T) {
 
 	// pooler1 responds immediately, pooler2 is slow (100ms delay > 10ms timeout)
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
+		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
 	})
 	fakeClient.SetStatusResponseWithDelay("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
+		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
 	}, 100*time.Millisecond)
 
 	coord := newTestCoordinator(nil, fakeClient, logger)

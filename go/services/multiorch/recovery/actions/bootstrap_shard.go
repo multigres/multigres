@@ -248,7 +248,7 @@ func (a *BootstrapShardAction) verifyBootstrapNeeded(ctx context.Context, cohort
 			continue
 		}
 
-		if resp.Status != nil && resp.Status.IsInitialized {
+		if resp.Status != nil && resp.Status.HasBackup {
 			a.logger.InfoContext(ctx, "node is now initialized (fresh RPC check), skipping bootstrap",
 				"node", pooler.MultiPooler.Id.Name,
 				"postgres_role", resp.Status.PostgresRole)

@@ -206,8 +206,11 @@ message Status {
 
   // === Initialization status fields (always available, even without db connection) ===
 
-  // Whether this pooler has been initialized (has data directory and multigres schema)
-  bool is_initialized = 4;
+  // Whether this pooler has a usable backup: either it has taken one (primary)
+  // or restored from one (replica). True only after the full init sequence
+  // completes (initdb + schema + backup + etcd CAS for primaries;
+  // etcd check + restore + start for replicas).
+  bool has_backup = 4;
 
   // Whether data directory exists
   bool has_data_directory = 5;

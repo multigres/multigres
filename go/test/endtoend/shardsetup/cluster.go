@@ -157,7 +157,7 @@ func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 			continue
 		}
 
-		if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+		if resp.Status.HasBackup && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 			s.PrimaryName = name
 			t.Logf("RefreshPrimary: current primary is %s", name)
 			return inst

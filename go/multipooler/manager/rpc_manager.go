@@ -281,7 +281,7 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	// Build status with initialization fields (always available)
 	poolerStatus := &multipoolermanagerdatapb.Status{
 		PoolerType:       pm.getPoolerType(),
-		IsInitialized:    pm.hasBackup(ctx),
+		HasBackup:        pm.hasBackup(ctx),
 		HasDataDirectory: pm.hasDataDirectory(),
 		PostgresRunning:  pm.isPostgresRunning(ctx),
 		PostgresRole:     pm.getRole(ctx),
