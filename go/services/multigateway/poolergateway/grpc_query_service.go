@@ -116,9 +116,7 @@ func (g *grpcQueryService) StreamExecute(
 
 		// Extract reserved state if present
 		if response.ReservedConnectionId != 0 {
-			reservedState.ReservedConnectionId = response.ReservedConnectionId
-			reservedState.PoolerID = response.PoolerId
-			reservedState.ReservationReasons = response.RemainingReasons
+			reservedState = queryservice.ReservedStateFromProto(response)
 		}
 
 		// Handle the union type payload (if present)
@@ -179,16 +177,8 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *query.Targe
 		return nil, queryservice.ReservedState{}, err
 	}
 
-	// Extract reserved state from response
-	var reservedState queryservice.ReservedState
-	if res.ReservedConnectionId != 0 {
-		reservedState.ReservedConnectionId = res.ReservedConnectionId
-		reservedState.PoolerID = res.PoolerId
-		reservedState.ReservationReasons = res.RemainingReasons
-	}
-
 	// Convert proto result to sqltypes (preserves NULL vs empty string)
-	return sqltypes.ResultFromProto(res.GetResult()), reservedState, nil
+	return sqltypes.ResultFromProto(res.GetResult()), queryservice.ReservedStateFromProto(res), nil
 }
 
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results back via callback.
@@ -239,9 +229,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 
 		// Extract reserved state if present
 		if response.ReservedConnectionId != 0 {
-			reservedState.ReservedConnectionId = response.ReservedConnectionId
-			reservedState.PoolerID = response.PoolerId
-			reservedState.ReservationReasons = response.RemainingReasons
+			reservedState = queryservice.ReservedStateFromProto(response)
 			g.logger.DebugContext(ctx, "received reserved connection",
 				"reserved_connection_id", response.ReservedConnectionId,
 				"pooler_id", response.PoolerId.String())
@@ -389,11 +377,7 @@ func (g *grpcQueryService) CopyReady(
 		columnFormats[i] = int16(f)
 	}
 
-	reservedState := queryservice.ReservedState{
-		ReservedConnectionId: resp.ReservedConnectionId,
-		PoolerID:             resp.PoolerId,
-		ReservationReasons:   resp.RemainingReasons,
-	}
+	reservedState := queryservice.ReservedStateFromProto(resp)
 
 	// Store the stream keyed by reserved connection ID
 	g.copyStreamsMu.Lock()
@@ -510,12 +494,7 @@ func (g *grpcQueryService) CopyFinalize(
 	result := sqltypes.ResultFromProto(resp.Result)
 
 	// Build reserved state from response
-	var reservedState queryservice.ReservedState
-	if resp.ReservedConnectionId != 0 {
-		reservedState.ReservedConnectionId = resp.ReservedConnectionId
-		reservedState.PoolerID = resp.PoolerId
-		reservedState.ReservationReasons = resp.RemainingReasons
-	}
+	reservedState := queryservice.ReservedStateFromProto(resp)
 
 	g.logger.DebugContext(ctx, "received RESULT response",
 		"pooler_id", g.poolerID,
@@ -583,9 +562,7 @@ func (g *grpcQueryService) CopyAbort(
 			"reserved_conn_id", options.ReservedConnectionId,
 			"error", err)
 	} else if resp != nil && resp.ReservedConnectionId != 0 {
-		reservedState.ReservedConnectionId = resp.ReservedConnectionId
-		reservedState.PoolerID = resp.PoolerId
-		reservedState.ReservationReasons = resp.RemainingReasons
+		reservedState = queryservice.ReservedStateFromProto(resp)
 	}
 
 	g.logger.DebugContext(ctx, "COPY aborted",
@@ -655,9 +632,7 @@ func (g *grpcQueryService) ReserveStreamExecute(
 
 		// Extract reserved state from response
 		if response.ReservedConnectionId != 0 {
-			reservedState.ReservedConnectionId = response.ReservedConnectionId
-			reservedState.PoolerID = response.PoolerId
-			reservedState.ReservationReasons = response.RemainingReasons
+			reservedState = queryservice.ReservedStateFromProto(response)
 			g.logger.DebugContext(ctx, "received reserved connection",
 				"reserved_connection_id", response.ReservedConnectionId)
 		}
@@ -703,11 +678,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
-	reservedState := queryservice.ReservedState{
-		ReservedConnectionId: response.ReservedConnectionId,
-		PoolerID:             response.PoolerId,
-		ReservationReasons:   response.RemainingReasons,
-	}
+	reservedState := queryservice.ReservedStateFromProto(response)
 
 	if reservedState.ReservedConnectionId == 0 {
 		g.logger.DebugContext(ctx, "transaction concluded, connection released",

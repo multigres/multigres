@@ -46,6 +46,24 @@ type ReservedState struct {
 	ReservationReasons uint32
 }
 
+// ProtoReservedState is implemented by proto response messages that carry reserved connection state.
+// All multipooler response types (StreamExecuteResponse, ConcludeTransactionResponse, etc.)
+// satisfy this interface through their generated getter methods.
+type ProtoReservedState interface {
+	GetReservedConnectionId() uint64
+	GetPoolerId() *clustermetadatapb.ID
+	GetRemainingReasons() uint32
+}
+
+// ReservedStateFromProto constructs a ReservedState from a proto response message.
+func ReservedStateFromProto(p ProtoReservedState) ReservedState {
+	return ReservedState{
+		ReservedConnectionId: p.GetReservedConnectionId(),
+		PoolerID:             p.GetPoolerId(),
+		ReservationReasons:   p.GetRemainingReasons(),
+	}
+}
+
 // QueryService is the interface for executing queries on a multipooler.
 // This interface abstracts the communication with multipooler instances
 // and can be implemented by different backends (gRPC, local, mock, etc.).

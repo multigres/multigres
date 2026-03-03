@@ -373,6 +373,37 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	require.Nil(t, state.GetMatchingShardState(target))
 }
 
+func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
+	// COMMIT on a destroyed connection must propagate the error because the
+	// client needs to know their COMMIT didn't happen (data may not be persisted).
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("reserved connection not found"),
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultiGatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := &query.Target{
+		TableGroup: "tg1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	state.SetReservedConnection(target, queryservice.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "COMMIT on destroyed connection must propagate error")
+	require.Contains(t, err.Error(), "conclude transaction failed")
+	// Shard state must be cleared
+	require.Nil(t, state.GetMatchingShardState(target))
+}
+
 func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	// After COMMIT, if the connection is still reserved (e.g., temp tables),
 	// the shard state should be updated with the new reasons.

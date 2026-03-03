@@ -59,7 +59,7 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 	}
 }
 
-// updateShardState replaces independent bookkeeping with the authoritative reservation
+// applyReservedState replaces independent bookkeeping with the authoritative reservation
 // state from the multipooler. If the reserved connection ID is zero, the connection was
 // destroyed or released — clear the shard state. Otherwise, update the reservation reasons.
 //
@@ -67,7 +67,7 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 // as failed (TxnStatusFailed) so subsequent queries are rejected until ROLLBACK. This is
 // defense-in-depth — handler.go also sets TxnStatusFailed on query errors, but setting it
 // here ensures coverage for all code paths (COPY, portal, etc.).
-func (sc *ScatterConn) updateShardState(
+func (sc *ScatterConn) applyReservedState(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	target *query.Target,
@@ -136,7 +136,7 @@ func (sc *ScatterConn) StreamExecute(
 		}
 
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, callback)
-		sc.updateShardState(conn, state, target, reservedState)
+		sc.applyReservedState(conn, state, target, reservedState)
 		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
 		}
@@ -165,7 +165,7 @@ func (sc *ScatterConn) StreamExecute(
 		}
 
 		// Use authoritative state from multipooler (reasons already include transaction)
-		sc.updateShardState(conn, state, target, reservedState)
+		sc.applyReservedState(conn, state, target, reservedState)
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
 			"reserved_conn_id", reservedState.ReservedConnectionId)
@@ -264,7 +264,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// Use authoritative state from multipooler. The multipooler already OR'd in
 	// the portal reason (if suspended) or removed it (if completed). If no reasons
 	// remain (ReservedConnectionId == 0) the connection was released.
-	sc.updateShardState(conn, state, target, reservedState)
+	sc.applyReservedState(conn, state, target, reservedState)
 
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
@@ -525,7 +525,7 @@ func (sc *ScatterConn) CopyInitiate(
 	}
 
 	// Use authoritative state from multipooler (reasons already include copy + transaction if applicable)
-	sc.updateShardState(conn, state, target, reservedState)
+	sc.applyReservedState(conn, state, target, reservedState)
 
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",
 		"reserved_conn_id", reservedState.ReservedConnectionId,
@@ -621,9 +621,9 @@ func (sc *ScatterConn) CopyFinalize(
 	if err != nil {
 		// Every error path in executor.CopyFinalize destroys the connection via
 		// Release(ReleaseError), so the multipooler no longer has it. Pass a zero
-		// ReservedState to updateShardState so it clears state and (if in a transaction)
+		// ReservedState to applyReservedState so it clears state and (if in a transaction)
 		// marks TxnStatusFailed as defense-in-depth.
-		sc.updateShardState(conn, state, target, queryservice.ReservedState{})
+		sc.applyReservedState(conn, state, target, queryservice.ReservedState{})
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
@@ -634,12 +634,12 @@ func (sc *ScatterConn) CopyFinalize(
 	// Call callback with result
 	if err := callback(ctx, result); err != nil {
 		sc.logger.ErrorContext(ctx, "callback error in CopyFinalize", "error", err)
-		sc.updateShardState(conn, state, target, reservedState)
+		sc.applyReservedState(conn, state, target, reservedState)
 		return err
 	}
 
 	// Update shard state with authoritative state from multipooler
-	sc.updateShardState(conn, state, target, reservedState)
+	sc.applyReservedState(conn, state, target, reservedState)
 
 	return nil
 }
@@ -686,7 +686,7 @@ func (sc *ScatterConn) CopyAbort(
 	}
 
 	// Update shard state with authoritative state from multipooler
-	sc.updateShardState(conn, state, target, reservedState)
+	sc.applyReservedState(conn, state, target, reservedState)
 
 	sc.logger.DebugContext(ctx, "COPY aborted")
 
