@@ -891,6 +891,73 @@ func (x *Portal) GetResultFormats() []int32 {
 	return nil
 }
 
+// ReservedState contains information about a reserved connection.
+// Embedded in response messages to convey the authoritative reservation state from multipooler.
+type ReservedState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// reserved_connection_id is the ID of the reserved connection.
+	// Zero when the connection has been released or was not reserved.
+	ReservedConnectionId uint64 `protobuf:"varint,1,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
+	// pooler_id identifies which multipooler instance owns the reserved connection
+	PoolerId *clustermetadata.ID `protobuf:"bytes,2,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	// reservation_reasons is a bitmask of ReservationReason values indicating why the connection
+	// is still reserved. Zero means the connection was released.
+	ReservationReasons uint32 `protobuf:"varint,3,opt,name=reservation_reasons,json=reservationReasons,proto3" json:"reservation_reasons,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ReservedState) Reset() {
+	*x = ReservedState{}
+	mi := &file_query_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReservedState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReservedState) ProtoMessage() {}
+
+func (x *ReservedState) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReservedState.ProtoReflect.Descriptor instead.
+func (*ReservedState) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ReservedState) GetReservedConnectionId() uint64 {
+	if x != nil {
+		return x.ReservedConnectionId
+	}
+	return 0
+}
+
+func (x *ReservedState) GetPoolerId() *clustermetadata.ID {
+	if x != nil {
+		return x.PoolerId
+	}
+	return nil
+}
+
+func (x *ReservedState) GetReservationReasons() uint32 {
+	if x != nil {
+		return x.ReservationReasons
+	}
+	return 0
+}
+
 // ExecuteOptions contains execution options for query execution.
 // This includes session state like prepared statements and portals that
 // need to be available on the connection where the query is executed.
@@ -917,7 +984,7 @@ type ExecuteOptions struct {
 
 func (x *ExecuteOptions) Reset() {
 	*x = ExecuteOptions{}
-	mi := &file_query_proto_msgTypes[10]
+	mi := &file_query_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -929,7 +996,7 @@ func (x *ExecuteOptions) String() string {
 func (*ExecuteOptions) ProtoMessage() {}
 
 func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[10]
+	mi := &file_query_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -942,7 +1009,7 @@ func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteOptions.ProtoReflect.Descriptor instead.
 func (*ExecuteOptions) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{10}
+	return file_query_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ExecuteOptions) GetSessionSettings() map[string]string {
@@ -1047,7 +1114,11 @@ const file_query_proto_rawDesc = "" +
 	"\rparam_lengths\x18\x03 \x03(\x12R\fparamLengths\x12!\n" +
 	"\fparam_values\x18\x04 \x01(\fR\vparamValues\x12#\n" +
 	"\rparam_formats\x18\x05 \x03(\x05R\fparamFormats\x12%\n" +
-	"\x0eresult_formats\x18\x06 \x03(\x05R\rresultFormats\"\x90\x02\n" +
+	"\x0eresult_formats\x18\x06 \x03(\x05R\rresultFormats\"\xa8\x01\n" +
+	"\rReservedState\x124\n" +
+	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
+	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
+	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\"\x90\x02\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1069,7 +1140,7 @@ func file_query_proto_rawDescGZIP() []byte {
 	return file_query_proto_rawDescData
 }
 
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_query_proto_goTypes = []any{
 	(*QueryResultPayload)(nil),      // 0: query.QueryResultPayload
 	(*QueryResult)(nil),             // 1: query.QueryResult
@@ -1081,9 +1152,11 @@ var file_query_proto_goTypes = []any{
 	(*Target)(nil),                  // 7: query.Target
 	(*PreparedStatement)(nil),       // 8: query.PreparedStatement
 	(*Portal)(nil),                  // 9: query.Portal
-	(*ExecuteOptions)(nil),          // 10: query.ExecuteOptions
-	nil,                             // 11: query.ExecuteOptions.SessionSettingsEntry
-	(clustermetadata.PoolerType)(0), // 12: clustermetadata.PoolerType
+	(*ReservedState)(nil),           // 10: query.ReservedState
+	(*ExecuteOptions)(nil),          // 11: query.ExecuteOptions
+	nil,                             // 12: query.ExecuteOptions.SessionSettingsEntry
+	(clustermetadata.PoolerType)(0), // 13: clustermetadata.PoolerType
+	(*clustermetadata.ID)(nil),      // 14: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	1,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1092,13 +1165,14 @@ var file_query_proto_depIdxs = []int32{
 	3,  // 3: query.QueryResult.rows:type_name -> query.Row
 	6,  // 4: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	2,  // 5: query.StatementDescription.fields:type_name -> query.Field
-	12, // 6: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
-	11, // 7: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	8,  // [8:8] is the sub-list for method output_type
-	8,  // [8:8] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	13, // 6: query.Target.pooler_type:type_name -> clustermetadata.PoolerType
+	14, // 7: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	12, // 8: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1116,7 +1190,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

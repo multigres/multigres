@@ -106,11 +106,11 @@ func (pg *PoolerGateway) StreamExecute(
 	sql string,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (queryservice.ReservedState, error) {
+) (*query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return queryservice.ReservedState{}, err
+		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -129,11 +129,11 @@ func (pg *PoolerGateway) StreamExecute(
 // otherwise StreamExecute should be used.
 //
 // TODO: Add retry logic for transient failures (UNAVAILABLE errors)
-func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, queryservice.ReservedState, error) {
+func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return nil, queryservice.ReservedState{}, err
+		return nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -157,11 +157,11 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (queryservice.ReservedState, error) {
+) (*query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return queryservice.ReservedState{}, err
+		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -258,11 +258,11 @@ func (pg *PoolerGateway) CopyReady(
 	copyQuery string,
 	options *query.ExecuteOptions,
 	reservationOptions *multipoolerpb.ReservationOptions,
-) (int16, []int16, queryservice.ReservedState, error) {
+) (int16, []int16, *query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return 0, nil, queryservice.ReservedState{}, err
+		return 0, nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -306,11 +306,11 @@ func (pg *PoolerGateway) CopyFinalize(
 	target *query.Target,
 	finalData []byte,
 	options *query.ExecuteOptions,
-) (*sqltypes.Result, queryservice.ReservedState, error) {
+) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return nil, queryservice.ReservedState{}, err
+		return nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -330,11 +330,11 @@ func (pg *PoolerGateway) CopyAbort(
 	target *query.Target,
 	errorMsg string,
 	options *query.ExecuteOptions,
-) (queryservice.ReservedState, error) {
+) (*query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return queryservice.ReservedState{}, err
+		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -356,11 +356,11 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 	options *query.ExecuteOptions,
 	reservationOptions *multipoolerpb.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (queryservice.ReservedState, error) {
+) (*query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return queryservice.ReservedState{}, err
+		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -380,11 +380,11 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	target *query.Target,
 	options *query.ExecuteOptions,
 	conclusion multipoolerpb.TransactionConclusion,
-) (*sqltypes.Result, queryservice.ReservedState, error) {
+) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
-		return nil, queryservice.ReservedState{}, err
+		return nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",

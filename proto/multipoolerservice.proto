@@ -20,7 +20,6 @@ syntax = "proto3";
 
 package multipoolerservice;
 
-import "clustermetadata.proto";
 import "mtrpc.proto";
 import "query.proto";
 
@@ -97,16 +96,8 @@ message ExecuteQueryRequest {
 message ExecuteQueryResponse {
   query.QueryResult result = 1;
 
-  // reserved_connection_id is the ID of the reserved connection (if on a reserved connection).
-  // Zero when the connection has been released or was not reserved.
-  uint64 reserved_connection_id = 2;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection
-  clustermetadata.ID pooler_id = 3;
-
-  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-  // is still reserved. Zero means the connection was released.
-  uint32 remaining_reasons = 4;
+  // reserved_state contains the authoritative reservation state from multipooler.
+  query.ReservedState reserved_state = 5;
 }
 
 // StreamExecuteRequest represents a request to execute a SQL query with streaming results
@@ -130,16 +121,9 @@ message StreamExecuteResponse {
   // result contains the query result data (rows, fields, etc.) or diagnostics (notices)
   query.QueryResultPayload result = 1;
 
-  // reserved_connection_id is the ID of the reserved connection (if on a reserved connection).
+  // reserved_state contains the authoritative reservation state from multipooler.
   // Sent in a final message after query execution completes.
-  uint64 reserved_connection_id = 2;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection
-  clustermetadata.ID pooler_id = 3;
-
-  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-  // is still reserved. Zero means the connection was released.
-  uint32 remaining_reasons = 4;
+  query.ReservedState reserved_state = 5;
 }
 
 // PortalStreamExecuteRequest represents a request to execute a portal with streaming results
@@ -165,16 +149,9 @@ message PortalStreamExecuteResponse {
   // result contains the query result data (rows, fields, etc.) or diagnostics
   query.QueryResultPayload result = 1;
 
-  // reserved_connection_id is the ID of the reserved connection
-  // This is returned in the first response and should be used for subsequent queries
-  uint64 reserved_connection_id = 2;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection
-  clustermetadata.ID pooler_id = 3;
-
-  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-  // is still reserved. Zero means the connection was released.
-  uint32 remaining_reasons = 4;
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // This is returned in the first response and should be used for subsequent queries.
+  query.ReservedState reserved_state = 5;
 }
 
 // DescribeRequest represents a request to describe a prepared statement or portal
@@ -273,11 +250,9 @@ message CopyBidiExecuteResponse {
   // phase indicates the current phase
   Phase phase = 1;
 
-  // reserved_connection_id is the ID of the reserved connection (for READY phase)
-  uint64 reserved_connection_id = 2;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection (for READY phase)
-  clustermetadata.ID pooler_id = 3;
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // Used in READY phase (connection info) and RESULT/ERROR phases (remaining reasons).
+  query.ReservedState reserved_state = 10;
 
   // format indicates the COPY format (for READY phase with COPY commands)
   // 0 = text, 1 = binary
@@ -295,11 +270,6 @@ message CopyBidiExecuteResponse {
 
   // error contains the error message (for ERROR phase)
   string error = 7;
-
-  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-  // is still reserved after COPY completes. Used in RESULT and ERROR phases.
-  // Zero means the connection was released.
-  uint32 remaining_reasons = 9;
 }
 
 // ReservationReason indicates why a connection needs to be reserved.
@@ -364,16 +334,9 @@ message ReserveStreamExecuteResponse {
   // result contains the query result data (rows, fields, etc.)
   query.QueryResult result = 1;
 
-  // reserved_connection_id is the ID of the reserved connection
-  // This is returned in the first response and should be used for subsequent queries
-  uint64 reserved_connection_id = 2;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection
-  clustermetadata.ID pooler_id = 3;
-
-  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-  // is reserved. This allows the gateway to use the authoritative state from the multipooler.
-  uint32 remaining_reasons = 4;
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // This is returned in the first response and should be used for subsequent queries.
+  query.ReservedState reserved_state = 5;
 }
 
 // ConcludeTransactionRequest represents a request to conclude a transaction on a reserved connection.
@@ -398,16 +361,9 @@ message ConcludeTransactionResponse {
   // result contains the result of the COMMIT or ROLLBACK command
   query.QueryResult result = 1;
 
-  // remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-  // is still reserved. Zero means the connection was released and ScatterConn should clear its state.
-  uint32 remaining_reasons = 2;
-
-  // reserved_connection_id is the ID of the reserved connection (if still reserved).
-  // Zero when the connection has been released.
-  uint64 reserved_connection_id = 3;
-
-  // pooler_id identifies which multipooler instance owns the reserved connection
-  clustermetadata.ID pooler_id = 4;
+  // reserved_state contains the authoritative reservation state from multipooler.
+  // If reserved_connection_id is zero, the connection was released and ScatterConn should clear its state.
+  query.ReservedState reserved_state = 5;
 }
 
 // ReleaseReservedConnectionRequest requests forceful release of a reserved connection.

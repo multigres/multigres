@@ -24,7 +24,6 @@
 package multipoolerservice
 
 import (
-	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpc "github.com/multigres/multigres/go/pb/mtrpc"
 	query "github.com/multigres/multigres/go/pb/query"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -349,16 +348,10 @@ func (x *ExecuteQueryRequest) GetOptions() *query.ExecuteOptions {
 type ExecuteQueryResponse struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Result *query.QueryResult     `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	// reserved_connection_id is the ID of the reserved connection (if on a reserved connection).
-	// Zero when the connection has been released or was not reserved.
-	ReservedConnectionId uint64 `protobuf:"varint,2,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// pooler_id identifies which multipooler instance owns the reserved connection
-	PoolerId *clustermetadata.ID `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	// remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-	// is still reserved. Zero means the connection was released.
-	RemainingReasons uint32 `protobuf:"varint,4,opt,name=remaining_reasons,json=remainingReasons,proto3" json:"remaining_reasons,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// reserved_state contains the authoritative reservation state from multipooler.
+	ReservedState *query.ReservedState `protobuf:"bytes,5,opt,name=reserved_state,json=reservedState,proto3" json:"reserved_state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecuteQueryResponse) Reset() {
@@ -398,25 +391,11 @@ func (x *ExecuteQueryResponse) GetResult() *query.QueryResult {
 	return nil
 }
 
-func (x *ExecuteQueryResponse) GetReservedConnectionId() uint64 {
+func (x *ExecuteQueryResponse) GetReservedState() *query.ReservedState {
 	if x != nil {
-		return x.ReservedConnectionId
-	}
-	return 0
-}
-
-func (x *ExecuteQueryResponse) GetPoolerId() *clustermetadata.ID {
-	if x != nil {
-		return x.PoolerId
+		return x.ReservedState
 	}
 	return nil
-}
-
-func (x *ExecuteQueryResponse) GetRemainingReasons() uint32 {
-	if x != nil {
-		return x.RemainingReasons
-	}
-	return 0
 }
 
 // StreamExecuteRequest represents a request to execute a SQL query with streaming results
@@ -498,16 +477,11 @@ type StreamExecuteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// result contains the query result data (rows, fields, etc.) or diagnostics (notices)
 	Result *query.QueryResultPayload `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	// reserved_connection_id is the ID of the reserved connection (if on a reserved connection).
+	// reserved_state contains the authoritative reservation state from multipooler.
 	// Sent in a final message after query execution completes.
-	ReservedConnectionId uint64 `protobuf:"varint,2,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// pooler_id identifies which multipooler instance owns the reserved connection
-	PoolerId *clustermetadata.ID `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	// remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-	// is still reserved. Zero means the connection was released.
-	RemainingReasons uint32 `protobuf:"varint,4,opt,name=remaining_reasons,json=remainingReasons,proto3" json:"remaining_reasons,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	ReservedState *query.ReservedState `protobuf:"bytes,5,opt,name=reserved_state,json=reservedState,proto3" json:"reserved_state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamExecuteResponse) Reset() {
@@ -547,25 +521,11 @@ func (x *StreamExecuteResponse) GetResult() *query.QueryResultPayload {
 	return nil
 }
 
-func (x *StreamExecuteResponse) GetReservedConnectionId() uint64 {
+func (x *StreamExecuteResponse) GetReservedState() *query.ReservedState {
 	if x != nil {
-		return x.ReservedConnectionId
-	}
-	return 0
-}
-
-func (x *StreamExecuteResponse) GetPoolerId() *clustermetadata.ID {
-	if x != nil {
-		return x.PoolerId
+		return x.ReservedState
 	}
 	return nil
-}
-
-func (x *StreamExecuteResponse) GetRemainingReasons() uint32 {
-	if x != nil {
-		return x.RemainingReasons
-	}
-	return 0
 }
 
 // PortalStreamExecuteRequest represents a request to execute a portal with streaming results
@@ -655,16 +615,11 @@ type PortalStreamExecuteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// result contains the query result data (rows, fields, etc.) or diagnostics
 	Result *query.QueryResultPayload `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	// reserved_connection_id is the ID of the reserved connection
-	// This is returned in the first response and should be used for subsequent queries
-	ReservedConnectionId uint64 `protobuf:"varint,2,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// pooler_id identifies which multipooler instance owns the reserved connection
-	PoolerId *clustermetadata.ID `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	// remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-	// is still reserved. Zero means the connection was released.
-	RemainingReasons uint32 `protobuf:"varint,4,opt,name=remaining_reasons,json=remainingReasons,proto3" json:"remaining_reasons,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// reserved_state contains the authoritative reservation state from multipooler.
+	// This is returned in the first response and should be used for subsequent queries.
+	ReservedState *query.ReservedState `protobuf:"bytes,5,opt,name=reserved_state,json=reservedState,proto3" json:"reserved_state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PortalStreamExecuteResponse) Reset() {
@@ -704,25 +659,11 @@ func (x *PortalStreamExecuteResponse) GetResult() *query.QueryResultPayload {
 	return nil
 }
 
-func (x *PortalStreamExecuteResponse) GetReservedConnectionId() uint64 {
+func (x *PortalStreamExecuteResponse) GetReservedState() *query.ReservedState {
 	if x != nil {
-		return x.ReservedConnectionId
-	}
-	return 0
-}
-
-func (x *PortalStreamExecuteResponse) GetPoolerId() *clustermetadata.ID {
-	if x != nil {
-		return x.PoolerId
+		return x.ReservedState
 	}
 	return nil
-}
-
-func (x *PortalStreamExecuteResponse) GetRemainingReasons() uint32 {
-	if x != nil {
-		return x.RemainingReasons
-	}
-	return 0
 }
 
 // DescribeRequest represents a request to describe a prepared statement or portal
@@ -1075,10 +1016,9 @@ type CopyBidiExecuteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// phase indicates the current phase
 	Phase CopyBidiExecuteResponse_Phase `protobuf:"varint,1,opt,name=phase,proto3,enum=multipoolerservice.CopyBidiExecuteResponse_Phase" json:"phase,omitempty"`
-	// reserved_connection_id is the ID of the reserved connection (for READY phase)
-	ReservedConnectionId uint64 `protobuf:"varint,2,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// pooler_id identifies which multipooler instance owns the reserved connection (for READY phase)
-	PoolerId *clustermetadata.ID `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	// reserved_state contains the authoritative reservation state from multipooler.
+	// Used in READY phase (connection info) and RESULT/ERROR phases (remaining reasons).
+	ReservedState *query.ReservedState `protobuf:"bytes,10,opt,name=reserved_state,json=reservedState,proto3" json:"reserved_state,omitempty"`
 	// format indicates the COPY format (for READY phase with COPY commands)
 	// 0 = text, 1 = binary
 	Format int32 `protobuf:"varint,4,opt,name=format,proto3" json:"format,omitempty"`
@@ -1090,13 +1030,9 @@ type CopyBidiExecuteResponse struct {
 	// result contains the final query result (for RESULT phase)
 	Result *query.QueryResult `protobuf:"bytes,6,opt,name=result,proto3" json:"result,omitempty"`
 	// error contains the error message (for ERROR phase)
-	Error string `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
-	// remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-	// is still reserved after COPY completes. Used in RESULT and ERROR phases.
-	// Zero means the connection was released.
-	RemainingReasons uint32 `protobuf:"varint,9,opt,name=remaining_reasons,json=remainingReasons,proto3" json:"remaining_reasons,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	Error         string `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CopyBidiExecuteResponse) Reset() {
@@ -1136,16 +1072,9 @@ func (x *CopyBidiExecuteResponse) GetPhase() CopyBidiExecuteResponse_Phase {
 	return CopyBidiExecuteResponse_READY
 }
 
-func (x *CopyBidiExecuteResponse) GetReservedConnectionId() uint64 {
+func (x *CopyBidiExecuteResponse) GetReservedState() *query.ReservedState {
 	if x != nil {
-		return x.ReservedConnectionId
-	}
-	return 0
-}
-
-func (x *CopyBidiExecuteResponse) GetPoolerId() *clustermetadata.ID {
-	if x != nil {
-		return x.PoolerId
+		return x.ReservedState
 	}
 	return nil
 }
@@ -1183,13 +1112,6 @@ func (x *CopyBidiExecuteResponse) GetError() string {
 		return x.Error
 	}
 	return ""
-}
-
-func (x *CopyBidiExecuteResponse) GetRemainingReasons() uint32 {
-	if x != nil {
-		return x.RemainingReasons
-	}
-	return 0
 }
 
 // ReservationOptions specifies options when creating a reserved connection.
@@ -1339,16 +1261,11 @@ type ReserveStreamExecuteResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// result contains the query result data (rows, fields, etc.)
 	Result *query.QueryResult `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	// reserved_connection_id is the ID of the reserved connection
-	// This is returned in the first response and should be used for subsequent queries
-	ReservedConnectionId uint64 `protobuf:"varint,2,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// pooler_id identifies which multipooler instance owns the reserved connection
-	PoolerId *clustermetadata.ID `protobuf:"bytes,3,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
-	// remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-	// is reserved. This allows the gateway to use the authoritative state from the multipooler.
-	RemainingReasons uint32 `protobuf:"varint,4,opt,name=remaining_reasons,json=remainingReasons,proto3" json:"remaining_reasons,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// reserved_state contains the authoritative reservation state from multipooler.
+	// This is returned in the first response and should be used for subsequent queries.
+	ReservedState *query.ReservedState `protobuf:"bytes,5,opt,name=reserved_state,json=reservedState,proto3" json:"reserved_state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReserveStreamExecuteResponse) Reset() {
@@ -1388,25 +1305,11 @@ func (x *ReserveStreamExecuteResponse) GetResult() *query.QueryResult {
 	return nil
 }
 
-func (x *ReserveStreamExecuteResponse) GetReservedConnectionId() uint64 {
+func (x *ReserveStreamExecuteResponse) GetReservedState() *query.ReservedState {
 	if x != nil {
-		return x.ReservedConnectionId
-	}
-	return 0
-}
-
-func (x *ReserveStreamExecuteResponse) GetPoolerId() *clustermetadata.ID {
-	if x != nil {
-		return x.PoolerId
+		return x.ReservedState
 	}
 	return nil
-}
-
-func (x *ReserveStreamExecuteResponse) GetRemainingReasons() uint32 {
-	if x != nil {
-		return x.RemainingReasons
-	}
-	return 0
 }
 
 // ConcludeTransactionRequest represents a request to conclude a transaction on a reserved connection.
@@ -1489,14 +1392,9 @@ type ConcludeTransactionResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// result contains the result of the COMMIT or ROLLBACK command
 	Result *query.QueryResult `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	// remaining_reasons is a bitmask of ReservationReason values indicating why the connection
-	// is still reserved. Zero means the connection was released and ScatterConn should clear its state.
-	RemainingReasons uint32 `protobuf:"varint,2,opt,name=remaining_reasons,json=remainingReasons,proto3" json:"remaining_reasons,omitempty"`
-	// reserved_connection_id is the ID of the reserved connection (if still reserved).
-	// Zero when the connection has been released.
-	ReservedConnectionId uint64 `protobuf:"varint,3,opt,name=reserved_connection_id,json=reservedConnectionId,proto3" json:"reserved_connection_id,omitempty"`
-	// pooler_id identifies which multipooler instance owns the reserved connection
-	PoolerId      *clustermetadata.ID `protobuf:"bytes,4,opt,name=pooler_id,json=poolerId,proto3" json:"pooler_id,omitempty"`
+	// reserved_state contains the authoritative reservation state from multipooler.
+	// If reserved_connection_id is zero, the connection was released and ScatterConn should clear its state.
+	ReservedState *query.ReservedState `protobuf:"bytes,5,opt,name=reserved_state,json=reservedState,proto3" json:"reserved_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1538,23 +1436,9 @@ func (x *ConcludeTransactionResponse) GetResult() *query.QueryResult {
 	return nil
 }
 
-func (x *ConcludeTransactionResponse) GetRemainingReasons() uint32 {
+func (x *ConcludeTransactionResponse) GetReservedState() *query.ReservedState {
 	if x != nil {
-		return x.RemainingReasons
-	}
-	return 0
-}
-
-func (x *ConcludeTransactionResponse) GetReservedConnectionId() uint64 {
-	if x != nil {
-		return x.ReservedConnectionId
-	}
-	return 0
-}
-
-func (x *ConcludeTransactionResponse) GetPoolerId() *clustermetadata.ID {
-	if x != nil {
-		return x.PoolerId
+		return x.ReservedState
 	}
 	return nil
 }
@@ -1667,39 +1551,33 @@ var File_multipoolerservice_proto protoreflect.FileDescriptor
 
 const file_multipoolerservice_proto_rawDesc = "" +
 	"\n" +
-	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\x15clustermetadata.proto\x1a\vmtrpc.proto\x1a\vquery.proto\"\xcc\x01\n" +
+	"\x18multipoolerservice.proto\x12\x12multipoolerservice\x1a\vmtrpc.proto\x1a\vquery.proto\"\xcc\x01\n" +
 	"\x13ExecuteQueryRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12\x19\n" +
 	"\bmax_rows\x18\x03 \x01(\x04R\amaxRows\x12,\n" +
 	"\tcaller_id\x18\x04 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
-	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\xd7\x01\n" +
+	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\x7f\n" +
 	"\x14ExecuteQueryResponse\x12*\n" +
-	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x124\n" +
-	"\x16reserved_connection_id\x18\x02 \x01(\x04R\x14reservedConnectionId\x120\n" +
-	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12+\n" +
-	"\x11remaining_reasons\x18\x04 \x01(\rR\x10remainingReasons\"\xb2\x01\n" +
+	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
+	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xb2\x01\n" +
 	"\x14StreamExecuteRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12%\n" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x03 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
-	"\aoptions\x18\x04 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\xdf\x01\n" +
+	"\aoptions\x18\x04 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\x87\x01\n" +
 	"\x15StreamExecuteResponse\x121\n" +
-	"\x06result\x18\x01 \x01(\v2\x19.query.QueryResultPayloadR\x06result\x124\n" +
-	"\x16reserved_connection_id\x18\x02 \x01(\x04R\x14reservedConnectionId\x120\n" +
-	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12+\n" +
-	"\x11remaining_reasons\x18\x04 \x01(\rR\x10remainingReasons\"\x92\x02\n" +
+	"\x06result\x18\x01 \x01(\v2\x19.query.QueryResultPayloadR\x06result\x12;\n" +
+	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\x92\x02\n" +
 	"\x1aPortalStreamExecuteRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12G\n" +
 	"\x12prepared_statement\x18\x02 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12%\n" +
 	"\x06portal\x18\x03 \x01(\v2\r.query.PortalR\x06portal\x12,\n" +
 	"\tcaller_id\x18\x04 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
-	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\xe5\x01\n" +
+	"\aoptions\x18\x05 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\x8d\x01\n" +
 	"\x1bPortalStreamExecuteResponse\x121\n" +
-	"\x06result\x18\x01 \x01(\v2\x19.query.QueryResultPayloadR\x06result\x124\n" +
-	"\x16reserved_connection_id\x18\x02 \x01(\x04R\x14reservedConnectionId\x120\n" +
-	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12+\n" +
-	"\x11remaining_reasons\x18\x04 \x01(\rR\x10remainingReasons\"\x87\x02\n" +
+	"\x06result\x18\x01 \x01(\v2\x19.query.QueryResultPayloadR\x06result\x12;\n" +
+	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\x87\x02\n" +
 	"\x0fDescribeRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12G\n" +
 	"\x12prepared_statement\x18\x02 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12%\n" +
@@ -1727,17 +1605,16 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\bINITIATE\x10\x00\x12\b\n" +
 	"\x04DATA\x10\x01\x12\b\n" +
 	"\x04DONE\x10\x02\x12\b\n" +
-	"\x04FAIL\x10\x03\"\xc1\x03\n" +
+	"\x04FAIL\x10\x03\"\xe9\x02\n" +
 	"\x17CopyBidiExecuteResponse\x12G\n" +
-	"\x05phase\x18\x01 \x01(\x0e21.multipoolerservice.CopyBidiExecuteResponse.PhaseR\x05phase\x124\n" +
-	"\x16reserved_connection_id\x18\x02 \x01(\x04R\x14reservedConnectionId\x120\n" +
-	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12\x16\n" +
+	"\x05phase\x18\x01 \x01(\x0e21.multipoolerservice.CopyBidiExecuteResponse.PhaseR\x05phase\x12;\n" +
+	"\x0ereserved_state\x18\n" +
+	" \x01(\v2\x14.query.ReservedStateR\rreservedState\x12\x16\n" +
 	"\x06format\x18\x04 \x01(\x05R\x06format\x12%\n" +
 	"\x0ecolumn_formats\x18\b \x03(\x05R\rcolumnFormats\x12\x12\n" +
 	"\x04data\x18\x05 \x01(\fR\x04data\x12*\n" +
 	"\x06result\x18\x06 \x01(\v2\x12.query.QueryResultR\x06result\x12\x14\n" +
-	"\x05error\x18\a \x01(\tR\x05error\x12+\n" +
-	"\x11remaining_reasons\x18\t \x01(\rR\x10remainingReasons\"3\n" +
+	"\x05error\x18\a \x01(\tR\x05error\"3\n" +
 	"\x05Phase\x12\t\n" +
 	"\x05READY\x10\x00\x12\b\n" +
 	"\x04DATA\x10\x01\x12\n" +
@@ -1753,24 +1630,20 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x06target\x18\x02 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x03 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x04 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\x12W\n" +
-	"\x13reservation_options\x18\x05 \x01(\v2&.multipoolerservice.ReservationOptionsR\x12reservationOptions\"\xdf\x01\n" +
+	"\x13reservation_options\x18\x05 \x01(\v2&.multipoolerservice.ReservationOptionsR\x12reservationOptions\"\x87\x01\n" +
 	"\x1cReserveStreamExecuteResponse\x12*\n" +
-	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x124\n" +
-	"\x16reserved_connection_id\x18\x02 \x01(\x04R\x14reservedConnectionId\x120\n" +
-	"\tpooler_id\x18\x03 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12+\n" +
-	"\x11remaining_reasons\x18\x04 \x01(\rR\x10remainingReasons\"\xed\x01\n" +
+	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
+	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xed\x01\n" +
 	"\x1aConcludeTransactionRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
 	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\x12I\n" +
 	"\n" +
 	"conclusion\x18\x04 \x01(\x0e2).multipoolerservice.TransactionConclusionR\n" +
-	"conclusion\"\xde\x01\n" +
+	"conclusion\"\x86\x01\n" +
 	"\x1bConcludeTransactionResponse\x12*\n" +
-	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12+\n" +
-	"\x11remaining_reasons\x18\x02 \x01(\rR\x10remainingReasons\x124\n" +
-	"\x16reserved_connection_id\x18\x03 \x01(\x04R\x14reservedConnectionId\x120\n" +
-	"\tpooler_id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\"\xa8\x01\n" +
+	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
+	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xa8\x01\n" +
 	" ReleaseReservedConnectionRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
@@ -1839,7 +1712,7 @@ var file_multipoolerservice_proto_goTypes = []any{
 	(*mtrpc.CallerID)(nil),                    // 24: mtrpc.CallerID
 	(*query.ExecuteOptions)(nil),              // 25: query.ExecuteOptions
 	(*query.QueryResult)(nil),                 // 26: query.QueryResult
-	(*clustermetadata.ID)(nil),                // 27: clustermetadata.ID
+	(*query.ReservedState)(nil),               // 27: query.ReservedState
 	(*query.QueryResultPayload)(nil),          // 28: query.QueryResultPayload
 	(*query.PreparedStatement)(nil),           // 29: query.PreparedStatement
 	(*query.Portal)(nil),                      // 30: query.Portal
@@ -1850,19 +1723,19 @@ var file_multipoolerservice_proto_depIdxs = []int32{
 	24, // 1: multipoolerservice.ExecuteQueryRequest.caller_id:type_name -> mtrpc.CallerID
 	25, // 2: multipoolerservice.ExecuteQueryRequest.options:type_name -> query.ExecuteOptions
 	26, // 3: multipoolerservice.ExecuteQueryResponse.result:type_name -> query.QueryResult
-	27, // 4: multipoolerservice.ExecuteQueryResponse.pooler_id:type_name -> clustermetadata.ID
+	27, // 4: multipoolerservice.ExecuteQueryResponse.reserved_state:type_name -> query.ReservedState
 	23, // 5: multipoolerservice.StreamExecuteRequest.target:type_name -> query.Target
 	24, // 6: multipoolerservice.StreamExecuteRequest.caller_id:type_name -> mtrpc.CallerID
 	25, // 7: multipoolerservice.StreamExecuteRequest.options:type_name -> query.ExecuteOptions
 	28, // 8: multipoolerservice.StreamExecuteResponse.result:type_name -> query.QueryResultPayload
-	27, // 9: multipoolerservice.StreamExecuteResponse.pooler_id:type_name -> clustermetadata.ID
+	27, // 9: multipoolerservice.StreamExecuteResponse.reserved_state:type_name -> query.ReservedState
 	23, // 10: multipoolerservice.PortalStreamExecuteRequest.target:type_name -> query.Target
 	29, // 11: multipoolerservice.PortalStreamExecuteRequest.prepared_statement:type_name -> query.PreparedStatement
 	30, // 12: multipoolerservice.PortalStreamExecuteRequest.portal:type_name -> query.Portal
 	24, // 13: multipoolerservice.PortalStreamExecuteRequest.caller_id:type_name -> mtrpc.CallerID
 	25, // 14: multipoolerservice.PortalStreamExecuteRequest.options:type_name -> query.ExecuteOptions
 	28, // 15: multipoolerservice.PortalStreamExecuteResponse.result:type_name -> query.QueryResultPayload
-	27, // 16: multipoolerservice.PortalStreamExecuteResponse.pooler_id:type_name -> clustermetadata.ID
+	27, // 16: multipoolerservice.PortalStreamExecuteResponse.reserved_state:type_name -> query.ReservedState
 	23, // 17: multipoolerservice.DescribeRequest.target:type_name -> query.Target
 	29, // 18: multipoolerservice.DescribeRequest.prepared_statement:type_name -> query.PreparedStatement
 	30, // 19: multipoolerservice.DescribeRequest.portal:type_name -> query.Portal
@@ -1875,20 +1748,20 @@ var file_multipoolerservice_proto_depIdxs = []int32{
 	25, // 26: multipoolerservice.CopyBidiExecuteRequest.options:type_name -> query.ExecuteOptions
 	16, // 27: multipoolerservice.CopyBidiExecuteRequest.reservation_options:type_name -> multipoolerservice.ReservationOptions
 	3,  // 28: multipoolerservice.CopyBidiExecuteResponse.phase:type_name -> multipoolerservice.CopyBidiExecuteResponse.Phase
-	27, // 29: multipoolerservice.CopyBidiExecuteResponse.pooler_id:type_name -> clustermetadata.ID
+	27, // 29: multipoolerservice.CopyBidiExecuteResponse.reserved_state:type_name -> query.ReservedState
 	26, // 30: multipoolerservice.CopyBidiExecuteResponse.result:type_name -> query.QueryResult
 	23, // 31: multipoolerservice.ReserveStreamExecuteRequest.target:type_name -> query.Target
 	24, // 32: multipoolerservice.ReserveStreamExecuteRequest.caller_id:type_name -> mtrpc.CallerID
 	25, // 33: multipoolerservice.ReserveStreamExecuteRequest.options:type_name -> query.ExecuteOptions
 	16, // 34: multipoolerservice.ReserveStreamExecuteRequest.reservation_options:type_name -> multipoolerservice.ReservationOptions
 	26, // 35: multipoolerservice.ReserveStreamExecuteResponse.result:type_name -> query.QueryResult
-	27, // 36: multipoolerservice.ReserveStreamExecuteResponse.pooler_id:type_name -> clustermetadata.ID
+	27, // 36: multipoolerservice.ReserveStreamExecuteResponse.reserved_state:type_name -> query.ReservedState
 	23, // 37: multipoolerservice.ConcludeTransactionRequest.target:type_name -> query.Target
 	24, // 38: multipoolerservice.ConcludeTransactionRequest.caller_id:type_name -> mtrpc.CallerID
 	25, // 39: multipoolerservice.ConcludeTransactionRequest.options:type_name -> query.ExecuteOptions
 	1,  // 40: multipoolerservice.ConcludeTransactionRequest.conclusion:type_name -> multipoolerservice.TransactionConclusion
 	26, // 41: multipoolerservice.ConcludeTransactionResponse.result:type_name -> query.QueryResult
-	27, // 42: multipoolerservice.ConcludeTransactionResponse.pooler_id:type_name -> clustermetadata.ID
+	27, // 42: multipoolerservice.ConcludeTransactionResponse.reserved_state:type_name -> query.ReservedState
 	23, // 43: multipoolerservice.ReleaseReservedConnectionRequest.target:type_name -> query.Target
 	24, // 44: multipoolerservice.ReleaseReservedConnectionRequest.caller_id:type_name -> mtrpc.CallerID
 	25, // 45: multipoolerservice.ReleaseReservedConnectionRequest.options:type_name -> query.ExecuteOptions

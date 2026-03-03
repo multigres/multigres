@@ -30,7 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pb/query"
+	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -39,14 +39,14 @@ type mockGateway struct {
 	// StreamExecute tracking
 	streamExecuteCalled      bool
 	streamExecuteSQL         string
-	streamExecuteOpts        *query.ExecuteOptions
+	streamExecuteOpts        *querypb.ExecuteOptions
 	streamExecuteErr         error
-	streamExecuteReturnState queryservice.ReservedState
+	streamExecuteReturnState *querypb.ReservedState
 
 	// ReserveStreamExecute tracking
 	reserveStreamExecuteCalled bool
 	reserveStreamExecuteSQL    string
-	reserveStreamExecuteResult queryservice.ReservedState
+	reserveStreamExecuteResult *querypb.ReservedState
 	reserveStreamExecuteErr    error
 
 	// QueryServiceByID tracking
@@ -55,16 +55,16 @@ type mockGateway struct {
 
 	// ConcludeTransaction tracking
 	concludeTransactionResult      *sqltypes.Result
-	concludeTransactionReturnState queryservice.ReservedState
+	concludeTransactionReturnState *querypb.ReservedState
 	concludeTransactionErr         error
 
 	// CopyFinalize tracking
 	copyFinalizeResult      *sqltypes.Result
-	copyFinalizeReturnState queryservice.ReservedState
+	copyFinalizeReturnState *querypb.ReservedState
 	copyFinalizeErr         error
 
 	// CopyAbort tracking
-	copyAbortReturnState queryservice.ReservedState
+	copyAbortReturnState *querypb.ReservedState
 	copyAbortErr         error
 
 	// Callback control
@@ -72,7 +72,7 @@ type mockGateway struct {
 }
 
 // StreamExecute implements queryservice.QueryService.
-func (m *mockGateway) StreamExecute(_ context.Context, _ *query.Target, sql string, opts *query.ExecuteOptions, callback func(context.Context, *sqltypes.Result) error) (queryservice.ReservedState, error) {
+func (m *mockGateway) StreamExecute(_ context.Context, _ *querypb.Target, sql string, opts *querypb.ExecuteOptions, callback func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
 	m.streamExecuteCalled = true
 	m.streamExecuteSQL = sql
 	m.streamExecuteOpts = opts
@@ -88,11 +88,11 @@ func (m *mockGateway) StreamExecute(_ context.Context, _ *query.Target, sql stri
 }
 
 // ReserveStreamExecute implements queryservice.QueryService.
-func (m *mockGateway) ReserveStreamExecute(_ context.Context, _ *query.Target, sql string, _ *query.ExecuteOptions, _ *multipoolerpb.ReservationOptions, callback func(context.Context, *sqltypes.Result) error) (queryservice.ReservedState, error) {
+func (m *mockGateway) ReserveStreamExecute(_ context.Context, _ *querypb.Target, sql string, _ *querypb.ExecuteOptions, _ *multipoolerpb.ReservationOptions, callback func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
 	m.reserveStreamExecuteCalled = true
 	m.reserveStreamExecuteSQL = sql
 	if m.reserveStreamExecuteErr != nil {
-		return queryservice.ReservedState{}, m.reserveStreamExecuteErr
+		return nil, m.reserveStreamExecuteErr
 	}
 	if m.callbackResult != nil {
 		_ = callback(context.Background(), m.callbackResult)
@@ -101,7 +101,7 @@ func (m *mockGateway) ReserveStreamExecute(_ context.Context, _ *query.Target, s
 }
 
 // QueryServiceByID implements poolergateway.Gateway.
-func (m *mockGateway) QueryServiceByID(_ context.Context, _ *clustermetadatapb.ID, _ *query.Target) (queryservice.QueryService, error) {
+func (m *mockGateway) QueryServiceByID(_ context.Context, _ *clustermetadatapb.ID, _ *querypb.Target) (queryservice.QueryService, error) {
 	m.queryServiceByIDCalled = true
 	if m.queryServiceByIDErr != nil {
 		return nil, m.queryServiceByIDErr
@@ -110,41 +110,41 @@ func (m *mockGateway) QueryServiceByID(_ context.Context, _ *clustermetadatapb.I
 }
 
 // Unused interface methods.
-func (m *mockGateway) ExecuteQuery(context.Context, *query.Target, string, *query.ExecuteOptions) (*sqltypes.Result, queryservice.ReservedState, error) {
-	return nil, queryservice.ReservedState{}, nil
+func (m *mockGateway) ExecuteQuery(context.Context, *querypb.Target, string, *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
+	return nil, nil, nil
 }
 
-func (m *mockGateway) PortalStreamExecute(context.Context, *query.Target, *query.PreparedStatement, *query.Portal, *query.ExecuteOptions, func(context.Context, *sqltypes.Result) error) (queryservice.ReservedState, error) {
-	return queryservice.ReservedState{}, nil
+func (m *mockGateway) PortalStreamExecute(context.Context, *querypb.Target, *querypb.PreparedStatement, *querypb.Portal, *querypb.ExecuteOptions, func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
+	return nil, nil
 }
 
-func (m *mockGateway) Describe(context.Context, *query.Target, *query.PreparedStatement, *query.Portal, *query.ExecuteOptions) (*query.StatementDescription, error) {
+func (m *mockGateway) Describe(context.Context, *querypb.Target, *querypb.PreparedStatement, *querypb.Portal, *querypb.ExecuteOptions) (*querypb.StatementDescription, error) {
 	return nil, nil
 }
 
 func (m *mockGateway) Close() error { return nil }
 
-func (m *mockGateway) CopyReady(context.Context, *query.Target, string, *query.ExecuteOptions, *multipoolerpb.ReservationOptions) (int16, []int16, queryservice.ReservedState, error) {
-	return 0, nil, queryservice.ReservedState{}, nil
+func (m *mockGateway) CopyReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *multipoolerpb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
+	return 0, nil, nil, nil
 }
 
-func (m *mockGateway) CopySendData(context.Context, *query.Target, []byte, *query.ExecuteOptions) error {
+func (m *mockGateway) CopySendData(context.Context, *querypb.Target, []byte, *querypb.ExecuteOptions) error {
 	return nil
 }
 
-func (m *mockGateway) CopyFinalize(_ context.Context, _ *query.Target, _ []byte, _ *query.ExecuteOptions) (*sqltypes.Result, queryservice.ReservedState, error) {
+func (m *mockGateway) CopyFinalize(_ context.Context, _ *querypb.Target, _ []byte, _ *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return m.copyFinalizeResult, m.copyFinalizeReturnState, m.copyFinalizeErr
 }
 
-func (m *mockGateway) CopyAbort(_ context.Context, _ *query.Target, _ string, _ *query.ExecuteOptions) (queryservice.ReservedState, error) {
+func (m *mockGateway) CopyAbort(_ context.Context, _ *querypb.Target, _ string, _ *querypb.ExecuteOptions) (*querypb.ReservedState, error) {
 	return m.copyAbortReturnState, m.copyAbortErr
 }
 
-func (m *mockGateway) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions) error {
+func (m *mockGateway) ReleaseReservedConnection(context.Context, *querypb.Target, *querypb.ExecuteOptions) error {
 	return nil
 }
 
-func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *query.Target, _ *query.ExecuteOptions, _ multipoolerpb.TransactionConclusion) (*sqltypes.Result, queryservice.ReservedState, error) {
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
@@ -162,13 +162,13 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
@@ -185,9 +185,9 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 
 func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	gw := &mockGateway{
-		reserveStreamExecuteResult: queryservice.ReservedState{
+		reserveStreamExecuteResult: &querypb.ReservedState{
 			ReservedConnectionId: 77,
-			PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		},
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
@@ -205,13 +205,13 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	require.False(t, gw.queryServiceByIDCalled)
 
 	// Verify state was updated with the reserved connection
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, int64(77), ss.ReservedConnectionId)
+	require.Equal(t, uint64(77), ss.ReservedConnectionId)
 }
 
 func TestScatterConn_Case2_ReserveError(t *testing.T) {
@@ -229,7 +229,7 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "reserve failed")
 	// State should not be updated
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
@@ -274,9 +274,9 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 	// authoritative reservation reasons.
 	gw := &mockGateway{
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
-		streamExecuteReturnState: queryservice.ReservedState{
+		streamExecuteReturnState: &querypb.ReservedState{
 			ReservedConnectionId: 42,
-			PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 			ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
 		},
 	}
@@ -285,13 +285,13 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
@@ -301,29 +301,29 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 	require.NoError(t, err)
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, int64(42), ss.ReservedConnectionId)
+	require.Equal(t, uint64(42), ss.ReservedConnectionId)
 	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, ss.ReservationReasons)
 }
 
 func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testing.T) {
-	// When StreamExecute returns a zero ReservedState (connection destroyed) while
+	// When StreamExecute returns a nil ReservedState (connection destroyed) while
 	// in a transaction, the shard state must be cleared and TxnStatus set to Failed.
 	gw := &mockGateway{
-		streamExecuteErr:         errors.New("reserved connection 42 not found"),
-		streamExecuteReturnState: queryservice.ReservedState{}, // zero → destroyed
+		streamExecuteErr: errors.New("reserved connection 42 not found"),
+		// nil streamExecuteReturnState → destroyed
 	}
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultiGatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
@@ -348,13 +348,13 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
@@ -384,13 +384,13 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
@@ -410,9 +410,9 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 	gw := &mockGateway{
 		concludeTransactionResult: &sqltypes.Result{CommandTag: "COMMIT"},
-		concludeTransactionReturnState: queryservice.ReservedState{
+		concludeTransactionReturnState: &querypb.ReservedState{
 			ReservedConnectionId: 42,
-			PoolerID:             poolerID,
+			PoolerId:             poolerID,
 			ReservationReasons:   protoutil.ReasonTempTable,
 		},
 	}
@@ -421,13 +421,13 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             poolerID,
+		PoolerId:             poolerID,
 		ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
 	})
 
@@ -458,13 +458,13 @@ func TestScatterConn_CopyFinalize_ErrorClearsShardState(t *testing.T) {
 	state := handler.NewMultiGatewayConnectionState()
 	conn := newTestConn()
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
 	})
 
@@ -488,13 +488,13 @@ func TestScatterConn_CopyFinalize_ErrorSetsTxnFailed(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
 	})
 
@@ -515,9 +515,9 @@ func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {
 	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 	gw := &mockGateway{
 		copyFinalizeResult: &sqltypes.Result{CommandTag: "COPY 10"},
-		copyFinalizeReturnState: queryservice.ReservedState{
+		copyFinalizeReturnState: &querypb.ReservedState{
 			ReservedConnectionId: 42,
-			PoolerID:             poolerID,
+			PoolerId:             poolerID,
 			ReservationReasons:   protoutil.ReasonTransaction,
 		},
 	}
@@ -526,13 +526,13 @@ func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             poolerID,
+		PoolerId:             poolerID,
 		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
 	})
 
@@ -550,9 +550,9 @@ func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
 	// the shard state should be updated with the authoritative reasons.
 	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 	gw := &mockGateway{
-		copyAbortReturnState: queryservice.ReservedState{
+		copyAbortReturnState: &querypb.ReservedState{
 			ReservedConnectionId: 42,
-			PoolerID:             poolerID,
+			PoolerId:             poolerID,
 			ReservationReasons:   protoutil.ReasonTransaction,
 		},
 	}
@@ -561,13 +561,13 @@ func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             poolerID,
+		PoolerId:             poolerID,
 		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
 	})
 
@@ -580,23 +580,23 @@ func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
 }
 
 func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {
-	// After CopyAbort with a destroyed connection (zero ReservedState),
+	// After CopyAbort with a destroyed connection (nil ReservedState),
 	// the shard state should be cleared.
 	gw := &mockGateway{
-		copyAbortReturnState: queryservice.ReservedState{}, // zero → destroyed
+		// nil copyAbortReturnState → destroyed
 	}
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultiGatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
 	})
 

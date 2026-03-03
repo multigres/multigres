@@ -36,7 +36,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pb/query"
+	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
@@ -70,10 +70,10 @@ func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *Scatter
 func (sc *ScatterConn) applyReservedState(
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
-	target *query.Target,
-	rs queryservice.ReservedState,
+	target *querypb.Target,
+	rs *querypb.ReservedState,
 ) {
-	if rs.ReservedConnectionId == 0 {
+	if rs.GetReservedConnectionId() == 0 {
 		state.ClearReservedConnection(target)
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
@@ -111,13 +111,13 @@ func (sc *ScatterConn) StreamExecute(
 	// Create target for routing
 	// TODO: Add query analysis to determine if this is a read or write query
 	// For now, always route to PRIMARY (safe default)
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{
+	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
@@ -168,7 +168,7 @@ func (sc *ScatterConn) StreamExecute(
 		sc.applyReservedState(conn, state, target, reservedState)
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
-			"reserved_conn_id", reservedState.ReservedConnectionId)
+			"reserved_conn_id", reservedState.GetReservedConnectionId())
 		return nil
 	}
 
@@ -216,13 +216,13 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{
+	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),
 		MaxRows:         uint64(maxRows),
 		SessionSettings: state.GetSessionSettings(),
@@ -270,7 +270,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"tablegroup", tableGroup,
 		"shard", shard,
 		"portal", portalInfo.Portal.Name,
-		"reserved_connection_id", reservedState.ReservedConnectionId)
+		"reserved_connection_id", reservedState.GetReservedConnectionId())
 
 	return nil
 }
@@ -285,7 +285,7 @@ func (sc *ScatterConn) Describe(
 	state *handler.MultiGatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	preparedStatementInfo *preparedstatement.PreparedStatementInfo,
-) (*query.StatementDescription, error) {
+) (*querypb.StatementDescription, error) {
 	sc.logger.DebugContext(ctx, "scatter conn describing",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -294,18 +294,18 @@ func (sc *ScatterConn) Describe(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		Shard:      shard,
 	}
 
-	eo := &query.ExecuteOptions{
+	eo := &querypb.ExecuteOptions{
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
-	var preparedStatement *query.PreparedStatement
-	var portal *query.Portal
+	var preparedStatement *querypb.PreparedStatement
+	var portal *querypb.Portal
 	if portalInfo != nil {
 		preparedStatement = portalInfo.PreparedStatementInfo.PreparedStatement
 		portal = portalInfo.Portal
@@ -365,9 +365,9 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// We cannot call ClearReservedConnection during iteration because it
 	// uses swap-and-truncate which mutates the underlying slice.
 	type shardUpdate struct {
-		target        *query.Target
-		clear         bool                       // true = remove entry, false = set state
-		reservedState queryservice.ReservedState // only used when clear == false
+		target        *querypb.Target
+		clear         bool                   // true = remove entry, false = set state
+		reservedState *querypb.ReservedState // only used when clear == false
 	}
 	var updates []shardUpdate
 	var errs []error
@@ -398,7 +398,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		eo := &query.ExecuteOptions{
+		eo := &querypb.ExecuteOptions{
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: uint64(ss.ReservedConnectionId),
@@ -424,7 +424,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		if reservedState.ReservedConnectionId == 0 {
+		if reservedState.GetReservedConnectionId() == 0 {
 			// Connection fully released by multipooler
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 		} else {
@@ -488,14 +488,14 @@ func (sc *ScatterConn) CopyInitiate(
 		"database", conn.Database())
 
 	// Create target for routing - COPY always goes to PRIMARY
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		Shard:      shard,
 	}
 
 	// Create execute options
-	execOptions := &query.ExecuteOptions{
+	execOptions := &querypb.ExecuteOptions{
 		User:            conn.User(),
 		SessionSettings: state.GetSessionSettings(),
 	}
@@ -528,7 +528,7 @@ func (sc *ScatterConn) CopyInitiate(
 	sc.applyReservedState(conn, state, target, reservedState)
 
 	sc.logger.DebugContext(ctx, "COPY initiated successfully",
-		"reserved_conn_id", reservedState.ReservedConnectionId,
+		"reserved_conn_id", reservedState.GetReservedConnectionId(),
 		"format", format,
 		"num_columns", len(columnFormats))
 
@@ -551,7 +551,7 @@ func (sc *ScatterConn) CopySendData(
 		"shard", shard)
 
 	// Create target for routing
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		Shard:      shard,
@@ -564,7 +564,7 @@ func (sc *ScatterConn) CopySendData(
 	}
 
 	// Build options with reserved connection ID
-	copyOptions := &query.ExecuteOptions{
+	copyOptions := &querypb.ExecuteOptions{
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: uint64(ss.ReservedConnectionId),
@@ -597,7 +597,7 @@ func (sc *ScatterConn) CopyFinalize(
 		"shard", shard)
 
 	// Create target for routing
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		Shard:      shard,
@@ -610,7 +610,7 @@ func (sc *ScatterConn) CopyFinalize(
 	}
 
 	// Build options with reserved connection ID
-	copyOptions := &query.ExecuteOptions{
+	copyOptions := &querypb.ExecuteOptions{
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: uint64(ss.ReservedConnectionId),
@@ -623,7 +623,7 @@ func (sc *ScatterConn) CopyFinalize(
 		// Release(ReleaseError), so the multipooler no longer has it. Pass a zero
 		// ReservedState to applyReservedState so it clears state and (if in a transaction)
 		// marks TxnStatusFailed as defense-in-depth.
-		sc.applyReservedState(conn, state, target, queryservice.ReservedState{})
+		sc.applyReservedState(conn, state, target, nil)
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
 
@@ -658,7 +658,7 @@ func (sc *ScatterConn) CopyAbort(
 		"shard", shard)
 
 	// Create target for routing
-	target := &query.Target{
+	target := &querypb.Target{
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		Shard:      shard,
@@ -673,7 +673,7 @@ func (sc *ScatterConn) CopyAbort(
 	}
 
 	// Build options with reserved connection ID
-	copyOptions := &query.ExecuteOptions{
+	copyOptions := &querypb.ExecuteOptions{
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
 		ReservedConnectionId: uint64(ss.ReservedConnectionId),
@@ -708,7 +708,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 			continue
 		}
 
-		eo := &query.ExecuteOptions{
+		eo := &querypb.ExecuteOptions{
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
 			ReservedConnectionId: uint64(ss.ReservedConnectionId),

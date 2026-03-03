@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -133,9 +132,9 @@ func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultiGa
 		TableGroup: tableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.SetReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 100,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 	return state
