@@ -22,8 +22,10 @@ import (
 	"math/rand/v2"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -151,13 +153,15 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 		}
 
 		if len(shardPoolers) == 0 {
-			return nil, fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s",
+			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"no pooler found for target: tablegroup=%s, shard=%s, type=%s",
 				target.TableGroup, target.Shard, target.PoolerType.String())
 		}
 
 		conn := lb.selectPrimaryByTerm(shardPoolers, excludeSet)
 		if conn == nil {
-			return nil, fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s (no PRIMARY type)",
+			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"no pooler found for target: tablegroup=%s, shard=%s, type=%s (no PRIMARY type)",
 				target.TableGroup, target.Shard, target.PoolerType.String())
 		}
 		return conn, nil
@@ -175,7 +179,8 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 	}
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no pooler found for target: tablegroup=%s, shard=%s, type=%s",
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no pooler found for target: tablegroup=%s, shard=%s, type=%s",
 			target.TableGroup, target.Shard, target.PoolerType.String())
 	}
 
@@ -209,7 +214,8 @@ func (lb *LoadBalancer) GetConnectionByID(poolerID *clustermetadatapb.ID) (*Pool
 
 	conn, exists := lb.connections[idStr]
 	if !exists {
-		return nil, fmt.Errorf("no connection found for pooler ID: %s", idStr)
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no connection found for pooler ID: %s", idStr)
 	}
 
 	return conn, nil

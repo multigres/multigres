@@ -26,7 +26,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -267,121 +266,9 @@ func (pc *PoolerConnection) ServiceClient() multipoolerservice.MultiPoolerServic
 	return pc.client
 }
 
-// StreamExecute executes a query and streams results back via callback.
-func (pc *PoolerConnection) StreamExecute(
-	ctx context.Context,
-	target *query.Target,
-	sql string,
-	options *query.ExecuteOptions,
-	callback func(context.Context, *sqltypes.Result) error,
-) error {
-	return pc.queryService.StreamExecute(ctx, target, sql, options, callback)
-}
-
-// ExecuteQuery executes a query and returns the result.
-// This should be used sparingly only when we know the result set is small.
-func (pc *PoolerConnection) ExecuteQuery(
-	ctx context.Context,
-	target *query.Target,
-	sql string,
-	options *query.ExecuteOptions,
-) (*sqltypes.Result, error) {
-	return pc.queryService.ExecuteQuery(ctx, target, sql, options)
-}
-
-// PortalStreamExecute executes a portal and streams results back via callback.
-func (pc *PoolerConnection) PortalStreamExecute(
-	ctx context.Context,
-	target *query.Target,
-	preparedStatement *query.PreparedStatement,
-	portal *query.Portal,
-	options *query.ExecuteOptions,
-	callback func(context.Context, *sqltypes.Result) error,
-) (queryservice.ReservedState, error) {
-	return pc.queryService.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
-}
-
-// Describe returns metadata about a prepared statement or portal.
-func (pc *PoolerConnection) Describe(
-	ctx context.Context,
-	target *query.Target,
-	preparedStatement *query.PreparedStatement,
-	portal *query.Portal,
-	options *query.ExecuteOptions,
-) (*query.StatementDescription, error) {
-	return pc.queryService.Describe(ctx, target, preparedStatement, portal, options)
-}
-
-// CopyReady initiates a COPY FROM STDIN operation and returns format information.
-func (pc *PoolerConnection) CopyReady(
-	ctx context.Context,
-	target *query.Target,
-	copyQuery string,
-	options *query.ExecuteOptions,
-	reservationOptions *multipoolerservice.ReservationOptions,
-) (int16, []int16, queryservice.ReservedState, error) {
-	return pc.queryService.CopyReady(ctx, target, copyQuery, options, reservationOptions)
-}
-
-// CopySendData sends a chunk of data for an active COPY operation.
-func (pc *PoolerConnection) CopySendData(
-	ctx context.Context,
-	target *query.Target,
-	data []byte,
-	options *query.ExecuteOptions,
-) error {
-	return pc.queryService.CopySendData(ctx, target, data, options)
-}
-
-// CopyFinalize completes a COPY operation, sending final data and returning the result.
-func (pc *PoolerConnection) CopyFinalize(
-	ctx context.Context,
-	target *query.Target,
-	finalData []byte,
-	options *query.ExecuteOptions,
-) (*sqltypes.Result, error) {
-	return pc.queryService.CopyFinalize(ctx, target, finalData, options)
-}
-
-// CopyAbort aborts a COPY operation.
-func (pc *PoolerConnection) CopyAbort(
-	ctx context.Context,
-	target *query.Target,
-	errorMsg string,
-	options *query.ExecuteOptions,
-) error {
-	return pc.queryService.CopyAbort(ctx, target, errorMsg, options)
-}
-
-// ReserveStreamExecute creates a reserved connection and executes a query.
-func (pc *PoolerConnection) ReserveStreamExecute(
-	ctx context.Context,
-	target *query.Target,
-	sql string,
-	options *query.ExecuteOptions,
-	reservationOptions *multipoolerservice.ReservationOptions,
-	callback func(context.Context, *sqltypes.Result) error,
-) (queryservice.ReservedState, error) {
-	return pc.queryService.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
-}
-
-// ConcludeTransaction concludes a transaction with COMMIT or ROLLBACK.
-func (pc *PoolerConnection) ConcludeTransaction(
-	ctx context.Context,
-	target *query.Target,
-	options *query.ExecuteOptions,
-	conclusion multipoolerservice.TransactionConclusion,
-) (*sqltypes.Result, uint32, error) {
-	return pc.queryService.ConcludeTransaction(ctx, target, options, conclusion)
-}
-
-// ReleaseReservedConnection forcefully releases a reserved connection.
-func (pc *PoolerConnection) ReleaseReservedConnection(
-	ctx context.Context,
-	target *query.Target,
-	options *query.ExecuteOptions,
-) error {
-	return pc.queryService.ReleaseReservedConnection(ctx, target, options)
+// QueryService returns the query execution service for this connection.
+func (pc *PoolerConnection) QueryService() queryservice.QueryService {
+	return pc.queryService
 }
 
 // Close stops the health stream goroutine and closes the gRPC connection.
@@ -409,9 +296,6 @@ func (pc *PoolerConnection) Health() *PoolerHealth {
 	defer pc.healthMu.Unlock()
 	return pc.health
 }
-
-// Ensure PoolerConnection implements QueryService
-var _ queryservice.QueryService = (*PoolerConnection)(nil)
 
 // checkConn performs health checking on the pooler connection.
 // It continuously attempts to maintain a health stream, retrying with
@@ -463,6 +347,10 @@ func (pc *PoolerConnection) streamHealth(
 	streamRetrier *retry.Retry,
 ) error {
 	poolerID := pc.ID()
+
+	// Reset timedOut from any previous stream attempt so a shutdown during
+	// this attempt isn't misclassified as a staleness timeout.
+	pc.timedOut.Store(false)
 
 	// Open the health stream.
 	stream, err := pc.client.StreamPoolerHealth(streamCtx, &multipoolerservice.StreamPoolerHealthRequest{})

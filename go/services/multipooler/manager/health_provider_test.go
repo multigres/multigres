@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
 func TestHealthStreamer_BroadcastToSubscribers(t *testing.T) {
