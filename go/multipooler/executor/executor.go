@@ -95,7 +95,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		// so we must explicitly apply settings changes here.
 		if options.SessionSettings != nil {
 			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
-				return nil, fmt.Errorf("failed to apply settings to reserved connection: %w", err)
+				return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
 
@@ -175,7 +175,7 @@ func (e *Executor) StreamExecute(
 		// so we must explicitly apply settings changes here.
 		if options.SessionSettings != nil {
 			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
-				return fmt.Errorf("failed to apply settings to reserved connection: %w", err)
+				return e.buildReservedState(reservedConn), fmt.Errorf("failed to apply settings to reserved connection: %w", err)
 			}
 		}
 
