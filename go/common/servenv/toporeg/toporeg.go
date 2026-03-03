@@ -21,6 +21,7 @@ package toporeg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -84,6 +85,37 @@ func Register(register func(ctx context.Context) error, unregister func(ctx cont
 		}
 	})
 	return tp
+}
+
+// RegisterSynchronous registers the component synchronously, retrying with
+// exponential backoff and jitter until successful or the context expires.
+// Unlike Register, it blocks until registration succeeds and returns an error
+// if it cannot complete within the context deadline.
+//
+// Use this when the caller must know registration succeeded before proceeding
+// (e.g., claiming a PID prefix that other components depend on).
+func RegisterSynchronous(ctx context.Context, register func(ctx context.Context) error, unregister func(ctx context.Context) error) (*TopoReg, error) {
+	tp := &TopoReg{}
+	tp.ctx, tp.cancel = context.WithCancel(context.TODO())
+	tp.logger = servenv.GetLogger()
+	tp.unregister = unregister
+
+	r := retry.New(50*time.Millisecond, 1*time.Second)
+	for _, err := range r.Attempts(ctx) {
+		if err != nil {
+			return nil, fmt.Errorf("registration failed: %w", err)
+		}
+
+		regCtx, cancel := context.WithTimeout(ctx, time.Second)
+		err = register(regCtx)
+		cancel()
+		if err == nil {
+			tp.logger.InfoContext(ctx, "Successfully registered component with topology")
+			return tp, nil
+		}
+	}
+
+	return nil, errors.New("registration failed")
 }
 
 // Unregister unregisters the component from topology.

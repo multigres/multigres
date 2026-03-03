@@ -29,7 +29,6 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
@@ -523,10 +522,11 @@ func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.StoreReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-	}, protoutil.ReasonTransaction)
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
 
 	h.ConnectionClosed(conn)
 
@@ -549,10 +549,11 @@ func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T
 		TableGroup: "tg1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	state.StoreReservedConnection(target, queryservice.ReservedState{
+	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
-	}, protoutil.ReasonCopy)
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonCopy,
+	})
 
 	h.ConnectionClosed(conn)
 

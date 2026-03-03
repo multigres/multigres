@@ -266,8 +266,7 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 
 	// Connect to multigateway for writes (realistic client path)
 	require.NotNil(t, setup.Multigateway, "multigateway should be available in shared setup")
-	gatewayConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, TestPostgresPassword)
+	gatewayConnStr := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	gatewayDB, err := sql.Open("postgres", gatewayConnStr)
 	require.NoError(t, err)
 	defer gatewayDB.Close()

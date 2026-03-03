@@ -21,6 +21,16 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
+// CancelHandler handles PostgreSQL cancel requests, potentially routing them
+// to remote gateways when the cancel lands on a different gateway than the
+// original query. This is separate from Handler because only multigateway
+// needs cross-gateway cancel routing.
+type CancelHandler interface {
+	// HandleCancelRequest processes a cancel request with the given PID and secret key.
+	// The PID encodes a gateway prefix and local connection ID.
+	HandleCancelRequest(ctx context.Context, processID, secretKey uint32)
+}
+
 // Handler defines the interface for query execution.
 // This abstracts the actual query processing from the protocol layer,
 // allowing the protocol implementation to be decoupled from routing/execution logic.

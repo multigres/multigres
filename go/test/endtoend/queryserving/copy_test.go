@@ -44,8 +44,7 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect to multigateway using pgx for COPY protocol support
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 
 	ctx := utils.WithTimeout(t, 150*time.Second)
 
@@ -500,8 +499,7 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
@@ -660,8 +658,7 @@ func TestMultiGateway_CopyInMultiStatement(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 
