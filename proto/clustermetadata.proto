@@ -161,6 +161,10 @@ message MultiGateway {
 
   // Map of named ports. Normally this should include postgres and grpc.
   map<string, int32> port_map = 3;
+
+  // pid_prefix is the 12-bit prefix encoded into PIDs sent to clients.
+  // Used for cross-gateway cancel request routing. Assigned at registration time.
+  uint32 pid_prefix = 4;
 }
 
 // MultiOrch represents information about a running instance of multiorch.

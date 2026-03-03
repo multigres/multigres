@@ -36,6 +36,20 @@ const (
 	PgSSInternalError         = "XX000" // internal_error
 )
 
+// NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
+// (e.g. CancelRequest). SQLSTATE 57014 (query_canceled).
+func NewQueryCanceled() *PgDiagnostic {
+	return NewPgError("ERROR", PgSSQueryCanceled,
+		"canceling statement due to user request", "")
+}
+
+// NewStatementTimeout creates a PgDiagnostic for a statement timeout expiry.
+// SQLSTATE 57014 (query_canceled).
+func NewStatementTimeout() *PgDiagnostic {
+	return NewPgError("ERROR", PgSSQueryCanceled,
+		"canceling statement due to statement timeout", "")
+}
+
 // MTError defines a Multigres-specific error code for conditions that have no
 // PostgreSQL equivalent. Each instance is a template that produces a
 // *PgDiagnostic via its New method. The ID is a 5-character code (e.g.
