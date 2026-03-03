@@ -125,12 +125,12 @@ func (sc *ScatterConn) StreamExecute(
 	ss := state.GetMatchingShardState(target)
 
 	// Case 1: Already have reserved connection - use it
-	if ss != nil && ss.ReservedConnectionId != 0 {
+	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		sc.logger.DebugContext(ctx, "using existing reserved connection",
-			"reserved_conn_id", ss.ReservedConnectionId)
+			"reserved_conn_id", ss.ReservedState.GetReservedConnectionId())
 
-		eo.ReservedConnectionId = uint64(ss.ReservedConnectionId)
-		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
+		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 		if err != nil {
 			return err
 		}
@@ -236,9 +236,9 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// we are routing the query to the pooler where we got the reserved
 	// connection from. If a reparent happened, then we will get an error
 	// back.
-	if ss != nil && ss.ReservedConnectionId != 0 {
-		eo.ReservedConnectionId = uint64(ss.ReservedConnectionId)
-		qs, err = sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
+	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
+		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 	}
 	if err != nil {
 		return err
@@ -318,9 +318,9 @@ func (sc *ScatterConn) Describe(
 
 	ss := state.GetMatchingShardState(target)
 	// If we have a reserved connection, use it
-	if ss != nil && ss.ReservedConnectionId != 0 {
-		eo.ReservedConnectionId = uint64(ss.ReservedConnectionId)
-		qs, err = sc.gateway.QueryServiceByID(ctx, ss.PoolerID, target)
+	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
+		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 	}
 	if err != nil {
 		return nil, err
@@ -378,7 +378,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// unexpected multi-shard cases are visible before DT is implemented.
 	var txnShardCount int
 	for _, ss := range state.ShardStates {
-		if ss.ReservedConnectionId != 0 && protoutil.HasTransactionReason(ss.ReservationReasons) {
+		if ss.ReservedState.GetReservedConnectionId() != 0 && protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
 			txnShardCount++
 		}
 	}
@@ -391,20 +391,20 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// Only conclude on shards that have the transaction reason.
 	// Continue on errors so all shards get concluded.
 	for _, ss := range state.ShardStates {
-		if ss.ReservedConnectionId == 0 {
+		if ss.ReservedState.GetReservedConnectionId() == 0 {
 			continue
 		}
-		if !protoutil.HasTransactionReason(ss.ReservationReasons) {
+		if !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
 			continue
 		}
 
 		eo := &querypb.ExecuteOptions{
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
-			ReservedConnectionId: uint64(ss.ReservedConnectionId),
+			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
 
-		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, ss.Target)
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), ss.Target)
 		if err != nil {
 			// Connection lost — mark for clearing, continue to other shards
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
@@ -506,8 +506,8 @@ func (sc *ScatterConn) CopyInitiate(
 	// pass ReservationOptions so CopyReady creates a connection with the pending BEGIN.
 	var reservationOpts *multipoolerpb.ReservationOptions
 	ss := state.GetMatchingShardState(target)
-	if ss != nil && ss.ReservedConnectionId != 0 {
-		execOptions.ReservedConnectionId = uint64(ss.ReservedConnectionId)
+	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
+		execOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 	} else if conn.IsInTransaction() {
 		// Deferred BEGIN: pass transaction reservation options so the executor
 		// executes BEGIN on the new connection before initiating COPY.
@@ -559,7 +559,7 @@ func (sc *ScatterConn) CopySendData(
 
 	// Get the reserved connection ID from shard state
 	ss := state.GetMatchingShardState(target)
-	if ss == nil || ss.ReservedConnectionId == 0 {
+	if ss == nil || ss.ReservedState.GetReservedConnectionId() == 0 {
 		return errors.New("no active COPY connection")
 	}
 
@@ -567,7 +567,7 @@ func (sc *ScatterConn) CopySendData(
 	copyOptions := &querypb.ExecuteOptions{
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
-		ReservedConnectionId: uint64(ss.ReservedConnectionId),
+		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
 	// Send data via gateway
@@ -605,7 +605,7 @@ func (sc *ScatterConn) CopyFinalize(
 
 	// Get the reserved connection ID from shard state
 	ss := state.GetMatchingShardState(target)
-	if ss == nil || ss.ReservedConnectionId == 0 {
+	if ss == nil || ss.ReservedState.GetReservedConnectionId() == 0 {
 		return errors.New("no active COPY connection")
 	}
 
@@ -613,7 +613,7 @@ func (sc *ScatterConn) CopyFinalize(
 	copyOptions := &querypb.ExecuteOptions{
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
-		ReservedConnectionId: uint64(ss.ReservedConnectionId),
+		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
 	// Finalize the COPY operation via gateway
@@ -666,7 +666,7 @@ func (sc *ScatterConn) CopyAbort(
 
 	// Get the reserved connection ID from shard state
 	ss := state.GetMatchingShardState(target)
-	if ss == nil || ss.ReservedConnectionId == 0 {
+	if ss == nil || ss.ReservedState.GetReservedConnectionId() == 0 {
 		// Already cleaned up
 		sc.logger.DebugContext(ctx, "COPY already cleaned up")
 		return nil
@@ -676,7 +676,7 @@ func (sc *ScatterConn) CopyAbort(
 	copyOptions := &querypb.ExecuteOptions{
 		User:                 conn.User(),
 		SessionSettings:      state.GetSessionSettings(),
-		ReservedConnectionId: uint64(ss.ReservedConnectionId),
+		ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 	}
 
 	// Abort the COPY operation via gateway
@@ -704,17 +704,17 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 ) error {
 	var errs []error
 	for _, ss := range state.ShardStates {
-		if ss.ReservedConnectionId == 0 {
+		if ss.ReservedState.GetReservedConnectionId() == 0 {
 			continue
 		}
 
 		eo := &querypb.ExecuteOptions{
 			User:                 conn.User(),
 			SessionSettings:      state.GetSessionSettings(),
-			ReservedConnectionId: uint64(ss.ReservedConnectionId),
+			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
 
-		qs, err := sc.gateway.QueryServiceByID(ctx, ss.PoolerID, ss.Target)
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), ss.Target)
 		if err != nil {
 			sc.logger.ErrorContext(ctx, "release: pooler lookup failed",
 				"target", ss.Target, "error", err)
@@ -725,7 +725,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 		if err := qs.ReleaseReservedConnection(ctx, ss.Target, eo); err != nil {
 			sc.logger.ErrorContext(ctx, "release: RPC failed",
 				"target", ss.Target,
-				"reserved_conn_id", ss.ReservedConnectionId,
+				"reserved_conn_id", ss.ReservedState.GetReservedConnectionId(),
 				"error", err)
 			errs = append(errs, err)
 		}

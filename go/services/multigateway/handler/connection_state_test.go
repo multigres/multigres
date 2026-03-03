@@ -219,9 +219,9 @@ func TestTransactionState_ShardStateOperations(t *testing.T) {
 	// Verify it's retrievable
 	ss = state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, uint64(42), ss.ReservedConnectionId)
-	require.Equal(t, "cell1", ss.PoolerID.Cell)
-	require.Equal(t, protoutil.ReasonTransaction, ss.ReservationReasons)
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, "cell1", ss.ReservedState.GetPoolerId().GetCell())
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
 
 	// Update the same target's reserved connection (reasons should be replaced, not OR'd)
 	rs2 := &query.ReservedState{
@@ -233,10 +233,10 @@ func TestTransactionState_ShardStateOperations(t *testing.T) {
 
 	ss = state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, uint64(99), ss.ReservedConnectionId)
-	require.Equal(t, "cell2", ss.PoolerID.Cell)
+	require.Equal(t, uint64(99), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, "cell2", ss.ReservedState.GetPoolerId().GetCell())
 	// Reasons should be replaced (set), not OR'd
-	require.Equal(t, protoutil.ReasonTempTable, ss.ReservationReasons)
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
 
 	// Different target should not match
 	otherTarget := newTestTarget("tg2")

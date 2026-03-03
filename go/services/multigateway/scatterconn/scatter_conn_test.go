@@ -211,7 +211,7 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	}
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, uint64(77), ss.ReservedConnectionId)
+	require.Equal(t, uint64(77), ss.ReservedState.GetReservedConnectionId())
 }
 
 func TestScatterConn_Case2_ReserveError(t *testing.T) {
@@ -301,8 +301,8 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 	require.NoError(t, err)
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, uint64(42), ss.ReservedConnectionId)
-	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, ss.ReservationReasons)
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
 }
 
 func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testing.T) {
@@ -445,7 +445,7 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	// Shard state should still exist but with updated reasons
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss, "shard state should still exist")
-	require.Equal(t, protoutil.ReasonTempTable, ss.ReservationReasons)
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
 }
 
 func TestScatterConn_CopyFinalize_ErrorClearsShardState(t *testing.T) {
@@ -542,7 +542,7 @@ func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {
 	require.NoError(t, err)
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss, "shard state should still exist")
-	require.Equal(t, protoutil.ReasonTransaction, ss.ReservationReasons)
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
 }
 
 func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
@@ -576,7 +576,7 @@ func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
 	require.NoError(t, err)
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss, "shard state should still exist")
-	require.Equal(t, protoutil.ReasonTransaction, ss.ReservationReasons)
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
 }
 
 func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {

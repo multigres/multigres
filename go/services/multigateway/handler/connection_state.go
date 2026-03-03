@@ -21,7 +21,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -71,19 +70,9 @@ type ShardState struct {
 	// Target stores the information about the shard
 	Target *query.Target
 
-	// PoolerID is the pooler ID we are going to be running the queries against.
-	// This is particularly useful to ensure that we detect the case of a reparent when we are
-	// holding a reserved connection and the primary pooler changes.
-	PoolerID *clustermetadata.ID
-
-	// ReservedConnectionId is the connection ID of the reserved connection being held.
-	ReservedConnectionId uint64
-
-	// ReservationReasons is a bitmask of protoutil.Reason* constants tracking why
-	// this connection is reserved. A connection can be reserved for multiple reasons
-	// simultaneously (e.g., transaction AND temp table). The connection should only
-	// be fully released when all reasons are cleared.
-	ReservationReasons uint32
+	// ReservedState holds the authoritative reservation state from the multipooler,
+	// including the pooler ID, reserved connection ID, and reservation reasons bitmask.
+	ReservedState *query.ReservedState
 }
 
 // NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.
@@ -142,16 +131,12 @@ func (m *MultiGatewayConnectionState) SetReservedConnection(target *query.Target
 	defer m.mu.Unlock()
 	for _, ss := range m.ShardStates {
 		if protoutil.TargetEquals(ss.Target, target) {
-			ss.PoolerID = rs.GetPoolerId()
-			ss.ReservedConnectionId = rs.GetReservedConnectionId()
-			ss.ReservationReasons = rs.GetReservationReasons()
+			ss.ReservedState = rs
 			return
 		}
 	}
 	ss := NewShardState(target)
-	ss.PoolerID = rs.GetPoolerId()
-	ss.ReservedConnectionId = rs.GetReservedConnectionId()
-	ss.ReservationReasons = rs.GetReservationReasons()
+	ss.ReservedState = rs
 	m.ShardStates = append(m.ShardStates, ss)
 }
 
