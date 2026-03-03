@@ -17,7 +17,6 @@ package queryserving
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 	"time"
 
@@ -44,8 +43,7 @@ func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t, shardsetup.WithEnabledMonitor())
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 
 	// Step 1: Verify baseline query works through multigateway.
 	db, err := sql.Open("postgres", connStr)

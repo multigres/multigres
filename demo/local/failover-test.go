@@ -65,6 +65,7 @@ type PoolerInfo struct {
 	Cell      string
 	ServiceID string
 	PoolerDir string
+	PgUser    string
 	PgPort    int
 }
 
@@ -389,6 +390,7 @@ func getPoolerInfo(cell, serviceID string, config *Config) *PoolerInfo {
 		ServiceID: serviceID,
 		PoolerDir: cellConfig.Multipooler.PoolerDir,
 		PgPort:    cellConfig.Pgctld.PgPort,
+		PgUser:    cellConfig.Pgctld.PgUser,
 	}
 }
 
@@ -715,7 +717,7 @@ func printReplicationStatus(ctx context.Context, config *Config) {
 
 func runSQLQuery(poolerInfo *PoolerInfo, query string) string {
 	socketPath := filepath.Join(poolerInfo.PoolerDir, "pg_sockets")
-	connStr := fmt.Sprintf("host=%s port=%d user=postgres database=postgres sslmode=disable", socketPath, poolerInfo.PgPort)
+	connStr := fmt.Sprintf("host=%s port=%d user=%s database=postgres sslmode=disable", socketPath, poolerInfo.PgPort, poolerInfo.PgUser)
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {

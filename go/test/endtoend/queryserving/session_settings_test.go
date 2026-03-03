@@ -46,8 +46,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect to multigateway
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -292,8 +291,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 	// Test 8: Extended query protocol with pgx
 	t.Run("extended query protocol", func(t *testing.T) {
 		// Create pgx connection
-		pgxConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-			setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+		pgxConnStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
 		conn, err := pgx.Connect(ctx, pgxConnStr)
 		require.NoError(t, err, "failed to create pgx connection")
 		defer conn.Close(ctx)
