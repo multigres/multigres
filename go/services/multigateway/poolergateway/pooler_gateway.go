@@ -83,8 +83,8 @@ func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetada
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard)
 
-	// Return the connection (implements QueryService)
-	return conn, nil
+	// Return the connection's QueryService
+	return conn.QueryService(), nil
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -120,7 +120,7 @@ func (pg *PoolerGateway) StreamExecute(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.StreamExecute(ctx, target, sql, options, callback)
+	return conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
 }
 
 // ExecuteQuery implements queryservice.QueryService.
@@ -143,7 +143,7 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.ExecuteQuery(ctx, target, sql, options)
+	return conn.QueryService().ExecuteQuery(ctx, target, sql, options)
 }
 
 // PortalStreamExecute implements queryservice.QueryService.
@@ -171,7 +171,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+	return conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 }
 
 // Describe implements queryservice.QueryService.
@@ -198,7 +198,7 @@ func (pg *PoolerGateway) Describe(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.Describe(ctx, target, preparedStatement, portal, options)
+	return conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
 }
 
 // Close implements queryservice.QueryService.
@@ -272,7 +272,7 @@ func (pg *PoolerGateway) CopyReady(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.CopyReady(ctx, target, copyQuery, options, reservationOptions)
+	return conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 }
 
 // CopySendData implements queryservice.QueryService.
@@ -296,7 +296,7 @@ func (pg *PoolerGateway) CopySendData(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.CopySendData(ctx, target, data, options)
+	return conn.QueryService().CopySendData(ctx, target, data, options)
 }
 
 // CopyFinalize implements queryservice.QueryService.
@@ -320,7 +320,7 @@ func (pg *PoolerGateway) CopyFinalize(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.CopyFinalize(ctx, target, finalData, options)
+	return conn.QueryService().CopyFinalize(ctx, target, finalData, options)
 }
 
 // CopyAbort implements queryservice.QueryService.
@@ -344,7 +344,7 @@ func (pg *PoolerGateway) CopyAbort(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.CopyAbort(ctx, target, errorMsg, options)
+	return conn.QueryService().CopyAbort(ctx, target, errorMsg, options)
 }
 
 // ReserveStreamExecute implements queryservice.QueryService.
@@ -370,7 +370,7 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+	return conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
 }
 
 // ConcludeTransaction implements queryservice.QueryService.
@@ -394,7 +394,7 @@ func (pg *PoolerGateway) ConcludeTransaction(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.ConcludeTransaction(ctx, target, options, conclusion)
+	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion)
 }
 
 // ReleaseReservedConnection implements queryservice.QueryService.
@@ -416,5 +416,5 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	return conn.ReleaseReservedConnection(ctx, target, options)
+	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
 }

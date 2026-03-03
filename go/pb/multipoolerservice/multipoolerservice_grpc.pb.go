@@ -100,7 +100,7 @@ type MultiPoolerServiceClient interface {
 	// confirm the stream is alive.
 	//
 	// Clients MUST implement a staleness timeout. The recommended timeout is provided
-	// in recommended_staleness_timeout_seconds in each response. If no message is
+	// in recommended_staleness_timeout in each response. If no message is
 	// received within this timeout, the pooler should be marked unhealthy.
 	//
 	// Each response contains the full health state (not incremental updates).
@@ -306,7 +306,7 @@ type MultiPoolerServiceServer interface {
 	// confirm the stream is alive.
 	//
 	// Clients MUST implement a staleness timeout. The recommended timeout is provided
-	// in recommended_staleness_timeout_seconds in each response. If no message is
+	// in recommended_staleness_timeout in each response. If no message is
 	// received within this timeout, the pooler should be marked unhealthy.
 	//
 	// Each response contains the full health state (not incremental updates).
