@@ -74,6 +74,9 @@ func NewMetrics() (*Metrics, error) {
 // UpdateFromPgBackRestStatus atomically updates the gauge values from a PgBackRestStatus.
 // A nil status is treated as server-down with restart count 0.
 func (m *Metrics) UpdateFromPgBackRestStatus(s *pgctldpb.PgBackRestStatus) {
+	if m == nil {
+		return
+	}
 	if s == nil || !s.GetRunning() {
 		m.serverUpVal.Store(0)
 		m.restartCountVal.Store(0)
