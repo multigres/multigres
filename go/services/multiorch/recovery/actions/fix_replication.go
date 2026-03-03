@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -174,10 +175,24 @@ func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *multiorchdatapb.PoolerHealthState,
 	primary *multiorchdatapb.PoolerHealthState,
-) error {
+) (retErr error) {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
 		"replica", replica.MultiPooler.Id.Name,
 		"primary", primary.MultiPooler.Id.Name)
+	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.NodeJoin{
+		NodeName: replica.MultiPooler.Id.Name,
+	})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.NodeJoin{
+				NodeName: replica.MultiPooler.Id.Name,
+			})
+		} else {
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.NodeJoin{
+				NodeName: replica.MultiPooler.Id.Name,
+			}, "error", retErr)
+		}
+	}()
 
 	// Get the current consensus term from the primary
 	consensusResp, err := a.rpcClient.ConsensusStatus(ctx, primary.MultiPooler, &consensusdatapb.StatusRequest{})
@@ -512,8 +527,17 @@ func (a *FixReplicationAction) GracePeriod() *types.GracePeriodConfig {
 }
 
 // markPoolerDrained marks a pooler as DRAINED in the topology.
-func (a *FixReplicationAction) markPoolerDrained(ctx context.Context, pooler *multiorchdatapb.PoolerHealthState) error {
-	a.logger.InfoContext(ctx, "marking pooler as DRAINED", "pooler", pooler.MultiPooler.Id.Name)
+func (a *FixReplicationAction) markPoolerDrained(ctx context.Context, pooler *multiorchdatapb.PoolerHealthState) (retErr error) {
+	nodeName := pooler.MultiPooler.Id.Name
+	a.logger.InfoContext(ctx, "marking pooler as DRAINED", "pooler", nodeName)
+	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.NodeDrain{NodeName: nodeName, Reason: "rewind_not_feasible"})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.NodeDrain{NodeName: nodeName, Reason: "rewind_not_feasible"})
+		} else {
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.NodeDrain{NodeName: nodeName, Reason: "rewind_not_feasible"}, "error", retErr)
+		}
+	}()
 	_, err := a.topoStore.UpdateMultiPoolerFields(ctx, pooler.MultiPooler.Id, func(mp *clustermetadatapb.MultiPooler) error {
 		mp.Type = clustermetadatapb.PoolerType_DRAINED
 		return nil

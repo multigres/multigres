@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -67,7 +68,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 }
 
 // backupLocked performs a backup. Caller must hold the action lock.
-func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (string, error) {
+func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
@@ -101,6 +102,18 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 	if err != nil {
 		return "", err
 	}
+
+	// Emit Started now that we have a correlation ID and parameters are valid.
+	// BackupName uses effectiveJobID since the actual pgbackrest label isn't assigned yet.
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.BackupAttempt{BackupName: effectiveJobID})
+	defer func() {
+		if retErr == nil {
+			// retBackupID is set to the actual pgbackrest label by the success return.
+			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.BackupAttempt{BackupName: retBackupID})
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.BackupAttempt{BackupName: effectiveJobID}, "error", retErr)
+		}
+	}()
 
 	// Execute pgbackrest backup command
 	ctx, cancel := context.WithTimeout(ctx, backup.BackupTimeout)
@@ -212,12 +225,21 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 
 // restoreFromBackupLocked performs the restore. Caller must hold the action lock
 // and monitoring must be disabled to avoid interference.
-func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) error {
+func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 
 	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_type", pm.backupConfig.Type(), "backup_id", backupID)
+
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.RestoreAttempt{BackupName: backupID})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.RestoreAttempt{BackupName: backupID})
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.RestoreAttempt{BackupName: backupID}, "error", retErr)
+		}
+	}()
 
 	// Check that this is a standby, not a primary
 	poolerType := pm.getPoolerType()

@@ -26,6 +26,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -856,7 +857,7 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 // - By orchestrator when fixing a broken shard.
 // - When performing a Planned demotion.
 // - When receiving a SIGTERM and the pooler needs to shutdown.
-func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (*multipoolermanagerdatapb.EmergencyDemoteResponse, error) {
+func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm int64, drainTimeout time.Duration, force bool) (_ *multipoolermanagerdatapb.EmergencyDemoteResponse, retErr error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -880,6 +881,16 @@ func (pm *MultiPoolerManager) EmergencyDemote(ctx context.Context, consensusTerm
 	if err := pm.validateTerm(ctx, consensusTerm, force); err != nil {
 		return nil, err
 	}
+
+	nodeName := pm.serviceID.GetName()
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: nodeName, Reason: "emergency"})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PrimaryDemotion{NodeName: nodeName, Reason: "emergency"})
+		} else {
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PrimaryDemotion{NodeName: nodeName, Reason: "emergency"}, "error", retErr)
+		}
+	}()
 
 	// Perform the actual demotion
 	resp, err := pm.emergencyDemoteLocked(ctx, consensusTerm, drainTimeout)

@@ -212,7 +212,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	monitorRunner := timer.NewPeriodicRunner(ctx, monitorRetryInterval)
 
 	pm := &MultiPoolerManager{
-		logger:                 logger,
+		logger:                 logger.With("pooler_name", multiPooler.Id.GetName()),
 		config:                 config,
 		topoClient:             config.TopoClient,
 		serviceID:              multiPooler.Id,
