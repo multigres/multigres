@@ -30,8 +30,8 @@ make clean      # Remove build artifacts
 
 ```bash
 /mt-dev unit all                          # All unit tests
-/mt-dev unit ./go/multipooler/...         # Specific package
-/mt-dev unit ./go/multipooler TestConnPool # Specific test
+/mt-dev unit ./go/services/multipooler/...         # Specific package
+/mt-dev unit ./go/services/multipooler TestConnPool # Specific test
 ```
 
 **Integration tests** (end-to-end, slower):
