@@ -54,7 +54,7 @@ func (m *mockConnection) ApplySettings(ctx context.Context, settings *connstate.
 	return nil
 }
 
-func (m *mockConnection) ResetSettings(ctx context.Context) error {
+func (m *mockConnection) ResetAllSettings(ctx context.Context) error {
 	m.settings = nil
 	return nil
 }

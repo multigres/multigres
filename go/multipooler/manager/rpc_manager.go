@@ -1436,14 +1436,11 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
 	}
 
-	// Close manager and stop PostgreSQL
-	pm.logger.InfoContext(ctx, "Closing manager and stopping PostgreSQL for pg_rewind")
-
-	// Close the manager to release database connections
-	if err := pm.Close(); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to close manager before pg_rewind", "error", err)
-		// Continue - we'll try to stop postgres anyway
-	}
+	// Pause manager and stop PostgreSQL for pg_rewind
+	// resume() is called explicitly after PostgreSQL restart, and also via defer for cleanup
+	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL for pg_rewind")
+	resume := pm.Pause()
+	defer resume() // Safety net: ensure manager is resumed even if errors occur
 
 	stopReq := &pgctldpb.StopRequest{
 		Mode: "fast",
@@ -1512,11 +1509,8 @@ func (pm *MultiPoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to start PostgreSQL as standby after pg_rewind")
 	}
 
-	// Reopen the manager
-	if err := pm.Open(); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to reopen query service controller after restart", "error", err)
-		return nil, mterrors.Wrap(err, "failed to reopen query service controller")
-	}
+	// Resume manager now that PostgreSQL is running
+	resume()
 
 	// Wait for database connection
 	if err := pm.waitForDatabaseConnection(ctx); err != nil {

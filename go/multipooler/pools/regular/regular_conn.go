@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -100,32 +101,64 @@ func (c *Conn) Close() error {
 	return c.conn.Close()
 }
 
-// ApplySettings applies the given settings to the connection.
-// This executes SET commands for each variable in the settings.
-func (c *Conn) ApplySettings(ctx context.Context, settings *connstate.Settings) error {
-	if settings == nil || settings.IsEmpty() {
+// ApplySettings transitions the connection to the desired settings state.
+// It diffs current tracked settings against desired: executes individual RESET
+// commands for removed variables, then SET SESSION commands for all desired
+// variables. This is safe inside transactions (individual RESETs don't destroy
+// SET LOCAL settings, unlike RESET ALL).
+func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) error {
+	current := c.State().GetSettings()
+
+	// If desired is nil/empty, reset all current settings to reach a clean state.
+	if desired == nil || desired.IsEmpty() {
+		if current == nil || current.IsEmpty() {
+			return nil
+		}
+		return c.ResetAllSettings(ctx)
+	}
+
+	// Build SQL: RESET removed variables, then SET desired variables.
+	var b strings.Builder
+
+	// RESET variables present in current but absent from desired.
+	if current != nil {
+		for name := range current.Vars {
+			if _, ok := desired.Vars[name]; !ok {
+				if b.Len() > 0 {
+					b.WriteString("; ")
+				}
+				b.WriteString("RESET ")
+				b.WriteString(name)
+			}
+		}
+	}
+
+	// SET all desired variables.
+	applySQL := desired.ApplyQuery()
+	if applySQL != "" {
+		if b.Len() > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(applySQL)
+	}
+
+	if b.Len() == 0 {
 		return nil
 	}
 
-	// Generate and execute the SET commands.
-	sql := settings.ApplyQuery()
-	if sql == "" {
-		return nil
-	}
-
-	_, err := c.Query(ctx, sql)
+	_, err := c.Query(ctx, b.String())
 	if err != nil {
 		return fmt.Errorf("failed to apply settings: %w", err)
 	}
 
-	// Update state.
-	c.State().SetSettings(settings)
+	// Update tracked state.
+	c.State().SetSettings(desired)
 	return nil
 }
 
-// ResetSettings resets the connection to a clean state.
+// ResetAllSettings resets the connection to a clean state.
 // This executes RESET ALL to clear all session variables.
-func (c *Conn) ResetSettings(ctx context.Context) error {
+func (c *Conn) ResetAllSettings(ctx context.Context) error {
 	state := c.State()
 	if state == nil {
 		return nil
