@@ -83,8 +83,8 @@ func (c *Conn) ApplySettings(_ context.Context, _ *connstate.Settings) error {
 	panic("admin connections do not support ApplySettings")
 }
 
-// ResetSettings is a no-op because admin connections don't have settings.
-func (c *Conn) ResetSettings(_ context.Context) error {
+// ResetAllSettings is a no-op because admin connections don't have settings.
+func (c *Conn) ResetAllSettings(_ context.Context) error {
 	return nil
 }
 

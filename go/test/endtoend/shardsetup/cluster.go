@@ -35,6 +35,12 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
+const (
+	// DefaultTestUser is the PostgreSQL user that tests use when connecting to
+	// multigateway or multipooler as a regular client.
+	DefaultTestUser = "postgres"
+)
+
 // MultipoolerInstance represents a multipooler instance, which is a pair of pgctld + multipooler processes.
 // In multigres, a multipooler always has both: pgctld manages PostgreSQL, multipooler handles pooling.
 type MultipoolerInstance struct {
@@ -371,8 +377,7 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
-		s.MultigatewayPgPort, TestPostgresPassword)
+	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, "sslmode=disable", "connect_timeout=2")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)

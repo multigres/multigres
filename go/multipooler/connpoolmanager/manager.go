@@ -376,6 +376,22 @@ func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bo
 	return pool.GetReservedConn(connID)
 }
 
+// ApplySettingsToConn ensures the connection's settings match the given session
+// settings. ApplySettings handles the diff internally: it resets removed
+// variables via individual RESET commands (safe inside transactions, unlike
+// RESET ALL) and applies desired variables via SET SESSION.
+func (m *Manager) ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error {
+	desired := m.settingsCache.GetOrCreate(settings)
+	current := conn.Settings()
+
+	// Pointer equality — same *Settings means same settings (via cache interning)
+	if desired == current {
+		return nil
+	}
+
+	return conn.ApplySettings(ctx, desired)
+}
+
 // --- Stats ---
 
 // Stats returns statistics for all pools.

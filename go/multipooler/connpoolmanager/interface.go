@@ -71,6 +71,12 @@ type PoolManager interface {
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
+	// ApplySettingsToConn ensures the connection's settings match the given
+	// session settings. If they differ, executes SET commands on the connection
+	// and updates its tracked state. This is needed because reserved connections
+	// bypass the pool's normal ApplySettings mechanism.
+	ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error
+
 	// --- Stats ---
 
 	// Stats returns statistics for all pools.

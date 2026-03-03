@@ -325,10 +325,10 @@ type ShardState struct {
 }
 ```
 
-When `StoreReservedConnection` is called for a target that already
-has a ShardState, the reasons are OR'd together
-(`ss.ReservationReasons |= reasons`). When a reason is removed and
-the bitmask reaches zero, the ShardState entry is removed.
+`SetReservedConnection` stores the authoritative reservation state
+from the multipooler, setting the reasons exactly as returned (not
+OR'd). When a reserved connection is released (ReservedConnectionId
+== 0), the ShardState entry is removed via `ClearReservedConnection`.
 
 ## RPCs
 

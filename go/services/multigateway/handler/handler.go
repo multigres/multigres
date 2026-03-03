@@ -81,33 +81,19 @@ func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
 var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTransaction,
 	"current transaction is aborted, commands ignored until end of transaction block", "")
 
-// errStatementTimeout is the error returned when a statement exceeds the configured timeout.
-// PostgreSQL returns SQLSTATE 57014 (query_canceled) for this condition.
-var errStatementTimeout = mterrors.NewPgError("ERROR", mterrors.PgSSQueryCanceled,
-	"canceling statement due to statement timeout", "")
-
-// executeWithTimeout wraps a function call with statement timeout enforcement.
-// It resolves the effective timeout from per-query directive, session variable, and flag,
-// then wraps ctx with context.WithTimeout if the timeout is > 0.
-// If the function returns an error and the context deadline was exceeded, it returns
-// errStatementTimeout (SQLSTATE 57014) to match PostgreSQL behavior.
-func (h *MultiGatewayHandler) executeWithTimeout(ctx context.Context, state *MultiGatewayConnectionState, query ast.Stmt, fn func(ctx context.Context) error) error {
+// statementTimeoutCtx resolves the effective statement timeout and returns a
+// context with that deadline applied. The returned cancel function must always
+// be called (use defer). The caller (conn.go's queryContextError) is
+// responsible for mapping DeadlineExceeded to the appropriate PostgreSQL error.
+func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *MultiGatewayConnectionState, query ast.Stmt) (context.Context, context.CancelFunc) {
 	timeout := ResolveStatementTimeout(
 		ParseStatementTimeoutDirective(query),
 		state.GetStatementTimeout(),
 	)
-
 	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+		return context.WithTimeout(ctx, timeout)
 	}
-
-	err := fn(ctx)
-	if timeout > 0 && err != nil && ctx.Err() == context.DeadlineExceeded {
-		return errStatementTimeout
-	}
-	return err
+	return ctx, func() {}
 }
 
 // HandleQuery processes a simple query protocol message ('Q').
@@ -150,9 +136,9 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 
 	// Single statement - execute with timeout enforcement
-	err = h.executeWithTimeout(ctx, st, asts[0], func(ctx context.Context) error {
-		return h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], callback)
-	})
+	ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
+	defer cancel()
+	err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], callback)
 	if err != nil {
 		// If we're in an active transaction and the query failed,
 		// transition to aborted state. The client must ROLLBACK to recover.
@@ -260,9 +246,9 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	// Use the original query string for directive parsing (extended protocol preserves comments).
 	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
-	err := h.executeWithTimeout(ctx, state, astStmt, func(ctx context.Context) error {
-		return h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
-	})
+	ctx, cancel := h.statementTimeoutCtx(ctx, state, astStmt)
+	defer cancel()
+	err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
 	if err != nil {
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
