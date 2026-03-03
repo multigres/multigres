@@ -18,8 +18,8 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/queryservice"
-	"github.com/multigres/multigres/go/services/multipooler/executor"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
 // PoolerController defines the control interface for query serving.

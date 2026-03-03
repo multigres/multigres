@@ -26,9 +26,9 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 // maxQueryAttempts is the maximum number of attempts for retrying queries.

@@ -26,10 +26,10 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pools/connpool"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 // --- Test helpers ---

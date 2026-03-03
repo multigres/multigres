@@ -26,8 +26,8 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/services/multipooler/executor"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 

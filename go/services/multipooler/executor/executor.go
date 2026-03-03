@@ -28,12 +28,12 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
-	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
-	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
+	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
 )
 
 // Executor implements the QueryService interface for executing queries against PostgreSQL.

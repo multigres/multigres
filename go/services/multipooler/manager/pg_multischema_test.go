@@ -24,10 +24,10 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/stretchr/testify/assert"
 )

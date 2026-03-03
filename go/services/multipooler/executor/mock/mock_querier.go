@@ -22,8 +22,8 @@ import (
 	"sync"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
 // QueryService is a mock implementation of executor.InternalQueryService for testing.

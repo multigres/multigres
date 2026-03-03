@@ -23,9 +23,9 @@ import (
 
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
-	"github.com/multigres/multigres/go/pb/query"
 )
 
 // Conn wraps a regular connection with transaction/reservation state.

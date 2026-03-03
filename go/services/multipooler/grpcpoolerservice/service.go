@@ -27,10 +27,10 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
-	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 )
 
 // poolerService is the gRPC wrapper for MultiPooler
