@@ -90,6 +90,15 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			return nil, nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
 		}
 
+		// Apply settings if they changed (e.g., SET inside a transaction).
+		// Reserved connections bypass the pool's normal ApplySettings mechanism,
+		// so we must explicitly apply settings changes here.
+		if options.SessionSettings != nil {
+			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
+				return nil, fmt.Errorf("failed to apply settings to reserved connection: %w", err)
+			}
+		}
+
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
 			// Query failed but connection still exists — return current state
@@ -159,6 +168,15 @@ func (e *Executor) StreamExecute(
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
 			return nil, fmt.Errorf("reserved connection %d not found for user %s", options.ReservedConnectionId, user)
+		}
+
+		// Apply settings if they changed (e.g., SET inside a transaction).
+		// Reserved connections bypass the pool's normal ApplySettings mechanism,
+		// so we must explicitly apply settings changes here.
+		if options.SessionSettings != nil {
+			if err := e.poolManager.ApplySettingsToConn(ctx, reservedConn.Conn(), options.SessionSettings); err != nil {
+				return fmt.Errorf("failed to apply settings to reserved connection: %w", err)
+			}
 		}
 
 		if err := reservedConn.QueryStreaming(ctx, sql, callback); err != nil {

@@ -61,7 +61,7 @@ func TestManagerState_InitialState(t *testing.T) {
 
 	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
 	require.NoError(t, err)
-	defer manager.Close()
+	defer manager.Shutdown()
 
 	// Initial state should be Starting
 	assert.Equal(t, ManagerStateStarting, manager.GetState())
@@ -97,7 +97,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	// Create manager with a short timeout for testing
 	manager, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 1*time.Second)
 	require.NoError(t, err)
-	defer manager.Close()
+	defer manager.Shutdown()
 
 	// Start the async loader
 	go manager.loadMultiPoolerFromTopo()
@@ -149,7 +149,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Cancel the manager
-	manager.Close()
+	manager.Shutdown()
 
 	// Wait for the state to become Error due to context cancellation
 	require.Eventually(t, func() bool {
@@ -208,7 +208,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 
 	manager, err := NewMultiPoolerManager(logger, multiPoolerObj, config)
 	require.NoError(t, err)
-	defer manager.Close()
+	defer manager.Shutdown()
 
 	// Start both async loaders (topo and consensus term)
 	go manager.loadMultiPoolerFromTopo()
@@ -355,7 +355,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			}
 			manager, err := NewMultiPoolerManager(logger, multipooler, config)
 			require.NoError(t, err)
-			defer manager.Close()
+			defer manager.Shutdown()
 
 			// Set up mock query service for isInRecovery check during startup
 			mockQueryService := mock.NewQueryService()
@@ -729,7 +729,7 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.NotNil(t, manager)
-				manager.Close()
+				manager.Shutdown()
 			}
 		})
 	}

@@ -24,9 +24,9 @@ import (
 	"log/slog"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
+	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
 
@@ -37,6 +37,10 @@ type Listener struct {
 
 	// handler processes queries for connections.
 	handler Handler
+
+	// cancelHandler handles cancel requests, potentially routing to remote gateways.
+	// When nil, cancel requests are handled locally only.
+	cancelHandler CancelHandler
 
 	// hashProvider provides password hashes for SCRAM authentication.
 	hashProvider scram.PasswordHashProvider
@@ -62,8 +66,18 @@ type Listener struct {
 	// bufPool pools byte buffers for packet I/O.
 	bufPool *bufpool.Pool
 
-	// nextConnectionID is an atomic counter for assigning connection IDs.
-	nextConnectionID atomic.Uint32
+	// gatewayID is the PID prefix from topology, encoded into the upper bits
+	// of connection PIDs for cross-gateway cancel request routing.
+	gatewayID uint32
+
+	// nextConnectionID is the counter for assigning local connection IDs.
+	// Protected by connsMu.
+	nextConnectionID uint32
+
+	// connsMu protects conns and nextConnectionID.
+	connsMu sync.Mutex
+	// conns maps encoded PID to active connections for cancel request lookup.
+	conns map[uint32]*Conn
 
 	// wg tracks active connection handlers.
 	wg sync.WaitGroup
@@ -92,6 +106,11 @@ type ListenerConfig struct {
 
 	// Handler processes queries.
 	Handler Handler
+
+	// GatewayID is the PID prefix assigned from topology for this gateway.
+	// Encoded into the upper bits of connection PIDs for cross-gateway cancel routing.
+	// When 0, connection IDs are used as-is (backward compatible).
+	GatewayID uint32
 
 	// HashProvider provides password hashes for SCRAM authentication.
 	// Required unless TrustAuthProvider is set.
@@ -142,6 +161,8 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		trustAuthProvider: config.TrustAuthProvider,
 		tlsConfig:         config.TLSConfig,
 		logger:            logger,
+		gatewayID:         config.GatewayID,
+		conns:             make(map[uint32]*Conn),
 		ctx:               ctx,
 		cancel:            cancel,
 	}
@@ -180,8 +201,14 @@ func (l *Listener) Serve() error {
 			}
 		}
 
-		// Assign connection ID and create connection.
-		connID := l.nextConnectionID.Add(1)
+		// Assign a unique connection PID, skipping IDs already in use.
+		connID, ok := l.assignConnectionID()
+		if !ok {
+			l.logger.Error("no available connection ID, rejecting connection",
+				"remote_addr", netConn.RemoteAddr())
+			netConn.Close()
+			continue
+		}
 		conn := newConn(netConn, l, connID)
 		conn.handler = l.handler
 		conn.hashProvider = l.hashProvider
@@ -204,6 +231,9 @@ func (l *Listener) handleConnection(conn *Conn) {
 				"panic", x,
 				"remote_addr", conn.RemoteAddr())
 		}
+
+		// Unregister from cancel lookup before cleaning up.
+		l.UnregisterConn(conn.ConnectionID())
 
 		// Notify the handler so it can clean up connection-specific state
 		// (e.g., rollback active transactions, release reserved connections).
@@ -246,6 +276,73 @@ func (l *Listener) Close() error {
 	l.wg.Wait()
 	l.logger.Info("PostgreSQL listener stopped")
 	return err
+}
+
+// assignConnectionID returns the next unused PID for a new connection.
+// It encodes the gateway prefix into the upper bits and skips PIDs that
+// are already in use or have a zero local ID (PID 0 is reserved in PostgreSQL).
+func (l *Listener) assignConnectionID() (uint32, bool) {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+
+	for range pid.MaxLocalConnID {
+		localID := l.nextLocalID()
+		encodedPID := pid.EncodePID(l.gatewayID, localID)
+
+		if _, exists := l.conns[encodedPID]; !exists {
+			return encodedPID, true
+		}
+	}
+	return 0, false
+}
+
+// nextLocalID increments the connection counter, wrapping back to 1
+// when it reaches MaxLocalConnID. This keeps the counter bounded and avoids
+// producing localID=0 (which is reserved in PostgreSQL).
+// Must be called with connsMu held.
+func (l *Listener) nextLocalID() uint32 {
+	l.nextConnectionID++
+	if l.nextConnectionID > pid.MaxLocalConnID {
+		l.nextConnectionID = 1
+	}
+	return l.nextConnectionID
+}
+
+// SetCancelHandler sets the handler for cancel requests.
+// Must be called before Serve().
+func (l *Listener) SetCancelHandler(ch CancelHandler) {
+	l.cancelHandler = ch
+}
+
+// RegisterConn registers a connection in the conn map for cancel request lookup.
+func (l *Listener) RegisterConn(conn *Conn) {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+	l.conns[conn.connectionID] = conn
+}
+
+// UnregisterConn removes a connection from the conn map.
+func (l *Listener) UnregisterConn(pid uint32) {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+	delete(l.conns, pid)
+}
+
+// CancelLocalConnection looks up a connection by PID, verifies the secret key,
+// and cancels its in-flight query. Returns true if the cancel was successful.
+func (l *Listener) CancelLocalConnection(pid, secret uint32) bool {
+	l.connsMu.Lock()
+	conn, ok := l.conns[pid]
+	l.connsMu.Unlock()
+
+	if !ok {
+		return false
+	}
+	if conn.BackendKeyData() != secret {
+		l.logger.Warn("cancel request secret mismatch", "pid", pid)
+		return false
+	}
+	return conn.CancelQuery()
 }
 
 // Addr returns the listener's network address.

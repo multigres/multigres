@@ -223,7 +223,7 @@ func TestConn_ApplySettings_Panics(t *testing.T) {
 	})
 }
 
-func TestConn_ResetSettings_Noop(t *testing.T) {
+func TestConn_ResetAllSettings_Noop(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -237,8 +237,8 @@ func TestConn_ResetSettings_Noop(t *testing.T) {
 	require.NoError(t, err)
 	defer pooled.Recycle()
 
-	// ResetSettings should be a no-op for admin connections.
-	err = pooled.Conn.ResetSettings(ctx)
+	// ResetAllSettings should be a no-op for admin connections.
+	err = pooled.Conn.ResetAllSettings(ctx)
 	assert.NoError(t, err)
 }
 

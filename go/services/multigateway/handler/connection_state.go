@@ -181,16 +181,14 @@ func (m *MultiGatewayConnectionState) SetSessionVariable(name, value string) {
 func (m *MultiGatewayConnectionState) ResetSessionVariable(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.SessionSettings != nil {
-		delete(m.SessionSettings, name)
-	}
+	delete(m.SessionSettings, name)
 }
 
 // ResetAllSessionVariables clears all session variables (from RESET ALL command).
 func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.SessionSettings = make(map[string]string)
+	m.SessionSettings = nil
 }
 
 // SetStatementTimeout sets the session-level statement timeout override.
@@ -256,9 +254,6 @@ func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.SessionSettings == nil {
-		return "", false
-	}
 	value, exists := m.SessionSettings[name]
 	return value, exists
 }
@@ -274,18 +269,4 @@ func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
 	params := make(map[string]string, len(m.StartupParams))
 	maps.Copy(params, m.StartupParams)
 	return params
-}
-
-// RestoreSessionSettings replaces the current session settings with a new map.
-// Used for rolling back RESET ALL failures.
-func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string]string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if settings == nil {
-		m.SessionSettings = nil
-	} else {
-		// Make a copy to prevent external mutation
-		m.SessionSettings = make(map[string]string, len(settings))
-		maps.Copy(m.SessionSettings, settings)
-	}
 }

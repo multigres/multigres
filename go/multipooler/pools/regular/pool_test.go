@@ -202,7 +202,7 @@ func TestConn_Settings(t *testing.T) {
 	assert.Nil(t, pooled.Conn.Settings())
 }
 
-func TestConn_ResetSettings(t *testing.T) {
+func TestConn_ResetAllSettings(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
@@ -224,7 +224,7 @@ func TestConn_ResetSettings(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reset settings.
-	err = pooled.Conn.ResetSettings(ctx)
+	err = pooled.Conn.ResetAllSettings(ctx)
 	require.NoError(t, err)
 
 	// Settings should be nil after reset.
@@ -235,4 +235,131 @@ func TestConn_ResetSettings(t *testing.T) {
 	// Verify both SET and RESET were actually called.
 	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0, "SET command should have been called")
 	assert.Greater(t, server.GetPatternCalledNum(`RESET .+`), 0, "RESET command should have been called")
+}
+
+func TestConn_ApplySettings_ResetsRemovedVariables(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Accept SET, individual RESET, and combined RESET+SET commands.
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET search_path`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET search_path; SET SESSION .+ = .+`, &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	initial := connstate.NewSettings(map[string]string{
+		"search_path": "public",
+		"work_mem":    "256MB",
+	}, 0)
+
+	// Get connection with settings.
+	pooled, err := pool.GetWithSettings(ctx, initial)
+	require.NoError(t, err)
+
+	// Apply desired state that only has work_mem (search_path removed).
+	desired := connstate.NewSettings(map[string]string{
+		"work_mem": "256MB",
+	}, 0)
+	err = pooled.Conn.ApplySettings(ctx, desired)
+	require.NoError(t, err)
+
+	// Verify RESET+SET was called for the combined command.
+	assert.Greater(t, server.GetPatternCalledNum(`RESET search_path; SET SESSION .+ = .+`), 0, "combined RESET+SET should have been called")
+
+	// Verify tracked state is updated to desired.
+	assert.Equal(t, desired, pooled.Conn.Settings())
+
+	pooled.Recycle()
+}
+
+func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET ALL`, &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	initial := connstate.NewSettings(map[string]string{
+		"search_path": "public",
+	}, 0)
+
+	// Get connection with settings.
+	pooled, err := pool.GetWithSettings(ctx, initial)
+	require.NoError(t, err)
+
+	// Apply nil desired — should reset all since current has settings.
+	err = pooled.Conn.ApplySettings(ctx, nil)
+	require.NoError(t, err)
+
+	// Verify RESET ALL was called.
+	assert.Greater(t, server.GetPatternCalledNum(`RESET ALL`), 0, "RESET ALL should have been called")
+
+	// Tracked state should be nil.
+	assert.Nil(t, pooled.Conn.Settings())
+
+	pooled.Recycle()
+}
+
+func TestConn_ApplySettings_NilDesiredNoopWhenClean(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Get a clean connection (no settings).
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+
+	// Apply nil desired — should be a no-op since no current settings.
+	err = pooled.Conn.ApplySettings(ctx, nil)
+	require.NoError(t, err)
+
+	assert.Nil(t, pooled.Conn.Settings())
+
+	pooled.Recycle()
+}
+
+func TestConn_ApplySettings_OverwritesExistingVariable(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	first := connstate.NewSettings(map[string]string{
+		"work_mem": "256MB",
+	}, 0)
+
+	// Get connection with initial settings.
+	pooled, err := pool.GetWithSettings(ctx, first)
+	require.NoError(t, err)
+
+	// Apply new value for the same variable.
+	second := connstate.NewSettings(map[string]string{
+		"work_mem": "512MB",
+	}, 0)
+	err = pooled.Conn.ApplySettings(ctx, second)
+	require.NoError(t, err)
+
+	// Tracked state should have the second value.
+	assert.Equal(t, second, pooled.Conn.Settings())
+
+	pooled.Recycle()
 }
