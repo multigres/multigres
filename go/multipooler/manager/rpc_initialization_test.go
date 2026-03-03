@@ -15,7 +15,9 @@
 package manager
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -219,6 +221,70 @@ func TestHelperMethods(t *testing.T) {
 		_, err = os.Stat(dataDir)
 		assert.True(t, os.IsNotExist(err))
 	})
+}
+
+// TestInitializeEmptyPrimary_EventPoolerName verifies that primary.init events emitted
+// by MultiPoolerManager include the pooler_name attribute from the logger (set via
+// logger.With in NewMultiPoolerManager), not as an explicit struct field.
+func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
+	ctx := t.Context()
+	poolerDir := t.TempDir()
+
+	database := "postgres"
+	backupLocation := t.TempDir()
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	err := store.CreateDatabase(ctx, database, &clustermetadatapb.Database{
+		Name:           database,
+		BackupLocation: utils.FilesystemBackupLocation(backupLocation),
+	})
+	require.NoError(t, err)
+
+	multiPooler := topoclient.NewMultiPooler("pooler-7", "test-cell", "localhost", constants.DefaultTableGroup)
+	multiPooler.Shard = constants.DefaultShard
+	multiPooler.PoolerDir = poolerDir
+	multiPooler.PortMap = map[string]int32{"postgres": 5432}
+	multiPooler.Database = database
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+
+	pm, err := NewMultiPoolerManager(logger, multiPooler, &Config{TopoClient: store})
+	require.NoError(t, err)
+
+	serviceID := multiPooler.Id
+	pm.consensusState = NewConsensusState(poolerDir, serviceID)
+	_, err = pm.consensusState.Load()
+	require.NoError(t, err)
+
+	backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
+	require.NoError(t, err)
+
+	pm.mu.Lock()
+	pm.state = ManagerStateReady
+	pm.backupConfig = backupConfig
+	pm.topoLoaded = true
+	pm.mu.Unlock()
+
+	// InitializeEmptyPrimary will fail (no pgctld client), but both Started and Failed
+	// primary.init events are emitted before the pgctld call and via the defer, respectively.
+	_, _ = pm.InitializeEmptyPrimary(ctx, &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
+		ConsensusTerm: 1,
+	})
+
+	var foundEvents int
+	dec := json.NewDecoder(&buf)
+	for dec.More() {
+		var m map[string]any
+		require.NoError(t, dec.Decode(&m))
+		if m["msg"] != "multigres.event" || m["event_type"] != "primary.init" {
+			continue
+		}
+		assert.Equal(t, "pooler-7", m["pooler_name"], "primary.init event must carry pooler_name from logger")
+		foundEvents++
+	}
+	assert.Equal(t, 2, foundEvents, "expected started and failed primary.init events")
 }
 
 // MonitorPostgres Tests

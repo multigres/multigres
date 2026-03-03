@@ -123,7 +123,6 @@ func (pm *MultiPoolerManager) BeginTerm(ctx context.Context, req *consensusdatap
 	}
 
 	termEvent := eventlog.TermBegin{
-		NodeName:     pm.serviceID.GetName(),
 		NewTerm:      req.Term,
 		PreviousTerm: currentTerm,
 		RevokedRole:  revokedRole,

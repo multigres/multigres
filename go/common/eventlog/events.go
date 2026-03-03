@@ -16,19 +16,15 @@ package eventlog
 
 import "log/slog"
 
-type PrimaryInit struct{ PoolerName string }
+type PrimaryInit struct{}
 
-func (PrimaryInit) EventType() string { return "primary.init" }
-func (e PrimaryInit) LogAttrs() []slog.Attr {
-	return []slog.Attr{slog.String("pooler_name", e.PoolerName)}
-}
+func (PrimaryInit) EventType() string     { return "primary.init" }
+func (PrimaryInit) LogAttrs() []slog.Attr { return nil }
 
-type StandbyInit struct{ PoolerName string }
+type StandbyInit struct{}
 
-func (StandbyInit) EventType() string { return "standby.init" }
-func (e StandbyInit) LogAttrs() []slog.Attr {
-	return []slog.Attr{slog.String("pooler_name", e.PoolerName)}
-}
+func (StandbyInit) EventType() string     { return "standby.init" }
+func (StandbyInit) LogAttrs() []slog.Attr { return nil }
 
 type NodeJoin struct{ NodeName string }
 
@@ -51,12 +47,11 @@ func (e BackupAttempt) LogAttrs() []slog.Attr {
 
 type RestoreAttempt struct {
 	BackupName string
-	NodeName   string
 }
 
 func (RestoreAttempt) EventType() string { return "restore.attempt" }
 func (e RestoreAttempt) LogAttrs() []slog.Attr {
-	return []slog.Attr{slog.String("backup_name", e.BackupName), slog.String("node_name", e.NodeName)}
+	return []slog.Attr{slog.String("backup_name", e.BackupName)}
 }
 
 type PrimaryDemotion struct {
@@ -80,7 +75,6 @@ func (e NodeDrain) LogAttrs() []slog.Attr {
 }
 
 type TermBegin struct {
-	NodeName     string
 	NewTerm      int64
 	PreviousTerm int64
 	RevokedRole  string // "primary" | "standby" | "" (empty = no revoke)
@@ -89,7 +83,6 @@ type TermBegin struct {
 func (TermBegin) EventType() string { return "term.begin" }
 func (e TermBegin) LogAttrs() []slog.Attr {
 	return []slog.Attr{
-		slog.String("node_name", e.NodeName),
 		slog.Int64("new_term", e.NewTerm),
 		slog.Int64("previous_term", e.PreviousTerm),
 		slog.String("revoked_role", e.RevokedRole),
