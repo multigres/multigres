@@ -42,7 +42,7 @@ func TestNextLocalID_WrapsToOne(t *testing.T) {
 	l := testListenerWithGatewayID(t, 1)
 
 	// Set counter just below the max so the next call wraps.
-	l.nextConnectionID.Store(pid.MaxLocalConnID - 1)
+	l.nextConnectionID = pid.MaxLocalConnID - 1
 
 	id1 := l.nextLocalID()
 	assert.Equal(t, uint32(pid.MaxLocalConnID), id1)
@@ -56,7 +56,7 @@ func TestNextLocalID_NeverReturnsZero(t *testing.T) {
 	l := testListenerWithGatewayID(t, 1)
 
 	// Set counter so the increment would land on MaxLocalConnID+1 which wraps.
-	l.nextConnectionID.Store(pid.MaxLocalConnID)
+	l.nextConnectionID = pid.MaxLocalConnID
 
 	id := l.nextLocalID()
 	assert.Equal(t, uint32(1), id)
@@ -115,7 +115,7 @@ func TestAssignConnectionID_WrapsAndFindsSlot(t *testing.T) {
 	l := testListenerWithGatewayID(t, gatewayID)
 
 	// Set counter near the max.
-	l.nextConnectionID.Store(pid.MaxLocalConnID - 1)
+	l.nextConnectionID = pid.MaxLocalConnID - 1
 
 	// Occupy MaxLocalConnID so the first attempt (at max) is taken.
 	occupiedPID := pid.EncodePID(gatewayID, pid.MaxLocalConnID)

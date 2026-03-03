@@ -67,12 +67,19 @@ func TestDecodePID_ZeroPID(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	// Verify bit split adds up to 32.
-	assert.Equal(t, 32, PrefixBits+LocalConnBits)
+	// Verify bit split uses 31 bits, keeping bit 31 clear for positive int32 PIDs.
+	assert.Equal(t, 31, PrefixBits+LocalConnBits)
 
 	// Verify max values.
-	assert.Equal(t, 4095, MaxPrefix)
+	assert.Equal(t, 2047, MaxPrefix)
 	assert.Equal(t, 1048575, MaxLocalConnID)
+}
+
+func TestEncodePID_AlwaysPositiveInt32(t *testing.T) {
+	// With 11-bit prefix, bit 31 is always clear, so PIDs are positive
+	// when interpreted as PostgreSQL's signed Int32.
+	pid := EncodePID(MaxPrefix, MaxLocalConnID)
+	assert.True(t, int32(pid) > 0, "max PID should be positive as int32, got %d", int32(pid))
 }
 
 func TestEncodePID_LocalConnMasked(t *testing.T) {

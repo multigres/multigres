@@ -104,28 +104,32 @@ gateway assigns **virtual PIDs** that encode two pieces of information
 in a single 32-bit integer:
 
 ```text
-┌────────────────────────────────────────┐
-│          32-bit Virtual PID            │
-├────────────────┬───────────────────────┤
-│  Upper 12      │  Lower 20             │
-│  Gateway       │  Local Connection     │
-│  Prefix        │  ID                   │
-├────────────────┼───────────────────────┤
-│  0–4095        │  0–1,048,575          │
-└────────────────┴───────────────────────┘
+┌─────────────────────────────────────────────┐
+│              32-bit Virtual PID             │
+├─────────┬────────────────┬──────────────────┤
+│  Bit 31 │  Bits 20–30    │  Bits 0–19       │
+│  (zero) │  Gateway       │  Local Connection│
+│         │  Prefix        │  ID              │
+├─────────┼────────────────┼──────────────────┤
+│  0      │  0–2,047       │  0–1,048,575     │
+└─────────┴────────────────┴──────────────────┘
 ```
 
 <!-- markdownlint-disable MD013 -->
 
 | Field               | Bits | Range       | Purpose                                       |
 | ------------------- | ---- | ----------- | --------------------------------------------- |
-| Gateway prefix      | 12   | 1–4,095     | Identifies which gateway owns the connection  |
+| Reserved (zero)     | 1    | 0           | Keeps PID positive as PostgreSQL signed Int32  |
+| Gateway prefix      | 11   | 1–2,047     | Identifies which gateway owns the connection  |
 | Local connection ID | 20   | 0–1,048,575 | Identifies the connection within that gateway |
 
 <!-- markdownlint-enable MD013 -->
 
-This gives a capacity of ~4K gateways × ~1M concurrent connections
-per gateway, which is well beyond practical deployment sizes.
+This gives a capacity of ~2K gateways × ~1M concurrent connections
+per gateway, which is well beyond practical deployment sizes. Bit 31
+is kept clear so that PIDs are always positive when interpreted as
+PostgreSQL's signed Int32, avoiding negative PIDs in monitoring tools
+and client libraries (pgAdmin, Datadog, pgx, lib/pq, PgBouncer).
 
 **Prefix assignment:** When a gateway registers in the topology, it
 selects a random unused prefix from the available range, then verifies
@@ -141,7 +145,7 @@ connection registry or contacting a coordination service.
 ## Cross-Gateway Routing
 
 When a cancel request arrives, the cancel manager extracts the
-12-bit prefix and compares it to its own. If they match, the cancel
+11-bit prefix and compares it to its own. If they match, the cancel
 is handled locally. Otherwise, the request must be forwarded.
 
 ### Prefix cache

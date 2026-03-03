@@ -24,7 +24,6 @@ import (
 	"log/slog"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
@@ -71,10 +70,11 @@ type Listener struct {
 	// of connection PIDs for cross-gateway cancel request routing.
 	gatewayID uint32
 
-	// nextConnectionID is an atomic counter for assigning local connection IDs.
-	nextConnectionID atomic.Uint32
+	// nextConnectionID is the counter for assigning local connection IDs.
+	// Protected by connsMu.
+	nextConnectionID uint32
 
-	// connsMu protects conns.
+	// connsMu protects conns and nextConnectionID.
 	connsMu sync.Mutex
 	// conns maps encoded PID to active connections for cancel request lookup.
 	conns map[uint32]*Conn
@@ -282,35 +282,30 @@ func (l *Listener) Close() error {
 // It encodes the gateway prefix into the upper bits and skips PIDs that
 // are already in use or have a zero local ID (PID 0 is reserved in PostgreSQL).
 func (l *Listener) assignConnectionID() (uint32, bool) {
+	l.connsMu.Lock()
+	defer l.connsMu.Unlock()
+
 	for range pid.MaxLocalConnID {
 		localID := l.nextLocalID()
-		pid := pid.EncodePID(l.gatewayID, localID)
+		encodedPID := pid.EncodePID(l.gatewayID, localID)
 
-		l.connsMu.Lock()
-		_, exists := l.conns[pid]
-		l.connsMu.Unlock()
-
-		if !exists {
-			return pid, true
+		if _, exists := l.conns[encodedPID]; !exists {
+			return encodedPID, true
 		}
 	}
 	return 0, false
 }
 
-// nextLocalID atomically increments the connection counter, wrapping back to 1
+// nextLocalID increments the connection counter, wrapping back to 1
 // when it reaches MaxLocalConnID. This keeps the counter bounded and avoids
 // producing localID=0 (which is reserved in PostgreSQL).
+// Must be called with connsMu held.
 func (l *Listener) nextLocalID() uint32 {
-	for {
-		cur := l.nextConnectionID.Load()
-		next := cur + 1
-		if next > pid.MaxLocalConnID {
-			next = 1
-		}
-		if l.nextConnectionID.CompareAndSwap(cur, next) {
-			return next
-		}
+	l.nextConnectionID++
+	if l.nextConnectionID > pid.MaxLocalConnID {
+		l.nextConnectionID = 1
 	}
+	return l.nextConnectionID
 }
 
 // SetCancelHandler sets the handler for cancel requests.

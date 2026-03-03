@@ -128,6 +128,14 @@ func (cm *CancelManager) HandleCancelRequest(ctx context.Context, processID, sec
 // CancelQuery implements MultiGatewayServiceServer.
 // This is called by other gateways forwarding cancel requests via gRPC.
 func (cm *CancelManager) CancelQuery(ctx context.Context, req *multigatewayservicepb.CancelQueryRequest) (*multigatewayservicepb.CancelQueryResponse, error) {
+	prefix, _ := pid.DecodePID(req.ProcessId)
+	if prefix != cm.ownPrefix {
+		cm.logger.WarnContext(ctx, "received cancel for wrong prefix",
+			"expected", cm.ownPrefix,
+			"got", prefix,
+			"process_id", req.ProcessId,
+		)
+	}
 	cm.localCancelFn(req.ProcessId, req.SecretKey)
 	return &multigatewayservicepb.CancelQueryResponse{}, nil
 }

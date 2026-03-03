@@ -20,12 +20,16 @@ package pid
 
 const (
 	// PrefixBits is the number of bits used for the gateway PID prefix.
-	PrefixBits = 12
+	// Limited to 11 bits (max 2047) to keep bit 31 clear, ensuring PIDs
+	// are always positive when interpreted as PostgreSQL's signed Int32.
+	// This avoids negative PIDs in pg_stat_activity, client libraries,
+	// and monitoring tools.
+	PrefixBits = 11
 
 	// LocalConnBits is the number of bits used for the local connection ID.
 	LocalConnBits = 20
 
-	// MaxPrefix is the maximum valid PID prefix value (4095).
+	// MaxPrefix is the maximum valid PID prefix value (2047).
 	MaxPrefix = (1 << PrefixBits) - 1
 
 	// MaxLocalConnID is the maximum valid local connection ID (~1M).
