@@ -119,7 +119,7 @@ in a single 32-bit integer:
 
 | Field               | Bits | Range       | Purpose                                       |
 | ------------------- | ---- | ----------- | --------------------------------------------- |
-| Reserved (zero)     | 1    | 0           | Keeps PID positive as PostgreSQL signed Int32  |
+| Reserved (zero)     | 1    | 0           | Keeps PID positive as PostgreSQL signed Int32 |
 | Gateway prefix      | 11   | 1–2,047     | Identifies which gateway owns the connection  |
 | Local connection ID | 20   | 0–1,048,575 | Identifies the connection within that gateway |
 
@@ -215,7 +215,7 @@ cancellation:
    query are harmless no-ops.
 
 This design means there is no window where a cancel request can
-affect a *subsequent* query on the same connection, the cancel
+affect a _subsequent_ query on the same connection, the cancel
 function only exists for the duration of the active query.
 
 ## Error Handling
