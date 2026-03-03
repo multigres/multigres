@@ -127,6 +127,9 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		return callback(ctx, nil)
 	}
 
+	// TODO: For multi-statement batches, this only captures the first statement's
+	// operation name. Consider recording per-statement metrics or using "MULTI" as
+	// the operation name when len(asts) > 1.
 	operationName := ExtractOperationName(asts[0])
 	ctx, span := startQuerySpan(ctx, operationName, "simple", conn.Database(), conn.User())
 	defer span.End()

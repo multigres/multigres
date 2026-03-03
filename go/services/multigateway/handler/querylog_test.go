@@ -93,4 +93,5 @@ func TestEmitQueryLog_SlowQuery(t *testing.T) {
 
 	output := buf.String()
 	require.Contains(t, output, "level=WARN")
+	require.Contains(t, output, "slow_query=true")
 }

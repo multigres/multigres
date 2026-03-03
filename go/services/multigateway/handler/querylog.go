@@ -69,5 +69,9 @@ func emitQueryLog(ctx context.Context, logger *slog.Logger, entry queryLogEntry,
 		)
 	}
 
+	if entry.TotalDuration >= slowThreshold {
+		attrs = append(attrs, slog.Bool("slow_query", true))
+	}
+
 	logger.LogAttrs(ctx, level, "query completed", attrs...)
 }

@@ -120,6 +120,7 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		"mg.gateway.query.duration",
 		metric.WithDescription("Duration of gateway query execution"),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5, 10, 30, 60),
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.query.duration histogram: %w", err))
@@ -144,6 +145,7 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		"mg.gateway.query.rows_returned",
 		metric.WithDescription("Number of rows returned by queries"),
 		metric.WithUnit("{row}"),
+		metric.WithExplicitBucketBoundaries(0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000),
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.gateway.query.rows_returned histogram: %w", err))
