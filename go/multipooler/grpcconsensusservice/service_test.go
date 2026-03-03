@@ -94,11 +94,11 @@ func TestConsensusService_BeginTerm(t *testing.T) {
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	// Create both PG_VERSION and the marker file since setInitialized() is not exported
+	// Create both PG_VERSION and the marker file since markHasBackup() is not exported
 	pgDataDir := tmpDir + "/pg_data"
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
-	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
+	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_HAS_BACKUP", []byte("has_backup\n"), 0o644))
 	defer pm.Shutdown()
 
 	// Start the async loader
@@ -185,11 +185,11 @@ func TestConsensusService_Status(t *testing.T) {
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	// Create both PG_VERSION and the marker file since setInitialized() is not exported
+	// Create both PG_VERSION and the marker file since markHasBackup() is not exported
 	pgDataDir := tmpDir + "/pg_data"
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
-	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
+	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_HAS_BACKUP", []byte("has_backup\n"), 0o644))
 	defer pm.Shutdown()
 
 	// Start the async loader
@@ -269,11 +269,11 @@ func TestConsensusService_GetLeadershipView(t *testing.T) {
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	// Create both PG_VERSION and the marker file since setInitialized() is not exported
+	// Create both PG_VERSION and the marker file since markHasBackup() is not exported
 	pgDataDir := tmpDir + "/pg_data"
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
-	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
+	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_HAS_BACKUP", []byte("has_backup\n"), 0o644))
 	defer pm.Shutdown()
 
 	// Start the async loader
@@ -348,11 +348,11 @@ func TestConsensusService_CanReachPrimary(t *testing.T) {
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	// Create both PG_VERSION and the marker file since setInitialized() is not exported
+	// Create both PG_VERSION and the marker file since markHasBackup() is not exported
 	pgDataDir := tmpDir + "/pg_data"
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
-	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
+	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_HAS_BACKUP", []byte("has_backup\n"), 0o644))
 	defer pm.Shutdown()
 
 	// Start the async loader
@@ -429,11 +429,11 @@ func TestConsensusService_AllMethods(t *testing.T) {
 	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	// Create both PG_VERSION and the marker file since setInitialized() is not exported
+	// Create both PG_VERSION and the marker file since markHasBackup() is not exported
 	pgDataDir := tmpDir + "/pg_data"
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(pgDataDir+"/PG_VERSION", []byte("16\n"), 0o644))
-	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_INITIALIZED", []byte("initialized\n"), 0o644))
+	require.NoError(t, os.WriteFile(pgDataDir+"/MULTIGRES_HAS_BACKUP", []byte("has_backup\n"), 0o644))
 	defer pm.Shutdown()
 
 	// Start the async loader

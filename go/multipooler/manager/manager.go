@@ -122,9 +122,10 @@ type MultiPoolerManager struct {
 	// Defaults to 1 second. Can be set to a shorter duration for testing.
 	pgMonitorRetryInterval time.Duration
 
-	// initialized tracks whether this pooler has been fully initialized.
-	// Once true, stays true for the lifetime of the manager.
-	initialized bool
+	// backupComplete tracks whether a backup has been taken (primary) or restored
+	// from (replica) for this pooler. Once true, stays true for the lifetime of
+	// the manager. Persisted on disk as MULTIGRES_HAS_BACKUP.
+	backupComplete bool
 
 	// pgMonitor manages the PostgreSQL monitoring loop.
 	pgMonitor *timer.PeriodicRunner

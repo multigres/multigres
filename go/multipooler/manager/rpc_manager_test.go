@@ -141,7 +141,7 @@ func TestPrimaryPosition(t *testing.T) {
 			manager.qsc = &mockPoolerController{queryService: mockQueryService}
 
 			// Mark as initialized to skip auto-restore (not testing backup functionality)
-			err = manager.setInitialized()
+			err = manager.markHasBackup()
 			require.NoError(t, err)
 
 			// Start and wait for ready
@@ -386,7 +386,7 @@ func expectLeadershipHistoryInsert(m *mock.QueryService) {
 }
 
 // createPgDataDir creates the pg_data directory with PG_VERSION file.
-// This is needed for setInitialized() to work since it writes a marker file to pg_data.
+// This is needed for markHasBackup() to work since it writes a marker file to pg_data.
 func createPgDataDir(t *testing.T, poolerDir string) {
 	t.Helper()
 	pgDataDir := filepath.Join(poolerDir, "pg_data")
@@ -430,7 +430,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	tmpDir := t.TempDir()
 
 	// Create pg_data directory with PG_VERSION
-	// We'll call setInitialized() later to mark as initialized
+	// We'll call markHasBackup() later to mark as initialized
 	pgDataDir := filepath.Join(tmpDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
@@ -446,7 +446,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	t.Cleanup(func() { pm.Shutdown() })
 
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	err = pm.setInitialized()
+	err = pm.markHasBackup()
 	require.NoError(t, err)
 
 	// Assign mock pooler controller BEFORE starting the manager to avoid race conditions
@@ -1143,7 +1143,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.Shutdown() })
 
-	err = pm.setInitialized()
+	err = pm.markHasBackup()
 	require.NoError(t, err)
 
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
@@ -1304,7 +1304,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	defer pm.Shutdown()
 
 	// Mark as initialized to skip auto-restore (not testing backup functionality)
-	err = pm.setInitialized()
+	err = pm.markHasBackup()
 	require.NoError(t, err)
 
 	// Initialize consensus state
@@ -1487,7 +1487,7 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Shutdown() })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		// Create mock query service and inject it
@@ -1649,7 +1649,7 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Shutdown() })
 		// Mark as initialized to skip auto-restore (not testing backup functionality)
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		// Create mock query service and inject it
@@ -1736,7 +1736,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Shutdown() })
 
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		mockQueryService := mock.NewQueryService()
@@ -1798,7 +1798,7 @@ func TestSetMonitorRPCEnable(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Shutdown() })
 
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		mockQueryService := mock.NewQueryService()
@@ -1913,7 +1913,7 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		require.NoError(t, err)
 		defer pm.Shutdown()
 
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		mockQueryService := mock.NewQueryService()
@@ -1983,7 +1983,7 @@ func TestStopPostgresForEmergencyDemote(t *testing.T) {
 		require.NoError(t, err)
 		defer pm.Shutdown()
 
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		mockQueryService := mock.NewQueryService()
@@ -2106,7 +2106,7 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Shutdown() })
 
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		mockQueryService := mock.NewQueryService()
@@ -2167,7 +2167,7 @@ func TestSetMonitorRPCDisable(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.Shutdown() })
 
-		err = pm.setInitialized()
+		err = pm.markHasBackup()
 		require.NoError(t, err)
 
 		mockQueryService := mock.NewQueryService()
@@ -2263,7 +2263,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
 
 	// Mark as initialized
-	err = manager.setInitialized()
+	err = manager.markHasBackup()
 	require.NoError(t, err)
 
 	// Start and wait for ready
@@ -2374,7 +2374,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 
 	manager.qsc = &mockPoolerController{queryService: mockQueryService}
 
-	err = manager.setInitialized()
+	err = manager.markHasBackup()
 	require.NoError(t, err)
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
@@ -2471,10 +2471,10 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Shutdown()
 
-	// Create pg_data directory so setInitialized() can write marker file
+	// Create pg_data directory so markHasBackup() can write marker file
 	createPgDataDir(t, poolerDir)
 
-	err = manager.setInitialized()
+	err = manager.markHasBackup()
 	require.NoError(t, err)
 
 	// Assign mock pooler controller BEFORE opening to avoid race conditions

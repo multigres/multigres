@@ -64,7 +64,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 
 	// Check if already initialized
-	if pm.isInitialized(ctx) {
+	if pm.hasBackup(ctx) {
 		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
 		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
@@ -190,10 +190,10 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			"error", err)
 	}
 
-	// Mark as initialized after successful primary initialization.
+	// Mark backup complete after successful primary initialization.
 	// This sets the cached boolean and writes the marker file.
-	if err := pm.setInitialized(); err != nil {
-		return nil, mterrors.Wrap(err, "failed to mark pooler as initialized")
+	if err := pm.markHasBackup(); err != nil {
+		return nil, mterrors.Wrap(err, "failed to write backup marker")
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully initialized pooler as empty primary", "shard", pm.getShardID(), "term", req.ConsensusTerm)
@@ -205,19 +205,26 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 // Helper methods
 
-// multigresInitMarker is the filename for the initialization marker.
-// This file is created after full initialization completes (schema created, backup done).
-const multigresInitMarker = "MULTIGRES_INITIALIZED"
+// multigresBackupMarker is the filename of the marker written after a backup has
+// been taken (primary) or restored from (replica). Its presence is the sole
+// canonical signal that this node has been through the full init sequence:
+//   - Primary: initdb + multigres schema + pgBackRest backup + etcd CAS
+//   - Replica:  etcd check + restore from canonical backup + postgres started
+const multigresBackupMarker = "MULTIGRES_HAS_BACKUP"
 
-// isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
-// This should return true even when postgres is not running, as long as the node was previously initialized.
-func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
-	// Fast path: check cached state first
-	if func() bool {
-		pm.mu.Lock()
-		defer pm.mu.Unlock()
-		return pm.initialized
-	}() {
+// hasBackup reports whether this pooler has a usable backup: either it has taken
+// one (primary) or restored from one (replica). It is the canonical signal that
+// the node is a legitimate cluster member and does not need (re-)bootstrap.
+//
+// The marker file is the sole source of truth. We intentionally do NOT fall back
+// to querySchemaExists(): the multigres schema is created before the backup is
+// taken, so treating schema presence as "has backup" would return true prematurely
+// when a crash occurs between schema creation and backup completion.
+func (pm *MultiPoolerManager) hasBackup(ctx context.Context) bool {
+	pm.mu.Lock()
+	cached := pm.backupComplete
+	pm.mu.Unlock()
+	if cached {
 		return true
 	}
 
@@ -225,55 +232,33 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 		return false
 	}
 
-	var initialized bool
-
-	// Try to check if multigres schema exists via a query
-	exists, err := pm.querySchemaExists(ctx)
-	if err == nil {
-		initialized = exists
-	} else {
-		// If database is not connected (e.g., postgres is down), check for the initialization marker.
-		// This marker is created after full initialization completes (schema created, backup done).
-		// It's more reliable than checking for PG_VERSION/global because those exist after initdb
-		// but before the full initialization process completes.
-		dataDir := filepath.Join(pm.multipooler.PoolerDir, "pg_data")
-		markerFile := filepath.Join(dataDir, multigresInitMarker)
-		_, err := os.Stat(markerFile)
-		initialized = err == nil
+	dataDir := filepath.Join(pm.multipooler.PoolerDir, "pg_data")
+	markerFile := filepath.Join(dataDir, multigresBackupMarker)
+	if _, err := os.Stat(markerFile); err != nil {
+		return false
 	}
 
-	// Update cached state if we discovered initialization
-	if initialized {
-		pm.mu.Lock()
-		pm.initialized = true
-		pm.mu.Unlock()
-	}
-
-	return initialized
+	pm.mu.Lock()
+	pm.backupComplete = true
+	pm.mu.Unlock()
+	return true
 }
 
-// setInitialized marks the pooler as initialized and writes the marker file.
-// This should be called after successful initialization (primary init, standby init, or restore).
-// Once set, the pooler will skip auto-restore attempts.
-func (pm *MultiPoolerManager) setInitialized() error {
+// markHasBackup records that a backup has been taken or restored from, both
+// in memory and on disk. Call this only after the full init sequence completes.
+func (pm *MultiPoolerManager) markHasBackup() error {
 	pm.mu.Lock()
-	pm.initialized = true
+	pm.backupComplete = true
 	pm.mu.Unlock()
 
-	return pm.writeInitializationMarker()
+	return pm.writeBackupMarker()
 }
 
-// writeInitializationMarker creates the initialization marker file to indicate
-// that full initialization, including restore from backup (for standbys) has
-// completed. This is called at the end of primary and standby initialization.
-//
-// The marker file is needed to determine whether a replica pooler is
-// initialized, because replica initialization is not done until the restore
-// from backup completes. There is no other persistent way to determine this.
-func (pm *MultiPoolerManager) writeInitializationMarker() error {
+// writeBackupMarker creates the MULTIGRES_HAS_BACKUP marker file.
+func (pm *MultiPoolerManager) writeBackupMarker() error {
 	dataDir := filepath.Join(pm.multipooler.PoolerDir, "pg_data")
-	markerFile := filepath.Join(dataDir, multigresInitMarker)
-	return os.WriteFile(markerFile, []byte("initialized\n"), 0o644)
+	markerFile := filepath.Join(dataDir, multigresBackupMarker)
+	return os.WriteFile(markerFile, []byte("has_backup\n"), 0o644)
 }
 
 // hasDataDirectory checks if the PostgreSQL data directory exists

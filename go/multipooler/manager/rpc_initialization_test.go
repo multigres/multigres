@@ -162,6 +162,79 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 	}
 }
 
+// TestHasBackup verifies that hasBackup uses only the marker file as the
+// canonical signal. The marker file (MULTIGRES_HAS_BACKUP) is written by
+// markHasBackup() only after the full init sequence completes:
+//   - Primary: initdb + schema + backup + etcd CAS declaring that backup canonical
+//   - Replica:  etcd check + restore from the canonical backup + postgres started
+//
+// We must NOT use querySchemaExists() as a signal: the multigres schema is
+// created before the backup is taken, so using it would return true prematurely
+// on a crash-restart between schema creation and backup completion.
+//
+// TODO: once etcd gating is added to InitializeEmptyPrimary, add a test that
+// verifies hasBackup() returns false after backup but before the etcd CAS write.
+func TestHasBackup(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns false when no data directory exists", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+		}
+
+		assert.False(t, pm.hasBackup(ctx))
+	})
+
+	t.Run("returns false when data directory exists but marker file is absent", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		// Simulate postgres having run initdb and created the multigres schema,
+		// but the full bootstrap sequence (backup + etcd CAS) did not complete: no marker file.
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+		}
+
+		assert.False(t, pm.hasBackup(ctx))
+		// Cached state must not be poisoned.
+		assert.False(t, pm.backupComplete)
+	})
+
+	t.Run("returns true when marker file is present", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresBackupMarker), []byte(""), 0o644))
+
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+		}
+
+		assert.True(t, pm.hasBackup(ctx))
+		// Cached state should be set after discovery.
+		assert.True(t, pm.backupComplete)
+	})
+
+	t.Run("fast path: returns true when backupComplete is already cached", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		// No data directory at all, but in-memory cache is true.
+		pm := &MultiPoolerManager{
+			config:         &Config{},
+			multipooler:    &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+			backupComplete: true,
+		}
+
+		assert.True(t, pm.hasBackup(ctx))
+	})
+}
+
 func TestHelperMethods(t *testing.T) {
 	t.Run("hasDataDirectory", func(t *testing.T) {
 		poolerDir := t.TempDir()
