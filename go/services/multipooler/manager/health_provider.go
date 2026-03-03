@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	querypb "github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
 const (

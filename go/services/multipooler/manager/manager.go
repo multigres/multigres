@@ -327,11 +327,9 @@ func (pm *MultiPoolerManager) Open() {
 
 	pm.isOpen = true
 
-	// Start health heartbeat goroutine and broadcast initial state
+	// Start health heartbeat goroutine and mark pooler as serving
 	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
-	pm.healthStreamer.Broadcast()
-
-	return nil
+	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Pause temporarily closes the manager for maintenance operations that require
