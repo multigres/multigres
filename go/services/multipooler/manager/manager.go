@@ -142,6 +142,9 @@ type MultiPoolerManager struct {
 	primaryPoolerID *clustermetadatapb.ID
 	primaryHost     string
 	primaryPort     int32
+
+	// metrics holds OTel gauges for pgBackRest server health.
+	metrics *Metrics
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -237,6 +240,13 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
+
+	// Register pgBackRest health metrics.
+	var metricsErr error
+	pm.metrics, metricsErr = NewMetrics()
+	if metricsErr != nil {
+		logger.Warn("failed to register pgBackRest metrics", "error", metricsErr)
+	}
 
 	return pm, nil
 }
@@ -1531,6 +1541,7 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
+		pm.metrics.UpdateFromPgBackRestStatus(nil)
 		return state // All fields remain false
 	}
 	state.pgctldAvailable = true
@@ -1540,8 +1551,12 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 	if err != nil {
 		// pgctld call failed, treat as unavailable
 		state.pgctldAvailable = false
+		pm.metrics.UpdateFromPgBackRestStatus(nil)
 		return state
 	}
+
+	// Update pgBackRest metrics from the status response.
+	pm.metrics.UpdateFromPgBackRestStatus(statusResp.PgbackrestStatus)
 
 	// Check if directory is initialized
 	state.dirInitialized = (statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED)
