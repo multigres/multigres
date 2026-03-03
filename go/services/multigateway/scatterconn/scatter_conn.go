@@ -26,6 +26,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -40,6 +45,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // ScatterConn coordinates query execution across multiple multipooler instances.
@@ -49,13 +55,20 @@ type ScatterConn struct {
 
 	// gateway is used for executing queries (typically a PoolerGateway)
 	gateway poolergateway.Gateway
+
+	metrics *ScatterMetrics
 }
 
 // NewScatterConn creates a new ScatterConn instance.
 func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *ScatterConn {
+	metrics, err := NewScatterMetrics()
+	if err != nil {
+		logger.Warn("failed to initialise some scatter metrics", "error", err)
+	}
 	return &ScatterConn{
 		logger:  logger,
 		gateway: gateway,
+		metrics: metrics,
 	}
 }
 
@@ -99,6 +112,16 @@ func (sc *ScatterConn) StreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+	start := time.Now()
+
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -132,14 +155,17 @@ func (sc *ScatterConn) StreamExecute(
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 		if err != nil {
+			sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 			return err
 		}
 
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, callback)
 		sc.applyReservedState(conn, state, target, reservedState)
 		if err != nil {
+			sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 			return fmt.Errorf("query execution failed: %w", err)
 		}
+		sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 		return nil
 	}
 
@@ -161,6 +187,7 @@ func (sc *ScatterConn) StreamExecute(
 		}
 		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		if err != nil {
+			sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 			return fmt.Errorf("reserve stream execute failed: %w", err)
 		}
 
@@ -169,6 +196,7 @@ func (sc *ScatterConn) StreamExecute(
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
 			"reserved_conn_id", reservedState.GetReservedConnectionId())
+		sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 		return nil
 	}
 
@@ -179,6 +207,7 @@ func (sc *ScatterConn) StreamExecute(
 		"pooler_type", target.PoolerType.String())
 
 	if _, err := sc.gateway.StreamExecute(ctx, target, sql, eo, callback); err != nil {
+		sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -187,6 +216,7 @@ func (sc *ScatterConn) StreamExecute(
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 
+	sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 	sc.logger.DebugContext(ctx, "query execution completed successfully",
 		"tablegroup", tableGroup,
 		"shard", shard)
@@ -206,6 +236,16 @@ func (sc *ScatterConn) PortalStreamExecute(
 	maxRows int32,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+	start := time.Now()
+
 	sc.logger.DebugContext(ctx, "scatter conn executing portal",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -254,6 +294,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, callback)
 	if err != nil {
+		sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -266,6 +307,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// remain (ReservedConnectionId == 0) the connection was released.
 	sc.applyReservedState(conn, state, target, reservedState)
 
+	sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -361,6 +403,13 @@ func (sc *ScatterConn) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.conclude_transaction",
+		trace.WithAttributes(
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
 	// Collect shard state updates to apply after iteration.
 	// We cannot call ClearReservedConnection during iteration because it
 	// uses swap-and-truncate which mutates the underlying slice.
@@ -480,6 +529,15 @@ func (sc *ScatterConn) CopyInitiate(
 	state *handler.MultiGatewayConnectionState,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) (int16, []int16, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_initiate",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
 	sc.logger.DebugContext(ctx, "initiating COPY FROM STDIN",
 		"query", queryStr,
 		"tablegroup", tableGroup,
@@ -591,6 +649,15 @@ func (sc *ScatterConn) CopyFinalize(
 	finalData []byte,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_finalize",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
 	sc.logger.DebugContext(ctx, "finalizing COPY",
 		"final_chunk_size", len(finalData),
 		"tablegroup", tableGroup,
@@ -733,6 +800,18 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 
 	state.ClearAllReservedConnections()
 	return errors.Join(errs...)
+}
+
+// recordShardError records an error on a span and emits shard-level metrics.
+func (sc *ScatterConn) recordShardError(ctx context.Context, span trace.Span, start time.Time, dbNamespace, tableGroup, shard string, err error) {
+	sqlstate := handler.ExtractSQLSTATE(err)
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	if sqlstate != "" {
+		span.SetAttributes(attribute.String("db.response.status_code", sqlstate))
+	}
+	sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), dbNamespace, tableGroup, shard, ScatterStatusError)
+	sc.metrics.executeErrors.Add(ctx, tableGroup, shard, sqlstate)
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.
