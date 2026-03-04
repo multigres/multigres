@@ -73,8 +73,6 @@ func setupMetrics(t *testing.T) (*Metrics, *sdkmetric.ManualReader) {
 	return m, setup.MetricReader
 }
 
-// TestMetrics_SetServerUp_True verifies that SetServerUp(true) sets the gauge to 1.
-// Validates: Requirements 1.2
 func TestMetrics_SetServerUp_True(t *testing.T) {
 	m, reader := setupMetrics(t)
 
@@ -85,8 +83,6 @@ func TestMetrics_SetServerUp_True(t *testing.T) {
 	assert.Equal(t, int64(1), gaugeValue(serverUp), "pgbackrest_server_up should be 1 when SetServerUp(true)")
 }
 
-// TestMetrics_SetServerUp_False verifies that SetServerUp(false) sets the gauge to 0.
-// Validates: Requirements 1.3
 func TestMetrics_SetServerUp_False(t *testing.T) {
 	m, reader := setupMetrics(t)
 
@@ -97,8 +93,6 @@ func TestMetrics_SetServerUp_False(t *testing.T) {
 	assert.Equal(t, int64(0), gaugeValue(serverUp), "pgbackrest_server_up should be 0 when SetServerUp(false)")
 }
 
-// TestMetrics_SetRestartCount verifies that SetRestartCount(42) sets the gauge to 42.
-// Validates: Requirements 2.2
 func TestMetrics_SetRestartCount(t *testing.T) {
 	m, reader := setupMetrics(t)
 
@@ -109,19 +103,14 @@ func TestMetrics_SetRestartCount(t *testing.T) {
 	assert.Equal(t, int64(42), gaugeValue(restarts), "pgbackrest_restart_count should be 42")
 }
 
-// TestMetrics_NewMetrics_ReturnsNonNil verifies that NewMetrics() returns non-nil even with default provider.
-// Validates: Requirements 3.1
 func TestMetrics_NewMetrics_ReturnsNonNil(t *testing.T) {
 	m, err := NewMetrics()
-	// With default (noop) provider, NewMetrics should return non-nil without error.
 	assert.NoError(t, err)
 	assert.NotNil(t, m, "NewMetrics() should always return non-nil *Metrics")
 }
 
-// Feature: pgbackrest-metrics, Property 1: server_up gauge reflects running state
 // TestMetrics_Property_ServerUpReflectsRunningState generates random boolean sequences,
 // calls SetServerUp, and verifies the gauge always reflects the most recent value.
-// Validates: Requirements 1.2, 1.3, 3.1
 func TestMetrics_Property_ServerUpReflectsRunningState(t *testing.T) {
 	m, reader := setupMetrics(t)
 
@@ -142,10 +131,8 @@ func TestMetrics_Property_ServerUpReflectsRunningState(t *testing.T) {
 	}
 }
 
-// Feature: pgbackrest-metrics, Property 2: restart_count gauge reflects cumulative count
 // TestMetrics_Property_RestartCountReflectsValue generates random int32 values,
 // calls SetRestartCount, and verifies the gauge always matches.
-// Validates: Requirements 2.2
 func TestMetrics_Property_RestartCountReflectsValue(t *testing.T) {
 	m, reader := setupMetrics(t)
 
@@ -159,4 +146,24 @@ func TestMetrics_Property_RestartCountReflectsValue(t *testing.T) {
 		assert.Equal(t, int64(count), gaugeValue(restarts),
 			"iteration %d: pgbackrest_restart_count should match input count=%d", i, count)
 	}
+}
+
+// TestMetrics_ServerUptime_PositiveWhenUp verifies that the uptime gauge is positive
+// when the server is up, and 0 when the server is down.
+func TestMetrics_ServerUptime_PositiveWhenUp(t *testing.T) {
+	m, reader := setupMetrics(t)
+
+	m.SetServerUp(true)
+
+	uptime := getGaugeInt64(t, reader, "pgbackrest_server_uptime_seconds")
+	require.NotNil(t, uptime, "pgbackrest_server_uptime_seconds gauge not found")
+	assert.GreaterOrEqual(t, gaugeValue(uptime), int64(0),
+		"uptime should be >= 0 when server is up")
+
+	m.SetServerUp(false)
+
+	uptime = getGaugeInt64(t, reader, "pgbackrest_server_uptime_seconds")
+	require.NotNil(t, uptime, "pgbackrest_server_uptime_seconds gauge not found")
+	assert.Equal(t, int64(0), gaugeValue(uptime),
+		"uptime should be 0 when server is down")
 }
