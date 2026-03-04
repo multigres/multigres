@@ -111,7 +111,7 @@ func (sc *ScatterConn) StreamExecute(
 	sql string,
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
 		trace.WithAttributes(
 			attribute.String("tablegroup", tableGroup),
@@ -121,6 +121,7 @@ func (sc *ScatterConn) StreamExecute(
 	)
 	defer span.End()
 	start := time.Now()
+	defer sc.endAction(ctx, span, start, conn.Database(), tableGroup, shard, &retErr)
 
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
 		"tablegroup", tableGroup,
@@ -155,17 +156,14 @@ func (sc *ScatterConn) StreamExecute(
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 		if err != nil {
-			sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 			return err
 		}
 
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, callback)
 		sc.applyReservedState(conn, state, target, reservedState)
 		if err != nil {
-			sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 			return fmt.Errorf("query execution failed: %w", err)
 		}
-		sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 		return nil
 	}
 
@@ -187,7 +185,6 @@ func (sc *ScatterConn) StreamExecute(
 		}
 		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		if err != nil {
-			sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 			return fmt.Errorf("reserve stream execute failed: %w", err)
 		}
 
@@ -196,7 +193,6 @@ func (sc *ScatterConn) StreamExecute(
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
 			"reserved_conn_id", reservedState.GetReservedConnectionId())
-		sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 		return nil
 	}
 
@@ -207,7 +203,6 @@ func (sc *ScatterConn) StreamExecute(
 		"pooler_type", target.PoolerType.String())
 
 	if _, err := sc.gateway.StreamExecute(ctx, target, sql, eo, callback); err != nil {
-		sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -216,7 +211,6 @@ func (sc *ScatterConn) StreamExecute(
 		return fmt.Errorf("query execution failed: %w", err)
 	}
 
-	sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 	sc.logger.DebugContext(ctx, "query execution completed successfully",
 		"tablegroup", tableGroup,
 		"shard", shard)
@@ -235,7 +229,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
 		trace.WithAttributes(
 			attribute.String("tablegroup", tableGroup),
@@ -245,6 +239,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	)
 	defer span.End()
 	start := time.Now()
+	defer sc.endAction(ctx, span, start, conn.Database(), tableGroup, shard, &retErr)
 
 	sc.logger.DebugContext(ctx, "scatter conn executing portal",
 		"tablegroup", tableGroup,
@@ -294,7 +289,6 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, callback)
 	if err != nil {
-		sc.recordShardError(ctx, span, start, conn.Database(), tableGroup, shard, err)
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -307,7 +301,6 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// remain (ReservedConnectionId == 0) the connection was released.
 	sc.applyReservedState(conn, state, target, reservedState)
 
-	sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), conn.Database(), tableGroup, shard, ScatterStatusOK)
 	sc.logger.DebugContext(ctx, "portal execution completed successfully",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -802,16 +795,23 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 	return errors.Join(errs...)
 }
 
-// recordShardError records an error on a span and emits shard-level metrics.
-func (sc *ScatterConn) recordShardError(ctx context.Context, span trace.Span, start time.Time, dbNamespace, tableGroup, shard string, err error) {
-	sqlstate := handler.ExtractSQLSTATE(err)
-	span.RecordError(err)
-	span.SetStatus(codes.Error, err.Error())
-	if sqlstate != "" {
-		span.SetAttributes(attribute.String("db.response.status_code", sqlstate))
+// endAction records shard-level metrics and span status for both success and
+// error outcomes. Designed to be called via defer with a pointer to the named
+// error return, following Vitess's startAction/endAction pattern.
+func (sc *ScatterConn) endAction(ctx context.Context, span trace.Span, start time.Time, dbNamespace, tableGroup, shard string, err *error) {
+	duration := time.Since(start).Seconds()
+	if *err != nil {
+		sqlstate := handler.ExtractSQLSTATE(*err)
+		span.RecordError(*err)
+		span.SetStatus(codes.Error, (*err).Error())
+		if sqlstate != "" {
+			span.SetAttributes(attribute.String("db.response.status_code", sqlstate))
+		}
+		sc.metrics.executeDuration.Record(ctx, duration, dbNamespace, tableGroup, shard, ScatterStatusError)
+		sc.metrics.executeErrors.Add(ctx, tableGroup, shard, sqlstate)
+		return
 	}
-	sc.metrics.executeDuration.Record(ctx, time.Since(start).Seconds(), dbNamespace, tableGroup, shard, ScatterStatusError)
-	sc.metrics.executeErrors.Add(ctx, tableGroup, shard, sqlstate)
+	sc.metrics.executeDuration.Record(ctx, duration, dbNamespace, tableGroup, shard, ScatterStatusOK)
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.

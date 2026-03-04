@@ -95,7 +95,7 @@ func NewScatterMetrics() (*ScatterMetrics, error) {
 		"mg.scatter.execute.duration",
 		metric.WithDescription("Duration of shard-level query execution"),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5, 10, 30, 60),
+		metric.WithExplicitBucketBoundaries(0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10),
 	)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("mg.scatter.execute.duration histogram: %w", err))
