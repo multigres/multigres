@@ -808,6 +808,9 @@ func (sc *ScatterConn) endAction(ctx context.Context, span trace.Span, start tim
 			span.SetAttributes(attribute.String("db.response.status_code", sqlstate))
 		}
 		sc.metrics.executeDuration.Record(ctx, duration, dbNamespace, tableGroup, shard, ScatterStatusError)
+		// TODO: Vitess filters out client-caused errors (ALREADY_EXISTS, INVALID_ARGUMENT)
+		// from the counter to avoid inflating error rates. We count all errors and rely on
+		// the error.type label for dashboard filtering. Revisit if counters get noisy.
 		sc.metrics.executeErrors.Add(ctx, tableGroup, shard, sqlstate)
 		return
 	}
