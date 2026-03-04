@@ -643,6 +643,17 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		default:
 			close(pm.readyChan)
 		}
+
+		// Set initial primary observation from loaded consensus state.
+		// Use GetInconsistentTerm (safe without action lock) to read the term.
+		if pm.consensusState != nil {
+			if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
+				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+					PrimaryID:   pm.serviceID,
+					PrimaryTerm: term.GetPrimaryTerm(),
+				})
+			}
+		}
 	}
 }
 
