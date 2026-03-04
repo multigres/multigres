@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -39,7 +40,7 @@ func CreateMultiGatewayCommand() (*cobra.Command, *multigateway.MultiGateway) {
 			return mg.CobraPreRunE(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return run(mg)
+			return run(cmd.Context(), mg)
 		},
 	}
 
@@ -57,8 +58,8 @@ func main() {
 	}
 }
 
-func run(mg *multigateway.MultiGateway) error {
-	if err := mg.Init(); err != nil {
+func run(ctx context.Context, mg *multigateway.MultiGateway) error {
+	if err := mg.Init(ctx); err != nil {
 		return err
 	}
 	return mg.RunDefault()

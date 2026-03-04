@@ -304,11 +304,11 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 	require.NoError(t, lb.AddPooler(replica1))
 
 	// Get connections to set health
-	lb.mu.RLock()
+	lb.mu.Lock()
 	connPrimary1 := lb.connections[poolerID(primary1)]
 	connPrimary2 := lb.connections[poolerID(primary2)]
 	connReplica1 := lb.connections[poolerID(replica1)]
-	lb.mu.RUnlock()
+	lb.mu.Unlock()
 
 	t.Run("highest term wins", func(t *testing.T) {
 		// primary1 thinks primary1 is leader with term 5
@@ -506,10 +506,10 @@ func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 	require.NoError(t, lb.AddPooler(unknown1))
 	require.NoError(t, lb.AddPooler(unknown2))
 
-	lb.mu.RLock()
+	lb.mu.Lock()
 	connUnknown1 := lb.connections[poolerID(unknown1)]
 	connUnknown2 := lb.connections[poolerID(unknown2)]
-	lb.mu.RUnlock()
+	lb.mu.Unlock()
 
 	t.Run("UNKNOWN poolers without observations return error", func(t *testing.T) {
 		// No PrimaryObservation set - simulates initial state before health stream
@@ -568,11 +568,11 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	require.NoError(t, lb.AddPooler(localReplica2))
 	require.NoError(t, lb.AddPooler(remoteReplica))
 
-	lb.mu.RLock()
+	lb.mu.Lock()
 	connLocal1 := lb.connections[poolerID(localReplica1)]
 	connLocal2 := lb.connections[poolerID(localReplica2)]
 	connRemote := lb.connections[poolerID(remoteReplica)]
-	lb.mu.RUnlock()
+	lb.mu.Unlock()
 
 	t.Run("prefers local serving over remote serving", func(t *testing.T) {
 		simulateHealthUpdate(connLocal1, clustermetadatapb.PoolerServingStatus_NOT_SERVING, nil)
