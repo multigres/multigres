@@ -224,6 +224,7 @@ type PgCtldService struct {
 	pgBackRestStatus *pb.PgBackRestStatus
 	statusMu         sync.RWMutex
 	restartCount     int32
+	metrics          *Metrics
 }
 
 // pgbackrestServerConfigPath returns the path to the pgbackrest server config file.
@@ -297,6 +298,11 @@ func NewPgCtldService(
 		logger.Info("Generated pgbackrest-server.conf", "path", configPath)
 	}
 
+	metrics, metricsErr := NewMetrics()
+	if metricsErr != nil {
+		logger.Warn("Failed to register pgctld metrics", "error", metricsErr)
+	}
+
 	//nolint:gocritic // Background context for pgBackRest lifecycle management
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -310,6 +316,7 @@ func NewPgCtldService(
 		config:     config,
 		ctx:        ctx,
 		cancel:     cancel,
+		metrics:    metrics,
 		pgBackRestStatus: &pb.PgBackRestStatus{
 			Running: false,
 		},
@@ -332,6 +339,9 @@ func (s *PgCtldService) setPgBackRestStatus(running bool, errorMessage string, i
 	if running {
 		s.pgBackRestStatus.LastStarted = timestamppb.Now()
 	}
+
+	s.metrics.SetServerUp(running)
+	s.metrics.SetRestartCount(s.restartCount)
 
 	return s.restartCount
 }

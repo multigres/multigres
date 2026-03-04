@@ -73,6 +73,15 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
+	pm.metrics.IncBackupAttempts(ctx)
+	defer func() {
+		if retErr == nil {
+			pm.metrics.IncBackupSuccesses(ctx)
+		} else {
+			pm.metrics.IncBackupFailures(ctx)
+		}
+	}()
+
 	pm.logger.InfoContext(ctx, "Starting backup operation", "backup_type", pm.backupConfig.Type(), "job_type", backupType)
 
 	// Check if backup is allowed on primary
