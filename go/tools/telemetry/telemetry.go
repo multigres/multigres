@@ -516,3 +516,15 @@ func (h *traceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 func (h *traceHandler) WithGroup(name string) slog.Handler {
 	return &traceHandler{wrapped: h.wrapped.WithGroup(name)}
 }
+
+// WithSpan starts a child span named name, calls fn with the span context,
+// records any error on the span, and ends the span. It returns fn's error.
+func WithSpan(ctx context.Context, name string, fn func(context.Context) error) error {
+	ctx, span := Tracer().Start(ctx, name)
+	defer span.End()
+	err := fn(ctx)
+	if err != nil {
+		span.RecordError(err)
+	}
+	return err
+}
