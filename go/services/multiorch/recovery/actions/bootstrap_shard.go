@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -171,6 +173,33 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	a.logger.InfoContext(ctx, "verified shard still needs bootstrap, proceeding",
 		"shard_key", problem.ShardKey.String(),
 		"cohort_size", len(cohort))
+
+	// Rate-limit bootstrap attempts: if another orch recently started InitializeEmptyPrimary,
+	// wait for that attempt to settle before retrying.
+	const bootstrapCooldown = 30 * time.Second
+	orchID := topoclient.ClusterIDString(a.coordinator.GetCoordinatorID())
+	wrote, err := a.topoStore.UpdateBootstrapAttempt(ctx, problem.ShardKey,
+		func(existing *clustermetadatapb.BootstrapAttempt) (*clustermetadatapb.BootstrapAttempt, error) {
+			if existing != nil && existing.StartedAt != nil {
+				age := time.Since(existing.StartedAt.AsTime())
+				if age < bootstrapCooldown {
+					return nil, nil // rate-limited
+				}
+			}
+			return &clustermetadatapb.BootstrapAttempt{
+				OrchId:    orchID,
+				StartedAt: timestamppb.Now(),
+			}, nil
+		})
+	if err != nil {
+		return mterrors.Wrap(err, "failed to write bootstrap attempt record")
+	}
+	if !wrote {
+		a.logger.InfoContext(ctx, "bootstrap attempt rate-limited: another orch recently initiated bootstrap; will retry after cooldown",
+			"shard_key", problem.ShardKey.String(),
+			"cooldown", bootstrapCooldown)
+		return nil // not an error — recovery loop will retry next cycle
+	}
 
 	// Select a bootstrap candidate
 	candidate, err := a.selectBootstrapCandidate(ctx, cohort)
