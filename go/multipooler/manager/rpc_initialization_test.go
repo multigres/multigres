@@ -52,29 +52,38 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 		name          string
 		setupFunc     func(t *testing.T, pm *MultiPoolerManager, poolerDir string)
 		term          int64
-		expectError   bool
+		expectSuccess bool // true: must succeed (nil err, Success=true); false: must fail
 		errorContains string
 	}{
 		{
-			name: "initialize fresh pooler",
+			// The marker file exists → hasBackup() returns true → early return.
+			// pgctld is never called, so this succeeds without real postgres.
+			name: "idempotent - already has a backup",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Fresh pooler - no setup needed
-			},
-			term:        1,
-			expectError: false,
-		},
-		{
-			name: "idempotent - already initialized",
-			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Create data directory and multigres schema to simulate initialization
 				dataDir := filepath.Join(poolerDir, "pg_data")
 				require.NoError(t, os.MkdirAll(dataDir, 0o755))
-
-				// Mark as initialized by setting up the manager state
-				// In real scenario, database would have multigres schema
+				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresBackupMarker), []byte("has_backup\n"), 0o644))
 			},
-			term:        1,
-			expectError: false,
+			term:          1,
+			expectSuccess: true,
+		},
+		{
+			// Term validation happens before any I/O, so pgctld is never called.
+			name:          "rejects invalid consensus term",
+			term:          2,
+			expectSuccess: false,
+			errorContains: "consensus term must be 1",
+		},
+		{
+			// A fresh (uninitialized) pooler passes term and idempotency checks,
+			// then reaches the first pgctld call (InitDataDir). Unit tests stop
+			// here because real pgctld/postgres are not available; the full success
+			// path is covered by the integration test.
+			name:          "initialize fresh pooler",
+			term:          1,
+			expectSuccess: false,
+			errorContains: "pgctld",
 		},
 	}
 
@@ -108,19 +117,12 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			multiPooler.PortMap = map[string]int32{"postgres": 5432}
 			multiPooler.Database = database
 
-			config := &Config{
-				TopoClient: store,
-				// Note: pgctldClient is nil - operations that need it will fail gracefully
-			}
+			pm := NewTestMultiPoolerManager(t, multiPooler, &Config{TopoClient: store})
 
-			pm := NewTestMultiPoolerManager(t, multiPooler, config)
-
-			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
-			// Set manager to ready state with backup config so checkReady() passes
 			backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
 			require.NoError(t, err)
 
@@ -130,32 +132,23 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			pm.topoLoaded = true
 			pm.mu.Unlock()
 
-			// Run setup function
 			if tt.setupFunc != nil {
 				tt.setupFunc(t, pm, poolerDir)
 			}
 
-			// Call InitializeEmptyPrimary
-			req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
+			resp, err := pm.InitializeEmptyPrimary(ctx, &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 				ConsensusTerm: tt.term,
-			}
+			})
 
-			resp, err := pm.InitializeEmptyPrimary(ctx, req)
-
-			if tt.expectError {
+			if tt.expectSuccess {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				assert.True(t, resp.Success)
+			} else {
 				require.Error(t, err)
+				assert.Nil(t, resp)
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			} else {
-				// Note: This will fail because pgctldClient is nil
-				// But we verify the error is expected
-				if err != nil {
-					// Expected error due to missing pgctld client
-					assert.Contains(t, err.Error(), "pgctld")
-				}
-				if resp != nil {
-					assert.True(t, resp.Success)
 				}
 			}
 		})
@@ -164,16 +157,13 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 
 // TestHasBackup verifies that hasBackup uses only the marker file as the
 // canonical signal. The marker file (MULTIGRES_HAS_BACKUP) is written by
-// markHasBackup() only after the full init sequence completes:
-//   - Primary: initdb + schema + backup + etcd CAS declaring that backup canonical
-//   - Replica:  etcd check + restore from the canonical backup + postgres started
+// markHasBackup() only after the full bootstrap sequence completes:
+//   - Primary: initdb + multigres schema + pgBackRest stanza-create + backup
+//   - Replica:  restore from canonical backup + postgres started
 //
 // We must NOT use querySchemaExists() as a signal: the multigres schema is
 // created before the backup is taken, so using it would return true prematurely
 // on a crash-restart between schema creation and backup completion.
-//
-// TODO: once etcd gating is added to InitializeEmptyPrimary, add a test that
-// verifies hasBackup() returns false after backup but before the etcd CAS write.
 func TestHasBackup(t *testing.T) {
 	ctx := context.Background()
 

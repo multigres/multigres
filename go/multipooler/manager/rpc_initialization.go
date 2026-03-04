@@ -33,8 +33,10 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
-// InitializeEmptyPrimary initializes this pooler as an empty primary
-// Used during bootstrap initialization of a new shard
+// InitializeEmptyPrimary bootstraps this pooler as the first primary in a new
+// shard: runs initdb, creates the multigres schema, initializes the pgBackRest
+// stanza, takes the initial full backup, and writes the has-backup marker file.
+// Idempotent: returns success immediately if the marker file already exists.
 func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *multipoolermanagerdatapb.InitializeEmptyPrimaryRequest) (*multipoolermanagerdatapb.InitializeEmptyPrimaryResponse, error) {
 	pm.logger.InfoContext(ctx, "InitializeEmptyPrimary called", "shard", pm.getShardID(), "term", req.ConsensusTerm)
 
@@ -63,9 +65,10 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "consensus term must be 1 for new primary initialization, got %d", req.ConsensusTerm)
 	}
 
-	// Check if already initialized
+	// Idempotent: if the marker file already exists, the full bootstrap sequence
+	// completed successfully on a prior call. Return success immediately.
 	if pm.hasBackup(ctx) {
-		pm.logger.InfoContext(ctx, "Pooler already initialized", "shard", pm.getShardID())
+		pm.logger.InfoContext(ctx, "Pooler already has a backup, skipping bootstrap", "shard", pm.getShardID())
 		// Note: backup_id will be empty for idempotent case since we didn't create a new backup
 		return &multipoolermanagerdatapb.InitializeEmptyPrimaryResponse{Success: true}, nil
 	}
@@ -143,14 +146,6 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	// Create initial backup for standby initialization
-	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full", "", nil)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to create initial backup")
-	}
-	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
-
 	// Create durability policy if requested
 	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
 		if err := pm.createDurabilityPolicyLocked(ctx, req.DurabilityPolicyName, req.DurabilityQuorumRule); err != nil {
@@ -190,8 +185,18 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			"error", err)
 	}
 
-	// Mark backup complete after successful primary initialization.
-	// This sets the cached boolean and writes the marker file.
+	// Take the initial backup last so it captures the complete bootstrap state:
+	// durability policy rows and leadership history are included in the snapshot,
+	// meaning standbys restoring from this backup start with a fully-initialized schema.
+	pm.logger.InfoContext(ctx, "Creating initial backup", "shard", pm.getShardID())
+	backupID, err := pm.backupLocked(ctx, true, "full", "", nil)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to create initial backup")
+	}
+	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
+
+	// Write the marker file last. This is the sole signal that bootstrap completed
+	// successfully. A crash before this point causes a clean retry from the top.
 	if err := pm.markHasBackup(); err != nil {
 		return nil, mterrors.Wrap(err, "failed to write backup marker")
 	}
@@ -207,9 +212,9 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 
 // multigresBackupMarker is the filename of the marker written after a backup has
 // been taken (primary) or restored from (replica). Its presence is the sole
-// canonical signal that this node has been through the full init sequence:
-//   - Primary: initdb + multigres schema + pgBackRest backup + etcd CAS
-//   - Replica:  etcd check + restore from canonical backup + postgres started
+// canonical signal that this node has a backup in the pgBackRest stanza:
+//   - Primary: initdb + multigres schema + pgBackRest stanza-create + backup
+//   - Replica:  restore from canonical backup + postgres started
 const multigresBackupMarker = "MULTIGRES_HAS_BACKUP"
 
 // hasBackup reports whether this pooler has a usable backup: either it has taken
@@ -244,8 +249,9 @@ func (pm *MultiPoolerManager) hasBackup(ctx context.Context) bool {
 	return true
 }
 
-// markHasBackup records that a backup has been taken or restored from, both
-// in memory and on disk. Call this only after the full init sequence completes.
+// markHasBackup records that this node has a backup in the pgBackRest stanza,
+// both in memory (backupComplete) and on disk (marker file). Call only after
+// the backup is fully written.
 func (pm *MultiPoolerManager) markHasBackup() error {
 	pm.mu.Lock()
 	pm.backupComplete = true
