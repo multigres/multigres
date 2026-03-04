@@ -316,7 +316,7 @@ func NewPgCtldService(
 		config:     config,
 		ctx:        ctx,
 		cancel:     cancel,
-		metrics: metrics,
+		metrics:    metrics,
 		pgBackRestStatus: &pb.PgBackRestStatus{
 			Running: false,
 		},
