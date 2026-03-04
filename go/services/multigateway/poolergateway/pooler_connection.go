@@ -143,10 +143,10 @@ type PoolerConnection struct {
 	// Updated atomically as a unit when new health responses arrive.
 	health *PoolerHealth
 
-	// timedOut indicates if the health stream has timed out.
+	// healthTimedOut indicates if the health stream has timed out.
 	// Accessed atomically because there's a race between the timeout
 	// goroutine and the stream processing. (Vitess pattern)
-	timedOut atomic.Bool
+	healthTimedOut atomic.Bool
 
 	// onHealthUpdate is called when health state changes.
 	// Used by LoadBalancer to update its routing decisions.
@@ -348,9 +348,9 @@ func (pc *PoolerConnection) streamHealth(
 ) error {
 	poolerID := pc.ID()
 
-	// Reset timedOut from any previous stream attempt so a shutdown during
+	// Reset healthTimedOut from any previous stream attempt so a shutdown during
 	// this attempt isn't misclassified as a staleness timeout.
-	pc.timedOut.Store(false)
+	pc.healthTimedOut.Store(false)
 
 	// Open the health stream.
 	stream, err := pc.client.StreamPoolerHealth(streamCtx, &multipoolerservice.StreamPoolerHealthRequest{})
@@ -367,7 +367,7 @@ func (pc *PoolerConnection) streamHealth(
 	// the timer cancels the stream context to unblock stream.Recv().
 	stalenessTimeout := defaultHealthCheckTimeout
 	stalenessTimer := time.AfterFunc(stalenessTimeout, func() {
-		pc.timedOut.Store(true)
+		pc.healthTimedOut.Store(true)
 		pc.logger.Warn("health stream timed out", "pooler_id", poolerID)
 		streamCancel()
 	})
@@ -383,7 +383,7 @@ func (pc *PoolerConnection) streamHealth(
 			}
 			if streamCtx.Err() != nil {
 				// Stream context cancelled (either staleness timeout or shutdown).
-				if pc.timedOut.Load() {
+				if pc.healthTimedOut.Load() {
 					return errors.New("health stream timed out")
 				}
 				return nil
@@ -395,7 +395,7 @@ func (pc *PoolerConnection) streamHealth(
 		}
 
 		// We received a message successfully.
-		pc.timedOut.Store(false)
+		pc.healthTimedOut.Store(false)
 
 		// Reset backoff since we got a successful message.
 		streamRetrier.Reset()
