@@ -30,11 +30,14 @@ import (
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/buffer"
 )
 
 // A Gateway is the query processing module for each shard,
@@ -47,10 +50,36 @@ type Gateway interface {
 	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
 }
 
+// errorAction classifies whether an error should trigger buffering.
+type errorAction int
+
+const (
+	actionFail   errorAction = iota // Pass through error to caller
+	actionBuffer                    // Buffer and retry after failover
+)
+
+// classifyError determines whether an error is eligible for failover buffering.
+// Only PRIMARY traffic with specific error codes is buffered.
+func classifyError(err error, target *query.Target) errorAction {
+	if target.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
+		return actionFail
+	}
+	code := mterrors.Code(err)
+	switch code {
+	case mtrpcpb.Code_UNAVAILABLE, mtrpcpb.Code_CLUSTER_EVENT, mtrpcpb.Code_READ_ONLY:
+		return actionBuffer
+	default:
+		return actionFail
+	}
+}
+
 // PoolerGateway selects and manages connections to multipooler instances.
 type PoolerGateway struct {
 	// loadBalancer manages pooler connections and selects connections for queries.
 	loadBalancer *LoadBalancer
+
+	// buffer holds requests during PRIMARY failovers. nil if buffering is disabled.
+	buffer *buffer.Buffer
 
 	// logger for debugging
 	logger *slog.Logger
@@ -59,12 +88,29 @@ type PoolerGateway struct {
 // NewPoolerGateway creates a new PoolerGateway.
 func NewPoolerGateway(
 	loadBalancer *LoadBalancer,
+	buf *buffer.Buffer,
 	logger *slog.Logger,
 ) *PoolerGateway {
 	return &PoolerGateway{
 		loadBalancer: loadBalancer,
+		buffer:       buf,
 		logger:       logger,
 	}
+}
+
+// bufferAndRetry waits for a failover to end and then retries the operation.
+func (pg *PoolerGateway) bufferAndRetry(ctx context.Context, target *query.Target, retryFunc func() error) error {
+	retryDone, bufErr := pg.buffer.WaitForFailoverEnd(ctx, target.TableGroup, target.Shard)
+	if bufErr != nil {
+		return bufErr
+	}
+	// TODO: This logic seems out of whack, we return nil, nil when we want to retry when already draining.
+	if retryDone == nil {
+		// Not buffered (disabled, timing guard, etc.) — return original error.
+		return nil
+	}
+	defer retryDone()
+	return retryFunc()
 }
 
 // QueryServiceByID implements Gateway.
@@ -89,17 +135,8 @@ func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetada
 
 // StreamExecute implements queryservice.QueryService.
 // It routes the query to the appropriate multipooler instance based on the target.
-//
-// This method:
-// 1. Uses LoadBalancer to get a connection matching the target specification
-// 2. Delegates to the pooler's QueryService for execution
-//
-// The target specifies:
-// - TableGroup: Required
-// - PoolerType: PRIMARY (writes), REPLICA (reads), etc. Defaults to PRIMARY if not set.
-// - Shard: Optional, empty matches any shard
-//
-// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
+// If the query fails with a bufferable error during a PRIMARY failover,
+// the request is buffered and retried once a new PRIMARY is available.
 func (pg *PoolerGateway) StreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -107,9 +144,16 @@ func (pg *PoolerGateway) StreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
+		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
+			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+				return pg.StreamExecute(ctx, target, sql, options, callback)
+			}); retryErr != nil {
+				return retryErr
+			}
+			return nil
+		}
 		return err
 	}
 
@@ -119,20 +163,36 @@ func (pg *PoolerGateway) StreamExecute(
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	// Delegate to the pooler's QueryService
-	return conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
+	err = conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
+	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
+		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			return pg.StreamExecute(ctx, target, sql, options, callback)
+		}); retryErr != nil {
+			return retryErr
+		}
+		return nil
+	}
+	return err
 }
 
 // ExecuteQuery implements queryservice.QueryService.
 // It routes the query to the appropriate multipooler instance based on the target.
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
-//
-// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, error) {
-	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
+		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
+			var result *sqltypes.Result
+			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+				var retryErr error
+				result, retryErr = pg.ExecuteQuery(ctx, target, sql, options)
+				return retryErr
+			}); retryErr != nil {
+				return nil, retryErr
+			}
+			return result, nil
+		}
 		return nil, err
 	}
 
@@ -142,14 +202,22 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	// Delegate to the pooler's QueryService
-	return conn.QueryService().ExecuteQuery(ctx, target, sql, options)
+	result, err := conn.QueryService().ExecuteQuery(ctx, target, sql, options)
+	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
+		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			var retryErr error
+			result, retryErr = pg.ExecuteQuery(ctx, target, sql, options)
+			return retryErr
+		}); retryErr != nil {
+			return nil, retryErr
+		}
+		return result, nil
+	}
+	return result, err
 }
 
 // PortalStreamExecute implements queryservice.QueryService.
 // It executes a portal and returns reservation information.
-//
-// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) PortalStreamExecute(
 	ctx context.Context,
 	target *query.Target,
@@ -158,9 +226,19 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
-	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
+		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
+			var state queryservice.ReservedState
+			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+				var retryErr error
+				state, retryErr = pg.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+				return retryErr
+			}); retryErr != nil {
+				return queryservice.ReservedState{}, retryErr
+			}
+			return state, nil
+		}
 		return queryservice.ReservedState{}, err
 	}
 
@@ -170,14 +248,22 @@ func (pg *PoolerGateway) PortalStreamExecute(
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	// Delegate to the pooler's QueryService
-	return conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+	state, err := conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
+		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			var retryErr error
+			state, retryErr = pg.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+			return retryErr
+		}); retryErr != nil {
+			return queryservice.ReservedState{}, retryErr
+		}
+		return state, nil
+	}
+	return state, err
 }
 
 // Describe implements queryservice.QueryService.
 // It returns metadata about a prepared statement or portal.
-//
-// TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) Describe(
 	ctx context.Context,
 	target *query.Target,
@@ -185,9 +271,19 @@ func (pg *PoolerGateway) Describe(
 	portal *query.Portal,
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
-	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
+		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
+			var desc *query.StatementDescription
+			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+				var retryErr error
+				desc, retryErr = pg.Describe(ctx, target, preparedStatement, portal, options)
+				return retryErr
+			}); retryErr != nil {
+				return nil, retryErr
+			}
+			return desc, nil
+		}
 		return nil, err
 	}
 
@@ -197,8 +293,18 @@ func (pg *PoolerGateway) Describe(
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	// Delegate to the pooler's QueryService
-	return conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
+	desc, err := conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
+	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
+		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			var retryErr error
+			desc, retryErr = pg.Describe(ctx, target, preparedStatement, portal, options)
+			return retryErr
+		}); retryErr != nil {
+			return nil, retryErr
+		}
+		return desc, nil
+	}
+	return desc, err
 }
 
 // Close implements queryservice.QueryService.
@@ -259,9 +365,23 @@ func (pg *PoolerGateway) CopyReady(
 	options *query.ExecuteOptions,
 	reservationOptions *multipoolerpb.ReservationOptions,
 ) (int16, []int16, queryservice.ReservedState, error) {
-	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
+		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
+			var (
+				format     int16
+				colFormats []int16
+				state      queryservice.ReservedState
+			)
+			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+				var retryErr error
+				format, colFormats, state, retryErr = pg.CopyReady(ctx, target, copyQuery, options, reservationOptions)
+				return retryErr
+			}); retryErr != nil {
+				return 0, nil, queryservice.ReservedState{}, retryErr
+			}
+			return format, colFormats, state, nil
+		}
 		return 0, nil, queryservice.ReservedState{}, err
 	}
 
@@ -271,8 +391,18 @@ func (pg *PoolerGateway) CopyReady(
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	// Delegate to the pooler's QueryService
-	return conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
+	format, colFormats, state, err := conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
+	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
+		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			var retryErr error
+			format, colFormats, state, retryErr = pg.CopyReady(ctx, target, copyQuery, options, reservationOptions)
+			return retryErr
+		}); retryErr != nil {
+			return 0, nil, queryservice.ReservedState{}, retryErr
+		}
+		return format, colFormats, state, nil
+	}
+	return format, colFormats, state, err
 }
 
 // CopySendData implements queryservice.QueryService.
@@ -357,9 +487,19 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 	reservationOptions *multipoolerpb.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (queryservice.ReservedState, error) {
-	// Get a connection matching the target
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
+		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
+			var state queryservice.ReservedState
+			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+				var retryErr error
+				state, retryErr = pg.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+				return retryErr
+			}); retryErr != nil {
+				return queryservice.ReservedState{}, retryErr
+			}
+			return state, nil
+		}
 		return queryservice.ReservedState{}, err
 	}
 
@@ -369,8 +509,18 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	// Delegate to the pooler's QueryService
-	return conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+	state, err := conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
+		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			var retryErr error
+			state, retryErr = pg.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+			return retryErr
+		}); retryErr != nil {
+			return queryservice.ReservedState{}, retryErr
+		}
+		return state, nil
+	}
+	return state, err
 }
 
 // ConcludeTransaction implements queryservice.QueryService.
