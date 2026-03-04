@@ -17,27 +17,21 @@ package manager
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
-
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 const meterName = "github.com/multigres/multigres/go/services/multipooler/manager"
 
-// Metrics holds OTel gauge instruments for pgBackRest server health.
-// Atomic values are used because the OTel callback and the monitor loop run on different goroutines.
+// Metrics holds OTel counter instruments for pgBackRest backup outcomes.
 type Metrics struct {
-	serverUp     metric.Int64ObservableGauge
-	restartCount metric.Int64ObservableGauge
-
-	serverUpVal     atomic.Int64
-	restartCountVal atomic.Int64
+	backupAttempts  metric.Int64Counter
+	backupSuccesses metric.Int64Counter
+	backupFailures  metric.Int64Counter
 }
 
-// NewMetrics creates and registers the pgBackRest health gauges.
+// NewMetrics creates and registers the pgBackRest backup counters.
 // It always returns a non-nil *Metrics; any registration errors are collected and returned.
 func NewMetrics() (*Metrics, error) {
 	m := &Metrics{}
@@ -46,42 +40,47 @@ func NewMetrics() (*Metrics, error) {
 	var errs []error
 
 	var err error
-	m.serverUp, err = meter.Int64ObservableGauge(
-		"pgbackrest_server_up",
-		metric.WithDescription("1 if the pgBackRest TLS server is running, 0 otherwise."),
+	m.backupAttempts, err = meter.Int64Counter(
+		"pgbackrest_backup_attempts_total",
+		metric.WithDescription("Total number of backup attempts"),
 	)
 	errs = append(errs, err)
 
-	m.restartCount, err = meter.Int64ObservableGauge(
-		"pgbackrest_restart_count",
-		metric.WithDescription("Number of times the pgBackRest TLS server has been restarted."),
+	m.backupSuccesses, err = meter.Int64Counter(
+		"pgbackrest_backup_successes_total",
+		metric.WithDescription("Total number of successful backups"),
 	)
 	errs = append(errs, err)
 
-	_, err = meter.RegisterCallback(
-		func(_ context.Context, o metric.Observer) error {
-			o.ObserveInt64(m.serverUp, m.serverUpVal.Load())
-			o.ObserveInt64(m.restartCount, m.restartCountVal.Load())
-			return nil
-		},
-		m.serverUp, m.restartCount,
+	m.backupFailures, err = meter.Int64Counter(
+		"pgbackrest_backup_failures_total",
+		metric.WithDescription("Total number of failed backups"),
 	)
 	errs = append(errs, err)
 
 	return m, errors.Join(errs...)
 }
 
-// UpdateFromPgBackRestStatus atomically updates the gauge values from a PgBackRestStatus.
-// A nil status is treated as server-down with restart count 0.
-func (m *Metrics) UpdateFromPgBackRestStatus(s *pgctldpb.PgBackRestStatus) {
-	if m == nil {
-		return
+// IncBackupAttempts increments the backup attempts counter.
+// Safe to call on a nil receiver or with a nil instrument.
+func (m *Metrics) IncBackupAttempts(ctx context.Context) {
+	if m != nil && m.backupAttempts != nil {
+		m.backupAttempts.Add(ctx, 1)
 	}
-	if s == nil || !s.GetRunning() {
-		m.serverUpVal.Store(0)
-		m.restartCountVal.Store(0)
-		return
+}
+
+// IncBackupSuccesses increments the backup successes counter.
+// Safe to call on a nil receiver or with a nil instrument.
+func (m *Metrics) IncBackupSuccesses(ctx context.Context) {
+	if m != nil && m.backupSuccesses != nil {
+		m.backupSuccesses.Add(ctx, 1)
 	}
-	m.serverUpVal.Store(1)
-	m.restartCountVal.Store(int64(s.GetRestartCount()))
+}
+
+// IncBackupFailures increments the backup failures counter.
+// Safe to call on a nil receiver or with a nil instrument.
+func (m *Metrics) IncBackupFailures(ctx context.Context) {
+	if m != nil && m.backupFailures != nil {
+		m.backupFailures.Add(ctx, 1)
+	}
 }

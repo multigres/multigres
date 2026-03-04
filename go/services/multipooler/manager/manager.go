@@ -1541,7 +1541,6 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
-		pm.metrics.UpdateFromPgBackRestStatus(nil)
 		return state // All fields remain false
 	}
 	state.pgctldAvailable = true
@@ -1551,12 +1550,8 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) postgre
 	if err != nil {
 		// pgctld call failed, treat as unavailable
 		state.pgctldAvailable = false
-		pm.metrics.UpdateFromPgBackRestStatus(nil)
 		return state
 	}
-
-	// Update pgBackRest metrics from the status response.
-	pm.metrics.UpdateFromPgBackRestStatus(statusResp.PgbackrestStatus)
 
 	// Check if directory is initialized
 	state.dirInitialized = (statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED)

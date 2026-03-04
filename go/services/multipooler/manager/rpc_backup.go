@@ -64,7 +64,16 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	}
 	defer pm.actionLock.Release(ctx)
 
-	return pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+	pm.metrics.IncBackupAttempts(ctx)
+
+	result, err := pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+	if err != nil {
+		pm.metrics.IncBackupFailures(ctx)
+		return "", err
+	}
+
+	pm.metrics.IncBackupSuccesses(ctx)
+	return result, nil
 }
 
 // backupLocked performs a backup. Caller must hold the action lock.

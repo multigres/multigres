@@ -24,12 +24,11 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// getGaugeInt64 extracts a named Int64 gauge from collected metric data.
-func getGaugeInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) *metricdata.Gauge[int64] {
+// getCounterInt64 extracts a named Int64 counter (Sum) from collected metric data.
+func getCounterInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) *metricdata.Sum[int64] {
 	t.Helper()
 
 	var metricData metricdata.ResourceMetrics
@@ -39,26 +38,26 @@ func getGaugeInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) *m
 	for _, scopeMetric := range metricData.ScopeMetrics {
 		for _, m := range scopeMetric.Metrics {
 			if m.Name == name {
-				gauge, ok := m.Data.(metricdata.Gauge[int64])
-				require.True(t, ok, "expected Gauge[int64] data type for %s", name)
-				return &gauge
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				require.True(t, ok, "expected Sum[int64] data type for %s", name)
+				return &sum
 			}
 		}
 	}
 	return nil
 }
 
-// gaugeValue returns the single data point value from a gauge, or 0 if nil.
-func gaugeValue(g *metricdata.Gauge[int64]) int64 {
-	if g == nil || len(g.DataPoints) == 0 {
+// counterValue returns the single data point value from a counter Sum, or 0 if nil.
+func counterValue(s *metricdata.Sum[int64]) int64 {
+	if s == nil || len(s.DataPoints) == 0 {
 		return 0
 	}
-	return g.DataPoints[0].Value
+	return s.DataPoints[0].Value
 }
 
-func TestMetrics_Property_RunningTrueYieldsServerUp1(t *testing.T) {
-	// Fuzz Running=true with random RestartCount values and check that
-	// pgbackrest_server_up always reports 1 and restart_count matches.
+// setupMetrics is a test helper that initializes telemetry and creates a Metrics instance.
+func setupMetrics(t *testing.T) (*Metrics, *sdkmetric.ManualReader) {
+	t.Helper()
 
 	setup := telemetry.SetupTestTelemetry(t)
 	ctx := t.Context()
@@ -71,125 +70,106 @@ func TestMetrics_Property_RunningTrueYieldsServerUp1(t *testing.T) {
 	m, err := NewMetrics()
 	require.NoError(t, err)
 
-	for i := range 100 {
-		restartCount := rand.Int32N(10000)
+	return m, setup.MetricReader
+}
 
-		m.UpdateFromPgBackRestStatus(&pgctldpb.PgBackRestStatus{
-			Running:      true,
-			RestartCount: restartCount,
-		})
+// TestMetrics_SingleAttemptSuccess verifies that a single attempt + success
+// yields attempts=1, successes=1, failures=0.
+func TestMetrics_SingleAttemptSuccess(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
 
-		serverUp := getGaugeInt64(t, setup.MetricReader, "pgbackrest_server_up")
-		require.NotNil(t, serverUp, "iteration %d: pgbackrest_server_up gauge not found", i)
-		assert.Equal(t, int64(1), gaugeValue(serverUp),
-			"iteration %d: pgbackrest_server_up should be 1 when Running=true", i)
+	m.IncBackupAttempts(ctx)
+	m.IncBackupSuccesses(ctx)
 
-		restarts := getGaugeInt64(t, setup.MetricReader, "pgbackrest_restart_count")
-		require.NotNil(t, restarts, "iteration %d: pgbackrest_restart_count gauge not found", i)
-		assert.Equal(t, int64(restartCount), gaugeValue(restarts),
-			"iteration %d: pgbackrest_restart_count should match input RestartCount=%d", i, restartCount)
+	attempts := getCounterInt64(t, reader, "pgbackrest_backup_attempts_total")
+	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	successes := getCounterInt64(t, reader, "pgbackrest_backup_successes_total")
+	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
+	assert.Equal(t, int64(1), counterValue(successes))
+
+	// failures counter was never incremented, so it may not appear in collected metrics;
+	// counterValue returns 0 for nil, which is the expected value.
+	failures := getCounterInt64(t, reader, "pgbackrest_backup_failures_total")
+	assert.Equal(t, int64(0), counterValue(failures))
+}
+
+// TestMetrics_SingleAttemptFailure verifies that a single attempt + failure
+// yields attempts=1, successes=0, failures=1.
+func TestMetrics_SingleAttemptFailure(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncBackupAttempts(ctx)
+	m.IncBackupFailures(ctx)
+
+	attempts := getCounterInt64(t, reader, "pgbackrest_backup_attempts_total")
+	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	// successes counter was never incremented, so it may not appear in collected metrics;
+	// counterValue returns 0 for nil, which is the expected value.
+	successes := getCounterInt64(t, reader, "pgbackrest_backup_successes_total")
+	assert.Equal(t, int64(0), counterValue(successes))
+
+	failures := getCounterInt64(t, reader, "pgbackrest_backup_failures_total")
+	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
+	assert.Equal(t, int64(1), counterValue(failures))
+}
+
+// TestMetrics_NewMetrics_ReturnsNonNil verifies that NewMetrics() returns non-nil
+// even with the default (noop) provider.
+func TestMetrics_NewMetrics_ReturnsNonNil(t *testing.T) {
+	m, err := NewMetrics()
+	assert.NoError(t, err)
+	assert.NotNil(t, m, "NewMetrics() should always return non-nil *Metrics")
+}
+
+// TestMetrics_NilSafe verifies that calling increment methods on a nil *Metrics
+// does not panic.
+func TestMetrics_NilSafe(t *testing.T) {
+	var m *Metrics
+	ctx := t.Context()
+
+	assert.NotPanics(t, func() { m.IncBackupAttempts(ctx) })
+	assert.NotPanics(t, func() { m.IncBackupSuccesses(ctx) })
+	assert.NotPanics(t, func() { m.IncBackupFailures(ctx) })
+}
+
+// TestMetrics_Property_AttemptsEqualSuccessesPlusFailures generates 100 random
+// backup outcomes and asserts the counter invariant holds.
+func TestMetrics_Property_AttemptsEqualSuccessesPlusFailures(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	var expectedSuccesses, expectedFailures int64
+
+	for range 100 {
+		m.IncBackupAttempts(ctx)
+
+		if rand.IntN(2) == 1 {
+			m.IncBackupSuccesses(ctx)
+			expectedSuccesses++
+		} else {
+			m.IncBackupFailures(ctx)
+			expectedFailures++
+		}
 	}
-}
 
-// TestMetrics_RunningTrue_ServerUpReports1 verifies that when PgBackRestStatus.Running
-// is true, the pgbackrest_server_up gauge reports 1.
-func TestMetrics_RunningTrue_ServerUpReports1(t *testing.T) {
-	setup := telemetry.SetupTestTelemetry(t)
-	ctx := t.Context()
-	err := setup.Telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = setup.Telemetry.ShutdownTelemetry(context.Background())
-	})
+	attempts := getCounterInt64(t, reader, "pgbackrest_backup_attempts_total")
+	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
 
-	m, err := NewMetrics()
-	require.NoError(t, err)
+	successes := getCounterInt64(t, reader, "pgbackrest_backup_successes_total")
+	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
 
-	m.UpdateFromPgBackRestStatus(&pgctldpb.PgBackRestStatus{
-		Running:      true,
-		RestartCount: 3,
-	})
+	failures := getCounterInt64(t, reader, "pgbackrest_backup_failures_total")
+	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
 
-	serverUp := getGaugeInt64(t, setup.MetricReader, "pgbackrest_server_up")
-	require.NotNil(t, serverUp, "pgbackrest_server_up gauge not found")
-	assert.Equal(t, int64(1), gaugeValue(serverUp), "pgbackrest_server_up should be 1 when Running=true")
-}
-
-// TestMetrics_RunningFalse_ServerUpReports0 verifies that when PgBackRestStatus.Running
-// is false, the pgbackrest_server_up gauge reports 0.
-func TestMetrics_RunningFalse_ServerUpReports0(t *testing.T) {
-	setup := telemetry.SetupTestTelemetry(t)
-	ctx := t.Context()
-	err := setup.Telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = setup.Telemetry.ShutdownTelemetry(context.Background())
-	})
-
-	m, err := NewMetrics()
-	require.NoError(t, err)
-
-	m.UpdateFromPgBackRestStatus(&pgctldpb.PgBackRestStatus{
-		Running:      false,
-		RestartCount: 5,
-	})
-
-	serverUp := getGaugeInt64(t, setup.MetricReader, "pgbackrest_server_up")
-	require.NotNil(t, serverUp, "pgbackrest_server_up gauge not found")
-	assert.Equal(t, int64(0), gaugeValue(serverUp), "pgbackrest_server_up should be 0 when Running=false")
-}
-
-// TestMetrics_RestartCountPropagation verifies that pgbackrest_restart_count matches
-// the RestartCount field from PgBackRestStatus.
-func TestMetrics_RestartCountPropagation(t *testing.T) {
-	setup := telemetry.SetupTestTelemetry(t)
-	ctx := t.Context()
-	err := setup.Telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = setup.Telemetry.ShutdownTelemetry(context.Background())
-	})
-
-	m, err := NewMetrics()
-	require.NoError(t, err)
-
-	m.UpdateFromPgBackRestStatus(&pgctldpb.PgBackRestStatus{
-		Running:      true,
-		RestartCount: 42,
-	})
-
-	restarts := getGaugeInt64(t, setup.MetricReader, "pgbackrest_restart_count")
-	require.NotNil(t, restarts, "pgbackrest_restart_count gauge not found")
-	assert.Equal(t, int64(42), gaugeValue(restarts), "pgbackrest_restart_count should match PgBackRestStatus.RestartCount")
-}
-
-// TestMetrics_NilStatus_BothGaugesReport0 verifies that when PgBackRestStatus is nil,
-// both pgbackrest_server_up and pgbackrest_restart_count report 0.
-func TestMetrics_NilStatus_BothGaugesReport0(t *testing.T) {
-	setup := telemetry.SetupTestTelemetry(t)
-	ctx := t.Context()
-	err := setup.Telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = setup.Telemetry.ShutdownTelemetry(context.Background())
-	})
-
-	m, err := NewMetrics()
-	require.NoError(t, err)
-
-	// First set non-zero values to ensure nil actually resets them
-	m.UpdateFromPgBackRestStatus(&pgctldpb.PgBackRestStatus{
-		Running:      true,
-		RestartCount: 7,
-	})
-
-	m.UpdateFromPgBackRestStatus(nil)
-
-	serverUp := getGaugeInt64(t, setup.MetricReader, "pgbackrest_server_up")
-	require.NotNil(t, serverUp, "pgbackrest_server_up gauge not found")
-	assert.Equal(t, int64(0), gaugeValue(serverUp), "pgbackrest_server_up should be 0 for nil status")
-
-	restarts := getGaugeInt64(t, setup.MetricReader, "pgbackrest_restart_count")
-	require.NotNil(t, restarts, "pgbackrest_restart_count gauge not found")
-	assert.Equal(t, int64(0), gaugeValue(restarts), "pgbackrest_restart_count should be 0 for nil status")
+	assert.Equal(t, int64(100), counterValue(attempts), "should have 100 total attempts")
+	assert.Equal(t, expectedSuccesses, counterValue(successes), "successes should match expected")
+	assert.Equal(t, expectedFailures, counterValue(failures), "failures should match expected")
+	assert.Equal(t, counterValue(attempts), counterValue(successes)+counterValue(failures),
+		"attempts should equal successes + failures")
 }
