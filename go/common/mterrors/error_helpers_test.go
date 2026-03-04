@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package handler
+package mterrors
 
 import (
 	"errors"
@@ -21,9 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 func TestExtractSQLSTATE(t *testing.T) {
@@ -39,17 +36,17 @@ func TestExtractSQLSTATE(t *testing.T) {
 		},
 		{
 			name: "PgDiagnostic with real SQLSTATE",
-			err:  mterrors.NewPgError("ERROR", "42P01", "relation does not exist", ""),
+			err:  NewPgError("ERROR", "42P01", "relation does not exist", ""),
 			want: "42P01",
 		},
 		{
 			name: "PgDiagnostic with MT code",
-			err:  mterrors.MTD01.New("something"),
+			err:  MTD01.New("something"),
 			want: "MTD01",
 		},
 		{
 			name: "wrapped PgDiagnostic",
-			err:  fmt.Errorf("context: %w", mterrors.NewPgError("ERROR", "23505", "unique violation", "")),
+			err:  fmt.Errorf("context: %w", NewPgError("ERROR", "23505", "unique violation", "")),
 			want: "23505",
 		},
 		{
@@ -85,12 +82,12 @@ func TestClassifyErrorSource(t *testing.T) {
 		},
 		{
 			name: "real PG SQLSTATE → backend",
-			err:  mterrors.NewPgError("ERROR", "42P01", "relation does not exist", ""),
+			err:  NewPgError("ERROR", "42P01", "relation does not exist", ""),
 			want: "backend",
 		},
 		{
 			name: "MT-prefixed code → internal",
-			err:  mterrors.MTD01.New("bug"),
+			err:  MTD01.New("bug"),
 			want: "internal",
 		},
 		{
@@ -100,7 +97,7 @@ func TestClassifyErrorSource(t *testing.T) {
 		},
 		{
 			name: "Class 08 connection exception → routing",
-			err:  mterrors.NewPgError("FATAL", "08006", "connection failure", ""),
+			err:  NewPgError("FATAL", "08006", "connection failure", ""),
 			want: "routing",
 		},
 		{
@@ -113,37 +110,6 @@ func TestClassifyErrorSource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ClassifyErrorSource(tt.err)
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestExtractOperationName(t *testing.T) {
-	tests := []struct {
-		name string
-		stmt ast.Stmt
-		want string
-	}{
-		{
-			name: "nil stmt",
-			stmt: nil,
-			want: "UNKNOWN",
-		},
-		{
-			name: "SELECT",
-			stmt: ast.NewSelectStmt(),
-			want: "SELECT",
-		},
-		{
-			name: "INSERT",
-			stmt: ast.NewInsertStmt(ast.NewRangeVar("t", "", "")),
-			want: "INSERT",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractOperationName(tt.stmt)
 			require.Equal(t, tt.want, got)
 		})
 	}

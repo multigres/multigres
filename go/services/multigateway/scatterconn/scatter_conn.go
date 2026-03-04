@@ -797,20 +797,20 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 
 // endAction records shard-level metrics and span status for both success and
 // error outcomes. Designed to be called via defer with a pointer to the named
-// error return, following Vitess's startAction/endAction pattern.
+// error return.
 func (sc *ScatterConn) endAction(ctx context.Context, span trace.Span, start time.Time, dbNamespace, tableGroup, shard string, err *error) {
 	duration := time.Since(start).Seconds()
 	if *err != nil {
-		sqlstate := handler.ExtractSQLSTATE(*err)
+		sqlstate := mterrors.ExtractSQLSTATE(*err)
 		span.RecordError(*err)
 		span.SetStatus(codes.Error, (*err).Error())
 		if sqlstate != "" {
 			span.SetAttributes(attribute.String("db.response.status_code", sqlstate))
 		}
 		sc.metrics.executeDuration.Record(ctx, duration, dbNamespace, tableGroup, shard, ScatterStatusError)
-		// TODO: Vitess filters out client-caused errors (ALREADY_EXISTS, INVALID_ARGUMENT)
-		// from the counter to avoid inflating error rates. We count all errors and rely on
-		// the error.type label for dashboard filtering. Revisit if counters get noisy.
+		// TODO: Consider filtering out client-caused errors (e.g. unique constraint violations)
+		// from the counter to avoid inflating error rates. We currently count all errors and
+		// rely on the error.type label for dashboard filtering. Revisit if counters get noisy.
 		sc.metrics.executeErrors.Add(ctx, tableGroup, shard, sqlstate)
 		return
 	}

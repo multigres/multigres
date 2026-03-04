@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -52,9 +53,6 @@ type Executor interface {
 	ReleaseAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error
 }
 
-// defaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
-const defaultSlowQueryThreshold = 1 * time.Second
-
 // MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
 // It routes PostgreSQL protocol queries to the appropriate multipooler instances.
 type MultiGatewayHandler struct {
@@ -78,7 +76,7 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 		psc:              preparedstatement.NewConsolidator(),
 		statementTimeout: statementTimeout,
 		metrics:          metrics,
-		slowThreshold:    defaultSlowQueryThreshold,
+		slowThreshold:    constants.DefaultSlowQueryThreshold,
 	}
 }
 
@@ -130,7 +128,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// TODO: For multi-statement batches, this only captures the first statement's
 	// operation name. Consider recording per-statement metrics or using "MULTI" as
 	// the operation name when len(asts) > 1.
-	operationName := ExtractOperationName(asts[0])
+	operationName := asts[0].StatementType()
 	ctx, span := startQuerySpan(ctx, operationName, "simple", conn.Database(), conn.User())
 	defer span.End()
 
@@ -145,7 +143,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
 		if !h.startsWithRollback(asts) {
 			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, errAbortedTransaction)
-			recordSpanError(span, errAbortedTransaction, ExtractSQLSTATE(errAbortedTransaction))
+			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
 		}
 	}
@@ -188,7 +186,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	totalDuration := time.Since(queryStart)
 	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, err)
 	if err != nil {
-		recordSpanError(span, err, ExtractSQLSTATE(err))
+		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
 	return err
 }
@@ -283,7 +281,10 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		return portalErr
 	}
 
-	operationName := ExtractOperationName(portalInfo.AstStmt())
+	operationName := "UNKNOWN"
+	if stmt := portalInfo.AstStmt(); stmt != nil {
+		operationName = stmt.StatementType()
+	}
 	ctx, span := startQuerySpan(ctx, operationName, "extended", conn.Database(), conn.User())
 	defer span.End()
 
@@ -292,7 +293,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
 		if !ast.IsRollbackStatement(portalInfo.AstStmt()) {
 			h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, 0, time.Since(queryStart), 0, errAbortedTransaction)
-			recordSpanError(span, errAbortedTransaction, ExtractSQLSTATE(errAbortedTransaction))
+			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
 		}
 	}
@@ -323,7 +324,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	totalDuration := time.Since(queryStart)
 	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, err)
 	if err != nil {
-		recordSpanError(span, err, ExtractSQLSTATE(err))
+		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
 	return err
 }
@@ -435,8 +436,8 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	errorType := ""
 	if err != nil {
 		status = QueryStatusError
-		errorType = ExtractSQLSTATE(err)
-		h.metrics.queryErrors.Add(ctx, errorType, ClassifyErrorSource(err), dbNamespace, operationName)
+		errorType = mterrors.ExtractSQLSTATE(err)
+		h.metrics.queryErrors.Add(ctx, errorType, mterrors.ClassifyErrorSource(err), dbNamespace, operationName)
 	}
 
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status)
@@ -453,7 +454,7 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 		RowCount:      rowCount,
 		Error:         err,
 		SQLSTATE:      errorType,
-		ErrorSource:   ClassifyErrorSource(err),
+		ErrorSource:   mterrors.ClassifyErrorSource(err),
 	}, h.slowThreshold)
 }
 

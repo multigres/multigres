@@ -12,28 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package handler
+package mterrors
 
 import (
 	"errors"
 	"strings"
-
-	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// ExtractSQLSTATE unwraps the error chain looking for a *mterrors.PgDiagnostic
+// ExtractSQLSTATE unwraps the error chain looking for a *PgDiagnostic
 // and returns its SQLSTATE Code. Returns "" for nil errors and "XX000"
 // (internal_error) for non-PgDiagnostic errors.
 func ExtractSQLSTATE(err error) string {
 	if err == nil {
 		return ""
 	}
-	var diag *mterrors.PgDiagnostic
+	var diag *PgDiagnostic
 	if errors.As(err, &diag) {
 		return diag.Code
 	}
-	return mterrors.PgSSInternalError // "XX000"
+	return PgSSInternalError // "XX000"
 }
 
 // ClassifyErrorSource categorises the origin of an error for metric attribution.
@@ -48,11 +45,11 @@ func ClassifyErrorSource(err error) string {
 	}
 
 	// Connection errors (I/O failures, Class 08, shutdown codes) → routing.
-	if mterrors.IsConnectionError(err) {
+	if IsConnectionError(err) {
 		return "routing"
 	}
 
-	var diag *mterrors.PgDiagnostic
+	var diag *PgDiagnostic
 	if errors.As(err, &diag) {
 		// MT-prefixed codes (e.g. "MTD01", "MTE01") → internal.
 		if strings.HasPrefix(diag.Code, "MT") {
@@ -63,13 +60,4 @@ func ClassifyErrorSource(err error) string {
 	}
 
 	return "client"
-}
-
-// ExtractOperationName returns the SQL statement type (e.g. "SELECT", "INSERT")
-// from an AST node. Returns "UNKNOWN" if stmt is nil.
-func ExtractOperationName(stmt ast.Stmt) string {
-	if stmt == nil {
-		return "UNKNOWN"
-	}
-	return stmt.StatementType()
 }
