@@ -1182,6 +1182,12 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.multipooler.Type)
 	pm.mu.Unlock()
 
+	// Verify health streamer has primary observation with self as primary
+	healthState := pm.healthStreamer.getState()
+	require.NotNil(t, healthState.PrimaryObservation, "health streamer should have primary observation after Promote")
+	assert.Equal(t, serviceID, healthState.PrimaryObservation.PrimaryID, "primary observation should point to self")
+	assert.Equal(t, int64(10), healthState.PrimaryObservation.Term, "primary observation term should match consensus term")
+
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 

@@ -297,6 +297,8 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
 			return mterrors.Wrap(err, "failed to clear primary_term after restore")
 		}
+
+		pm.healthStreamer.UpdatePrimaryObservation(nil)
 	}
 
 	if term == 0 {
