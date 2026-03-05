@@ -15,7 +15,6 @@
 package buffer
 
 import (
-	"context"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -135,6 +134,6 @@ func (tt *timeoutThread) evictHead() {
 	head.err = mterrors.MTB02.New()
 	close(head.done)
 	tt.buf.bufferSizeSema.Release(1)
-	tt.buf.stats.recordEvicted(context.Background(), "window_exceeded")
+	tt.buf.stats.recordEvicted(tt.buf.ctx, "window_exceeded")
 	tt.buf.logger.Debug("evicted entry: window exceeded", "shard_key", head.shardKey)
 }

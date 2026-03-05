@@ -95,16 +95,14 @@ func TestBufferBasicBufferingAndDrain(t *testing.T) {
 		wg           sync.WaitGroup
 	)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			gotRetryDone = true
 			retryDone() // Must call inside goroutine so drain can complete.
 		}
-	}()
+	})
 
 	// Wait for the entry to be enqueued.
 	waitForQueueLen(t, buf, 1)
@@ -151,38 +149,32 @@ func TestBufferGlobalEviction(t *testing.T) {
 	// Goroutines call retryDone immediately so the drain can proceed.
 	var wg0 sync.WaitGroup
 	wg0.Add(1)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer wg0.Done()
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		errs[0] = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 	waitForQueueLen(t, buf, 1)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		errs[1] = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 	waitForQueueLen(t, buf, 2)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		errs[2] = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 	// Goroutine 0's eviction confirms goroutine 2 has enqueued.
 	wg0.Wait()
 
@@ -227,15 +219,13 @@ func TestBufferMaxFailoverDuration(t *testing.T) {
 	var wg sync.WaitGroup
 	var waitErr error
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 
 	wg.Wait()
 
@@ -260,15 +250,13 @@ func TestBufferStaleMaxDurationTimer(t *testing.T) {
 
 	// Failover 1: start buffering, let maxDurationTimer fire to end it.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		assert.NoError(t, err)
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 
 	// Wait for max duration to fire and drain.
 	wg.Wait()
@@ -276,16 +264,14 @@ func TestBufferStaleMaxDurationTimer(t *testing.T) {
 	sb.drainWg.Wait()
 
 	// Failover 2: start buffering again immediately.
-	wg.Add(1)
 	var retryDone2 RetryDoneFunc
 	var err2 error
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone2, err2 = buf.WaitForFailoverEnd(ctx, shard1Key)
 		if retryDone2 != nil {
 			retryDone2()
 		}
-	}()
+	})
 
 	waitForQueueLen(t, buf, 1)
 
@@ -314,11 +300,9 @@ func TestBufferContextCancellation(t *testing.T) {
 	var retryDone RetryDoneFunc
 	var err error
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
-	}()
+	})
 
 	waitForQueueLen(t, buf, 1)
 	cancel()
@@ -357,15 +341,13 @@ func TestBufferTimingGuard(t *testing.T) {
 
 	// First failover: should buffer.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, waitErr := buf.WaitForFailoverEnd(ctx, shard1Key)
 		assert.NoError(t, waitErr)
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 	waitForQueueLen(t, buf, 1)
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
@@ -382,15 +364,13 @@ func TestBufferTimingGuard(t *testing.T) {
 	advanceClock(1*time.Hour + 1*time.Second)
 
 	// Third failover: should buffer again (enough time elapsed).
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, waitErr := buf.WaitForFailoverEnd(ctx, shard1Key)
 		assert.NoError(t, waitErr)
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 	waitForQueueLen(t, buf, 1)
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
@@ -406,23 +386,20 @@ func TestBufferMultipleShards(t *testing.T) {
 	var err1, err2 error
 
 	// Buffer requests for two different shards.
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		err1 = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard2Key)
 		err2 = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 
 	waitForQueueLen(t, buf, 2)
 
@@ -454,11 +431,9 @@ func TestBufferShutdown(t *testing.T) {
 	var retryDone RetryDoneFunc
 	var err error
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
-	}()
+	})
 
 	waitForQueueLen(t, buf, 1)
 	buf.Shutdown()
@@ -481,15 +456,13 @@ func TestBufferDrainConcurrency(t *testing.T) {
 	errs := make([]error, numRequests)
 
 	for i := range numRequests {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
-			errs[idx] = err
+			errs[i] = err
 			if retryDone != nil {
 				retryDone()
 			}
-		}(i)
+		})
 		waitForQueueLen(t, buf, i+1)
 	}
 
@@ -521,9 +494,7 @@ func TestBufferDrainConcurrencyActuallyParallel(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range numRequests {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 			if err != nil {
 				return
@@ -539,7 +510,7 @@ func TestBufferDrainConcurrencyActuallyParallel(t *testing.T) {
 			<-retryGate
 			concurrent.Add(-1)
 			retryDone()
-		}(i)
+		})
 		waitForQueueLen(t, buf, i+1)
 	}
 
@@ -574,15 +545,13 @@ func TestBufferListenerOnPoolerChanged(t *testing.T) {
 	var wg sync.WaitGroup
 	var waitErr error
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 	waitForQueueLen(t, buf, 1)
 
 	// Simulate PRIMARY pooler appearing.
@@ -607,15 +576,13 @@ func TestBufferListenerReplicaIgnored(t *testing.T) {
 	var wg sync.WaitGroup
 	var waitErr error
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 	waitForQueueLen(t, buf, 1)
 
 	// REPLICA change should NOT stop buffering.
@@ -652,15 +619,13 @@ func TestBufferDrainingSkipsNewRequests(t *testing.T) {
 
 	// Start a request that blocks the drain.
 	var wg sync.WaitGroup
-	wg.Add(1)
 	var firstRetryDone RetryDoneFunc
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		var err error
 		firstRetryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
 		require.NoError(t, err)
 		// Deliberately don't call retryDone yet to keep drain busy.
-	}()
+	})
 
 	waitForQueueLen(t, buf, 1)
 	buf.StopBuffering(shard1Key)
@@ -695,15 +660,13 @@ func TestBufferContextCancelDuringDrain(t *testing.T) {
 	var wg sync.WaitGroup
 	var waitErr error
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			retryDone()
 		}
-	}()
+	})
 
 	waitForQueueLen(t, buf, 1)
 

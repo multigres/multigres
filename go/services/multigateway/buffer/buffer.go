@@ -217,7 +217,7 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 		b.queue = b.queue[1:]
 		oldest.err = mterrors.MTB01.New()
 		close(oldest.done)
-		b.stats.recordEvicted(context.Background(), "buffer_full")
+		b.stats.recordEvicted(b.ctx, "buffer_full")
 		// The evicted entry's semaphore slot is conceptually transferred to us,
 		// so we don't need to acquire again.
 	}
@@ -233,7 +233,7 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 		createdAt:    now,
 	}
 	b.queue = append(b.queue, e)
-	b.stats.recordBuffered(context.Background(), shardKey.String())
+	b.stats.recordBuffered(b.ctx, shardKey.String())
 
 	// Notify timeout thread only when the queue transitions from empty to
 	// non-empty. Entries are always appended to the tail, and the timeout

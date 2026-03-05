@@ -88,8 +88,8 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 			minGap := sb.buf.config.MinTimeBetweenFailovers.Get()
 			if sb.buf.now().Sub(sb.lastEnd) < minGap {
 				sb.mu.Unlock()
-				sb.buf.stats.recordSkipped(context.Background(), "min_time_between_failovers")
-				sb.logger.Debug("skipping buffering: too soon since last failover",
+				sb.buf.stats.recordSkipped(ctx, "min_time_between_failovers")
+				sb.logger.DebugContext(ctx, "skipping buffering: too soon since last failover",
 					"last_end", sb.lastEnd, "min_gap", minGap)
 				return nil, nil
 			}
@@ -100,8 +100,8 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		sb.generation++
 		gen := sb.generation
 		sb.lastStart = sb.buf.now()
-		sb.logger.Info("failover detected, starting buffering")
-		sb.buf.stats.recordFailover(context.Background(), sb.shardKey.String())
+		sb.logger.InfoContext(ctx, "failover detected, starting buffering")
+		sb.buf.stats.recordFailover(ctx, sb.shardKey.String())
 
 		// Start max-duration timer. The generation is captured so that if
 		// the timer fires after this failover has already ended and a new
@@ -142,11 +142,11 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 		// <-e.bufferCtx.Done(). If the entry was still in the queue,
 		// this is harmless (nobody is watching bufferCtx).
 		e.bufferCancel()
-		sb.buf.stats.recordEvicted(context.Background(), "context_canceled")
-		sb.buf.stats.recordWaitDuration(context.Background(), sb.buf.now().Sub(start).Seconds())
+		sb.buf.stats.recordEvicted(sb.buf.ctx, "context_canceled")
+		sb.buf.stats.recordWaitDuration(sb.buf.ctx, sb.buf.now().Sub(start).Seconds())
 		return nil, ctx.Err()
 	case <-e.done:
-		sb.buf.stats.recordWaitDuration(context.Background(), sb.buf.now().Sub(start).Seconds())
+		sb.buf.stats.recordWaitDuration(sb.buf.ctx, sb.buf.now().Sub(start).Seconds())
 		if e.err != nil {
 			// Entry was evicted (buffer full, window timeout, max duration, shutdown).
 			return nil, e.err
@@ -225,7 +225,7 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 func (sb *shardBuffer) drainEntry(e *entry) {
 	// Signal the entry to retry by closing its done channel.
 	close(e.done)
-	sb.buf.stats.recordDrained(context.Background(), sb.shardKey.String())
+	sb.buf.stats.recordDrained(sb.buf.ctx, sb.shardKey.String())
 
 	// Wait for the retry to complete (caller invokes RetryDoneFunc which
 	// calls bufferCancel).
