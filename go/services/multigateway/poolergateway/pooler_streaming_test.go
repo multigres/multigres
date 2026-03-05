@@ -387,7 +387,7 @@ func TestPoolerConnection_StreamHealth_PrimaryObservation(t *testing.T) {
 			Cell:      "zone1",
 			Name:      "primary-pooler",
 		},
-		Term: 42,
+		PrimaryTerm: 42,
 	}
 	setup.server.responseCh <- resp
 
@@ -397,6 +397,6 @@ func TestPoolerConnection_StreamHealth_PrimaryObservation(t *testing.T) {
 
 	health := setup.conn.Health()
 	require.NotNil(t, health.PrimaryObservation)
-	assert.Equal(t, int64(42), health.PrimaryObservation.Term)
+	assert.Equal(t, int64(42), health.PrimaryObservation.PrimaryTerm)
 	assert.Equal(t, "primary-pooler", health.PrimaryObservation.PrimaryId.GetName())
 }

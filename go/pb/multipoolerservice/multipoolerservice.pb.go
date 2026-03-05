@@ -1679,9 +1679,10 @@ type PrimaryObservation struct {
 	// primary_id is the ID of the pooler this node believes is the primary.
 	// May be this pooler's own ID if it believes itself to be primary.
 	PrimaryId *clustermetadata.ID `protobuf:"bytes,1,opt,name=primary_id,json=primaryId,proto3" json:"primary_id,omitempty"`
-	// term is the consensus term at which this observation was made.
-	// Higher terms indicate more recent observations.
-	Term          int64 `protobuf:"varint,2,opt,name=term,proto3" json:"term,omitempty"`
+	// primary_term is the primary term at which this observation was made.
+	// The primary never changes within a primary_term. Higher values indicate
+	// more recent primary elections.
+	PrimaryTerm   int64 `protobuf:"varint,2,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1723,9 +1724,9 @@ func (x *PrimaryObservation) GetPrimaryId() *clustermetadata.ID {
 	return nil
 }
 
-func (x *PrimaryObservation) GetTerm() int64 {
+func (x *PrimaryObservation) GetPrimaryTerm() int64 {
 	if x != nil {
-		return x.Term
+		return x.PrimaryTerm
 	}
 	return 0
 }
@@ -1838,11 +1839,11 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12W\n" +
 	"\x13primary_observation\x18\x04 \x01(\v2&.multipoolerservice.PrimaryObservationR\x12primaryObservation\x12]\n" +
-	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\"\\\n" +
+	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\"k\n" +
 	"\x12PrimaryObservation\x122\n" +
 	"\n" +
-	"primary_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12\x12\n" +
-	"\x04term\x18\x02 \x01(\x03R\x04term*\xba\x01\n" +
+	"primary_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tprimaryId\x12!\n" +
+	"\fprimary_term\x18\x02 \x01(\x03R\vprimaryTerm*\xba\x01\n" +
 	"\x11ReservationReason\x12\"\n" +
 	"\x1eRESERVATION_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRESERVATION_REASON_TRANSACTION\x10\x01\x12!\n" +

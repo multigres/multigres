@@ -81,7 +81,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, conn.Type(), "pooler type should be updated")
 
@@ -107,7 +107,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(primary), conn.ID())
 }
@@ -127,7 +127,7 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(localReplica), conn.ID(), "Should prefer local cell for replicas")
 }
@@ -145,7 +145,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(remotePrimary), conn.ID(), "Should find primary in remote cell")
 }
@@ -154,7 +154,7 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
-	_, err := lb.GetConnection(nil, nil)
+	_, err := lb.GetConnection(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "target cannot be nil")
 }
@@ -172,7 +172,7 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_REPLICA,
 	}
-	_, err := lb.GetConnection(target, nil)
+	_, err := lb.GetConnection(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pooler found")
 }
@@ -193,43 +193,9 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 		Shard:      "1",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, poolerID(shard1), conn.ID())
-}
-
-func TestLoadBalancer_GetConnection_ExcludePoolers(t *testing.T) {
-	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
-
-	// Add two replicas
-	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	replica2 := createTestMultiPooler("replica2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	require.NoError(t, lb.AddPooler(replica1))
-	require.NoError(t, lb.AddPooler(replica2))
-
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_REPLICA,
-	}
-
-	// First request returns one of them
-	conn1, err := lb.GetConnection(target, nil)
-	require.NoError(t, err)
-
-	// Exclude the first one, should get the other
-	opts := &GetConnectionOptions{
-		ExcludePoolers: []string{conn1.ID()},
-	}
-	conn2, err := lb.GetConnection(target, opts)
-	require.NoError(t, err)
-	assert.NotEqual(t, conn1.ID(), conn2.ID(), "Should return different pooler when first is excluded")
-
-	// Exclude both, should error
-	opts.ExcludePoolers = []string{poolerID(replica1), poolerID(replica2)}
-	_, err = lb.GetConnection(target, opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no pooler found")
 }
 
 func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
@@ -247,7 +213,7 @@ func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 		TableGroup: constants.DefaultTableGroup,
 		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
 	}
-	conn, err := lb.GetConnection(target, nil)
+	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type(), "Should default to PRIMARY")
 }
@@ -315,31 +281,31 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary1.Id,
-				Term:      5,
+				PrimaryId:   primary1.Id,
+				PrimaryTerm: 5,
 			})
 
 		// primary2 thinks primary2 is leader with term 10 (higher)
 		simulateHealthUpdate(connPrimary2,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary2.Id,
-				Term:      10,
+				PrimaryId:   primary2.Id,
+				PrimaryTerm: 10,
 			})
 
 		// replica1 also thinks primary2 is leader with term 10
 		simulateHealthUpdate(connReplica1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary2.Id,
-				Term:      10,
+				PrimaryId:   primary2.Id,
+				PrimaryTerm: 10,
 			})
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary2), conn.ID(), "Should select primary with highest term")
 	})
@@ -349,31 +315,31 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary1.Id,
-				Term:      15,
+				PrimaryId:   primary1.Id,
+				PrimaryTerm: 15,
 			})
 
 		// primary2 thinks primary2 is leader with term 12 (stale)
 		simulateHealthUpdate(connPrimary2,
 			clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary2.Id,
-				Term:      12,
+				PrimaryId:   primary2.Id,
+				PrimaryTerm: 12,
 			})
 
 		// replica1 observed the new leader (primary1) with term 20 (highest)
 		simulateHealthUpdate(connReplica1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary1.Id,
-				Term:      20,
+				PrimaryId:   primary1.Id,
+				PrimaryTerm: 20,
 			})
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(primary1), conn.ID(), "Should trust replica's observation with highest term")
 	})
@@ -394,7 +360,7 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		// Should return a PRIMARY type pooler
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type(),
@@ -411,87 +377,25 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: unknownPrimaryID,
-				Term:      100,
+				PrimaryId:   unknownPrimaryID,
+				PrimaryTerm: 100,
 			})
 		simulateHealthUpdate(connPrimary2,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: unknownPrimaryID,
-				Term:      100,
+				PrimaryId:   unknownPrimaryID,
+				PrimaryTerm: 100,
 			})
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		// Should fall back to the observer (one of the poolers that reported term 100)
 		assert.Contains(t, []string{poolerID(primary1), poolerID(primary2)}, conn.ID(),
 			"Should fall back to observer when primary not in connections")
-	})
-
-	t.Run("excluded pooler observation still consulted", func(t *testing.T) {
-		// primary1 has the highest term observation pointing to primary2
-		simulateHealthUpdate(connPrimary1,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary2.Id,
-				Term:      200,
-			})
-		// primary2 has stale observation
-		simulateHealthUpdate(connPrimary2,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary2.Id,
-				Term:      150,
-			})
-
-		target := &query.Target{
-			TableGroup: constants.DefaultTableGroup,
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
-
-		// Exclude primary1, but its observation should still be used
-		opts := &GetConnectionOptions{
-			ExcludePoolers: []string{poolerID(primary1)},
-		}
-		conn, err := lb.GetConnection(target, opts)
-		require.NoError(t, err)
-		// Should return primary2 (from primary1's observation) even though primary1 is excluded
-		assert.Equal(t, poolerID(primary2), conn.ID(),
-			"Should use excluded pooler's observation to find primary")
-	})
-
-	t.Run("excluded primary falls back to another pooler", func(t *testing.T) {
-		// Both point to primary2 as the highest-term primary
-		simulateHealthUpdate(connPrimary1,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary2.Id,
-				Term:      300,
-			})
-		simulateHealthUpdate(connPrimary2,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId: primary2.Id,
-				Term:      300,
-			})
-
-		target := &query.Target{
-			TableGroup: constants.DefaultTableGroup,
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
-
-		// Exclude primary2 (the actual primary) - should fall back to primary1 (observer)
-		opts := &GetConnectionOptions{
-			ExcludePoolers: []string{poolerID(primary2)},
-		}
-		conn, err := lb.GetConnection(target, opts)
-		require.NoError(t, err)
-		assert.Equal(t, poolerID(primary1), conn.ID(),
-			"Should fall back to observer when identified primary is excluded")
 	})
 }
 
@@ -520,7 +424,7 @@ func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		_, err := lb.GetConnection(target, nil)
+		_, err := lb.GetConnection(target)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no PRIMARY type",
 			"Should not fall back to UNKNOWN type poolers")
@@ -531,14 +435,14 @@ func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 		simulateHealthUpdate(connUnknown1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: unknown2.Id,
-				Term:      10,
+				PrimaryId:   unknown2.Id,
+				PrimaryTerm: 10,
 			})
 		simulateHealthUpdate(connUnknown2,
 			clustermetadatapb.PoolerServingStatus_SERVING,
 			&multipoolerservice.PrimaryObservation{
-				PrimaryId: unknown1.Id,
-				Term:      5,
+				PrimaryId:   unknown1.Id,
+				PrimaryTerm: 5,
 			})
 
 		target := &query.Target{
@@ -548,7 +452,7 @@ func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 		// Should find unknown2 via observation with highest term, but unknown2 is UNKNOWN type
 		// The current implementation returns the identified pooler regardless of type,
 		// which is intentional - the observation is authoritative
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(unknown2), conn.ID(),
 			"Observation takes precedence over pooler type")
@@ -583,7 +487,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		}
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(localReplica2), conn.ID(),
 			"Should prefer local serving replica over remote serving")
@@ -598,7 +502,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		}
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(remoteReplica), conn.ID(),
 			"Should fall back to remote serving when no local serving")
@@ -613,7 +517,7 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 			TableGroup: constants.DefaultTableGroup,
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		}
-		conn, err := lb.GetConnection(target, nil)
+		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		// Should pick one of the local not-serving replicas
 		assert.Equal(t, "zone1", conn.Cell(),

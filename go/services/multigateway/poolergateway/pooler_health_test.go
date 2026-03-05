@@ -95,8 +95,8 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 			Name:      "pooler1",
 		}
 		primaryObs := &multipoolerservice.PrimaryObservation{
-			PrimaryId: poolerID,
-			Term:      42,
+			PrimaryId:   poolerID,
+			PrimaryTerm: 42,
 		}
 		lastErr := errors.New("test error")
 		lastResp := time.Now()
