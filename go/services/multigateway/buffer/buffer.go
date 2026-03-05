@@ -185,9 +185,11 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 		return nil, mterrors.MTB03.New()
 	}
 
-	// Try to acquire a slot from the semaphore.
-	// TODO: Do we really need the bufferSizeSema, or can we use the
-	// size of the queue cause we already have a mutex for protection.
+	// Try to acquire a slot from the semaphore. The semaphore (not queue
+	// length) is the source of truth for capacity because drainEntry()
+	// releases slots outside b.mu only after retries complete — entries
+	// that have left the queue but are still in-flight during drain must
+	// still count against the global limit.
 	if !b.bufferSizeSema.TryAcquire(1) {
 		// Buffer is full. Evict the oldest entry globally to make room.
 		if len(b.queue) == 0 {
@@ -214,9 +216,12 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 	b.queue = append(b.queue, e)
 	b.stats.recordBuffered(context.Background(), shardKey.String())
 
-	// Notify timeout thread that the queue might have a new head.
-	// TODO: This seems wasteful on every enqueue operation.
-	b.timeoutThread.notify()
+	// Notify timeout thread only when the queue transitions from empty to
+	// non-empty. Entries are always appended to the tail, and the timeout
+	// thread only watches the head, so subsequent enqueues are irrelevant.
+	if len(b.queue) == 1 {
+		b.timeoutThread.notify()
+	}
 
 	return e, nil
 }
@@ -228,7 +233,10 @@ func (b *Buffer) removeEntry(e *entry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// TODO: possibly make queue a double linked list, for O(1) removal.
+	// A slice scan is faster than a linked list at our max size (1000):
+	// sequential pointer comparisons are cache-friendly, while a linked
+	// list would add per-element heap allocations and pointer chasing.
+	// This path only runs on context cancellation, not the hot path.
 	for i, qe := range b.queue {
 		if qe == e {
 			b.queue = append(b.queue[:i], b.queue[i+1:]...)
