@@ -56,6 +56,7 @@ type shardBuffer struct {
 	state            bufferState
 	lastStart        time.Time   // When buffering last started
 	lastEnd          time.Time   // When buffering last ended
+	generation       uint64      // Incremented on each IDLE→BUFFERING transition
 	maxDurationTimer *time.Timer // Fires when MaxFailoverDuration is exceeded
 	drainWg          sync.WaitGroup
 }
@@ -97,15 +98,18 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 
 		// Transition IDLE -> BUFFERING.
 		sb.state = stateBuffering
+		sb.generation++
+		gen := sb.generation
 		sb.lastStart = time.Now()
 		sb.logger.Info("failover detected, starting buffering")
 		sb.buf.stats.recordFailover(context.Background(), sb.shardKey.String())
 
-		// Start max-duration timer.
-		// TODO: what if the buffering ends beofre, and a new round of buffering starts?
+		// Start max-duration timer. The generation is captured so that if
+		// the timer fires after this failover has already ended and a new
+		// one has started, the stale callback is ignored.
 		sb.maxDurationTimer = time.AfterFunc(sb.buf.config.MaxFailoverDuration.Get(), func() {
 			sb.logger.Warn("max failover duration exceeded, stopping buffering")
-			sb.stopBuffering("max duration exceeded")
+			sb.stopBuffering("max duration exceeded", gen)
 		})
 		sb.mu.Unlock()
 
@@ -154,10 +158,19 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 }
 
 // stopBuffering transitions from BUFFERING to DRAINING and drains all entries.
-func (sb *shardBuffer) stopBuffering(reason string) {
+// If gen is non-zero, the call is only valid for that specific generation
+// (used by maxDurationTimer to avoid killing a subsequent failover's buffering).
+// Pass gen=0 to stop unconditionally (used by external callers like StopBuffering).
+func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 	sb.mu.Lock()
 	if sb.state != stateBuffering {
 		sb.mu.Unlock()
+		return
+	}
+	if gen != 0 && sb.generation != gen {
+		sb.mu.Unlock()
+		sb.logger.Debug("ignoring stale stopBuffering", "reason", reason,
+			"timer_gen", gen, "current_gen", sb.generation)
 		return
 	}
 
@@ -181,16 +194,25 @@ func (sb *shardBuffer) stopBuffering(reason string) {
 		return
 	}
 
-	// Drain entries with configured concurrency.
+	// Drain entries with configured concurrency. Each entry gets its own
+	// goroutine; the semaphore limits how many run in parallel.
 	concurrency := sb.buf.config.DrainConcurrency.Get()
 	sem := make(chan struct{}, concurrency)
 
 	sb.drainWg.Go(func() {
+		var wg sync.WaitGroup
 		for _, e := range entries {
 			sem <- struct{}{} // Acquire drain slot.
-			sb.drainEntry(e)
-			<-sem // Release drain slot.
+			wg.Add(1)
+			go func() {
+				defer func() {
+					<-sem // Release drain slot.
+					wg.Done()
+				}()
+				sb.drainEntry(e)
+			}()
 		}
+		wg.Wait()
 
 		// All entries drained, transition back to IDLE.
 		sb.mu.Lock()

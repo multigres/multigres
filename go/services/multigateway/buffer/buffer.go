@@ -123,7 +123,7 @@ func (b *Buffer) StopBuffering(key commontypes.ShardKey) {
 	if !ok {
 		return
 	}
-	sb.stopBuffering("new primary")
+	sb.stopBuffering("new primary", 0)
 }
 
 // Shutdown stops all buffering and evicts all pending entries.

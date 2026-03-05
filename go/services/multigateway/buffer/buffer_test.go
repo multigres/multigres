@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -207,6 +208,64 @@ func TestBufferMaxFailoverDuration(t *testing.T) {
 	assert.NoError(t, waitErr)
 }
 
+// TestBufferStaleMaxDurationTimer verifies that a maxDurationTimer from a
+// previous failover does not kill a subsequent failover's buffering.
+// Regression test for the stale timer race.
+func TestBufferStaleMaxDurationTimer(t *testing.T) {
+	cfg := testConfig(t, func(c *Config) {
+		c.MaxFailoverDuration.Set(80 * time.Millisecond)
+		c.MinTimeBetweenFailovers.Set(0)
+	})
+	buf := New(context.Background(), cfg, testLogger())
+	defer buf.Shutdown()
+
+	ctx := context.Background()
+
+	// Failover 1: start buffering, let maxDurationTimer fire to end it.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
+		assert.NoError(t, err)
+		if retryDone != nil {
+			retryDone()
+		}
+	}()
+
+	// Wait for max duration to fire and drain.
+	wg.Wait()
+	sb := buf.buffers[shard1Key]
+	sb.drainWg.Wait()
+
+	// Failover 2: start buffering again immediately.
+	wg.Add(1)
+	var retryDone2 RetryDoneFunc
+	var err2 error
+	go func() {
+		defer wg.Done()
+		retryDone2, err2 = buf.WaitForFailoverEnd(ctx, shard1Key)
+		if retryDone2 != nil {
+			retryDone2()
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify shard is still BUFFERING — a stale timer from failover 1
+	// should NOT have stopped it.
+	sb.mu.Lock()
+	assert.Equal(t, stateBuffering, sb.state,
+		"shard should still be buffering; stale timer must not kill it")
+	sb.mu.Unlock()
+
+	// End failover 2 normally.
+	buf.StopBuffering(shard1Key)
+	wg.Wait()
+
+	assert.NoError(t, err2)
+}
+
 func TestBufferContextCancellation(t *testing.T) {
 	cfg := testConfig(t)
 	buf := New(context.Background(), cfg, testLogger())
@@ -382,6 +441,68 @@ func TestBufferDrainConcurrency(t *testing.T) {
 	for i := range numRequests {
 		assert.NoError(t, errs[i], "request %d", i)
 	}
+}
+
+// TestBufferDrainConcurrencyActuallyParallel verifies that DrainConcurrency > 1
+// actually drains entries in parallel, not sequentially.
+func TestBufferDrainConcurrencyActuallyParallel(t *testing.T) {
+	cfg := testConfig(t, func(c *Config) {
+		c.DrainConcurrency.Set(3)
+	})
+	buf := New(context.Background(), cfg, testLogger())
+	defer buf.Shutdown()
+
+	ctx := context.Background()
+	const numRequests = 3
+
+	// Each request will hold its retryDone until we signal it.
+	// If drain is truly parallel, all 3 should be draining simultaneously.
+	retryGate := make(chan struct{}) // Closed to let all retries complete.
+	var concurrent atomic.Int32
+	var maxConcurrent atomic.Int32
+
+	var wg sync.WaitGroup
+	for i := range numRequests {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
+			if err != nil {
+				return
+			}
+			// Track concurrency: increment on entry, wait for gate, decrement on exit.
+			cur := concurrent.Add(1)
+			for {
+				old := maxConcurrent.Load()
+				if cur <= old || maxConcurrent.CompareAndSwap(old, cur) {
+					break
+				}
+			}
+			<-retryGate
+			concurrent.Add(-1)
+			retryDone()
+		}(i)
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger drain — all 3 entries should start draining concurrently.
+	buf.StopBuffering(shard1Key)
+
+	// Give drain goroutines time to call close(e.done) and reach the gate.
+	time.Sleep(100 * time.Millisecond)
+
+	// All 3 should be waiting at the gate concurrently.
+	assert.Equal(t, int32(numRequests), concurrent.Load(),
+		"all requests should be draining concurrently")
+
+	// Release all retries.
+	close(retryGate)
+	wg.Wait()
+
+	assert.Equal(t, int32(numRequests), maxConcurrent.Load(),
+		"max concurrent drain should equal DrainConcurrency")
 }
 
 func TestBufferListenerOnPoolerChanged(t *testing.T) {
