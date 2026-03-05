@@ -25,8 +25,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
+)
+
+var (
+	shard1Key = commontypes.ShardKey{TableGroup: "tg1", Shard: "shard1"}
+	shard2Key = commontypes.ShardKey{TableGroup: "tg1", Shard: "shard2"}
 )
 
 func testConfig(t *testing.T, opts ...func(*Config)) *Config {
@@ -68,7 +74,7 @@ func TestBufferBasicBufferingAndDrain(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			gotRetryDone = true
@@ -85,7 +91,7 @@ func TestBufferBasicBufferingAndDrain(t *testing.T) {
 	buf.mu.Unlock()
 
 	// Simulate new PRIMARY discovered — stop buffering.
-	buf.StopBuffering("tg1", "shard1")
+	buf.StopBuffering(shard1Key)
 
 	wg.Wait()
 	require.NoError(t, waitErr)
@@ -104,7 +110,7 @@ func TestBufferDisabled(t *testing.T) {
 	buf := New(cfg, testLogger())
 	defer buf.Shutdown()
 
-	retryDone, err := buf.WaitForFailoverEnd(context.Background(), "tg1", "shard1")
+	retryDone, err := buf.WaitForFailoverEnd(context.Background(), shard1Key)
 	assert.NoError(t, err)
 	assert.Nil(t, retryDone)
 }
@@ -127,7 +133,7 @@ func TestBufferGlobalEviction(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+			retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 			errs[idx] = err
 			if retryDone != nil {
 				retryDone()
@@ -146,7 +152,7 @@ func TestBufferGlobalEviction(t *testing.T) {
 	buf.mu.Unlock()
 
 	// Stop buffering to drain remaining.
-	buf.StopBuffering("tg1", "shard1")
+	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
 	// First request should have errBufferFull.
@@ -165,7 +171,7 @@ func TestBufferWindowTimeout(t *testing.T) {
 	buf := New(cfg, testLogger())
 	defer buf.Shutdown()
 
-	retryDone, err := buf.WaitForFailoverEnd(context.Background(), "tg1", "shard1")
+	retryDone, err := buf.WaitForFailoverEnd(context.Background(), shard1Key)
 	assert.ErrorIs(t, err, errWindowExceeded)
 	assert.Nil(t, retryDone)
 }
@@ -185,7 +191,7 @@ func TestBufferMaxFailoverDuration(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			retryDone()
@@ -214,7 +220,7 @@ func TestBufferContextCancellation(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryDone, err = buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
 	}()
 
 	// Give it time to enqueue.
@@ -247,21 +253,21 @@ func TestBufferTimingGuard(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryDone, waitErr := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, waitErr := buf.WaitForFailoverEnd(ctx, shard1Key)
 		assert.NoError(t, waitErr)
 		if retryDone != nil {
 			retryDone()
 		}
 	}()
 	time.Sleep(50 * time.Millisecond)
-	buf.StopBuffering("tg1", "shard1")
+	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
 	// Wait for drain to complete.
 	time.Sleep(50 * time.Millisecond)
 
 	// Second failover: should be skipped (too soon).
-	retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+	retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 	assert.NoError(t, err)
 	assert.Nil(t, retryDone, "second failover should be skipped due to timing guard")
 }
@@ -279,7 +285,7 @@ func TestBufferMultipleShards(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		err1 = err
 		if retryDone != nil {
 			retryDone()
@@ -287,7 +293,7 @@ func TestBufferMultipleShards(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard2")
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard2Key)
 		err2 = err
 		if retryDone != nil {
 			retryDone()
@@ -302,17 +308,17 @@ func TestBufferMultipleShards(t *testing.T) {
 	buf.mu.Unlock()
 
 	// Stop buffering for shard1 only.
-	buf.StopBuffering("tg1", "shard1")
+	buf.StopBuffering(shard1Key)
 	time.Sleep(50 * time.Millisecond)
 
 	// shard2 should still be buffered.
 	buf.mu.Lock()
 	assert.Len(t, buf.queue, 1)
-	assert.Equal(t, "tg1/shard2", buf.queue[0].shardKey)
+	assert.Equal(t, shard2Key, buf.queue[0].shardKey)
 	buf.mu.Unlock()
 
 	// Stop buffering for shard2.
-	buf.StopBuffering("tg1", "shard2")
+	buf.StopBuffering(shard2Key)
 	wg.Wait()
 
 	assert.NoError(t, err1)
@@ -331,7 +337,7 @@ func TestBufferShutdown(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryDone, err = buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -359,7 +365,7 @@ func TestBufferDrainConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+			retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 			errs[idx] = err
 			if retryDone != nil {
 				retryDone()
@@ -369,7 +375,7 @@ func TestBufferDrainConcurrency(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	buf.StopBuffering("tg1", "shard1")
+	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
 	for i := range numRequests {
@@ -391,7 +397,7 @@ func TestBufferListenerOnPoolerChanged(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			retryDone()
@@ -424,7 +430,7 @@ func TestBufferListenerReplicaIgnored(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 		waitErr = err
 		if retryDone != nil {
 			retryDone()
@@ -472,17 +478,17 @@ func TestBufferDrainingSkipsNewRequests(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		var err error
-		firstRetryDone, err = buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+		firstRetryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
 		require.NoError(t, err)
 		// Deliberately don't call retryDone yet to keep drain busy.
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-	buf.StopBuffering("tg1", "shard1")
+	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
 	// While draining, a new request should skip buffering (state is DRAINING).
-	retryDone, err := buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+	retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 	assert.NoError(t, err)
 	assert.Nil(t, retryDone, "should skip buffering while draining")
 
@@ -502,7 +508,7 @@ func TestBufferShutdownAfterEnqueue(t *testing.T) {
 	// Enqueue several entries.
 	for range 5 {
 		wg.Go(func() {
-			_, _ = buf.WaitForFailoverEnd(ctx, "tg1", "shard1")
+			_, _ = buf.WaitForFailoverEnd(ctx, shard1Key)
 		})
 	}
 

@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+
+	commontypes "github.com/multigres/multigres/go/common/types"
 )
 
 // RetryDoneFunc must be called by the caller after the retry attempt completes.
@@ -56,9 +58,8 @@ type entry struct {
 	// it calls bufferCancel, allowing the drain goroutine to release the slot.
 	bufferCtx    context.Context
 	bufferCancel context.CancelFunc
-	// TODO: Use ShardKey from topo.
-	// shardKey identifies which shard this entry belongs to ("tablegroup/shard").
-	shardKey string
+	// shardKey identifies which shard this entry belongs to.
+	shardKey commontypes.ShardKey
 	// createdAt records when the entry was enqueued for metrics.
 	createdAt time.Time
 }
@@ -75,8 +76,8 @@ type Buffer struct {
 	bufferSizeSema *semaphore.Weighted
 
 	mu      sync.Mutex
-	buffers map[string]*shardBuffer // "tablegroup/shard" -> shardBuffer
-	queue   []*entry                // Global FIFO queue (all shards interleaved)
+	buffers map[commontypes.ShardKey]*shardBuffer
+	queue   []*entry // Global FIFO queue (all shards interleaved)
 	stopped bool
 
 	timeoutThread *timeoutThread
@@ -91,7 +92,7 @@ func New(config *Config, logger *slog.Logger) *Buffer {
 		logger:         logger.With("component", "buffer"),
 		stats:          newStats(),
 		bufferSizeSema: semaphore.NewWeighted(int64(config.Size.Get())),
-		buffers:        make(map[string]*shardBuffer),
+		buffers:        make(map[commontypes.ShardKey]*shardBuffer),
 	}
 	b.timeoutThread = newTimeoutThread(b)
 	b.timeoutThread.start()
@@ -102,23 +103,20 @@ func New(config *Config, logger *slog.Logger) *Buffer {
 // a failover. When the failover completes, the returned RetryDoneFunc must
 // be called after the retry attempt completes. Returns (nil, nil) if
 // buffering is not applicable (disabled, wrong target type, timing guard, etc).
-func (b *Buffer) WaitForFailoverEnd(ctx context.Context, tableGroup, shard string) (RetryDoneFunc, error) {
+func (b *Buffer) WaitForFailoverEnd(ctx context.Context, key commontypes.ShardKey) (RetryDoneFunc, error) {
 	if !b.config.Enabled.Get() {
 		return nil, nil
 	}
 
-	shardKey := tableGroup + "/" + shard
-	sb := b.getOrCreateShardBuffer(tableGroup, shard, shardKey)
+	sb := b.getOrCreateShardBuffer(key)
 	return sb.waitForFailoverEnd(ctx)
 }
 
 // StopBuffering is called when a new PRIMARY is discovered for the given shard.
 // It transitions the shard from BUFFERING to DRAINING.
-func (b *Buffer) StopBuffering(tableGroup, shard string) {
-	shardKey := tableGroup + "/" + shard
-
+func (b *Buffer) StopBuffering(key commontypes.ShardKey) {
 	b.mu.Lock()
-	sb, ok := b.buffers[shardKey]
+	sb, ok := b.buffers[key]
 	b.mu.Unlock()
 
 	if !ok {
@@ -144,14 +142,14 @@ func (b *Buffer) Shutdown() {
 	b.logger.Info("buffer shut down")
 }
 
-func (b *Buffer) getOrCreateShardBuffer(tableGroup, shard, shardKey string) *shardBuffer {
+func (b *Buffer) getOrCreateShardBuffer(key commontypes.ShardKey) *shardBuffer {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sb, ok := b.buffers[shardKey]
+	sb, ok := b.buffers[key]
 	if !ok {
-		sb = newShardBuffer(b, tableGroup, shard, shardKey)
-		b.buffers[shardKey] = sb
+		sb = newShardBuffer(b, key)
+		b.buffers[key] = sb
 	}
 	return sb
 }
@@ -159,7 +157,7 @@ func (b *Buffer) getOrCreateShardBuffer(tableGroup, shard, shardKey string) *sha
 // enqueue adds a new entry to the global FIFO queue. If the buffer is full,
 // the oldest entry globally is evicted to make room.
 // Must NOT be called with b.mu held.
-func (b *Buffer) enqueue(shardKey string) (*entry, error) {
+func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -196,7 +194,7 @@ func (b *Buffer) enqueue(shardKey string) (*entry, error) {
 		createdAt:    time.Now(),
 	}
 	b.queue = append(b.queue, e)
-	b.stats.recordBuffered(context.Background(), shardKey)
+	b.stats.recordBuffered(context.Background(), shardKey.String())
 
 	// Notify timeout thread that the queue might have a new head.
 	// TODO: This seems wasteful on every enqueue operation.
@@ -225,7 +223,7 @@ func (b *Buffer) removeEntry(e *entry) {
 // drainEntriesForShard removes and returns all entries for the given shard
 // from the global queue.
 // Must NOT be called with b.mu held.
-func (b *Buffer) drainEntriesForShard(shardKey string) []*entry {
+func (b *Buffer) drainEntriesForShard(shardKey commontypes.ShardKey) []*entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

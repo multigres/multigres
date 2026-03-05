@@ -15,6 +15,7 @@
 package buffer
 
 import (
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -34,7 +35,10 @@ func NewBufferListener(buf *Buffer) *BufferListener {
 // PRIMARY is now available.
 func (bl *BufferListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
 	if pooler.GetType() == clustermetadatapb.PoolerType_PRIMARY {
-		bl.buffer.StopBuffering(pooler.GetTableGroup(), pooler.GetShard())
+		bl.buffer.StopBuffering(commontypes.ShardKey{
+			TableGroup: pooler.GetTableGroup(),
+			Shard:      pooler.GetShard(),
+		})
 	}
 }
 

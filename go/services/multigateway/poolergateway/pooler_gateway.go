@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -100,7 +101,10 @@ func NewPoolerGateway(
 
 // bufferAndRetry waits for a failover to end and then retries the operation.
 func (pg *PoolerGateway) bufferAndRetry(ctx context.Context, target *query.Target, retryFunc func() error) error {
-	retryDone, bufErr := pg.buffer.WaitForFailoverEnd(ctx, target.TableGroup, target.Shard)
+	retryDone, bufErr := pg.buffer.WaitForFailoverEnd(ctx, commontypes.ShardKey{
+		TableGroup: target.TableGroup,
+		Shard:      target.Shard,
+	})
 	if bufErr != nil {
 		return bufErr
 	}

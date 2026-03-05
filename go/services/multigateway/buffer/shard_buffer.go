@@ -19,6 +19,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	commontypes "github.com/multigres/multigres/go/common/types"
 )
 
 // bufferState represents the state of a per-shard buffer.
@@ -46,12 +48,9 @@ func (s bufferState) String() string {
 // shardBuffer manages the buffering state machine for a single shard.
 // State transitions: IDLE -> BUFFERING -> DRAINING -> IDLE
 type shardBuffer struct {
-	buf *Buffer
-	// TODO: Just one ShardKey field from topo should be enough.
-	tableGroup string
-	shard      string
-	shardKey   string
-	logger     *slog.Logger
+	buf      *Buffer
+	shardKey commontypes.ShardKey
+	logger   *slog.Logger
 
 	mu               sync.Mutex
 	state            bufferState
@@ -61,14 +60,12 @@ type shardBuffer struct {
 	drainWg          sync.WaitGroup
 }
 
-func newShardBuffer(buf *Buffer, tableGroup, shard, shardKey string) *shardBuffer {
+func newShardBuffer(buf *Buffer, key commontypes.ShardKey) *shardBuffer {
 	return &shardBuffer{
-		buf:        buf,
-		tableGroup: tableGroup,
-		shard:      shard,
-		shardKey:   shardKey,
-		logger:     buf.logger.With("tablegroup", tableGroup, "shard", shard),
-		state:      stateIdle,
+		buf:      buf,
+		shardKey: key,
+		logger:   buf.logger.With("tablegroup", key.TableGroup, "shard", key.Shard),
+		state:    stateIdle,
 	}
 }
 
@@ -102,7 +99,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		sb.state = stateBuffering
 		sb.lastStart = time.Now()
 		sb.logger.Info("failover detected, starting buffering")
-		sb.buf.stats.recordFailover(context.Background(), sb.shardKey)
+		sb.buf.stats.recordFailover(context.Background(), sb.shardKey.String())
 
 		// Start max-duration timer.
 		// TODO: what if the buffering ends beofre, and a new round of buffering starts?
@@ -202,7 +199,7 @@ func (sb *shardBuffer) stopBuffering(reason string) {
 func (sb *shardBuffer) drainEntry(e *entry) {
 	// Signal the entry to retry by closing its done channel.
 	close(e.done)
-	sb.buf.stats.recordDrained(context.Background(), sb.shardKey)
+	sb.buf.stats.recordDrained(context.Background(), sb.shardKey.String())
 
 	// Wait for the retry to complete (caller invokes RetryDoneFunc which
 	// calls bufferCancel).
