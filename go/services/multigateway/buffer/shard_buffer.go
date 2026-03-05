@@ -78,11 +78,10 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 	sb.mu.Lock()
 	switch sb.state {
 	case stateDraining:
-		// Already draining — don't enqueue more, let the request fail through
-		// so it can be retried naturally by the retry loop.
+		// Already draining — the new PRIMARY is available. Don't enqueue
+		// into the buffer, but signal the caller to retry immediately.
 		sb.mu.Unlock()
-		sb.buf.stats.recordSkipped(context.Background(), "draining")
-		return nil, nil
+		return func() {}, nil
 	case stateIdle:
 		// Check timing guard: don't start buffering again too soon.
 		if !sb.lastEnd.IsZero() {

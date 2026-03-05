@@ -100,21 +100,24 @@ func NewPoolerGateway(
 }
 
 // bufferAndRetry waits for a failover to end and then retries the operation.
-func (pg *PoolerGateway) bufferAndRetry(ctx context.Context, target *query.Target, retryFunc func() error) error {
+// Returns (true, err) if the request was buffered — err is the retry result.
+// Returns (false, nil) if the request was not buffered (draining, timing guard, etc.)
+// and the caller should fall through to its original error handling.
+func (pg *PoolerGateway) bufferAndRetry(ctx context.Context, target *query.Target, retryFunc func() error) (bool, error) {
 	retryDone, bufErr := pg.buffer.WaitForFailoverEnd(ctx, commontypes.ShardKey{
 		TableGroup: target.TableGroup,
 		Shard:      target.Shard,
 	})
 	if bufErr != nil {
-		return bufErr
+		return true, bufErr
 	}
-	// TODO: This logic seems out of whack, we return nil, nil when we want to retry when already draining.
 	if retryDone == nil {
-		// Not buffered (disabled, timing guard, etc.) — return original error.
-		return nil
+		// Not buffered (timing guard, disabled, etc.) — caller should
+		// fall through to its original error handling.
+		return false, nil
 	}
 	defer retryDone()
-	return retryFunc()
+	return true, retryFunc()
 }
 
 // QueryServiceByID implements Gateway.
@@ -151,12 +154,11 @@ func (pg *PoolerGateway) StreamExecute(
 	conn, err := pg.loadBalancer.GetConnection(target)
 	if err != nil {
 		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
-			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 				return pg.StreamExecute(ctx, target, sql, options, callback)
-			}); retryErr != nil {
+			}); buffered {
 				return retryErr
 			}
-			return nil
 		}
 		return err
 	}
@@ -169,12 +171,11 @@ func (pg *PoolerGateway) StreamExecute(
 
 	err = conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
 	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
-		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+		if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 			return pg.StreamExecute(ctx, target, sql, options, callback)
-		}); retryErr != nil {
+		}); buffered {
 			return retryErr
 		}
-		return nil
 	}
 	return err
 }
@@ -188,14 +189,13 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 	if err != nil {
 		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
 			var result *sqltypes.Result
-			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 				var retryErr error
 				result, retryErr = pg.ExecuteQuery(ctx, target, sql, options)
 				return retryErr
-			}); retryErr != nil {
-				return nil, retryErr
+			}); buffered {
+				return result, retryErr
 			}
-			return result, nil
 		}
 		return nil, err
 	}
@@ -208,14 +208,13 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 
 	result, err := conn.QueryService().ExecuteQuery(ctx, target, sql, options)
 	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
-		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+		if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 			var retryErr error
 			result, retryErr = pg.ExecuteQuery(ctx, target, sql, options)
 			return retryErr
-		}); retryErr != nil {
-			return nil, retryErr
+		}); buffered {
+			return result, retryErr
 		}
-		return result, nil
 	}
 	return result, err
 }
@@ -234,14 +233,13 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	if err != nil {
 		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
 			var state queryservice.ReservedState
-			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 				var retryErr error
 				state, retryErr = pg.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 				return retryErr
-			}); retryErr != nil {
-				return queryservice.ReservedState{}, retryErr
+			}); buffered {
+				return state, retryErr
 			}
-			return state, nil
 		}
 		return queryservice.ReservedState{}, err
 	}
@@ -254,14 +252,13 @@ func (pg *PoolerGateway) PortalStreamExecute(
 
 	state, err := conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
-		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+		if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 			var retryErr error
 			state, retryErr = pg.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 			return retryErr
-		}); retryErr != nil {
-			return queryservice.ReservedState{}, retryErr
+		}); buffered {
+			return state, retryErr
 		}
-		return state, nil
 	}
 	return state, err
 }
@@ -279,14 +276,13 @@ func (pg *PoolerGateway) Describe(
 	if err != nil {
 		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
 			var desc *query.StatementDescription
-			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 				var retryErr error
 				desc, retryErr = pg.Describe(ctx, target, preparedStatement, portal, options)
 				return retryErr
-			}); retryErr != nil {
-				return nil, retryErr
+			}); buffered {
+				return desc, retryErr
 			}
-			return desc, nil
 		}
 		return nil, err
 	}
@@ -299,14 +295,13 @@ func (pg *PoolerGateway) Describe(
 
 	desc, err := conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
 	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
-		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+		if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 			var retryErr error
 			desc, retryErr = pg.Describe(ctx, target, preparedStatement, portal, options)
 			return retryErr
-		}); retryErr != nil {
-			return nil, retryErr
+		}); buffered {
+			return desc, retryErr
 		}
-		return desc, nil
 	}
 	return desc, err
 }
@@ -377,14 +372,13 @@ func (pg *PoolerGateway) CopyReady(
 				colFormats []int16
 				state      queryservice.ReservedState
 			)
-			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 				var retryErr error
 				format, colFormats, state, retryErr = pg.CopyReady(ctx, target, copyQuery, options, reservationOptions)
 				return retryErr
-			}); retryErr != nil {
-				return 0, nil, queryservice.ReservedState{}, retryErr
+			}); buffered {
+				return format, colFormats, state, retryErr
 			}
-			return format, colFormats, state, nil
 		}
 		return 0, nil, queryservice.ReservedState{}, err
 	}
@@ -397,14 +391,13 @@ func (pg *PoolerGateway) CopyReady(
 
 	format, colFormats, state, err := conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
-		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+		if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 			var retryErr error
 			format, colFormats, state, retryErr = pg.CopyReady(ctx, target, copyQuery, options, reservationOptions)
 			return retryErr
-		}); retryErr != nil {
-			return 0, nil, queryservice.ReservedState{}, retryErr
+		}); buffered {
+			return format, colFormats, state, retryErr
 		}
-		return format, colFormats, state, nil
 	}
 	return format, colFormats, state, err
 }
@@ -495,14 +488,13 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 	if err != nil {
 		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
 			var state queryservice.ReservedState
-			if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+			if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 				var retryErr error
 				state, retryErr = pg.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
 				return retryErr
-			}); retryErr != nil {
-				return queryservice.ReservedState{}, retryErr
+			}); buffered {
+				return state, retryErr
 			}
-			return state, nil
 		}
 		return queryservice.ReservedState{}, err
 	}
@@ -515,14 +507,13 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 
 	state, err := conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
 	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
-		if retryErr := pg.bufferAndRetry(ctx, target, func() error {
+		if buffered, retryErr := pg.bufferAndRetry(ctx, target, func() error {
 			var retryErr error
 			state, retryErr = pg.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
 			return retryErr
-		}); retryErr != nil {
-			return queryservice.ReservedState{}, retryErr
+		}); buffered {
+			return state, retryErr
 		}
-		return state, nil
 	}
 	return state, err
 }

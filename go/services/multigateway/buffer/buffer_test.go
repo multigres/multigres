@@ -609,10 +609,12 @@ func TestBufferDrainingSkipsNewRequests(t *testing.T) {
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
-	// While draining, a new request should skip buffering (state is DRAINING).
+	// While draining, a new request should not be enqueued but should get
+	// a RetryDoneFunc for immediate retry (new PRIMARY is available).
 	retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 	assert.NoError(t, err)
-	assert.Nil(t, retryDone, "should skip buffering while draining")
+	assert.NotNil(t, retryDone, "should get immediate retry while draining")
+	retryDone()
 
 	// Unblock the drain.
 	if firstRetryDone != nil {
