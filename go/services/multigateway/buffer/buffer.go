@@ -81,9 +81,7 @@ type Buffer struct {
 	timeoutThread *timeoutThread
 }
 
-// New creates a new Buffer. If config is nil or buffering is disabled,
-// the buffer will be a no-op (WaitForFailoverEnd returns nil, nil).
-// TODO: if config is nil, this function will panic.
+// New creates a new Buffer. config must not be nil.
 func New(ctx context.Context, config *Config, logger *slog.Logger) *Buffer {
 	ctx, cancel := context.WithCancel(ctx)
 	b := &Buffer{
@@ -127,6 +125,7 @@ func (b *Buffer) StopBuffering(key commontypes.ShardKey) {
 }
 
 // Shutdown stops all buffering and evicts all pending entries.
+// It waits for any in-flight drain goroutines to complete before returning.
 func (b *Buffer) Shutdown() {
 	b.mu.Lock()
 	b.stopped = true
@@ -135,13 +134,29 @@ func (b *Buffer) Shutdown() {
 		e.err = mterrors.MTB03.New()
 		close(e.done)
 	}
-	// TODO: Cleanup up semaphore etc.
 	b.queue = nil
+
+	// Snapshot shard buffers and stop any active max-duration timers.
+	shardBuffers := make([]*shardBuffer, 0, len(b.buffers))
+	for _, sb := range b.buffers {
+		sb.mu.Lock()
+		if sb.maxDurationTimer != nil {
+			sb.maxDurationTimer.Stop()
+			sb.maxDurationTimer = nil
+		}
+		sb.mu.Unlock()
+		shardBuffers = append(shardBuffers, sb)
+	}
 	b.mu.Unlock()
 
 	// Cancel the buffer context to unblock any in-flight drain goroutines
 	// waiting on entry.bufferCtx.Done().
 	b.cancel()
+
+	// Wait for all in-flight drain goroutines to complete.
+	for _, sb := range shardBuffers {
+		sb.drainWg.Wait()
+	}
 
 	b.timeoutThread.stop()
 	b.logger.Info("buffer shut down")
