@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -182,17 +181,6 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 	}
 
 	cmd := exec.Command("initdb", args...)
-
-	// On macOS, ensure locale environment variables are set for initdb.
-	// initdb requires valid locale settings to avoid "invalid locale settings" errors.
-	// This is specific to macOS where LC_ALL may not be set by default.
-	if runtime.GOOS == "darwin" {
-		cmd.Env = os.Environ()
-		if os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
-			// Set LC_ALL=C as a safe default if no locale is configured.
-			cmd.Env = append(cmd.Env, "LC_ALL=C")
-		}
-	}
 
 	// Capture both stdout and stderr to include in error messages
 	output, err := cmd.CombinedOutput()

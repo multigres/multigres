@@ -187,6 +187,11 @@ timeout: 30
 			"PGCONNECT_TIMEOUT=5",
 		)
 
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		if runtime.GOOS == "darwin" {
+			serverCmd.Env = append(serverCmd.Env, "LC_ALL=en_US.UTF-8")
+		}
+
 		err := serverCmd.Start()
 		require.NoError(t, err)
 		defer func() {
@@ -522,6 +527,11 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"PGCONNECT_TIMEOUT=5",
 			"PGPASSWORD="+testPassword,
 		)
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		if runtime.GOOS == "darwin" {
+			initCmd.Env = append(initCmd.Env, "LC_ALL=en_US.UTF-8")
+		}
+
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
 		assert.Contains(t, string(output), "\"password_source\":\"PGPASSWORD environment variable\"", "Should use PGPASSWORD")
@@ -533,6 +543,12 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			"PGCONNECT_TIMEOUT=5",
 			"PGPASSWORD="+testPassword,
 		)
+
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		if runtime.GOOS == "darwin" {
+			startCmd.Env = append(startCmd.Env, "LC_ALL=en_US.UTF-8")
+		}
+
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
 
@@ -665,6 +681,11 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 			}
 		}
 		cleanEnv = append(cleanEnv, "PGCONNECT_TIMEOUT=5")
+
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		if runtime.GOOS == "darwin" {
+			cleanEnv = append(cleanEnv, "LC_ALL=en_US.UTF-8")
+		}
 
 		// Initialize - pgctld will find password file at conventional location
 		t.Logf("Initializing PostgreSQL with password file at conventional location")
@@ -1134,6 +1155,12 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 		"MULTIGRES_TESTDATA_DIR="+dataDir,
 		"PGCONNECT_TIMEOUT=5",
 		"PATH="+endtoendDir+":"+os.Getenv("PATH"))
+
+	// Required to avoid "postmaster became multithreaded during startup" on macOS
+	if runtime.GOOS == "darwin" {
+		serverCmd.Env = append(serverCmd.Env, "LC_ALL=en_US.UTF-8")
+	}
+
 	require.NoError(t, serverCmd.Start())
 
 	// Wait for gRPC server to be ready
