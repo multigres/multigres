@@ -28,7 +28,7 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// mockPoolerSystemClient is a mock implementation of PoolerSystemClient for testing.
+// mockPoolerSystemClient is a mock implementation of AuthCredentialsClient for testing.
 type mockPoolerSystemClient struct {
 	response *multipoolerpb.GetAuthCredentialsResponse
 	err      error
@@ -36,16 +36,6 @@ type mockPoolerSystemClient struct {
 
 func (m *mockPoolerSystemClient) GetAuthCredentials(_ context.Context, _ *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	return m.response, m.err
-}
-
-// mockPoolerSystemDiscoverer is a mock implementation of PoolerSystemDiscoverer for testing.
-type mockPoolerSystemDiscoverer struct {
-	client PoolerSystemClient
-	err    error
-}
-
-func (m *mockPoolerSystemDiscoverer) GetSystemClient(_ context.Context, _ string) (PoolerSystemClient, error) {
-	return m.client, m.err
 }
 
 func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
@@ -60,7 +50,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 				ScramHash: validScramHash,
 			},
 		}
-		provider := NewPoolerHashProvider(&mockPoolerSystemDiscoverer{client: client})
+		provider := NewPoolerHashProvider(client)
 
 		hash, err := provider.GetPasswordHash(context.Background(), "testuser", "testdb")
 		require.NoError(t, err)
@@ -72,7 +62,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: status.Error(codes.NotFound, "user not found"),
 		}
-		provider := NewPoolerHashProvider(&mockPoolerSystemDiscoverer{client: client})
+		provider := NewPoolerHashProvider(client)
 
 		_, err := provider.GetPasswordHash(context.Background(), "nonexistent", "testdb")
 		require.Error(t, err)
@@ -85,7 +75,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 				ScramHash: "", // No password set
 			},
 		}
-		provider := NewPoolerHashProvider(&mockPoolerSystemDiscoverer{client: client})
+		provider := NewPoolerHashProvider(client)
 
 		_, err := provider.GetPasswordHash(context.Background(), "nopassword", "testdb")
 		require.Error(t, err)
@@ -96,7 +86,7 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 		client := &mockPoolerSystemClient{
 			err: errors.New("connection refused"),
 		}
-		provider := NewPoolerHashProvider(&mockPoolerSystemDiscoverer{client: client})
+		provider := NewPoolerHashProvider(client)
 
 		_, err := provider.GetPasswordHash(context.Background(), "testuser", "testdb")
 		require.Error(t, err)
@@ -109,20 +99,10 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 				ScramHash: "invalid-hash-format",
 			},
 		}
-		provider := NewPoolerHashProvider(&mockPoolerSystemDiscoverer{client: client})
+		provider := NewPoolerHashProvider(client)
 
 		_, err := provider.GetPasswordHash(context.Background(), "testuser", "testdb")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse SCRAM hash")
-	})
-
-	t.Run("discovery error", func(t *testing.T) {
-		provider := NewPoolerHashProvider(&mockPoolerSystemDiscoverer{
-			err: errors.New("no poolers available"),
-		})
-
-		_, err := provider.GetPasswordHash(context.Background(), "testuser", "testdb")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get system client")
 	})
 }

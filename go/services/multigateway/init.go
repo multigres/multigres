@@ -245,7 +245,7 @@ func (mg *MultiGateway) Init() error {
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
 
 	// Create hash provider for SCRAM authentication using the pooler gateway
-	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
+	hashProvider := auth.NewPoolerHashProvider(mg.poolerGateway)
 
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
@@ -486,15 +486,4 @@ func buildPGTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 		NextProtos:   []string{protocol.ALPNProtocol}, // PG 17 ALPN forward compatibility
 	}, nil
-}
-
-// poolerSystemDiscovererAdapter adapts PoolerGateway to implement auth.PoolerSystemDiscoverer.
-// PoolerGateway.GetAuthCredentials uses withBuffering, so auth requests are
-// buffered during planned failovers just like query execution.
-type poolerSystemDiscovererAdapter struct {
-	pg *poolergateway.PoolerGateway
-}
-
-func (a *poolerSystemDiscovererAdapter) GetSystemClient(ctx context.Context, database string) (auth.PoolerSystemClient, error) {
-	return a.pg, nil
 }
