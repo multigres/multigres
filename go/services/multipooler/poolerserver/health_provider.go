@@ -49,9 +49,10 @@ type PrimaryObservation struct {
 	// May be this pooler's own ID if it believes itself to be primary.
 	PrimaryID *clustermetadatapb.ID
 
-	// Term is the consensus term at which this observation was made.
-	// Higher terms indicate more recent observations.
-	Term int64
+	// PrimaryTerm is the primary term at which this observation was made.
+	// The primary never changes within a primary term. Higher values indicate
+	// more recent primary elections.
+	PrimaryTerm int64
 }
 
 // HealthProvider provides health information for the pooler.

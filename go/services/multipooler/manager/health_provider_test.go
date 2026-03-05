@@ -261,7 +261,7 @@ func TestHealthStreamer_UpdatePrimaryObservation(t *testing.T) {
 
 	// Update primary observation
 	obs := &poolerserver.PrimaryObservation{
-		Term: 42,
+		PrimaryTerm: 42,
 	}
 	hs.UpdatePrimaryObservation(obs)
 
@@ -270,7 +270,7 @@ func TestHealthStreamer_UpdatePrimaryObservation(t *testing.T) {
 	case received := <-ch:
 		require.NotNil(t, received)
 		require.NotNil(t, received.PrimaryObservation)
-		assert.Equal(t, int64(42), received.PrimaryObservation.Term)
+		assert.Equal(t, int64(42), received.PrimaryObservation.PrimaryTerm)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("subscriber did not receive health broadcast")
 	}

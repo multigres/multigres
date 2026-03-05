@@ -29,13 +29,6 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-// GetConnectionOptions specifies options for connection selection.
-type GetConnectionOptions struct {
-	// ExcludePoolers is a list of pooler IDs to exclude from selection.
-	// This is used for retry logic to avoid retrying on a pooler that just failed.
-	ExcludePoolers []string
-}
-
 // LoadBalancer manages PoolerConnections and selects connections for queries.
 // It creates connections based on discovery events and destroys them when poolers
 // are removed from discovery.
@@ -127,7 +120,7 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 // Selection logic:
 // - For PRIMARY: uses term-based reconciliation across all shard poolers
 // - For REPLICA: prefers local cell serving replicas, with randomization
-func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionOptions) (*PoolerConnection, error) {
+func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, error) {
 	if target == nil {
 		return nil, errors.New("target cannot be nil")
 	}
@@ -135,7 +128,6 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	excludeSet := makeExcludeSet(opts)
 	targetType := target.PoolerType
 	if targetType == clustermetadatapb.PoolerType_UNKNOWN {
 		targetType = clustermetadatapb.PoolerType_PRIMARY
@@ -144,7 +136,6 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 	if targetType == clustermetadatapb.PoolerType_PRIMARY {
 		// For PRIMARY: collect ALL poolers in the shard (regardless of type)
 		// because any pooler can report PrimaryObservation about who the primary is.
-		// We include excluded poolers for their observations but won't return them.
 		var shardPoolers []*PoolerConnection
 		for _, conn := range lb.connections {
 			if matchesShardTarget(conn, target) {
@@ -158,7 +149,7 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 				target.TableGroup, target.Shard, target.PoolerType.String())
 		}
 
-		conn := lb.selectPrimaryByTerm(shardPoolers, excludeSet)
+		conn := lb.selectPrimaryByTerm(shardPoolers)
 		if conn == nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 				"no pooler found for target: tablegroup=%s, shard=%s, type=%s (no PRIMARY type)",
@@ -170,9 +161,6 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 	// For REPLICA: collect only replica-type poolers
 	var candidates []*PoolerConnection
 	for _, conn := range lb.connections {
-		if excludeSet[conn.ID()] {
-			continue
-		}
 		if matchesTarget(conn, target) {
 			candidates = append(candidates, conn)
 		}
@@ -185,17 +173,6 @@ func (lb *LoadBalancer) GetConnection(target *query.Target, opts *GetConnectionO
 	}
 
 	return lb.selectReplicaConnection(candidates), nil
-}
-
-// GetConnectionContext returns a PoolerConnection matching the target specification.
-// If no suitable connection is immediately available, it waits until one becomes
-// available or the context is cancelled.
-//
-// This is useful during failover when waiting for a new primary to be elected.
-func (lb *LoadBalancer) GetConnectionContext(ctx context.Context, target *query.Target, opts *GetConnectionOptions) (*PoolerConnection, error) {
-	// For now, just delegate to GetConnection.
-	// Waiting logic will be added when we implement health streaming.
-	return lb.GetConnection(target, opts)
 }
 
 // GetConnectionByID returns a PoolerConnection for a specific pooler ID.
@@ -259,22 +236,18 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 // The observation with the highest term indicates the most recently elected primary.
 // Returns the connection for the primary_id specified in that observation.
 //
-// The excludeSet contains pooler IDs that should not be returned (e.g., recently failed).
-// Excluded poolers are still consulted for their observations since they may have
-// the most up-to-date view of who the primary is.
-//
 // This handles split-brain scenarios: during failover, multiple poolers may have
 // different views of who the primary is. The highest term wins.
 //
 // TODO: Consider caching the best primary observation per-shard and updating it via
 // onHealthUpdate callbacks, rather than recomputing on every GetConnection call.
 // For now, the dynamic approach is simpler and n (poolers per shard) is typically small.
-func (lb *LoadBalancer) selectPrimaryByTerm(shardPoolers []*PoolerConnection, excludeSet map[string]bool) *PoolerConnection {
+func (lb *LoadBalancer) selectPrimaryByTerm(shardPoolers []*PoolerConnection) *PoolerConnection {
 	if len(shardPoolers) == 0 {
 		return nil
 	}
 
-	// Find the observation with the highest term across all poolers (including excluded ones)
+	// Find the observation with the highest term across all poolers
 	var bestObservation *PoolerConnection
 	var bestTerm int64 = -1
 	var bestPrimaryID string
@@ -285,7 +258,7 @@ func (lb *LoadBalancer) selectPrimaryByTerm(shardPoolers []*PoolerConnection, ex
 			continue
 		}
 
-		term := health.PrimaryObservation.Term
+		term := health.PrimaryObservation.PrimaryTerm
 		if term > bestTerm {
 			bestTerm = term
 			bestObservation = conn
@@ -299,9 +272,6 @@ func (lb *LoadBalancer) selectPrimaryByTerm(shardPoolers []*PoolerConnection, ex
 	// will find the PRIMARY when multiorch assigns the type.
 	if bestObservation == nil {
 		for _, conn := range shardPoolers {
-			if excludeSet[conn.ID()] {
-				continue
-			}
 			if conn.Type() == clustermetadatapb.PoolerType_PRIMARY {
 				return conn
 			}
@@ -312,39 +282,19 @@ func (lb *LoadBalancer) selectPrimaryByTerm(shardPoolers []*PoolerConnection, ex
 	}
 
 	// Find the connection for the primary identified by the best observation
-	// Skip excluded poolers
 	for _, conn := range shardPoolers {
-		if excludeSet[conn.ID()] {
-			continue
-		}
 		if conn.ID() == bestPrimaryID {
 			return conn
 		}
 	}
 
-	// Primary identified by observation not found or excluded.
-	// Fall back to the observer if not excluded.
-	if !excludeSet[bestObservation.ID()] {
-		lb.logger.Warn("primary from highest-term observation not found in connections",
-			"primary_id", bestPrimaryID,
-			"term", bestTerm,
-			"observer_pooler", bestObservation.ID())
-		return bestObservation
-	}
-
-	// Observer is excluded too. Find any non-excluded PRIMARY-type pooler.
-	// We only return PRIMARY type - never fall back to other types.
-	for _, conn := range shardPoolers {
-		if excludeSet[conn.ID()] {
-			continue
-		}
-		if conn.Type() == clustermetadatapb.PoolerType_PRIMARY {
-			return conn
-		}
-	}
-
-	// No eligible PRIMARY pooler found
-	return nil
+	// Primary identified by observation not found.
+	// Fall back to the observer.
+	lb.logger.Warn("primary from highest-term observation not found in connections",
+		"primary_id", bestPrimaryID,
+		"term", bestTerm,
+		"observer_pooler", bestObservation.ID())
+	return bestObservation
 }
 
 // matchesShardTarget checks if a connection matches the tablegroup and shard,
@@ -387,18 +337,6 @@ func matchesTarget(conn *PoolerConnection, target *query.Target) bool {
 	default:
 		return false
 	}
-}
-
-// makeExcludeSet creates a set from the ExcludePoolers list for O(1) lookup.
-func makeExcludeSet(opts *GetConnectionOptions) map[string]bool {
-	if opts == nil || len(opts.ExcludePoolers) == 0 {
-		return nil
-	}
-	set := make(map[string]bool, len(opts.ExcludePoolers))
-	for _, id := range opts.ExcludePoolers {
-		set[id] = true
-	}
-	return set
 }
 
 // poolerIDString returns the string ID for a pooler.

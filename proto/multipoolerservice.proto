@@ -434,7 +434,8 @@ message PrimaryObservation {
   // May be this pooler's own ID if it believes itself to be primary.
   clustermetadata.ID primary_id = 1;
 
-  // term is the consensus term at which this observation was made.
-  // Higher terms indicate more recent observations.
-  int64 term = 2;
+  // primary_term is the primary term at which this observation was made.
+  // The primary never changes within a primary_term. Higher values indicate
+  // more recent primary elections.
+  int64 primary_term = 2;
 }
