@@ -86,7 +86,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		// Check timing guard: don't start buffering again too soon.
 		if !sb.lastEnd.IsZero() {
 			minGap := sb.buf.config.MinTimeBetweenFailovers.Get()
-			if time.Since(sb.lastEnd) < minGap {
+			if sb.buf.now().Sub(sb.lastEnd) < minGap {
 				sb.mu.Unlock()
 				sb.buf.stats.recordSkipped(context.Background(), "min_time_between_failovers")
 				sb.logger.Debug("skipping buffering: too soon since last failover",
@@ -99,7 +99,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		sb.state = stateBuffering
 		sb.generation++
 		gen := sb.generation
-		sb.lastStart = time.Now()
+		sb.lastStart = sb.buf.now()
 		sb.logger.Info("failover detected, starting buffering")
 		sb.buf.stats.recordFailover(context.Background(), sb.shardKey.String())
 
@@ -132,7 +132,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 
 // waitOnEntry blocks until the entry's done channel is closed or the context is canceled.
 func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc, error) {
-	start := time.Now()
+	start := sb.buf.now()
 	select {
 	case <-ctx.Done():
 		// Request context canceled (client disconnected, deadline, etc.).
@@ -143,10 +143,10 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 		// this is harmless (nobody is watching bufferCtx).
 		e.bufferCancel()
 		sb.buf.stats.recordEvicted(context.Background(), "context_canceled")
-		sb.buf.stats.recordWaitDuration(context.Background(), time.Since(start).Seconds())
+		sb.buf.stats.recordWaitDuration(context.Background(), sb.buf.now().Sub(start).Seconds())
 		return nil, ctx.Err()
 	case <-e.done:
-		sb.buf.stats.recordWaitDuration(context.Background(), time.Since(start).Seconds())
+		sb.buf.stats.recordWaitDuration(context.Background(), sb.buf.now().Sub(start).Seconds())
 		if e.err != nil {
 			// Entry was evicted (buffer full, window timeout, max duration, shutdown).
 			return nil, e.err
@@ -174,7 +174,7 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 	}
 
 	sb.state = stateDraining
-	sb.lastEnd = time.Now()
+	sb.lastEnd = sb.buf.now()
 	if sb.maxDurationTimer != nil {
 		sb.maxDurationTimer.Stop()
 		sb.maxDurationTimer = nil

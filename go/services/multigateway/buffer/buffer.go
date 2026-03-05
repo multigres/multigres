@@ -57,6 +57,16 @@ type entry struct {
 	createdAt time.Time
 }
 
+// Option configures optional Buffer behavior.
+type Option func(*Buffer)
+
+// WithNowFunc overrides the clock used by the buffer. Intended for tests
+// that need deterministic time control. Production callers should not set
+// this; it defaults to time.Now.
+func WithNowFunc(now func() time.Time) Option {
+	return func(b *Buffer) { b.now = now }
+}
+
 // Buffer is the global coordinator for failover buffering.
 // It maintains a global FIFO queue of buffered requests and per-shard
 // state machines that track failover state independently.
@@ -64,6 +74,10 @@ type Buffer struct {
 	config *Config
 	logger *slog.Logger
 	stats  *stats
+
+	// now returns the current time. Defaults to time.Now; overridden via
+	// WithNowFunc in tests for deterministic clock control.
+	now func() time.Time
 
 	// ctx is the buffer-scoped context. Canceled on Shutdown() to unblock
 	// any drain goroutines waiting on entry.bufferCtx.Done().
@@ -82,16 +96,20 @@ type Buffer struct {
 }
 
 // New creates a new Buffer. config must not be nil.
-func New(ctx context.Context, config *Config, logger *slog.Logger) *Buffer {
+func New(ctx context.Context, config *Config, logger *slog.Logger, opts ...Option) *Buffer {
 	ctx, cancel := context.WithCancel(ctx)
 	b := &Buffer{
 		config:         config,
 		logger:         logger.With("component", "buffer"),
 		stats:          newStats(),
+		now:            time.Now,
 		ctx:            ctx,
 		cancel:         cancel,
 		bufferSizeSema: semaphore.NewWeighted(int64(config.Size.Get())),
 		buffers:        make(map[commontypes.ShardKey]*shardBuffer),
+	}
+	for _, opt := range opts {
+		opt(b)
 	}
 	b.timeoutThread = newTimeoutThread(b)
 	b.timeoutThread.start()
@@ -205,13 +223,14 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 	}
 
 	bufCtx, bufCancel := context.WithCancel(b.ctx)
+	now := b.now()
 	e := &entry{
 		done:         make(chan struct{}),
-		deadline:     time.Now().Add(b.config.Window.Get()),
+		deadline:     now.Add(b.config.Window.Get()),
 		bufferCtx:    bufCtx,
 		bufferCancel: bufCancel,
 		shardKey:     shardKey,
-		createdAt:    time.Now(),
+		createdAt:    now,
 	}
 	b.queue = append(b.queue, e)
 	b.stats.recordBuffered(context.Background(), shardKey.String())

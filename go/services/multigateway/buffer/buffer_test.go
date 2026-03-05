@@ -60,6 +60,28 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 }
 
+// waitForCondition polls cond at 1ms intervals with a 5s timeout.
+func waitForCondition(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for condition")
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+}
+
+// waitForQueueLen polls until the global queue has exactly want entries.
+func waitForQueueLen(t *testing.T, b *Buffer, want int) {
+	t.Helper()
+	waitForCondition(t, func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return len(b.queue) == want
+	})
+}
+
 func TestBufferBasicBufferingAndDrain(t *testing.T) {
 	cfg := testConfig(t)
 	buf := New(context.Background(), cfg, testLogger())
@@ -84,13 +106,8 @@ func TestBufferBasicBufferingAndDrain(t *testing.T) {
 		}
 	}()
 
-	// Give it time to enqueue.
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify the entry is in the queue.
-	buf.mu.Lock()
-	assert.Len(t, buf.queue, 1)
-	buf.mu.Unlock()
+	// Wait for the entry to be enqueued.
+	waitForQueueLen(t, buf, 1)
 
 	// Simulate new PRIMARY discovered — stop buffering.
 	buf.StopBuffering(shard1Key)
@@ -129,26 +146,46 @@ func TestBufferGlobalEviction(t *testing.T) {
 	errs := make([]error, 3)
 	var wg sync.WaitGroup
 
-	// Enqueue 3 requests — buffer size is 2, so the first should be evicted.
+	// Enqueue 3 requests sequentially — buffer size is 2, so the first
+	// should be evicted when the third arrives.
 	// Goroutines call retryDone immediately so the drain can proceed.
-	for i := range 3 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
-			errs[idx] = err
-			if retryDone != nil {
-				retryDone()
-			}
-		}(i)
-		time.Sleep(20 * time.Millisecond) // Ensure ordering.
-	}
+	var wg0 sync.WaitGroup
+	wg0.Add(1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer wg0.Done()
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
+		errs[0] = err
+		if retryDone != nil {
+			retryDone()
+		}
+	}()
+	waitForQueueLen(t, buf, 1)
 
-	// Give time for all enqueues.
-	time.Sleep(50 * time.Millisecond)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
+		errs[1] = err
+		if retryDone != nil {
+			retryDone()
+		}
+	}()
+	waitForQueueLen(t, buf, 2)
 
-	// The first request should have been evicted.
-	// The queue should have 2 entries.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
+		errs[2] = err
+		if retryDone != nil {
+			retryDone()
+		}
+	}()
+	// Goroutine 0's eviction confirms goroutine 2 has enqueued.
+	wg0.Wait()
+
 	buf.mu.Lock()
 	assert.Len(t, buf.queue, 2)
 	buf.mu.Unlock()
@@ -250,7 +287,7 @@ func TestBufferStaleMaxDurationTimer(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForQueueLen(t, buf, 1)
 
 	// Verify shard is still BUFFERING — a stale timer from failover 1
 	// should NOT have stopped it.
@@ -283,10 +320,7 @@ func TestBufferContextCancellation(t *testing.T) {
 		retryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
 	}()
 
-	// Give it time to enqueue.
-	time.Sleep(50 * time.Millisecond)
-
-	// Cancel the context.
+	waitForQueueLen(t, buf, 1)
 	cancel()
 	wg.Wait()
 
@@ -300,10 +334,23 @@ func TestBufferContextCancellation(t *testing.T) {
 }
 
 func TestBufferTimingGuard(t *testing.T) {
+	var mu sync.Mutex
+	fakeTime := time.Now()
+	fakeClock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return fakeTime
+	}
+	advanceClock := func(d time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		fakeTime = fakeTime.Add(d)
+	}
+
 	cfg := testConfig(t, func(c *Config) {
 		c.MinTimeBetweenFailovers.Set(1 * time.Hour)
 	})
-	buf := New(context.Background(), cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger(), WithNowFunc(fakeClock))
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -319,17 +366,34 @@ func TestBufferTimingGuard(t *testing.T) {
 			retryDone()
 		}
 	}()
-	time.Sleep(50 * time.Millisecond)
+	waitForQueueLen(t, buf, 1)
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
-	// Wait for drain to complete.
-	time.Sleep(50 * time.Millisecond)
+	sb := buf.buffers[shard1Key]
+	sb.drainWg.Wait()
 
 	// Second failover: should be skipped (too soon).
 	retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
 	assert.NoError(t, err)
 	assert.Nil(t, retryDone, "second failover should be skipped due to timing guard")
+
+	// Advance clock past MinTimeBetweenFailovers.
+	advanceClock(1*time.Hour + 1*time.Second)
+
+	// Third failover: should buffer again (enough time elapsed).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		retryDone, waitErr := buf.WaitForFailoverEnd(ctx, shard1Key)
+		assert.NoError(t, waitErr)
+		if retryDone != nil {
+			retryDone()
+		}
+	}()
+	waitForQueueLen(t, buf, 1)
+	buf.StopBuffering(shard1Key)
+	wg.Wait()
 }
 
 func TestBufferMultipleShards(t *testing.T) {
@@ -360,16 +424,12 @@ func TestBufferMultipleShards(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(50 * time.Millisecond)
-
-	// Queue should have 2 entries from different shards.
-	buf.mu.Lock()
-	assert.Len(t, buf.queue, 2)
-	buf.mu.Unlock()
+	waitForQueueLen(t, buf, 2)
 
 	// Stop buffering for shard1 only.
 	buf.StopBuffering(shard1Key)
-	time.Sleep(50 * time.Millisecond)
+	sb := buf.buffers[shard1Key]
+	sb.drainWg.Wait()
 
 	// shard2 should still be buffered.
 	buf.mu.Lock()
@@ -400,8 +460,7 @@ func TestBufferShutdown(t *testing.T) {
 		retryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
-
+	waitForQueueLen(t, buf, 1)
 	buf.Shutdown()
 	wg.Wait()
 
@@ -431,10 +490,9 @@ func TestBufferDrainConcurrency(t *testing.T) {
 				retryDone()
 			}
 		}(i)
-		time.Sleep(10 * time.Millisecond)
+		waitForQueueLen(t, buf, i+1)
 	}
 
-	time.Sleep(50 * time.Millisecond)
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
@@ -482,16 +540,16 @@ func TestBufferDrainConcurrencyActuallyParallel(t *testing.T) {
 			concurrent.Add(-1)
 			retryDone()
 		}(i)
-		time.Sleep(10 * time.Millisecond)
+		waitForQueueLen(t, buf, i+1)
 	}
-
-	time.Sleep(50 * time.Millisecond)
 
 	// Trigger drain — all 3 entries should start draining concurrently.
 	buf.StopBuffering(shard1Key)
 
-	// Give drain goroutines time to call close(e.done) and reach the gate.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for all drain goroutines to reach the gate.
+	waitForCondition(t, func() bool {
+		return concurrent.Load() == int32(numRequests)
+	})
 
 	// All 3 should be waiting at the gate concurrently.
 	assert.Equal(t, int32(numRequests), concurrent.Load(),
@@ -525,7 +583,7 @@ func TestBufferListenerOnPoolerChanged(t *testing.T) {
 			retryDone()
 		}
 	}()
-	time.Sleep(50 * time.Millisecond)
+	waitForQueueLen(t, buf, 1)
 
 	// Simulate PRIMARY pooler appearing.
 	listener.OnPoolerChanged(&clustermetadatapb.MultiPooler{
@@ -558,7 +616,7 @@ func TestBufferListenerReplicaIgnored(t *testing.T) {
 			retryDone()
 		}
 	}()
-	time.Sleep(50 * time.Millisecond)
+	waitForQueueLen(t, buf, 1)
 
 	// REPLICA change should NOT stop buffering.
 	listener.OnPoolerChanged(&clustermetadatapb.MultiPooler{
@@ -567,8 +625,7 @@ func TestBufferListenerReplicaIgnored(t *testing.T) {
 		Type:       clustermetadatapb.PoolerType_REPLICA,
 	})
 
-	// Verify still buffering.
-	time.Sleep(50 * time.Millisecond)
+	// OnPoolerChanged is synchronous — verify queue is unchanged.
 	buf.mu.Lock()
 	assert.Len(t, buf.queue, 1)
 	buf.mu.Unlock()
@@ -605,7 +662,7 @@ func TestBufferDrainingSkipsNewRequests(t *testing.T) {
 		// Deliberately don't call retryDone yet to keep drain busy.
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForQueueLen(t, buf, 1)
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
@@ -648,8 +705,7 @@ func TestBufferContextCancelDuringDrain(t *testing.T) {
 		}
 	}()
 
-	// Give it time to enqueue.
-	time.Sleep(50 * time.Millisecond)
+	waitForQueueLen(t, buf, 1)
 
 	// Cancel the client context right before triggering drain.
 	// This creates a race between ctx.Done() and e.done in waitOnEntry's select.
@@ -685,7 +741,7 @@ func TestBufferShutdownAfterEnqueue(t *testing.T) {
 		})
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	waitForQueueLen(t, buf, 5)
 
 	// Shutdown should evict all entries cleanly.
 	buf.Shutdown()

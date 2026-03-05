@@ -80,7 +80,7 @@ func (tt *timeoutThread) run() {
 		tt.buf.mu.Unlock()
 
 		// Calculate time until the head entry's deadline.
-		delay := time.Until(head.deadline)
+		delay := head.deadline.Sub(tt.buf.now())
 		if delay <= 0 {
 			// Deadline already passed — evict immediately.
 			tt.evictHead()
@@ -123,7 +123,7 @@ func (tt *timeoutThread) evictHead() {
 	}
 
 	head := tt.buf.queue[0]
-	if time.Now().Before(head.deadline) {
+	if tt.buf.now().Before(head.deadline) {
 		// Not yet expired — a newer entry may have been prepended.
 		tt.buf.mu.Unlock()
 		return
