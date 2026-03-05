@@ -48,7 +48,7 @@ Executes: `go test -short ./go/...`
 
 Examples:
 
-- `/mt-dev unit ./go/multipooler/...` - All multipooler package tests
+- `/mt-dev unit ./go/services/multipooler/...` - All multipooler package tests
 - `/mt-dev unit ./go/multigateway/...` - All multigateway package tests
 - `/mt-dev unit ./go/pgprotocol/...` - All pgprotocol package tests
 
@@ -60,7 +60,7 @@ Examples:
 
 Examples:
 
-- `/mt-dev unit ./go/multipooler TestConnectionPool`
+- `/mt-dev unit ./go/services/multipooler TestConnectionPool`
 - `/mt-dev unit ./go/pgprotocol TestParseQuery`
 
 **Run with pattern matching:**
@@ -71,7 +71,7 @@ Examples:
 
 Examples:
 
-- `/mt-dev unit ./go/multipooler TestConn.*` - All tests starting with TestConn
+- `/mt-dev unit ./go/services/multipooler TestConn.*` - All tests starting with TestConn
 - `/mt-dev unit ./go/multigateway Test.*Route.*` - All tests with "Route" in name
 
 ### Common Flags
@@ -92,7 +92,7 @@ Examples:
 /mt-dev unit all
 
 # Verbose with race detection
-/mt-dev unit ./go/multipooler/... -v -race
+/mt-dev unit ./go/services/multipooler/... -v -race
 
 # Coverage report
 /mt-dev unit ./go/pgprotocol/... -cover
@@ -104,14 +104,14 @@ Examples:
 /mt-dev unit all -short
 
 # Specific test with verbose output
-/mt-dev unit ./go/multipooler TestConnectionPool -v
+/mt-dev unit ./go/services/multipooler TestConnectionPool -v
 ```
 
 ### Natural Language Support
 
 - "run unit tests" → `/mt-dev unit all`
-- "test the multipooler package" → `/mt-dev unit ./go/multipooler/...`
-- "run TestConnectionPool" → `/mt-dev unit ./go/multipooler TestConnectionPool`
+- "test the multipooler package" → `/mt-dev unit ./go/services/multipooler/...`
+- "run TestConnectionPool" → `/mt-dev unit ./go/services/multipooler TestConnectionPool`
 - "run all unit tests with coverage" → `/mt-dev unit all -cover`
 - "check for race conditions in multigateway" → `/mt-dev unit ./go/multigateway/... -race`
 
@@ -236,7 +236,7 @@ Same flags as unit tests, plus:
 
 ```text
 PASS
-ok      github.com/multigres/multigres/go/multipooler    2.456s
+ok      github.com/multigres/multigres/go/services/multipooler    2.456s
 ```
 
 - All tests passed
@@ -248,7 +248,7 @@ ok      github.com/multigres/multigres/go/multipooler    2.456s
 --- FAIL: TestConnectionPool (0.15s)
     pool_test.go:45: expected 10 connections, got 8
 FAIL
-FAIL    github.com/multigres/multigres/go/multipooler    2.456s
+FAIL    github.com/multigres/multigres/go/services/multipooler    2.456s
 ```
 
 - Shows which test failed
@@ -258,9 +258,9 @@ FAIL    github.com/multigres/multigres/go/multipooler    2.456s
 ### Build Failure
 
 ```text
-# github.com/multigres/multigres/go/multipooler
+# github.com/multigres/multigres/go/services/multipooler
 ./connection.go:123:45: undefined: somethingMissing
-FAIL    github.com/multigres/multigres/go/multipooler [build failed]
+FAIL    github.com/multigres/multigres/go/services/multipooler [build failed]
 ```
 
 - Compilation error before tests could run
@@ -322,7 +322,7 @@ panic: test timed out after 10m0s
 
 ```bash
 # Unit tests first (fast)
-/mt-dev unit ./go/multipooler/... -v
+/mt-dev unit ./go/services/multipooler/... -v
 
 # Integration tests second
 /mt-dev integration multipooler -v

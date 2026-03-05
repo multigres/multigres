@@ -46,8 +46,7 @@ func TestMultigatewaySetup(t *testing.T) {
 	require.Greater(t, setup.MultigatewayPgPort, 0, "multigateway PG port should be allocated")
 
 	// Connect to multigateway
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, TestPostgresPassword)
+	connStr := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()

@@ -510,7 +510,7 @@ Session variables set via `SET` commands affect connection routing:
 
 ## ConnectionPoolManager
 
-The `Manager` in `go/multipooler/connpoolmanager/` orchestrates all pool types,
+The `Manager` in `go/services/multipooler/connpoolmanager/` orchestrates all pool types,
 providing:
 
 1. **Per-User Pool Management** - Lazy creation of user pools on first request
@@ -525,7 +525,7 @@ providing:
 ### Usage
 
 ```go
-import "github.com/multigres/multigres/go/multipooler/connpoolmanager"
+import "github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 
 // Create config with viper registry
 cfg := connpoolmanager.NewConfig(reg)

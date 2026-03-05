@@ -14,6 +14,8 @@
 
 package constants
 
+import "time"
+
 // PostgreSQL default values - semantically separate concepts.
 // These are distinct constants despite having the same string value because
 // they represent different concepts that could diverge in the future.
@@ -28,4 +30,7 @@ const (
 
 	// PostgresExecutable is the name of the PostgreSQL server binary.
 	PostgresExecutable = "postgres"
+
+	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
+	DefaultSlowQueryThreshold = 1 * time.Second
 )

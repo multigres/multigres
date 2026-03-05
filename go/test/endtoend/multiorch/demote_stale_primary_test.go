@@ -122,6 +122,22 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	t.Log("Verifying data replication works after pg_rewind...")
 	verifyDataReplication(t, setup, oldPrimaryName, newPrimaryName)
 
+	// Step 8: Verify primary.demotion event was emitted in multiorch log
+	t.Log("Verifying primary.demotion event in multiorch log...")
+	mo := setup.GetMultiOrch("multiorch")
+	require.NotNil(t, mo, "multiorch instance should exist")
+	shardsetup.WaitForEvent(t, mo.LogFile, "primary.demotion", "success", 5*time.Second)
+	t.Log("Verified primary.demotion event in multiorch log")
+
+	// Step 9: Verify term.begin event was emitted during failover.
+	// BeginTerm is called by AppointLeaderAction on all nodes during failover (unlike initial
+	// bootstrap which uses InitializeEmptyPrimary directly). The new primary receives ACCEPT.
+	t.Log("Verifying term.begin event in new primary's multipooler log...")
+	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
+	require.NotNil(t, newPrimary, "new primary instance should exist")
+	shardsetup.WaitForEvent(t, newPrimary.Multipooler.LogFile, "term.begin", "success", 5*time.Second)
+	t.Log("Verified term.begin event in new primary's multipooler log")
+
 	t.Log("TestDemoteStalePrimary_SIGKILL completed successfully")
 }
 

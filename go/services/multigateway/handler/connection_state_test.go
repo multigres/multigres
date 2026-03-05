@@ -25,7 +25,6 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
@@ -210,32 +209,34 @@ func TestTransactionState_ShardStateOperations(t *testing.T) {
 	require.Nil(t, ss)
 
 	// Store a reserved connection
-	rs := queryservice.ReservedState{
+	rs := &query.ReservedState{
 		ReservedConnectionId: 42,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
 	}
-	state.StoreReservedConnection(target, rs, protoutil.ReasonTransaction)
+	state.SetReservedConnection(target, rs)
 
 	// Verify it's retrievable
 	ss = state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, int64(42), ss.ReservedConnectionId)
-	require.Equal(t, "cell1", ss.PoolerID.Cell)
-	require.Equal(t, protoutil.ReasonTransaction, ss.ReservationReasons)
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, "cell1", ss.ReservedState.GetPoolerId().GetCell())
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
 
-	// Update the same target's reserved connection (reasons should OR together)
-	rs2 := queryservice.ReservedState{
+	// Update the same target's reserved connection (reasons should be replaced, not OR'd)
+	rs2 := &query.ReservedState{
 		ReservedConnectionId: 99,
-		PoolerID:             &clustermetadatapb.ID{Cell: "cell2", Name: "pooler2"},
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell2", Name: "pooler2"},
+		ReservationReasons:   protoutil.ReasonTempTable,
 	}
-	state.StoreReservedConnection(target, rs2, protoutil.ReasonTempTable)
+	state.SetReservedConnection(target, rs2)
 
 	ss = state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
-	require.Equal(t, int64(99), ss.ReservedConnectionId)
-	require.Equal(t, "cell2", ss.PoolerID.Cell)
-	// Reasons should be OR'd: transaction | temp_table
-	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, ss.ReservationReasons)
+	require.Equal(t, uint64(99), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, "cell2", ss.ReservedState.GetPoolerId().GetCell())
+	// Reasons should be replaced (set), not OR'd
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
 
 	// Different target should not match
 	otherTarget := newTestTarget("tg2")
