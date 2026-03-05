@@ -65,6 +65,11 @@ type Buffer struct {
 	logger *slog.Logger
 	stats  *stats
 
+	// ctx is the buffer-scoped context. Canceled on Shutdown() to unblock
+	// any drain goroutines waiting on entry.bufferCtx.Done().
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// bufferSizeSema limits the total number of buffered requests globally.
 	bufferSizeSema *semaphore.Weighted
 
@@ -79,11 +84,14 @@ type Buffer struct {
 // New creates a new Buffer. If config is nil or buffering is disabled,
 // the buffer will be a no-op (WaitForFailoverEnd returns nil, nil).
 // TODO: if config is nil, this function will panic.
-func New(config *Config, logger *slog.Logger) *Buffer {
+func New(ctx context.Context, config *Config, logger *slog.Logger) *Buffer {
+	ctx, cancel := context.WithCancel(ctx)
 	b := &Buffer{
 		config:         config,
 		logger:         logger.With("component", "buffer"),
 		stats:          newStats(),
+		ctx:            ctx,
+		cancel:         cancel,
 		bufferSizeSema: semaphore.NewWeighted(int64(config.Size.Get())),
 		buffers:        make(map[commontypes.ShardKey]*shardBuffer),
 	}
@@ -131,6 +139,10 @@ func (b *Buffer) Shutdown() {
 	b.queue = nil
 	b.mu.Unlock()
 
+	// Cancel the buffer context to unblock any in-flight drain goroutines
+	// waiting on entry.bufferCtx.Done().
+	b.cancel()
+
 	b.timeoutThread.stop()
 	b.logger.Info("buffer shut down")
 }
@@ -175,9 +187,7 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 		// so we don't need to acquire again.
 	}
 
-	// TODO: We should have a context for the buffer, and use that maybe
-	// if not then a detached context, definitely not background.
-	bufCtx, bufCancel := context.WithCancel(context.Background())
+	bufCtx, bufCancel := context.WithCancel(b.ctx)
 	e := &entry{
 		done:         make(chan struct{}),
 		deadline:     time.Now().Add(b.config.Window.Get()),

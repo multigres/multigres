@@ -230,7 +230,7 @@ func (mg *MultiGateway) Init() error {
 		return fmt.Errorf("buffer config: %w", err)
 	}
 	if mg.bufferConfig.Enabled.Get() {
-		mg.buffer = buffer.New(mg.bufferConfig, logger)
+		mg.buffer = buffer.New(context.TODO(), mg.bufferConfig, logger)
 		mg.poolerDiscovery.RegisterListener(buffer.NewBufferListener(mg.buffer))
 		logger.Info("Failover buffering enabled")
 	}

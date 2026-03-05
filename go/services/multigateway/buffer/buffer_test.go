@@ -61,7 +61,7 @@ func testLogger() *slog.Logger {
 
 func TestBufferBasicBufferingAndDrain(t *testing.T) {
 	cfg := testConfig(t)
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -108,7 +108,7 @@ func TestBufferDisabled(t *testing.T) {
 	cfg := testConfig(t, func(c *Config) {
 		c.Enabled.Set(false)
 	})
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	retryDone, err := buf.WaitForFailoverEnd(context.Background(), shard1Key)
@@ -121,7 +121,7 @@ func TestBufferGlobalEviction(t *testing.T) {
 		c.Size.Set(2)
 		c.Window.Set(30 * time.Second) // Long window so timeout doesn't interfere.
 	})
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -169,7 +169,7 @@ func TestBufferWindowTimeout(t *testing.T) {
 	cfg := testConfig(t, func(c *Config) {
 		c.Window.Set(100 * time.Millisecond)
 	})
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	retryDone, err := buf.WaitForFailoverEnd(context.Background(), shard1Key)
@@ -182,7 +182,7 @@ func TestBufferMaxFailoverDuration(t *testing.T) {
 		c.Window.Set(5 * time.Second)
 		c.MaxFailoverDuration.Set(100 * time.Millisecond)
 	})
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -209,7 +209,7 @@ func TestBufferMaxFailoverDuration(t *testing.T) {
 
 func TestBufferContextCancellation(t *testing.T) {
 	cfg := testConfig(t)
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -244,7 +244,7 @@ func TestBufferTimingGuard(t *testing.T) {
 	cfg := testConfig(t, func(c *Config) {
 		c.MinTimeBetweenFailovers.Set(1 * time.Hour)
 	})
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -275,7 +275,7 @@ func TestBufferTimingGuard(t *testing.T) {
 
 func TestBufferMultipleShards(t *testing.T) {
 	cfg := testConfig(t)
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -328,7 +328,7 @@ func TestBufferMultipleShards(t *testing.T) {
 
 func TestBufferShutdown(t *testing.T) {
 	cfg := testConfig(t)
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 
 	ctx := context.Background()
 	var wg sync.WaitGroup
@@ -354,7 +354,7 @@ func TestBufferDrainConcurrency(t *testing.T) {
 	cfg := testConfig(t, func(c *Config) {
 		c.DrainConcurrency.Set(3)
 	})
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -386,7 +386,7 @@ func TestBufferDrainConcurrency(t *testing.T) {
 
 func TestBufferListenerOnPoolerChanged(t *testing.T) {
 	cfg := testConfig(t)
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	listener := NewBufferListener(buf)
@@ -419,7 +419,7 @@ func TestBufferListenerOnPoolerChanged(t *testing.T) {
 
 func TestBufferListenerReplicaIgnored(t *testing.T) {
 	cfg := testConfig(t)
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	listener := NewBufferListener(buf)
@@ -467,7 +467,7 @@ func TestBufferDrainingSkipsNewRequests(t *testing.T) {
 	cfg := testConfig(t, func(c *Config) {
 		c.DrainConcurrency.Set(1)
 	})
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 	defer buf.Shutdown()
 
 	ctx := context.Background()
@@ -499,9 +499,58 @@ func TestBufferDrainingSkipsNewRequests(t *testing.T) {
 	}
 }
 
+// TestBufferContextCancelDuringDrain verifies that if a client's context is
+// canceled after drain has extracted the entry from the queue but before/during
+// drainEntry closes the done channel, the drain does not hang forever.
+// This is a regression test for the drain hang bug.
+func TestBufferContextCancelDuringDrain(t *testing.T) {
+	cfg := testConfig(t, func(c *Config) {
+		c.DrainConcurrency.Set(1)
+	})
+	buf := New(context.Background(), cfg, testLogger())
+	defer buf.Shutdown()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+	var waitErr error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
+		waitErr = err
+		if retryDone != nil {
+			retryDone()
+		}
+	}()
+
+	// Give it time to enqueue.
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel the client context right before triggering drain.
+	// This creates a race between ctx.Done() and e.done in waitOnEntry's select.
+	cancel()
+
+	// Trigger drain — must not hang even if waitOnEntry already exited via ctx.Done().
+	buf.StopBuffering(shard1Key)
+
+	// Wait for the shard buffer drain to complete. If the bug is present,
+	// this will hang because drainEntry blocks on <-e.bufferCtx.Done() forever.
+	sb := buf.buffers[shard1Key]
+	sb.drainWg.Wait()
+
+	wg.Wait()
+
+	// The request either got canceled or drained — both are acceptable.
+	if waitErr != nil {
+		assert.ErrorIs(t, waitErr, context.Canceled)
+	}
+}
+
 func TestBufferShutdownAfterEnqueue(t *testing.T) {
 	cfg := testConfig(t)
-	buf := New(cfg, testLogger())
+	buf := New(context.Background(), cfg, testLogger())
 
 	ctx := context.Background()
 	var wg sync.WaitGroup

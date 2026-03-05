@@ -134,6 +134,11 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 	case <-ctx.Done():
 		// Request context canceled (client disconnected, deadline, etc.).
 		sb.buf.removeEntry(e)
+		// Signal retry completion so that if drainEntry already extracted
+		// this entry from the queue, it won't block forever on
+		// <-e.bufferCtx.Done(). If the entry was still in the queue,
+		// this is harmless (nobody is watching bufferCtx).
+		e.bufferCancel()
 		sb.buf.stats.recordEvicted(context.Background(), "context_canceled")
 		sb.buf.stats.recordWaitDuration(context.Background(), time.Since(start).Seconds())
 		return nil, ctx.Err()
