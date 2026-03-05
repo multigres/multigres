@@ -251,7 +251,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		PgBackRestPort:    pgbackrestPort,
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword),
 	}
 }
 

@@ -62,6 +62,12 @@ func setupTestEnv(cmd *exec.Cmd) {
 	}
 }
 
+// setupTestEnvWithPassword sets up environment variables for PostgreSQL tests, including the password.
+func setupTestEnvWithPassword(cmd *exec.Cmd, password string) {
+	setupTestEnv(cmd)
+	cmd.Env = append(cmd.Env, "POSTGRES_PASSWORD="+password)
+}
+
 // TestEndToEndWithRealPostgreSQL tests pgctld with real PostgreSQL binaries
 // This test requires PostgreSQL to be installed on the system
 func TestEndToEndWithRealPostgreSQL(t *testing.T) {
@@ -491,7 +497,7 @@ timeout: 30
 	require.NoError(t, err)
 }
 
-// TestPostgreSQLAuthentication tests PostgreSQL authentication with PGPASSWORD
+// TestPostgreSQLAuthentication tests PostgreSQL authentication with POSTGRES_PASSWORD
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping authentication tests in short mode")
@@ -519,13 +525,13 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Test password
 		testPassword := "secure_test_password_123"
 
-		// Initialize with PGPASSWORD
-		t.Logf("Initializing PostgreSQL with PGPASSWORD")
+		// Initialize with POSTGRES_PASSWORD
+		t.Logf("Initializing PostgreSQL with POSTGRES_PASSWORD")
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
 
 		initCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
+			"POSTGRES_PASSWORD="+testPassword,
 		)
 		// Required to avoid "postmaster became multithreaded during startup" on macOS
 		if runtime.GOOS == "darwin" {
@@ -534,14 +540,14 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"PGPASSWORD environment variable\"", "Should use PGPASSWORD")
+		assert.Contains(t, string(output), "\"password_source\":\"POSTGRES_PASSWORD environment variable\"", "Should use POSTGRES_PASSWORD")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
 		startCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
+			"POSTGRES_PASSWORD="+testPassword,
 		)
 
 		// Required to avoid "postmaster became multithreaded during startup" on macOS
@@ -652,103 +658,6 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")
-	})
-
-	t.Run("password_file_authentication", func(t *testing.T) {
-		// Set up temporary directory
-		baseDir, cleanup := testutil.TempDir(t, "pgctld_pwfile_test")
-		defer cleanup()
-
-		// Use cached pgctld binary for testing
-
-		// Get available port for PostgreSQL
-		port := utils.GetFreePort(t)
-		t.Logf("Password file test using port: %d", port)
-
-		// Test password
-		testPassword := "file_password_secure_456"
-
-		// Create password file at conventional location (poolerDir/pgpassword.txt)
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte(testPassword), 0o600)
-		require.NoError(t, err, "Should create password file")
-
-		// Build environment without PGPASSWORD to avoid conflicts with password file
-		cleanEnv := make([]string, 0, len(os.Environ()))
-		for _, env := range os.Environ() {
-			if !strings.HasPrefix(env, "PGPASSWORD=") {
-				cleanEnv = append(cleanEnv, env)
-			}
-		}
-		cleanEnv = append(cleanEnv, "PGCONNECT_TIMEOUT=5")
-
-		// Required to avoid "postmaster became multithreaded during startup" on macOS
-		if runtime.GOOS == "darwin" {
-			cleanEnv = append(cleanEnv, "LC_ALL=en_US.UTF-8")
-		}
-
-		// Initialize - pgctld will find password file at conventional location
-		t.Logf("Initializing PostgreSQL with password file at conventional location")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		initCmd.Env = cleanEnv
-		output, err := initCmd.CombinedOutput()
-		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"password file\"", "Should use password file")
-
-		// Start the PostgreSQL server
-		t.Logf("Starting PostgreSQL server")
-		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		startCmd.Env = cleanEnv
-		output, err = startCmd.CombinedOutput()
-		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
-
-		// Give the server a moment to be fully ready
-		time.Sleep(2 * time.Second)
-
-		// Test TCP connection with password from file
-		t.Logf("Testing TCP connection with password from file")
-		tcpCmd := exec.Command("psql",
-			"-h", "localhost",
-			"-p", strconv.Itoa(port),
-			"-U", "postgres",
-			"-d", "postgres",
-			"-c", "SELECT 'Password file authentication works!' as result;",
-		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
-		output, err = tcpCmd.CombinedOutput()
-		require.NoError(t, err, "TCP connection with password from file should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "Password file authentication works!", "Should connect successfully")
-
-		// Clean shutdown
-		t.Logf("Shutting down PostgreSQL")
-		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
-		stopCmd.Env = cleanEnv
-		err = stopCmd.Run()
-		require.NoError(t, err, "pgctld stop should succeed")
-	})
-
-	t.Run("password_source_conflict", func(t *testing.T) {
-		// Set up temporary directory
-		baseDir, cleanup := testutil.TempDir(t, "pgctld_conflict_test")
-		defer cleanup()
-
-		// Use cached pgctld binary for testing
-
-		// Create password file at conventional location
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte("file_password"), 0o600)
-		require.NoError(t, err, "Should create password file")
-
-		// Try to initialize with both PGPASSWORD and password file at conventional location (should fail)
-		t.Logf("Testing conflict between PGPASSWORD and password file")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir)
-		initCmd.Env = append(os.Environ(),
-			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD=env_password",
-		)
-		output, err := initCmd.CombinedOutput()
-		assert.Error(t, err, "pgctld init should fail with both password sources")
-		assert.Contains(t, string(output), "both password file", "Should show conflict error")
 	})
 }
 
@@ -1257,12 +1166,8 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	err := os.WriteFile(primaryConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
 	require.NoError(t, err)
 
-	// Create password file for primary
 	testPassword := "test_pg_rewind_password_123" //nolint:gosec // Test password, not a real credential
-	primaryPasswordFile := filepath.Join(primaryDir, "pgpassword.txt")
 	err = os.MkdirAll(primaryDir, 0o755)
-	require.NoError(t, err)
-	err = os.WriteFile(primaryPasswordFile, []byte(testPassword), 0o600)
 	require.NoError(t, err)
 
 	primaryGrpcPort := utils.GetFreePort(t)
@@ -1275,7 +1180,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		"--grpc-port", strconv.Itoa(primaryGrpcPort),
 		"--pg-port", strconv.Itoa(primaryPgPort),
 		"--config-file", primaryConfigFile)
-	setupTestEnv(primaryServerCmd)
+	setupTestEnvWithPassword(primaryServerCmd, testPassword)
 	require.NoError(t, primaryServerCmd.Start())
 	defer func() {
 		if primaryServerCmd.Process != nil {
@@ -1306,11 +1211,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	err = os.WriteFile(standbyConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
 	require.NoError(t, err)
 
-	// Create password file for standby (same password for rewind authentication)
-	standbyPasswordFile := filepath.Join(standbyDir, "pgpassword.txt")
 	err = os.MkdirAll(standbyDir, 0o755)
-	require.NoError(t, err)
-	err = os.WriteFile(standbyPasswordFile, []byte(testPassword), 0o600)
 	require.NoError(t, err)
 
 	standbyGrpcPort := utils.GetFreePort(t)
@@ -1323,7 +1224,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		"--grpc-port", strconv.Itoa(standbyGrpcPort),
 		"--pg-port", strconv.Itoa(standbyPgPort),
 		"--config-file", standbyConfigFile)
-	setupTestEnv(standbyServerCmd)
+	setupTestEnvWithPassword(standbyServerCmd, testPassword)
 	require.NoError(t, standbyServerCmd.Start())
 	defer func() {
 		if standbyServerCmd.Process != nil {
