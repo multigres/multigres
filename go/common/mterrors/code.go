@@ -144,6 +144,24 @@ var (
 		Format:      "connection startup failed",
 		Description: "Invalid startup message.",
 	}
+
+	MTB01 = &MTError{
+		ID: "MTB01", Severity: "ERROR",
+		Format:      "failover buffer full",
+		Description: "The request was evicted because the failover buffer is at capacity. Retry the query.",
+	}
+
+	MTB02 = &MTError{
+		ID: "MTB02", Severity: "ERROR",
+		Format:      "failover buffer timeout",
+		Description: "The request was evicted because the failover did not complete within the buffer window. Retry the query.",
+	}
+
+	MTB03 = &MTError{
+		ID: "MTB03", Severity: "ERROR",
+		Format:      "failover buffer shutting down",
+		Description: "The request was evicted because the gateway is shutting down.",
+	}
 )
 
 // NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.

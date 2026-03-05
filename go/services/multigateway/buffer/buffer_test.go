@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -155,8 +156,8 @@ func TestBufferGlobalEviction(t *testing.T) {
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
 
-	// First request should have errBufferFull.
-	assert.ErrorIs(t, errs[0], errBufferFull)
+	// First request should have MTB01 (buffer full).
+	assert.True(t, mterrors.IsError(errs[0], mterrors.MTB01.ID))
 
 	// Others should succeed.
 	for i := 1; i < 3; i++ {
@@ -172,7 +173,7 @@ func TestBufferWindowTimeout(t *testing.T) {
 	defer buf.Shutdown()
 
 	retryDone, err := buf.WaitForFailoverEnd(context.Background(), shard1Key)
-	assert.ErrorIs(t, err, errWindowExceeded)
+	assert.True(t, mterrors.IsError(err, mterrors.MTB02.ID))
 	assert.Nil(t, retryDone)
 }
 
@@ -345,7 +346,7 @@ func TestBufferShutdown(t *testing.T) {
 	buf.Shutdown()
 	wg.Wait()
 
-	assert.ErrorIs(t, err, errShutdown)
+	assert.True(t, mterrors.IsError(err, mterrors.MTB03.ID))
 	assert.Nil(t, retryDone)
 }
 

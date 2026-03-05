@@ -25,26 +25,19 @@ package buffer
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
 	"golang.org/x/sync/semaphore"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	commontypes "github.com/multigres/multigres/go/common/types"
 )
 
 // RetryDoneFunc must be called by the caller after the retry attempt completes.
 // This signals to the buffer that the drain slot can be released.
 type RetryDoneFunc func()
-
-var (
-	// TODO: Use mterrors package for errors.
-	errBufferFull     = errors.New("buffer full: request evicted")
-	errWindowExceeded = errors.New("buffer window exceeded: request evicted")
-	errShutdown       = errors.New("buffer shutting down: request evicted")
-)
 
 // entry represents a single buffered request in the global FIFO queue.
 type entry struct {
@@ -131,7 +124,7 @@ func (b *Buffer) Shutdown() {
 	b.stopped = true
 	// Evict all queued entries.
 	for _, e := range b.queue {
-		e.err = errShutdown
+		e.err = mterrors.MTB03.New()
 		close(e.done)
 	}
 	// TODO: Cleanup up semaphore etc.
@@ -162,7 +155,7 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 	defer b.mu.Unlock()
 
 	if b.stopped {
-		return nil, errShutdown
+		return nil, mterrors.MTB03.New()
 	}
 
 	// Try to acquire a slot from the semaphore.
@@ -171,11 +164,11 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 	if !b.bufferSizeSema.TryAcquire(1) {
 		// Buffer is full. Evict the oldest entry globally to make room.
 		if len(b.queue) == 0 {
-			return nil, errBufferFull
+			return nil, mterrors.MTB01.New()
 		}
 		oldest := b.queue[0]
 		b.queue = b.queue[1:]
-		oldest.err = errBufferFull
+		oldest.err = mterrors.MTB01.New()
 		close(oldest.done)
 		b.stats.recordEvicted(context.Background(), "buffer_full")
 		// The evicted entry's semaphore slot is conceptually transferred to us,

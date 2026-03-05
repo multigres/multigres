@@ -17,6 +17,8 @@ package buffer
 import (
 	"context"
 	"time"
+
+	"github.com/multigres/multigres/go/common/mterrors"
 )
 
 // timeoutThread is a single goroutine that monitors the head of the global
@@ -130,7 +132,7 @@ func (tt *timeoutThread) evictHead() {
 	tt.buf.queue = tt.buf.queue[1:]
 	tt.buf.mu.Unlock()
 
-	head.err = errWindowExceeded
+	head.err = mterrors.MTB02.New()
 	close(head.done)
 	tt.buf.bufferSizeSema.Release(1)
 	tt.buf.stats.recordEvicted(context.Background(), "window_exceeded")
