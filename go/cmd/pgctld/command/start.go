@@ -55,36 +55,6 @@ func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddr
 	return config, nil
 }
 
-// resolvePassword handles password resolution from file or environment variable.
-// It checks for a password file at the conventional location (poolerDir/pgpassword.txt).
-// If the file exists, it reads the password from it. Otherwise, it falls back to PGPASSWORD env var.
-// Returns error if both password file and PGPASSWORD are set.
-func resolvePassword(poolerDir string) (string, error) {
-	envPassword := os.Getenv("PGPASSWORD")
-	var filePassword string
-	var fileExists bool
-
-	// Check for password file at conventional location
-	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
-	if filePasswordBytes, readErr := os.ReadFile(pwfile); readErr == nil {
-		// Remove trailing newline if present
-		filePassword = strings.TrimRight(string(filePasswordBytes), "\n\r")
-		fileExists = true
-	}
-
-	// Check if both file and environment variable are set
-	if fileExists && envPassword != "" {
-		return "", fmt.Errorf("both password file (%s) and PGPASSWORD environment variable are set, please use only one", pwfile)
-	}
-
-	// Use file password if set, otherwise use environment variable
-	if fileExists {
-		return filePassword, nil
-	}
-
-	return envPassword, nil
-}
-
 // AddStartCommand adds the start subcommand to the root command
 func AddStartCommand(root *cobra.Command, pc *PgCtlCommand) {
 	startCmd := &PgCtlStartCmd{

@@ -107,7 +107,6 @@ import (
 
 const (
 	// TestPostgresPassword is the password used for the postgres user in tests.
-	// This is set via PGPASSWORD env var before pgctld initializes PostgreSQL.
 	TestPostgresPassword = "test_password_123"
 )
 
@@ -161,9 +160,6 @@ func RunTestMain(m *testing.M) int {
 
 	// Set orphan detection environment variable as baseline protection
 	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
-
-	// Set PGPASSWORD to a known value so tests can authenticate
-	os.Setenv("PGPASSWORD", TestPostgresPassword)
 
 	// Initialize telemetry (no-op if OTEL environment variables aren't set)
 	tel := telemetry.NewTelemetry()

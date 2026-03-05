@@ -24,7 +24,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 )
 
 func TestRunStart(t *testing.T) {
@@ -209,7 +211,7 @@ func TestInitializeDataDir(t *testing.T) {
 		defer os.Setenv("PATH", originalPath)
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, poolerDir, "postgres")
+		err := initializeDataDir(logger, poolerDir, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
 		require.NoError(t, err)
 
 		// Verify directory was created (dataDir is poolerDir/pg_data)
@@ -225,7 +227,7 @@ func TestInitializeDataDir(t *testing.T) {
 		poolerDir := "/root/impossible_dir"
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, poolerDir, "postgres")
+		err := initializeDataDir(logger, poolerDir, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "initdb failed")
 	})
@@ -311,8 +313,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		// Create config that matches the test setup
 		config, err := pgctld.NewPostgresCtlConfig(
 			5432,
-			"postgres",
-			"postgres",
+			constants.DefaultPostgresUser,
+			constants.DefaultPostgresDatabase,
 			30, // timeout
 			pgctld.PostgresDataDir(baseDir),
 			pgctld.PostgresConfigFile(baseDir),

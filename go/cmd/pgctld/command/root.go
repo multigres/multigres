@@ -34,11 +34,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// PgCtlCommand holds the configuration for pgctld commands
+// PgCtlCommand holds the configuration for pgctld commands.
+// This contains all flags and information necessary to run any pgctld command.
 type PgCtlCommand struct {
 	reg                *viperutil.Registry
 	pgDatabase         viperutil.Value[string]
 	pgUser             viperutil.Value[string]
+	pgPassword         viperutil.Value[string]
 	poolerDir          viperutil.Value[string]
 	timeout            viperutil.Value[int]
 	pgPort             viperutil.Value[int]
@@ -65,7 +67,14 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		pgUser: viperutil.Configure(reg, "pg-user", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresUser,
 			FlagName: "pg-user",
+			EnvVars:  []string{constants.PgUserEnvVar},
 			Dynamic:  false,
+		}),
+		pgPassword: viperutil.Configure(reg, "pg-password", viperutil.Options[string]{
+			Default: "",
+			EnvVars: []string{constants.PgPasswordEnvVar},
+			Dynamic: false,
+			// No FlagName — env var only, no CLI flag
 		}),
 		timeout: viperutil.Configure(reg, "timeout", viperutil.Options[int]{
 			Default:  30,
@@ -136,7 +145,7 @@ management for PostgreSQL servers.`,
 	}
 
 	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name")
-	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username")
+	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username (overrides "+constants.PgUserEnvVar+" env var)")
 	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
 	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
 	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
@@ -150,6 +159,7 @@ management for PostgreSQL servers.`,
 	viperutil.BindFlags(root.PersistentFlags(),
 		pc.pgDatabase,
 		pc.pgUser,
+		pc.pgPassword,
 		pc.timeout,
 		pc.poolerDir,
 		pc.pgPort,

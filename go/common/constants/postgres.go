@@ -21,8 +21,15 @@ import "time"
 // they represent different concepts that could diverge in the future.
 const (
 	// DefaultPostgresUser is the default PostgreSQL superuser name.
-	// This is the administrative user that owns the database cluster.
+	// This is the administrative user that owns the database cluster and is used
+	// by pgctld for all internal operations.
 	DefaultPostgresUser = "postgres"
+
+	// PgUserEnvVar is the environment variable for the PostgreSQL role used by pgctld.
+	PgUserEnvVar = "POSTGRES_USER"
+
+	// PgPasswordEnvVar is the environment variable for the PostgreSQL password.
+	PgPasswordEnvVar = "POSTGRES_PASSWORD" //nolint:gosec // This is an env var name, not a credential
 
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
