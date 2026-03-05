@@ -26,7 +26,6 @@ package poolergateway
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -105,14 +104,14 @@ func NewPoolerGateway(
 //  2. Reactive buffering on GetConnection error — if no PRIMARY is in topology.
 //  3. Reactive buffering on query error — if the PRIMARY is demoted mid-query.
 //
-// The inner function receives the connection's QueryService and executes the
-// actual query. Callers capture multi-return results via closure variables.
+// The inner function receives the PoolerConnection and executes the actual
+// operation. Callers capture multi-return results via closure variables.
 // On retry, withBuffering is called recursively so inner runs against a fresh
 // connection from the new PRIMARY.
 func (pg *PoolerGateway) withBuffering(
 	ctx context.Context,
 	target *query.Target,
-	inner func(qs queryservice.QueryService) error,
+	inner func(conn *PoolerConnection) error,
 ) error {
 	retry := func() error {
 		return pg.withBuffering(ctx, target, inner)
@@ -158,8 +157,8 @@ func (pg *PoolerGateway) withBuffering(
 		"pooler_type", target.PoolerType.String(),
 		"pooler_id", conn.ID())
 
-	// 3. Execute query, reactive buffer on error.
-	err = inner(conn.QueryService())
+	// 3. Execute operation, reactive buffer on error.
+	err = inner(conn)
 	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
 		retryDone, bufErr := pg.buffer.WaitForFailoverEnd(ctx, commontypes.ShardKey{
 			TableGroup: target.TableGroup,
@@ -205,9 +204,9 @@ func (pg *PoolerGateway) StreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(qs queryservice.QueryService) error {
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		state, err = qs.StreamExecute(ctx, target, sql, options, callback)
+		state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, callback)
 		return err
 	})
 	return state, err
@@ -219,9 +218,9 @@ func (pg *PoolerGateway) StreamExecute(
 func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, *query.ReservedState, error) {
 	var result *sqltypes.Result
 	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(qs queryservice.QueryService) error {
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		result, state, err = qs.ExecuteQuery(ctx, target, sql, options)
+		result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
 		return err
 	})
 	return result, state, err
@@ -237,9 +236,9 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(qs queryservice.QueryService) error {
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		state, err = qs.PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
+		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, callback)
 		return err
 	})
 	return state, err
@@ -254,9 +253,9 @@ func (pg *PoolerGateway) Describe(
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	var desc *query.StatementDescription
-	err := pg.withBuffering(ctx, target, func(qs queryservice.QueryService) error {
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		desc, err = qs.Describe(ctx, target, preparedStatement, portal, options)
+		desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
 		return err
 	})
 	return desc, err
@@ -276,9 +275,9 @@ func (pg *PoolerGateway) CopyReady(
 		colFormats []int16
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, func(qs queryservice.QueryService) error {
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		format, colFormats, state, err = qs.CopyReady(ctx, target, copyQuery, options, reservationOptions)
+		format, colFormats, state, err = conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
 	})
 	return format, colFormats, state, err
@@ -295,9 +294,9 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
-	err := pg.withBuffering(ctx, target, func(qs queryservice.QueryService) error {
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
-		state, err = qs.ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
+		state, err = conn.QueryService().ReserveStreamExecute(ctx, target, sql, options, reservationOptions, callback)
 		return err
 	})
 	return state, err
@@ -312,37 +311,23 @@ func (pg *PoolerGateway) Close() error {
 // Ensure PoolerGateway implements Gateway
 var _ Gateway = (*PoolerGateway)(nil)
 
-// getSystemServiceClient returns a MultiPoolerServiceClient for the given database.
-// This can be used for authentication or other system-level operations.
-// It finds any available pooler and returns a client connected to it.
-func (pg *PoolerGateway) getSystemServiceClient(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
-	// Find any pooler - for authentication we just need access to pg_authid
-	// which is available from any pooler connected to this database.
-	// Try PRIMARY first, fall back to REPLICA if not found.
+// GetAuthCredentials fetches authentication credentials from an available pooler.
+// It uses withBuffering so that auth requests are buffered during planned failovers,
+// just like query execution.
+func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	target := &query.Target{
 		TableGroup: "default", // TODO: Make configurable or discover from database
 		Shard:      constants.DefaultShard,
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 
-	conn, err := pg.loadBalancer.GetConnection(target)
-	if err != nil {
-		// PRIMARY not found, try REPLICA
-		target.PoolerType = clustermetadatapb.PoolerType_REPLICA
-		conn, err = pg.loadBalancer.GetConnection(target)
-		if err != nil {
-			return nil, fmt.Errorf("no pooler found for database %q: %w", database, err)
-		}
-	}
-
-	// Return the service client from the connection
-	return conn.ServiceClient(), nil
-}
-
-// SystemClientFunc returns a function that can be used with auth.PoolerHashProvider.
-// The returned function discovers an available pooler and returns a system client for it.
-func (pg *PoolerGateway) SystemClientFunc() func(ctx context.Context, database string) (multipoolerpb.MultiPoolerServiceClient, error) {
-	return pg.getSystemServiceClient
+	var resp *multipoolerpb.GetAuthCredentialsResponse
+	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
+		var err error
+		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
+		return err
+	})
+	return resp, err
 }
 
 // Stats returns statistics about the gateway.

@@ -36,7 +36,6 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
-	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
@@ -490,24 +489,12 @@ func buildPGTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 }
 
 // poolerSystemDiscovererAdapter adapts PoolerGateway to implement auth.PoolerSystemDiscoverer.
+// PoolerGateway.GetAuthCredentials uses withBuffering, so auth requests are
+// buffered during planned failovers just like query execution.
 type poolerSystemDiscovererAdapter struct {
 	pg *poolergateway.PoolerGateway
 }
 
 func (a *poolerSystemDiscovererAdapter) GetSystemClient(ctx context.Context, database string) (auth.PoolerSystemClient, error) {
-	client, err := a.pg.SystemClientFunc()(ctx, database)
-	if err != nil {
-		return nil, err
-	}
-	return &poolerSystemClientWrapper{client: client}, nil
-}
-
-// poolerSystemClientWrapper wraps the generated gRPC client to match auth.PoolerSystemClient interface.
-// The gRPC client has ...grpc.CallOption, but auth.PoolerSystemClient doesn't.
-type poolerSystemClientWrapper struct {
-	client multipoolerpb.MultiPoolerServiceClient
-}
-
-func (w *poolerSystemClientWrapper) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
-	return w.client.GetAuthCredentials(ctx, req)
+	return a.pg, nil
 }
