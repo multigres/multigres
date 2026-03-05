@@ -129,6 +129,27 @@ func (b *Buffer) WaitForFailoverEnd(ctx context.Context, key commontypes.ShardKe
 	return sb.waitForFailoverEnd(ctx)
 }
 
+// WaitIfAlreadyBuffering blocks the caller if the shard is already buffering
+// due to a failover detected by a previous request. Unlike WaitForFailoverEnd,
+// it does NOT start buffering for idle shards. This is used proactively before
+// sending a query to avoid a wasted round-trip to a pooler that is known to be
+// failing over.
+func (b *Buffer) WaitIfAlreadyBuffering(ctx context.Context, key commontypes.ShardKey) (RetryDoneFunc, error) {
+	if !b.config.Enabled.Get() {
+		return nil, nil
+	}
+
+	// Lookup only — don't create a shardBuffer for a shard we've never seen.
+	b.mu.Lock()
+	sb, ok := b.buffers[key]
+	b.mu.Unlock()
+	if !ok {
+		return nil, nil
+	}
+
+	return sb.waitIfAlreadyBuffering(ctx)
+}
+
 // StopBuffering is called when a new PRIMARY is discovered for the given shard.
 // It transitions the shard from BUFFERING to DRAINING.
 func (b *Buffer) StopBuffering(key commontypes.ShardKey) {
@@ -154,13 +175,19 @@ func (b *Buffer) Shutdown() {
 	}
 	b.queue = nil
 
-	// Snapshot shard buffers and stop any active max-duration timers.
+	// Snapshot shard buffers, stop timers, and force BUFFERING shards to
+	// IDLE. This prevents a concurrent stopBuffering() from calling
+	// drainWg.Go() after we've already called drainWg.Wait(), which would
+	// let drain goroutines outlive Shutdown().
 	shardBuffers := make([]*shardBuffer, 0, len(b.buffers))
 	for _, sb := range b.buffers {
 		sb.mu.Lock()
 		if sb.maxDurationTimer != nil {
 			sb.maxDurationTimer.Stop()
 			sb.maxDurationTimer = nil
+		}
+		if sb.state == stateBuffering {
+			sb.state = stateIdle
 		}
 		sb.mu.Unlock()
 		shardBuffers = append(shardBuffers, sb)
@@ -217,7 +244,7 @@ func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 		b.queue = b.queue[1:]
 		oldest.err = mterrors.MTB01.New()
 		close(oldest.done)
-		b.stats.recordEvicted(b.ctx, "buffer_full")
+		b.stats.recordEvicted(b.ctx, oldest.shardKey.String(), "buffer_full")
 		// The evicted entry's semaphore slot is conceptually transferred to us,
 		// so we don't need to acquire again.
 	}

@@ -70,6 +70,28 @@ func newShardBuffer(buf *Buffer, key commontypes.ShardKey) *shardBuffer {
 	}
 }
 
+// waitIfAlreadyBuffering joins an existing buffer if the shard is already
+// BUFFERING, but does NOT transition IDLE -> BUFFERING. Used for proactive
+// buffering before sending a query.
+func (sb *shardBuffer) waitIfAlreadyBuffering(ctx context.Context) (RetryDoneFunc, error) {
+	sb.mu.Lock()
+	switch sb.state {
+	case stateBuffering:
+		sb.mu.Unlock()
+		e, err := sb.buf.enqueue(sb.shardKey)
+		if err != nil {
+			return nil, err
+		}
+		return sb.waitOnEntry(ctx, e)
+	case stateDraining:
+		sb.mu.Unlock()
+		return func() {}, nil
+	default:
+		sb.mu.Unlock()
+		return nil, nil
+	}
+}
+
 // waitForFailoverEnd either starts buffering (IDLE -> BUFFERING) or joins
 // an existing buffer (already BUFFERING). Returns (nil, nil) if buffering
 // is not applicable for this request.
@@ -78,8 +100,11 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 	sb.mu.Lock()
 	switch sb.state {
 	case stateDraining:
-		// Already draining — the new PRIMARY is available. Don't enqueue
-		// into the buffer, but signal the caller to retry immediately.
+		// Already draining — the new PRIMARY is available. Signal the caller
+		// to retry immediately. A recursive retry loop is unlikely because
+		// the LoadBalancer listener is registered before the BufferListener,
+		// so the new PRIMARY is already in the LoadBalancer by the time we
+		// reach here. It is bounded by context timeout in any case.
 		sb.mu.Unlock()
 		return func() {}, nil
 	case stateIdle:
@@ -142,7 +167,7 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 		// <-e.bufferCtx.Done(). If the entry was still in the queue,
 		// this is harmless (nobody is watching bufferCtx).
 		e.bufferCancel()
-		sb.buf.stats.recordEvicted(sb.buf.ctx, "context_canceled")
+		sb.buf.stats.recordEvicted(sb.buf.ctx, sb.shardKey.String(), "context_canceled")
 		sb.buf.stats.recordWaitDuration(sb.buf.ctx, sb.buf.now().Sub(start).Seconds())
 		return nil, ctx.Err()
 	case <-e.done:

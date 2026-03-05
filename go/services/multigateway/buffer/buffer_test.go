@@ -690,6 +690,84 @@ func TestBufferContextCancelDuringDrain(t *testing.T) {
 	}
 }
 
+func TestBufferProactiveBuffering(t *testing.T) {
+	cfg := testConfig(t)
+	buf := New(context.Background(), cfg, testLogger())
+	defer buf.Shutdown()
+
+	ctx := context.Background()
+
+	// WaitIfAlreadyBuffering on an idle shard should return (nil, nil).
+	retryDone, err := buf.WaitIfAlreadyBuffering(ctx, shard1Key)
+	assert.NoError(t, err)
+	assert.Nil(t, retryDone, "idle shard should not proactively buffer")
+
+	// WaitIfAlreadyBuffering on an unknown shard should return (nil, nil).
+	retryDone, err = buf.WaitIfAlreadyBuffering(ctx, commontypes.ShardKey{TableGroup: "unknown", Shard: "unknown"})
+	assert.NoError(t, err)
+	assert.Nil(t, retryDone, "unknown shard should not proactively buffer")
+
+	// Trigger IDLE→BUFFERING via a reactive request.
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		rd, waitErr := buf.WaitForFailoverEnd(ctx, shard1Key)
+		assert.NoError(t, waitErr)
+		if rd != nil {
+			rd()
+		}
+	})
+	waitForQueueLen(t, buf, 1)
+
+	// Now WaitIfAlreadyBuffering should join the existing buffer.
+	var proactiveRetryDone RetryDoneFunc
+	var proactiveErr error
+	wg.Go(func() {
+		proactiveRetryDone, proactiveErr = buf.WaitIfAlreadyBuffering(ctx, shard1Key)
+		if proactiveRetryDone != nil {
+			proactiveRetryDone()
+		}
+	})
+	waitForQueueLen(t, buf, 2)
+
+	// Stop buffering — both entries should drain.
+	buf.StopBuffering(shard1Key)
+	wg.Wait()
+
+	assert.NoError(t, proactiveErr)
+}
+
+func TestBufferProactiveBufferingDraining(t *testing.T) {
+	cfg := testConfig(t)
+	buf := New(context.Background(), cfg, testLogger())
+	defer buf.Shutdown()
+
+	ctx := context.Background()
+
+	// Start buffering and trigger drain (but hold retryDone to stay in DRAINING).
+	var wg sync.WaitGroup
+	var firstRetryDone RetryDoneFunc
+	wg.Go(func() {
+		var err error
+		firstRetryDone, err = buf.WaitForFailoverEnd(ctx, shard1Key)
+		require.NoError(t, err)
+	})
+
+	waitForQueueLen(t, buf, 1)
+	buf.StopBuffering(shard1Key)
+	wg.Wait()
+
+	// Shard is DRAINING. WaitIfAlreadyBuffering should return immediate retry.
+	retryDone, err := buf.WaitIfAlreadyBuffering(ctx, shard1Key)
+	assert.NoError(t, err)
+	assert.NotNil(t, retryDone, "should get immediate retry while draining")
+	retryDone()
+
+	// Unblock the drain.
+	if firstRetryDone != nil {
+		firstRetryDone()
+	}
+}
+
 func TestBufferShutdownAfterEnqueue(t *testing.T) {
 	cfg := testConfig(t)
 	buf := New(context.Background(), cfg, testLogger())

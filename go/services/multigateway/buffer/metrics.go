@@ -107,8 +107,11 @@ func (s *stats) recordDrained(ctx context.Context, shardKey string) {
 	s.requestsDrained.Add(ctx, 1, metric.WithAttributes(attribute.String("shard_key", shardKey)))
 }
 
-func (s *stats) recordEvicted(ctx context.Context, reason string) {
-	s.requestsEvicted.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+func (s *stats) recordEvicted(ctx context.Context, shardKey string, reason string) {
+	s.requestsEvicted.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("shard_key", shardKey),
+		attribute.String("reason", reason),
+	))
 }
 
 func (s *stats) recordSkipped(ctx context.Context, reason string) {

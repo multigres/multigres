@@ -123,7 +123,8 @@ func (tt *timeoutThread) evictHead() {
 
 	head := tt.buf.queue[0]
 	if tt.buf.now().Before(head.deadline) {
-		// Not yet expired — a newer entry may have been prepended.
+		// Not yet expired — the original head may have been removed by
+		// context cancellation or drain, leaving a newer entry at head.
 		tt.buf.mu.Unlock()
 		return
 	}
@@ -134,6 +135,6 @@ func (tt *timeoutThread) evictHead() {
 	head.err = mterrors.MTB02.New()
 	close(head.done)
 	tt.buf.bufferSizeSema.Release(1)
-	tt.buf.stats.recordEvicted(tt.buf.ctx, "window_exceeded")
+	tt.buf.stats.recordEvicted(tt.buf.ctx, head.shardKey.String(), "window_exceeded")
 	tt.buf.logger.Debug("evicted entry: window exceeded", "shard_key", head.shardKey)
 }
