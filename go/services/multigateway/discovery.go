@@ -16,10 +16,8 @@ package multigateway
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -29,324 +27,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 )
-
-// CellPoolerDiscovery is a discovery service that watches for multipoolers
-// in a single cell using topology watches and maintains a list of available poolers.
-type CellPoolerDiscovery struct {
-	// Configuration
-	topoStore topoclient.Store
-	cell      string // The cell this watcher is monitoring
-	logger    *slog.Logger
-
-	// Callbacks for notifying about pooler changes (may be nil)
-	onPoolerChanged func(pooler *clustermetadatapb.MultiPooler)
-	onPoolerRemoved func(pooler *clustermetadatapb.MultiPooler)
-
-	// Control
-	ctx        context.Context
-	cancelFunc context.CancelFunc
-	wg         sync.WaitGroup
-
-	// State (protected by mu)
-	// Lock order: acquire this AFTER GlobalPoolerDiscovery.mu (never before)
-	mu          sync.Mutex
-	poolers     map[string]*topoclient.MultiPoolerInfo // pooler ID -> pooler info
-	lastRefresh time.Time
-}
-
-// NewCellPoolerDiscovery creates a new pooler discovery service for a single cell.
-func NewCellPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, cell string, logger *slog.Logger) *CellPoolerDiscovery {
-	discoveryCtx, cancel := context.WithCancel(ctx)
-
-	return &CellPoolerDiscovery{
-		topoStore:  topoStore,
-		cell:       cell,
-		logger:     logger.With("cell", cell),
-		ctx:        discoveryCtx,
-		cancelFunc: cancel,
-		poolers:    make(map[string]*topoclient.MultiPoolerInfo),
-	}
-}
-
-// Start begins the discovery process using topology watch.
-func (pd *CellPoolerDiscovery) Start() {
-	pd.wg.Go(func() {
-		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
-		topoclient.WatchPathWithRetry(pd.ctx, pd.topoStore, pd.cell, topoclient.PoolersPath, pd.logger,
-			pd.processInitialPoolers, pd.watchPoolers)
-		pd.logger.Info("Pooler discovery shutting down")
-	})
-}
-
-// Stop stops the discovery service.
-func (pd *CellPoolerDiscovery) Stop() {
-	pd.cancelFunc()
-	pd.wg.Wait()
-}
-
-// processInitialPoolers processes the initial set of poolers from the watch
-func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.WatchDataRecursive) {
-	pd.mu.Lock()
-	defer pd.mu.Unlock()
-
-	// Save old poolers to detect removals (for watch reconnection)
-	oldPoolers := pd.poolers
-	pd.poolers = make(map[string]*topoclient.MultiPoolerInfo)
-
-	// Process initial pooler data
-	for _, watchData := range initial {
-		if watchData.Err != nil {
-			pd.logger.Warn("Error in initial watch data", "path", watchData.Path, "error", watchData.Err)
-			continue
-		}
-
-		// Parse the pooler from watch data
-		pooler, err := pd.parsePoolerFromWatchData(watchData)
-		if err != nil {
-			pd.logger.Warn("Failed to parse pooler from initial data", "path", watchData.Path, "error", err)
-			continue
-		}
-
-		if pooler != nil {
-			poolerID := topoclient.MultiPoolerIDString(pooler.Id)
-			pd.poolers[poolerID] = pooler
-			pd.logger.Debug("Initial pooler discovered",
-				"id", poolerID,
-				"hostname", pooler.Hostname,
-				"addr", pooler.Addr(),
-				"database", pooler.Database,
-				"shard", pooler.Shard,
-				"type", pooler.Type.String())
-		}
-	}
-
-	// Notify about removed poolers (existed before but not in new state)
-	if pd.onPoolerRemoved != nil {
-		for poolerID, oldPooler := range oldPoolers {
-			if _, exists := pd.poolers[poolerID]; !exists {
-				pd.onPoolerRemoved(oldPooler.MultiPooler)
-			}
-		}
-	}
-
-	// Notify about all current poolers
-	if pd.onPoolerChanged != nil {
-		for _, pooler := range pd.poolers {
-			pd.onPoolerChanged(pooler.MultiPooler)
-		}
-	}
-
-	pd.lastRefresh = time.Now()
-	pd.logger.Info("Initial pooler discovery completed",
-		"cell", pd.cell,
-		"pooler_count", len(pd.poolers))
-}
-
-// watchPoolers is the watchFn passed to WatchPathWithRetry for the poolers directory.
-// It selects on the changes channel until the channel closes or the context is done.
-func (pd *CellPoolerDiscovery) watchPoolers(changes <-chan *topoclient.WatchDataRecursive) {
-	for {
-		select {
-		case <-pd.ctx.Done():
-			return
-		case watchData, ok := <-changes:
-			if !ok {
-				return
-			}
-			// Process the change - this handles both updates and deletions.
-			// Deletions come as events with Err set to NoNode error.
-			pd.processPoolerChange(watchData)
-		}
-	}
-}
-
-// processPoolerChange processes a single pooler change from the watch
-func (pd *CellPoolerDiscovery) processPoolerChange(watchData *topoclient.WatchDataRecursive) {
-	pd.mu.Lock()
-	defer pd.mu.Unlock()
-
-	// Check if this is an error event
-	if watchData.Err != nil {
-		// Check if it's a deletion event (NoNode error) for a pooler path.
-		// TopoError is returned as a value type, so we need to use errors.Is with a pointer.
-		if errors.Is(watchData.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
-			if strings.HasSuffix(watchData.Path, "/Pooler") {
-				poolerID := pd.extractPoolerIDFromPath(watchData.Path)
-				if poolerID != "" {
-					if oldPooler, existed := pd.poolers[poolerID]; existed {
-						delete(pd.poolers, poolerID)
-						pd.lastRefresh = time.Now()
-						pd.logger.Info("Pooler removed",
-							"id", poolerID,
-							"path", watchData.Path)
-						if pd.onPoolerRemoved != nil {
-							pd.onPoolerRemoved(oldPooler.MultiPooler)
-						}
-					}
-				}
-			}
-		} else {
-			// Log other watch errors (non-deletion errors)
-			pd.logger.Warn("Watch error received", "error", watchData.Err, "path", watchData.Path)
-		}
-		return
-	}
-
-	// Parse the pooler from watch data
-	pooler, err := pd.parsePoolerFromWatchData(watchData)
-	if err != nil {
-		pd.logger.Warn("Failed to parse pooler from change data", "path", watchData.Path, "error", err)
-		return
-	}
-
-	if pooler == nil {
-		// This is a non-pooler file, skip
-		pd.logger.Debug("Skipping non-pooler file", "path", watchData.Path)
-		return
-	}
-
-	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
-
-	// If this is a PRIMARY, evict any other PRIMARY for the same TableGroup/Shard.
-	// This handles the failover case where a new PRIMARY comes up but the old
-	// crashed PRIMARY's record is still present.
-	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
-		pd.evictConflictingPrimary(poolerID, pooler.TableGroup, pooler.Shard)
-	}
-
-	// Check if this is a new pooler
-	_, existed := pd.poolers[poolerID]
-	pd.poolers[poolerID] = pooler
-	pd.lastRefresh = time.Now()
-
-	if !existed {
-		pd.logger.Info("New pooler discovered",
-			"id", poolerID,
-			"hostname", pooler.Hostname,
-			"addr", pooler.Addr(),
-			"tableGroup", pooler.TableGroup,
-			"database", pooler.Database,
-			"shard", pooler.Shard,
-			"type", pooler.Type.String())
-	} else {
-		pd.logger.Info("Pooler updated",
-			"id", poolerID,
-			"hostname", pooler.Hostname,
-			"addr", pooler.Addr(),
-			"tableGroup", pooler.TableGroup,
-			"database", pooler.Database,
-			"shard", pooler.Shard,
-			"type", pooler.Type.String())
-	}
-
-	if pd.onPoolerChanged != nil {
-		pd.onPoolerChanged(pooler.MultiPooler)
-	}
-}
-
-// GetPoolersForAdmin returns a list of all discovered poolers in this cell.
-// This is intended for admin/status pages, not the hot query path.
-// Poolers are sorted by name for consistent display order.
-func (pd *CellPoolerDiscovery) GetPoolersForAdmin() []*clustermetadatapb.MultiPooler {
-	pd.mu.Lock()
-	defer pd.mu.Unlock()
-
-	// Collect and sort pooler IDs for consistent ordering
-	poolerIDs := make([]string, 0, len(pd.poolers))
-	for id := range pd.poolers {
-		poolerIDs = append(poolerIDs, id)
-	}
-	sort.Strings(poolerIDs)
-
-	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(pd.poolers))
-	for _, id := range poolerIDs {
-		pooler := pd.poolers[id]
-		poolers = append(poolers, proto.Clone(pooler.MultiPooler).(*clustermetadatapb.MultiPooler))
-	}
-	return poolers
-}
-
-// LastRefresh returns the timestamp of the last successful refresh.
-func (pd *CellPoolerDiscovery) LastRefresh() time.Time {
-	pd.mu.Lock()
-	defer pd.mu.Unlock()
-	return pd.lastRefresh
-}
-
-// PoolerCount returns the current number of discovered poolers.
-func (pd *CellPoolerDiscovery) PoolerCount() int {
-	pd.mu.Lock()
-	defer pd.mu.Unlock()
-	return len(pd.poolers)
-}
-
-// parsePoolerFromWatchData parses a MultiPooler from watch data
-func (pd *CellPoolerDiscovery) parsePoolerFromWatchData(watchData *topoclient.WatchDataRecursive) (*topoclient.MultiPoolerInfo, error) {
-	// Only process files that end with "Pooler" (the actual pooler data files)
-	if !strings.HasSuffix(watchData.Path, "/Pooler") {
-		return nil, nil // Not a pooler file, skip
-	}
-
-	// If Contents is nil, this might be a deletion
-	if watchData.Contents == nil {
-		return nil, nil
-	}
-
-	// Parse the protobuf data
-	pooler := &clustermetadatapb.MultiPooler{}
-	if err := proto.Unmarshal(watchData.Contents, pooler); err != nil {
-		return nil, err
-	}
-
-	return &topoclient.MultiPoolerInfo{
-		MultiPooler: pooler,
-	}, nil
-}
-
-// extractPoolerIDFromPath extracts the pooler ID from a watch path.
-// The path format is: "poolers/{pooler_id}/Pooler"
-func (pd *CellPoolerDiscovery) extractPoolerIDFromPath(path string) string {
-	// Expected format: "poolers/{pooler_id}/Pooler"
-	parts := strings.Split(path, "/")
-	if len(parts) >= 3 && parts[0] == "poolers" && parts[len(parts)-1] == "Pooler" {
-		// The pooler ID is the middle part(s) - everything between "poolers/" and "/Pooler"
-		return strings.Join(parts[1:len(parts)-1], "/")
-	}
-	return ""
-}
-
-// evictConflictingPrimary removes any existing PRIMARY pooler for the same
-// TableGroup/Shard that has a different pooler ID. This handles the failover
-// case where a new PRIMARY comes up but the old crashed PRIMARY's record is
-// still in the discovery cache.
-// Caller must hold pd.mu.
-func (pd *CellPoolerDiscovery) evictConflictingPrimary(newPoolerID, tableGroup, shard string) {
-	for poolerID, pooler := range pd.poolers {
-		// Skip if it's the same pooler (update case)
-		if poolerID == newPoolerID {
-			continue
-		}
-		// Check if this is a PRIMARY for the same TableGroup/Shard
-		if pooler.Type == clustermetadatapb.PoolerType_PRIMARY &&
-			pooler.TableGroup == tableGroup &&
-			pooler.Shard == shard {
-			delete(pd.poolers, poolerID)
-			pd.logger.Info("Evicted stale PRIMARY pooler",
-				"evicted_id", poolerID,
-				"new_primary_id", newPoolerID,
-				"tableGroup", tableGroup,
-				"shard", shard)
-			if pd.onPoolerRemoved != nil {
-				pd.onPoolerRemoved(pooler.MultiPooler)
-			}
-		}
-	}
-}
-
-// Cell returns the cell this discovery is watching.
-func (pd *CellPoolerDiscovery) Cell() string {
-	return pd.cell
-}
 
 // PoolerChangeListener receives notifications about pooler discovery changes.
 // Implementations can use this to maintain connections to discovered poolers.
@@ -370,9 +50,9 @@ type poolerNotification struct {
 	newListener            PoolerChangeListener
 }
 
-// GlobalPoolerDiscovery orchestrates multiple CellPoolerDiscovery instances,
-// one per cell. It watches for cell changes from global etcd and creates/removes
-// cell watchers as cells appear/disappear.
+// GlobalPoolerDiscovery discovers multipoolers across all cells and notifies
+// registered listeners of changes. It uses WatchAllPoolersWithRetry internally
+// to manage cell discovery and per-cell pooler watching.
 type GlobalPoolerDiscovery struct {
 	// Configuration
 	topoStore topoclient.Store
@@ -385,10 +65,9 @@ type GlobalPoolerDiscovery struct {
 	wg         sync.WaitGroup
 
 	// State (protected by mu)
-	// Lock order: acquire this BEFORE CellPoolerDiscovery.mu
 	mu              sync.Mutex
-	cellWatchers    map[string]*CellPoolerDiscovery // cell name -> cell watcher
-	lastCellRefresh time.Time                       // when cells were last discovered/refreshed
+	poolers         map[string]*clustermetadatapb.MultiPooler // poolerID -> pooler, all cells
+	cellLastRefresh map[string]time.Time                      // cell -> time of last initial snapshot
 
 	// Listeners for pooler changes (protected by listenersMu)
 	// Lock order: can acquire notificationsMu while holding this
@@ -397,7 +76,7 @@ type GlobalPoolerDiscovery struct {
 
 	// Notification queue (protected by notificationsMu)
 	// LOCK ORDERING: This is the INNERMOST lock - never acquire other locks while holding it.
-	// It CAN be acquired while holding mu, listenersMu, or CellPoolerDiscovery.mu.
+	// It CAN be acquired while holding mu, listenersMu.
 	notificationsMu sync.Mutex
 	notifications   []poolerNotification
 	notifySignal    chan struct{} // buffered(1) to wake up processor goroutine
@@ -410,132 +89,171 @@ func NewGlobalPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, l
 	discoveryCtx, cancel := context.WithCancel(ctx)
 
 	return &GlobalPoolerDiscovery{
-		topoStore:    topoStore,
-		localCell:    localCell,
-		logger:       logger,
-		ctx:          discoveryCtx,
-		cancelFunc:   cancel,
-		cellWatchers: make(map[string]*CellPoolerDiscovery),
-		notifySignal: make(chan struct{}, 1),
+		topoStore:       topoStore,
+		localCell:       localCell,
+		logger:          logger,
+		ctx:             discoveryCtx,
+		cancelFunc:      cancel,
+		poolers:         make(map[string]*clustermetadatapb.MultiPooler),
+		cellLastRefresh: make(map[string]time.Time),
+		notifySignal:    make(chan struct{}, 1),
 	}
 }
 
-// Start begins the discovery process by watching the cells directory in the
-// global topology. When cells are created or removed, it starts or stops
-// the corresponding CellPoolerDiscovery watchers.
+// Start begins the discovery process.
 func (gd *GlobalPoolerDiscovery) Start() {
-	// Start notification processor goroutine
 	gd.wg.Go(gd.processNotifications)
 
 	gd.wg.Go(func() {
 		gd.logger.Info("Starting global pooler discovery")
-		topoclient.WatchPathWithRetry(gd.ctx, gd.topoStore, topoclient.GlobalCell, topoclient.CellsPath, gd.logger,
-			gd.processInitialCells, gd.watchCells)
+		topoclient.WatchAllPoolersWithRetry(gd.ctx, gd.topoStore, gd.logger,
+			gd.onInitialCell, gd.onPoolerUpserted, gd.onPoolerDeleted, gd.onCellRemoved,
+		)
 		gd.logger.Info("Global pooler discovery shutting down")
 	})
 }
 
-// processInitialCells processes the initial set of cells from the watch.
-func (gd *GlobalPoolerDiscovery) processInitialCells(initial []*topoclient.WatchDataRecursive) {
-	gd.mu.Lock()
-	defer gd.mu.Unlock()
-
-	for _, event := range initial {
-		if event.Err != nil {
-			continue
-		}
-		cell := topoclient.ExtractCellFromPath(event.Path)
-		if cell == "" {
-			continue
-		}
-		if _, exists := gd.cellWatchers[cell]; !exists {
-			gd.startCellWatcher(cell)
-		}
-	}
-
-	// Log discovered cells
-	cells := make([]string, 0, len(gd.cellWatchers))
-	for cell := range gd.cellWatchers {
-		cells = append(cells, cell)
-	}
-	gd.lastCellRefresh = time.Now()
-	gd.logger.Info("Initial cell discovery completed", "cells", cells)
-}
-
-// watchCells is the watchFn passed to WatchPathWithRetry for the cells directory.
-// It selects on the changes channel until the channel closes or the context is done.
-func (gd *GlobalPoolerDiscovery) watchCells(changes <-chan *topoclient.WatchDataRecursive) {
-	for {
-		select {
-		case <-gd.ctx.Done():
-			return
-		case event, ok := <-changes:
-			if !ok {
-				return
-			}
-			gd.processCellChange(event)
-		}
-	}
-}
-
-// processCellChange handles a single cell change event from the watch.
-func (gd *GlobalPoolerDiscovery) processCellChange(event *topoclient.WatchDataRecursive) {
-	cell := topoclient.ExtractCellFromPath(event.Path)
-	if cell == "" {
-		return
-	}
-
-	// Deletion: NoNode error signals the cell was removed
-	if event.Err != nil {
-		if errors.Is(event.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
-			gd.mu.Lock()
-			if watcher, exists := gd.cellWatchers[cell]; exists {
-				gd.logger.Info("Cell removed, stopping watcher", "cell", cell)
-				watcher.Stop()
-				delete(gd.cellWatchers, cell)
-				gd.lastCellRefresh = time.Now()
-			}
-			gd.mu.Unlock()
-		} else {
-			gd.logger.Warn("Cell watch error received", "error", event.Err, "path", event.Path)
-		}
-		return
-	}
-
-	// Addition: start a watcher if we don't have one
-	gd.mu.Lock()
-	if _, exists := gd.cellWatchers[cell]; !exists {
-		gd.logger.Info("New cell discovered", "cell", cell)
-		gd.startCellWatcher(cell)
-		gd.lastCellRefresh = time.Now()
-	}
-	gd.mu.Unlock()
-}
-
-// startCellWatcher starts a CellPoolerDiscovery for the given cell.
-// Caller must hold gd.mu.
-func (gd *GlobalPoolerDiscovery) startCellWatcher(cell string) {
-	gd.logger.Info("Starting cell watcher", "cell", cell)
-
-	cellWatcher := NewCellPoolerDiscovery(gd.ctx, gd.topoStore, cell, gd.logger)
-	cellWatcher.onPoolerChanged = gd.notifyPoolerChanged
-	cellWatcher.onPoolerRemoved = gd.notifyPoolerRemoved
-	gd.cellWatchers[cell] = cellWatcher
-	cellWatcher.Start()
-}
-
-// Stop stops the global discovery service and all cell watchers.
+// Stop stops the discovery service.
 func (gd *GlobalPoolerDiscovery) Stop() {
 	gd.cancelFunc()
+	gd.wg.Wait()
+}
 
-	// Stop all cell watchers
+// onInitialCell reconciles the in-memory pooler set for a cell against the
+// snapshot delivered on each (re)connection. It removes stale entries for the
+// cell, adds the new snapshot, and notifies listeners.
+func (gd *GlobalPoolerDiscovery) onInitialCell(cell string, poolers []*clustermetadatapb.MultiPooler) {
 	gd.mu.Lock()
-	for _, watcher := range gd.cellWatchers {
-		watcher.Stop()
+
+	newCellPoolers := make(map[string]*clustermetadatapb.MultiPooler, len(poolers))
+	for _, p := range poolers {
+		newCellPoolers[topoclient.MultiPoolerIDString(p.Id)] = p
+	}
+
+	// Detect and remove stale entries for this cell
+	var removed []*clustermetadatapb.MultiPooler
+	for id, p := range gd.poolers {
+		if p.Id.Cell == cell {
+			if _, stillPresent := newCellPoolers[id]; !stillPresent {
+				delete(gd.poolers, id)
+				removed = append(removed, p)
+			}
+		}
+	}
+
+	// Add new snapshot entries; only notify for poolers whose data actually changed.
+	var changed []*clustermetadatapb.MultiPooler
+	for id, p := range newCellPoolers {
+		if existing, ok := gd.poolers[id]; !ok || !proto.Equal(existing, p) {
+			changed = append(changed, p)
+		}
+		gd.poolers[id] = p
+	}
+
+	gd.cellLastRefresh[cell] = time.Now()
+	gd.mu.Unlock()
+
+	// Notify outside lock
+	for _, p := range removed {
+		gd.notifyPoolerRemoved(p)
+	}
+	for _, p := range changed {
+		gd.notifyPoolerChanged(p)
+	}
+
+	gd.logger.Info("Initial pooler discovery completed", "cell", cell, "pooler_count", len(newCellPoolers))
+}
+
+// onCellRemoved handles cell removal by evicting all poolers for that cell and
+// clearing its refresh record.
+func (gd *GlobalPoolerDiscovery) onCellRemoved(cell string) {
+	gd.mu.Lock()
+
+	var removed []*clustermetadatapb.MultiPooler
+	for id, p := range gd.poolers {
+		if p.Id.Cell == cell {
+			delete(gd.poolers, id)
+			removed = append(removed, p)
+		}
+	}
+	delete(gd.cellLastRefresh, cell)
+
+	gd.mu.Unlock()
+
+	for _, p := range removed {
+		gd.notifyPoolerRemoved(p)
+	}
+}
+
+// onPoolerUpserted handles a pooler add or update event.
+func (gd *GlobalPoolerDiscovery) onPoolerUpserted(pooler *clustermetadatapb.MultiPooler) {
+	poolerID := topoclient.MultiPoolerIDString(pooler.Id)
+
+	gd.mu.Lock()
+
+	// If this is a PRIMARY, evict any other PRIMARY for the same TableGroup/Shard.
+	// This handles failover where a new PRIMARY comes up before the old crashed
+	// PRIMARY's record is removed.
+	var evicted []*clustermetadatapb.MultiPooler
+	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
+		for id, p := range gd.poolers {
+			if id != poolerID &&
+				p.Type == clustermetadatapb.PoolerType_PRIMARY &&
+				p.TableGroup == pooler.TableGroup &&
+				p.Shard == pooler.Shard {
+				delete(gd.poolers, id)
+				evicted = append(evicted, p)
+				gd.logger.Info("Evicted stale PRIMARY pooler",
+					"evicted_id", id,
+					"new_primary_id", poolerID,
+					"tableGroup", pooler.TableGroup,
+					"shard", pooler.Shard)
+			}
+		}
+	}
+
+	_, existed := gd.poolers[poolerID]
+	gd.poolers[poolerID] = pooler
+	gd.mu.Unlock()
+
+	for _, p := range evicted {
+		gd.notifyPoolerRemoved(p)
+	}
+
+	if !existed {
+		gd.logger.Info("New pooler discovered",
+			"id", poolerID,
+			"hostname", pooler.Hostname,
+			"tableGroup", pooler.TableGroup,
+			"database", pooler.Database,
+			"shard", pooler.Shard,
+			"type", pooler.Type.String())
+	} else {
+		gd.logger.Info("Pooler updated",
+			"id", poolerID,
+			"hostname", pooler.Hostname,
+			"tableGroup", pooler.TableGroup,
+			"database", pooler.Database,
+			"shard", pooler.Shard,
+			"type", pooler.Type.String())
+	}
+
+	gd.notifyPoolerChanged(pooler)
+}
+
+// onPoolerDeleted handles a pooler deletion event.
+func (gd *GlobalPoolerDiscovery) onPoolerDeleted(poolerID string) {
+	gd.mu.Lock()
+	p, existed := gd.poolers[poolerID]
+	if existed {
+		delete(gd.poolers, poolerID)
 	}
 	gd.mu.Unlock()
 
-	gd.wg.Wait()
+	if existed {
+		gd.logger.Info("Pooler removed", "id", poolerID)
+		gd.notifyPoolerRemoved(p)
+	}
 }
 
 // processNotifications runs in a background goroutine and processes queued notifications.
@@ -612,26 +330,19 @@ func (gd *GlobalPoolerDiscovery) queueNotification(notif poolerNotification) {
 // The listener will immediately receive OnPoolerChanged for all currently
 // known poolers, then continue to receive updates as poolers change.
 func (gd *GlobalPoolerDiscovery) RegisterListener(listener PoolerChangeListener) {
-	// Collect current state and queue registration+replay atomically
-	// while holding gd.mu to prevent poolers from changing between
-	// collection and queuing
+	// Collect current state and queue registration+replay atomically while holding gd.mu
+	// to prevent poolers from changing between collection and queuing.
 	gd.mu.Lock()
 
-	// Collect replay notifications
 	var replay []poolerNotification
-	for _, watcher := range gd.cellWatchers {
-		watcher.mu.Lock()
-		for _, pooler := range watcher.poolers {
-			replay = append(replay, poolerNotification{
-				pooler:         pooler.MultiPooler,
-				targetListener: listener,
-			})
-		}
-		watcher.mu.Unlock()
+	for _, pooler := range gd.poolers {
+		replay = append(replay, poolerNotification{
+			pooler:         pooler,
+			targetListener: listener,
+		})
 	}
 
 	// Queue: (1) add listener, (2) replay state
-	// This must happen while still holding gd.mu to ensure atomicity
 	gd.notificationsMu.Lock()
 	gd.notifications = append(gd.notifications, poolerNotification{
 		isListenerRegistration: true,
@@ -666,24 +377,26 @@ func (gd *GlobalPoolerDiscovery) notifyPoolerRemoved(pooler *clustermetadatapb.M
 	})
 }
 
-// PoolerCount returns the total number of discovered poolers across all cells.
-// LastCellRefresh returns when cells were last discovered or refreshed.
-// Returns zero time if initial cell discovery has not completed yet.
+// LastCellRefresh returns the time of the most recent initial snapshot delivery
+// across all cells. Returns zero time if no cell has been discovered yet.
 func (gd *GlobalPoolerDiscovery) LastCellRefresh() time.Time {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
-	return gd.lastCellRefresh
+
+	var latest time.Time
+	for _, t := range gd.cellLastRefresh {
+		if t.After(latest) {
+			latest = t
+		}
+	}
+	return latest
 }
 
+// PoolerCount returns the total number of discovered poolers across all cells.
 func (gd *GlobalPoolerDiscovery) PoolerCount() int {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
-
-	count := 0
-	for _, watcher := range gd.cellWatchers {
-		count += watcher.PoolerCount()
-	}
-	return count
+	return len(gd.poolers)
 }
 
 // CellStatusInfo contains status information for a single cell's discovery.
@@ -700,20 +413,37 @@ func (gd *GlobalPoolerDiscovery) GetCellStatusesForAdmin() []CellStatusInfo {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
 
-	// Collect and sort cell names for consistent ordering
-	cellNames := make([]string, 0, len(gd.cellWatchers))
-	for cellName := range gd.cellWatchers {
-		cellNames = append(cellNames, cellName)
+	// Group poolers by cell
+	byCell := make(map[string][]*clustermetadatapb.MultiPooler)
+	for _, p := range gd.poolers {
+		cell := p.Id.Cell
+		byCell[cell] = append(byCell[cell], proto.Clone(p).(*clustermetadatapb.MultiPooler))
+	}
+
+	// Include cells with no poolers but a recorded refresh time
+	for cell := range gd.cellLastRefresh {
+		if _, exists := byCell[cell]; !exists {
+			byCell[cell] = nil
+		}
+	}
+
+	// Sort cell names for consistent ordering
+	cellNames := make([]string, 0, len(byCell))
+	for cell := range byCell {
+		cellNames = append(cellNames, cell)
 	}
 	sort.Strings(cellNames)
 
-	statuses := make([]CellStatusInfo, 0, len(gd.cellWatchers))
-	for _, cellName := range cellNames {
-		watcher := gd.cellWatchers[cellName]
+	statuses := make([]CellStatusInfo, 0, len(cellNames))
+	for _, cell := range cellNames {
+		poolers := byCell[cell]
+		sort.Slice(poolers, func(i, j int) bool {
+			return topoclient.MultiPoolerIDString(poolers[i].Id) < topoclient.MultiPoolerIDString(poolers[j].Id)
+		})
 		statuses = append(statuses, CellStatusInfo{
-			Cell:        watcher.Cell(),
-			LastRefresh: watcher.LastRefresh(),
-			Poolers:     watcher.GetPoolersForAdmin(),
+			Cell:        cell,
+			LastRefresh: gd.cellLastRefresh[cell],
+			Poolers:     poolers,
 		})
 	}
 	return statuses

@@ -75,7 +75,7 @@ func TestWatchPathWithRetry_InitialSnapshot(t *testing.T) {
 	var gotInitial []*WatchDataRecursive
 	initialDone := make(chan struct{})
 
-	go WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+	go watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 		discardLogger(),
 		func(items []*WatchDataRecursive) {
 			gotInitial = items
@@ -111,7 +111,7 @@ func TestWatchPathWithRetry_ChangeEvent(t *testing.T) {
 
 	gotEvent := make(chan *WatchDataRecursive, 1)
 
-	go WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+	go watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 		discardLogger(),
 		func(_ []*WatchDataRecursive) {},
 		func(changes <-chan *WatchDataRecursive) {
@@ -168,7 +168,7 @@ func TestWatchPathWithRetry_ReconnectsOnChannelClose(t *testing.T) {
 		return nil, ch, nil
 	}
 
-	go WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+	go watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 		discardLogger(),
 		func(_ []*WatchDataRecursive) {},
 		func(changes <-chan *WatchDataRecursive) {
@@ -196,7 +196,7 @@ func TestWatchPathWithRetry_ShutdownOnContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
+		watchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers",
 			discardLogger(),
 			func(_ []*WatchDataRecursive) {},
 			func(changes <-chan *WatchDataRecursive) {
@@ -214,7 +214,7 @@ func TestWatchPathWithRetry_ShutdownOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("WatchPathWithRetry did not return after ctx cancel within 1s")
+		t.Fatal("watchPathWithRetry did not return after ctx cancel within 1s")
 	}
 }
 
@@ -233,7 +233,7 @@ func TestExtractCellFromPath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, ExtractCellFromPath(tc.path))
+			assert.Equal(t, tc.expected, extractCellFromPath(tc.path))
 		})
 	}
 }
