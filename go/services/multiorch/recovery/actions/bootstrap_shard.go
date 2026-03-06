@@ -34,6 +34,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // Compile-time assertion that BootstrapShardAction implements types.RecoveryAction.
@@ -207,15 +208,21 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		DurabilityQuorumRule: quorumRule,
 		CoordinatorId:        topoclient.ClusterIDString(a.coordinator.GetCoordinatorID()),
 	}
-	resp, err := a.rpcClient.InitializeEmptyPrimary(ctx, candidate.MultiPooler, req)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to initialize empty primary")
-	}
-
-	if !resp.Success {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"failed to initialize empty primary on node %s: %s",
-			candidate.MultiPooler.Id.Name, resp.ErrorMessage)
+	var resp *multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
+	if err := telemetry.WithSpan(ctx, "bootstrap/initialize-primary", func(ctx context.Context) error {
+		var rpcErr error
+		resp, rpcErr = a.rpcClient.InitializeEmptyPrimary(ctx, candidate.MultiPooler, req)
+		if rpcErr != nil {
+			return mterrors.Wrap(rpcErr, "failed to initialize empty primary")
+		}
+		if !resp.Success {
+			return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+				"failed to initialize empty primary on node %s: %s",
+				candidate.MultiPooler.Id.Name, resp.ErrorMessage)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	a.logger.InfoContext(ctx, "successfully initialized primary with durability policy",
