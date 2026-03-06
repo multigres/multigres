@@ -864,54 +864,6 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "Time to refresh cluster metadata from topology. Click on data points to view traces in Jaeger.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 18,
-        "x": 6,
-        "y": 84
-      },
-      "id": 20,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "histogram_quantile(0.95, rate(multiorch_recovery_cluster_metadata_refresh_duration_seconds{job=\"multiorch\"}[$__rate_interval]))",
-          "legendFormat": "p95",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "histogram_quantile(0.50, rate(multiorch_recovery_cluster_metadata_refresh_duration_seconds{job=\"multiorch\"}[$__rate_interval]))",
-          "legendFormat": "p50",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Cluster Metadata Refresh Duration",
-      "type": "timeseries"
-    },
-    {
       "collapsed": false,
       "gridPos": {
         "h": 1,

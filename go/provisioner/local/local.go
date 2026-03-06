@@ -982,9 +982,6 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Add optional interval configs if specified
-	if interval, ok := multiorchConfig["cluster_metadata_refresh_interval"].(string); ok && interval != "" {
-		args = append(args, "--cluster-metadata-refresh-interval", interval)
-	}
 	if interval, ok := multiorchConfig["pooler_health_check_interval"].(string); ok && interval != "" {
 		args = append(args, "--pooler-health-check-interval", interval)
 	}
