@@ -1354,6 +1354,15 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, updatedPooler.Type,
 					"Pooler type should be updated to REPLICA in topology")
+
+				// Verify health streamer reports the new primary (source)
+				healthState := pm.healthStreamer.getState()
+				require.NotNil(t, healthState.PrimaryObservation,
+					"health streamer should have primary observation pointing to new primary after DemoteStalePrimary")
+				assert.Equal(t, sourcePooler.Id, healthState.PrimaryObservation.PrimaryID,
+					"primary observation should point to the source (new primary)")
+				assert.Equal(t, tt.requestTerm, healthState.PrimaryObservation.Term,
+					"primary observation term should match the consensus term from the request")
 			}
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())

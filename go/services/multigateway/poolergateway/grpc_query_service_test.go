@@ -162,6 +162,10 @@ func (m *mockMultiPoolerServiceClient) ReleaseReservedConnection(ctx context.Con
 	return &multipoolerservice.ReleaseReservedConnectionResponse{}, nil
 }
 
+func (m *mockMultiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *multipoolerservice.StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamPoolerHealthResponse], error) {
+	return nil, nil
+}
+
 // Ensure mockMultiPoolerServiceClient implements the interface
 var _ multipoolerservice.MultiPoolerServiceClient = (*mockMultiPoolerServiceClient)(nil)
 

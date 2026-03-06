@@ -108,7 +108,7 @@ func (pg *PoolerGateway) StreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (pg *PoolerGateway) StreamExecute(
 // TODO: Add retry logic for transient failures (UNAVAILABLE errors)
 func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -159,7 +159,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func (pg *PoolerGateway) Describe(
 	options *query.ExecuteOptions,
 ) (*query.StatementDescription, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -223,11 +223,11 @@ func (pg *PoolerGateway) getSystemServiceClient(ctx context.Context, database st
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		// PRIMARY not found, try REPLICA
 		target.PoolerType = clustermetadatapb.PoolerType_REPLICA
-		conn, err = pg.loadBalancer.GetConnection(target)
+		conn, err = pg.loadBalancer.GetConnection(target, nil)
 		if err != nil {
 			return nil, fmt.Errorf("no pooler found for database %q: %w", database, err)
 		}
@@ -260,7 +260,7 @@ func (pg *PoolerGateway) CopyReady(
 	reservationOptions *multipoolerpb.ReservationOptions,
 ) (int16, []int16, *query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -284,7 +284,7 @@ func (pg *PoolerGateway) CopySendData(
 	options *query.ExecuteOptions,
 ) error {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return err
 	}
@@ -308,7 +308,7 @@ func (pg *PoolerGateway) CopyFinalize(
 	options *query.ExecuteOptions,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -332,7 +332,7 @@ func (pg *PoolerGateway) CopyAbort(
 	options *query.ExecuteOptions,
 ) (*query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +358,7 @@ func (pg *PoolerGateway) ReserveStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +382,7 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -405,7 +405,7 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 	options *query.ExecuteOptions,
 ) error {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.GetConnection(target, nil)
 	if err != nil {
 		return err
 	}
