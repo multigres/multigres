@@ -211,9 +211,9 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 			},
 			{
 				name:     "comma separated list",
-				setCmd:   "SET search_path = 'public, pg_catalog'",
+				setCmd:   "SET search_path TO public, pg_catalog",
 				showCmd:  "SHOW search_path",
-				expected: "\"public, pg_catalog\"", // PostgreSQL adds quotes around comma-separated values
+				expected: "public, pg_catalog",
 			},
 			{
 				name:     "boolean value",
