@@ -1681,7 +1681,7 @@ type PrimaryObservation struct {
 	PrimaryId *clustermetadata.ID `protobuf:"bytes,1,opt,name=primary_id,json=primaryId,proto3" json:"primary_id,omitempty"`
 	// primary_term is the primary term at which this observation was made.
 	// The primary never changes within a primary_term. Higher values indicate
-	// more recent primary elections.
+	// more recent primary appointments.
 	PrimaryTerm   int64 `protobuf:"varint,2,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

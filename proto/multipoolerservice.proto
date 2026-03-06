@@ -436,6 +436,6 @@ message PrimaryObservation {
 
   // primary_term is the primary term at which this observation was made.
   // The primary never changes within a primary_term. Higher values indicate
-  // more recent primary elections.
+  // more recent primary appointments.
   int64 primary_term = 2;
 }
