@@ -1,0 +1,44 @@
+# CODEOWNERS
+#
+# GitHub uses the last matching pattern for a file, so the catch-all rule
+# must come first and specific overrides must follow.
+#
+# Replace @TODO-TEAM/... placeholders with actual GitHub team slugs or
+# @username handles. Teams must have at least Read access to this repository.
+
+# Global catch-all — owns everything not matched by a more specific rule below
+*  @TODO-TEAM/core
+
+# Gateway service
+go/services/multigateway/  @TODO-TEAM/gateway
+
+# Pooler service (implementation is split across two directories)
+go/services/multipooler/  @TODO-TEAM/pooler
+go/multipooler/            @TODO-TEAM/pooler
+
+# Orchestration service
+go/services/multiorch/  @TODO-TEAM/orch
+
+# PostgreSQL lifecycle manager
+go/services/pgctld/  @TODO-TEAM/pgctld
+
+# Admin service
+go/services/multiadmin/  @TODO-TEAM/admin
+
+# SQL parser
+go/common/parser/  @TODO-TEAM/parser
+
+# PostgreSQL protocol implementation
+go/common/pgprotocol/  @TODO-TEAM/protocol
+
+# Backup subsystem
+go/common/backup/  @TODO-TEAM/backup
+
+# CI/CD and GitHub configuration
+.github/  @TODO-TEAM/core
+
+# Proto definitions (API surface — core team reviews breaking changes)
+proto/  @TODO-TEAM/core
+
+# Documentation
+docs/  @TODO-TEAM/core
