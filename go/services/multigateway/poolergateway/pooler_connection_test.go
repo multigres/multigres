@@ -96,25 +96,28 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	spans := setup.SpanExporter.GetSpans()
 	require.NotEmpty(t, spans, "expected at least one span from gRPC call")
 
-	// Find the client span with our pooler.id attribute
-	var foundPoolerAttr bool
+	// Find a client span with our pooler.id attribute.
+	// Other tests in this package may also produce spans with different pooler IDs,
+	// so we only check that at least one span has our expected value.
+	var foundMatchingAttr bool
 	expectedPoolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
 	for _, span := range spans {
-		// Look for our pooler.id attribute
 		for _, attr := range span.Attributes {
-			if attr.Key == "multigres.pooler.id" {
-				foundPoolerAttr = true
-				assert.Equal(t, expectedPoolerID, attr.Value.AsString(),
-					"pooler.id attribute should match the pooler ID")
+			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == expectedPoolerID {
+				foundMatchingAttr = true
 				break
 			}
 		}
+		if foundMatchingAttr {
+			break
+		}
 	}
 
-	assert.True(t, foundPoolerAttr,
-		"gRPC client span should have multigres.pooler.id attribute - "+
-			"if this fails, telemetry attributes are not properly configured in NewPoolerConnection")
+	assert.True(t, foundMatchingAttr,
+		"gRPC client span should have multigres.pooler.id attribute with value %q - "+
+			"if this fails, telemetry attributes are not properly configured in NewPoolerConnection",
+		expectedPoolerID)
 }
 
 // TestNewPoolerConnection verifies basic PoolerConnection creation.
