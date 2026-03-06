@@ -20,7 +20,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -29,7 +28,6 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/store"
-	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // PoolerWatcher watches etcd for topology changes and keeps the pooler store
@@ -85,18 +83,9 @@ func NewPoolerWatcher(
 func (pw *PoolerWatcher) Start() {
 	pw.wg.Go(func() {
 		pw.logger.Info("starting pooler watcher")
-
-		r := retry.New(100*time.Millisecond, 30*time.Second)
-		for attempt, err := range r.Attempts(pw.ctx) {
-			if err != nil {
-				pw.logger.Info("pooler watcher shutting down")
-				return
-			}
-			if attempt > 0 {
-				pw.logger.Info("restarting pooler watcher cell watch")
-			}
-			pw.watchCells(r)
-		}
+		topoclient.WatchPathWithRetry(pw.ctx, pw.topoStore, topoclient.GlobalCell, topoclient.CellsPath, pw.logger,
+			pw.processInitialCells, pw.watchCells)
+		pw.logger.Info("pooler watcher shutting down")
 	})
 }
 
@@ -106,7 +95,7 @@ func (pw *PoolerWatcher) Stop() {
 
 	pw.mu.Lock()
 	for _, w := range pw.cellWatchers {
-		w.stop()
+		w.stopWatcher()
 	}
 	pw.mu.Unlock()
 
@@ -125,49 +114,14 @@ func (pw *PoolerWatcher) Sync(ctx context.Context) error {
 	pw.mu.Unlock()
 
 	for _, w := range watchers {
-		if err := w.sync(ctx); err != nil {
+		if err := w.syncWatcher(ctx); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// watchCells establishes a WatchRecursive on the global cells/ directory.
-// It starts per-cell watchers as cells appear and stops them when cells disappear.
-func (pw *PoolerWatcher) watchCells(r *retry.Retry) {
-	conn, err := pw.topoStore.ConnForCell(pw.ctx, topoclient.GlobalCell)
-	if err != nil {
-		pw.logger.Error("failed to get global topo connection for cell watch", "error", err)
-		return
-	}
-
-	initial, changes, err := conn.WatchRecursive(pw.ctx, topoclient.CellsPath)
-	if err != nil {
-		pw.logger.Error("failed to start watch on cells directory", "error", err)
-		return
-	}
-
-	// Process existing cells
-	pw.processInitialCells(initial)
-
-	// Reset backoff after 30s of stable watching
-	resetTimer := time.AfterFunc(30*time.Second, r.Reset)
-	defer resetTimer.Stop()
-
-	for {
-		select {
-		case <-pw.ctx.Done():
-			return
-		case event, ok := <-changes:
-			if !ok {
-				pw.logger.Info("cell watch channel closed, will reconnect")
-				return
-			}
-			pw.processCellEvent(event)
-		}
-	}
-}
-
+// processInitialCells starts a per-cell watcher for each cell present in the initial snapshot.
 func (pw *PoolerWatcher) processInitialCells(initial []*topoclient.WatchDataRecursive) {
 	pw.mu.Lock()
 	defer pw.mu.Unlock()
@@ -176,7 +130,7 @@ func (pw *PoolerWatcher) processInitialCells(initial []*topoclient.WatchDataRecu
 		if event.Err != nil {
 			continue
 		}
-		cell := extractCellNameFromPath(event.Path)
+		cell := topoclient.ExtractCellFromPath(event.Path)
 		if cell == "" {
 			continue
 		}
@@ -192,8 +146,26 @@ func (pw *PoolerWatcher) processInitialCells(initial []*topoclient.WatchDataRecu
 	pw.logger.Info("initial cell discovery completed", "cells", cells)
 }
 
+// watchCells processes cell-level events until the channel closes or the context is done.
+func (pw *PoolerWatcher) watchCells(changes <-chan *topoclient.WatchDataRecursive) {
+	for {
+		select {
+		case <-pw.ctx.Done():
+			return
+		case event, ok := <-changes:
+			if !ok {
+				pw.logger.Info("cell watch channel closed, will reconnect")
+				return
+			}
+			pw.processCellEvent(event)
+		}
+	}
+}
+
+// processCellEvent handles a single event from the cells watch. A NoNode error
+// signals that the cell was removed; any other value means the cell is new or updated.
 func (pw *PoolerWatcher) processCellEvent(event *topoclient.WatchDataRecursive) {
-	cell := extractCellNameFromPath(event.Path)
+	cell := topoclient.ExtractCellFromPath(event.Path)
 	if cell == "" {
 		return
 	}
@@ -203,7 +175,7 @@ func (pw *PoolerWatcher) processCellEvent(event *topoclient.WatchDataRecursive) 
 			pw.mu.Lock()
 			if w, exists := pw.cellWatchers[cell]; exists {
 				pw.logger.Info("cell removed, stopping pooler watcher", "cell", cell)
-				w.stop()
+				w.stopWatcher()
 				delete(pw.cellWatchers, cell)
 			}
 			pw.mu.Unlock()
@@ -225,19 +197,7 @@ func (pw *PoolerWatcher) processCellEvent(event *topoclient.WatchDataRecursive) 
 func (pw *PoolerWatcher) startCellWatcher(cell string) {
 	w := newCellPoolerWatcher(pw.ctx, pw.topoStore, cell, pw.targets, pw.store, pw.queue, pw.logger)
 	pw.cellWatchers[cell] = w
-	w.start()
-}
-
-// extractCellNameFromPath extracts the cell name from a cells/ watch path.
-// Handles both relative paths (memorytopo: "cells/zone1/Cell") and
-// absolute paths with root prefix (etcd: "/multigres/global/cells/zone1/Cell").
-func extractCellNameFromPath(watchPath string) string {
-	_, after, found := strings.Cut(watchPath, topoclient.CellsPath+"/")
-	if !found {
-		return ""
-	}
-	cell, _, _ := strings.Cut(after, "/")
-	return cell
+	w.startWatcher()
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +218,7 @@ type cellPoolerWatcher struct {
 	syncChan chan chan struct{} // for Sync(); closed by the watchPoolers select loop
 }
 
+// newCellPoolerWatcher creates a cellPoolerWatcher for the given cell.
 func newCellPoolerWatcher(
 	ctx context.Context,
 	topoStore topoclient.Store,
@@ -281,49 +242,51 @@ func newCellPoolerWatcher(
 	}
 }
 
-func (cw *cellPoolerWatcher) start() {
+// startWatcher launches the pooler-directory watcher goroutine for this cell.
+func (cw *cellPoolerWatcher) startWatcher() {
 	cw.wg.Go(func() {
-		r := retry.New(100*time.Millisecond, 30*time.Second)
-		for attempt, err := range r.Attempts(cw.ctx) {
-			if err != nil {
-				cw.logger.Info("cell pooler watcher shutting down")
-				return
-			}
-			if attempt > 0 {
-				cw.logger.Info("restarting cell pooler watcher")
-			}
-			cw.watchPoolers(r)
-		}
+		topoclient.WatchPathWithRetry(cw.ctx, cw.topoStore, cw.cell, topoclient.PoolersPath, cw.logger,
+			cw.processInitialPoolers, cw.watchPoolers)
 	})
 }
 
-func (cw *cellPoolerWatcher) stop() {
+// stopWatcher cancels the cell watcher and waits for its goroutine to finish.
+func (cw *cellPoolerWatcher) stopWatcher() {
 	cw.cancel()
 	cw.wg.Wait()
 }
 
-func (cw *cellPoolerWatcher) watchPoolers(r *retry.Retry) {
-	conn, err := cw.topoStore.ConnForCell(cw.ctx, cw.cell)
-	if err != nil {
-		cw.logger.Error("failed to get cell topo connection", "error", err)
-		return
+// syncWatcher blocks until all events enqueued before this call have been processed,
+// or until ctx is cancelled. It is intended for use in tests.
+//
+// It works by sending a sentinel channel into the same select loop that processes
+// watch events. Since the select loop is sequential, closing the sentinel is
+// guaranteed to happen only after all previously-enqueued events have been handled.
+func (cw *cellPoolerWatcher) syncWatcher(ctx context.Context) error {
+	done := make(chan struct{})
+	select {
+	case cw.syncChan <- done:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	initial, changes, err := conn.WatchRecursive(cw.ctx, topoclient.PoolersPath)
-	if err != nil {
-		cw.logger.Error("failed to start watch on poolers directory", "error", err)
-		return
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+}
 
-	// Process the initial set of poolers
+// processInitialPoolers feeds each entry in the initial pooler snapshot through handlePoolerEvent.
+func (cw *cellPoolerWatcher) processInitialPoolers(initial []*topoclient.WatchDataRecursive) {
 	for _, wd := range initial {
 		cw.handlePoolerEvent(wd)
 	}
+}
 
-	// Reset backoff after 30s of stable watching
-	resetTimer := time.AfterFunc(30*time.Second, r.Reset)
-	defer resetTimer.Stop()
-
+// watchPoolers processes pooler events until the channel closes or the context is done.
+// It also handles syncChan signals used by syncWatcher() for test synchronisation.
+func (cw *cellPoolerWatcher) watchPoolers(changes <-chan *topoclient.WatchDataRecursive) {
 	for {
 		select {
 		case <-cw.ctx.Done():
@@ -337,27 +300,6 @@ func (cw *cellPoolerWatcher) watchPoolers(r *retry.Retry) {
 		case done := <-cw.syncChan:
 			close(done)
 		}
-	}
-}
-
-// sync blocks until all events enqueued before this call have been processed,
-// or until ctx is cancelled. It is intended for use in tests.
-//
-// It works by sending a sentinel channel into the same select loop that processes
-// watch events. Since the select loop is sequential, closing the sentinel is
-// guaranteed to happen only after all previously-enqueued events have been handled.
-func (cw *cellPoolerWatcher) sync(ctx context.Context) error {
-	done := make(chan struct{})
-	select {
-	case cw.syncChan <- done:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }
 
