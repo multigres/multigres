@@ -81,6 +81,7 @@ func TestManagerServiceMethods_NotImplemented(t *testing.T) {
 		ServingStatus: clustermetadata.PoolerServingStatus_SERVING,
 		TableGroup:    constants.DefaultTableGroup,
 		Shard:         constants.DefaultShard,
+		PoolerDir:     t.TempDir(),
 	}
 	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
 

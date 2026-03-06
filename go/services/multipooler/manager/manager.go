@@ -145,6 +145,10 @@ type MultiPoolerManager struct {
 
 	// metrics holds OTel gauges for pgBackRest server health.
 	metrics *Metrics
+
+	// healthStreamer streams health state to subscribers.
+	// Owns all health-related state and provides typed update methods.
+	healthStreamer *healthStreamer
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -229,6 +233,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		connPoolMgr:            connPoolMgr,
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
+		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -239,7 +244,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 
 	// Create the query service controller with the pool manager
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm)
 
 	// Register pgBackRest health metrics.
 	var metricsErr error
@@ -321,6 +326,10 @@ func (pm *MultiPoolerManager) Open() {
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
+
+	// Start health heartbeat goroutine and mark pooler as serving
+	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
+	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Pause temporarily closes the manager for maintenance operations that require
@@ -719,6 +728,9 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
+		// Update health streamer with newly loaded multipooler type
+		pm.healthStreamer.UpdatePoolerType(pm.multipooler.Type)
+
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
 		pm.checkAndSetReady()
@@ -993,6 +1005,9 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 	pm.queryServingState = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
+
+	// Update health streamer with serving status change
+	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
 
 	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
@@ -1341,6 +1356,9 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
 		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
 	}
+
+	// Update health streamer with pooler type change
+	pm.healthStreamer.UpdatePoolerType(clustermetadatapb.PoolerType_PRIMARY)
 
 	// Update heartbeat tracker to primary mode
 	if pm.replTracker != nil {
