@@ -17,7 +17,6 @@ package recovery
 import (
 	"context"
 	"log/slog"
-	"sync"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -26,23 +25,21 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// PoolerWatcher watches etcd for topology changes and keeps the pooler store
-// up-to-date. It uses WatchAllPoolersWithRetry to automatically discover cells
-// and watch poolers within each cell.
+// PoolerWatcher watches the topology cache for changes and keeps the pooler store
+// up-to-date. It uses topoclient.PoolerCache internally, which provides automatic
+// reconnect handling, proto.Equal suppression for spurious updates on reconnect,
+// and reconciliation when a cell's snapshot changes.
 //
 // When a pooler event arrives, it is filtered in-memory against the engine's
 // WatchTargets before the pooler store is updated.
 type PoolerWatcher struct {
-	topoStore topoclient.Store
-	targets   func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
-	store     *store.PoolerHealthStore
-	queue     *Queue
-	logger    *slog.Logger
+	cache   *topoclient.PoolerCache
+	targets func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
+	store   *store.PoolerHealthStore
+	queue   *Queue
+	logger  *slog.Logger
 
-	// Control
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	unsub func()
 }
 
 // NewPoolerWatcher creates a new PoolerWatcher.
@@ -55,50 +52,38 @@ func NewPoolerWatcher(
 	queue *Queue,
 	logger *slog.Logger,
 ) *PoolerWatcher {
-	watchCtx, cancel := context.WithCancel(ctx)
 	return &PoolerWatcher{
-		topoStore: topoStore,
-		targets:   targets,
-		store:     poolerStore,
-		queue:     queue,
-		logger:    logger,
-		ctx:       watchCtx,
-		cancel:    cancel,
+		cache:   topoclient.NewPoolerCache(ctx, topoStore, logger),
+		targets: targets,
+		store:   poolerStore,
+		queue:   queue,
+		logger:  logger,
 	}
 }
 
-// Start launches the pooler watcher goroutine.
+// Start subscribes to the cache and begins watching for topology changes.
+// Existing poolers in the cache are replayed synchronously before Start returns.
 func (pw *PoolerWatcher) Start() {
-	pw.wg.Go(func() {
-		pw.logger.Info("starting pooler watcher")
-		topoclient.WatchAllPoolersWithRetry(pw.ctx, pw.topoStore, pw.logger,
-			pw.onInitialCell,
-			pw.onPoolerUpserted,
-			func(poolerID string) {
-				// Deletions are not removed from the store; bookkeeping handles stale entry removal.
-				pw.logger.Debug("pooler deleted from topology", "pooler_id", poolerID)
-			},
-			func(cell string) {
-				// Cell removal is handled by bookkeeping; no immediate action needed.
-				pw.logger.Debug("cell removed from topology", "cell", cell)
-			},
-		)
-		pw.logger.Info("pooler watcher shutting down")
-	})
+	pw.logger.Info("starting pooler watcher")
+	pw.unsub = pw.cache.Subscribe(pw.onCacheChange)
+	pw.cache.Start()
 }
 
-// Stop cancels the watcher and waits for all goroutines to finish.
+// Stop unsubscribes and waits for all background goroutines to finish.
 func (pw *PoolerWatcher) Stop() {
-	pw.cancel()
-	pw.wg.Wait()
+	pw.unsub()
+	pw.cache.Stop()
+	pw.logger.Info("pooler watcher stopped")
 }
 
-// onInitialCell processes the initial pooler snapshot for a cell (also called on reconnect).
-// When poolers is nil, the cell was removed; there is nothing to add to the store.
-func (pw *PoolerWatcher) onInitialCell(_ string, poolers []*clustermetadatapb.MultiPooler) {
-	for _, pooler := range poolers {
-		pw.onPoolerUpserted(pooler)
+// onCacheChange handles a change notification from the topology cache.
+func (pw *PoolerWatcher) onCacheChange(pooler *clustermetadatapb.MultiPooler, removed bool) {
+	if removed {
+		// Deletions are not removed from the store; bookkeeping handles stale entry removal.
+		pw.logger.Debug("pooler deleted from topology", "pooler_id", topoclient.MultiPoolerIDString(pooler.Id))
+		return
 	}
+	pw.onPoolerUpserted(pooler)
 }
 
 // onPoolerUpserted handles a pooler add or update event.

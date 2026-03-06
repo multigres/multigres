@@ -384,6 +384,40 @@ func (lb *LoadBalancer) Close() error {
 	return lastErr
 }
 
+// evictStalePrimaries removes any existing PRIMARY connections for the same
+// TableGroup and Shard that are not the incoming pooler. This handles the
+// failover case where a new PRIMARY appears but the old crashed PRIMARY's
+// record is still in the topology.
+func (lb *LoadBalancer) evictStalePrimaries(newPrimary *clustermetadatapb.MultiPooler) {
+	newID := topoclient.MultiPoolerIDString(newPrimary.Id)
+
+	lb.mu.Lock()
+	var toEvict []*PoolerConnection
+	for _, conn := range lb.connections {
+		info := conn.PoolerInfo()
+		if topoclient.MultiPoolerIDString(info.Id) != newID &&
+			info.Type == clustermetadatapb.PoolerType_PRIMARY &&
+			info.TableGroup == newPrimary.TableGroup &&
+			info.Shard == newPrimary.Shard {
+			toEvict = append(toEvict, conn)
+			delete(lb.connections, topoclient.MultiPoolerIDString(info.Id))
+		}
+	}
+	lb.mu.Unlock()
+
+	for _, conn := range toEvict {
+		lb.logger.Info("evicting stale PRIMARY connection",
+			"evicted_id", conn.ID(),
+			"new_primary_id", newID,
+			"tableGroup", newPrimary.TableGroup,
+			"shard", newPrimary.Shard)
+		if err := conn.Close(); err != nil {
+			lb.logger.Error("error closing evicted pooler connection",
+				"pooler_id", conn.ID(), "error", err)
+		}
+	}
+}
+
 // LoadBalancerListener wraps a LoadBalancer to implement multigateway.PoolerChangeListener.
 type LoadBalancerListener struct {
 	lb *LoadBalancer
@@ -395,7 +429,13 @@ func NewLoadBalancerListener(lb *LoadBalancer) *LoadBalancerListener {
 }
 
 // OnPoolerChanged implements multigateway.PoolerChangeListener.
+// When a new PRIMARY arrives, any existing PRIMARY connections for the same
+// TableGroup/Shard are evicted first, handling the failover case where a new
+// PRIMARY comes up before the old crashed PRIMARY's record is cleaned up.
 func (l *LoadBalancerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPooler) {
+	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
+		l.lb.evictStalePrimaries(pooler)
+	}
 	if err := l.lb.AddPooler(pooler); err != nil {
 		l.lb.logger.Error("failed to add pooler on change event",
 			"pooler_id", poolerIDString(pooler.Id),
