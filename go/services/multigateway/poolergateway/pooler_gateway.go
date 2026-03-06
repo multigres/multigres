@@ -106,71 +106,62 @@ func NewPoolerGateway(
 //
 // The inner function receives the PoolerConnection and executes the actual
 // operation. Callers capture multi-return results via closure variables.
-// On retry, withBuffering is called recursively so inner runs against a fresh
-// connection from the new PRIMARY.
+// On retry, the loop iterates so inner runs against a fresh connection from
+// the new PRIMARY. Retries are capped at constants.MaxBufferingRetries.
 func (pg *PoolerGateway) withBuffering(
 	ctx context.Context,
 	target *query.Target,
 	inner func(conn *PoolerConnection) error,
 ) error {
-	retry := func() error {
-		return pg.withBuffering(ctx, target, inner)
+	bufferedOnce := false
+	sk := commontypes.ShardKey{
+		TableGroup: target.TableGroup,
+		Shard:      target.Shard,
 	}
 
-	// 1. Proactive: if shard is already buffering, wait then retry.
-	if pg.buffer != nil && target.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-		retryDone, bufErr := pg.buffer.WaitIfAlreadyBuffering(ctx, commontypes.ShardKey{
-			TableGroup: target.TableGroup,
-			Shard:      target.Shard,
-		})
-		if bufErr != nil {
-			return bufErr
-		}
-		if retryDone != nil {
-			defer retryDone()
-			return retry()
-		}
-	}
-
-	// 2. Get connection.
-	conn, err := pg.loadBalancer.GetConnection(target)
-	if err != nil {
-		if pg.buffer != nil && classifyError(err, target) == actionBuffer {
-			retryDone, bufErr := pg.buffer.WaitForFailoverEnd(ctx, commontypes.ShardKey{
-				TableGroup: target.TableGroup,
-				Shard:      target.Shard,
-			})
+	var err error
+	for range constants.MaxBufferingRetries + 1 {
+		if pg.buffer != nil && !bufferedOnce && target.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+			var retryDone buffer.RetryDoneFunc
+			var bufErr error
+			if err == nil {
+				// Proactive: first attempt, check if shard is already buffering.
+				retryDone, bufErr = pg.buffer.WaitIfAlreadyBuffering(ctx, sk)
+			} else {
+				// Reactive: after a buffer-worthy error, wait for failover to end.
+				retryDone, bufErr = pg.buffer.WaitForFailoverEnd(ctx, sk)
+			}
 			if bufErr != nil {
 				return bufErr
 			}
 			if retryDone != nil {
 				defer retryDone()
-				return retry()
+				bufferedOnce = true
 			}
 		}
+
+		// Get connection.
+		var conn *PoolerConnection
+		conn, err = pg.loadBalancer.GetConnection(target)
+		if err != nil {
+			if classifyError(err, target) == actionBuffer {
+				continue
+			}
+			return err
+		}
+
+		pg.logger.DebugContext(ctx, "selected pooler for target",
+			"tablegroup", target.TableGroup,
+			"shard", target.Shard,
+			"pooler_type", target.PoolerType.String(),
+			"pooler_id", conn.ID())
+
+		// Execute operation.
+		err = inner(conn)
+		if err != nil && classifyError(err, target) == actionBuffer {
+			continue
+		}
 		return err
-	}
-
-	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
-		"pooler_id", conn.ID())
-
-	// 3. Execute operation, reactive buffer on error.
-	err = inner(conn)
-	if err != nil && pg.buffer != nil && classifyError(err, target) == actionBuffer {
-		retryDone, bufErr := pg.buffer.WaitForFailoverEnd(ctx, commontypes.ShardKey{
-			TableGroup: target.TableGroup,
-			Shard:      target.Shard,
-		})
-		if bufErr != nil {
-			return bufErr
-		}
-		if retryDone != nil {
-			defer retryDone()
-			return retry()
-		}
 	}
 	return err
 }
@@ -325,7 +316,8 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
 		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
-		return err
+		// Convert gRPC error so classifyError can read the error code for buffering.
+		return mterrors.FromGRPC(err)
 	})
 	return resp, err
 }
