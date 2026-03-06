@@ -96,7 +96,7 @@ func TestUserPool_GetRegularConnWithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	pool := newTestUserPool(t, server)
@@ -119,7 +119,7 @@ func TestUserPool_GetRegularConnWithSettings(t *testing.T) {
 	conn.Recycle()
 
 	// Verify SET was called.
-	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0)
+	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
 }
 
 func TestUserPool_NewReservedConn(t *testing.T) {
@@ -152,7 +152,7 @@ func TestUserPool_NewReservedConn_WithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	pool := newTestUserPool(t, server)
 	defer pool.Close()
@@ -171,7 +171,7 @@ func TestUserPool_NewReservedConn_WithSettings(t *testing.T) {
 	conn.Release(reserved.ReleaseCommit)
 
 	// Verify SET was called.
-	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0)
+	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
 }
 
 func TestUserPool_GetReservedConn(t *testing.T) {

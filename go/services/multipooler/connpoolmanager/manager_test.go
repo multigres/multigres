@@ -188,7 +188,7 @@ func TestManager_GetRegularConnWithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
@@ -211,7 +211,7 @@ func TestManager_GetRegularConnWithSettings(t *testing.T) {
 	conn.Recycle()
 
 	// Verify SET was called.
-	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0)
+	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
 }
 
 func TestManager_NewReservedConn(t *testing.T) {
@@ -240,7 +240,7 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
@@ -259,7 +259,7 @@ func TestManager_NewReservedConn_WithSettings(t *testing.T) {
 	conn.Release(reserved.ReleaseCommit)
 
 	// Verify SET was called.
-	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0)
+	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
 }
 
 func TestManager_GetReservedConn(t *testing.T) {
@@ -446,7 +446,7 @@ func TestManager_SettingsCacheIntegration(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
@@ -479,7 +479,7 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
@@ -493,7 +493,7 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 	defer conn.Release(reserved.ReleaseCommit)
 
 	// Record how many SET calls have been made so far.
-	setsBefore := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+	setsBefore := server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`)
 
 	// Apply different settings — should trigger SET commands.
 	newSettings := map[string]string{"search_path": "public", "statement_timeout": "200ms"}
@@ -501,7 +501,7 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify SET was called again.
-	setsAfter := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+	setsAfter := server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`)
 	assert.Greater(t, setsAfter, setsBefore, "SET should have been called for new settings")
 }
 
@@ -510,7 +510,7 @@ func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
@@ -523,13 +523,13 @@ func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
 	defer conn.Release(reserved.ReleaseCommit)
 
 	// Record SET calls.
-	setsBefore := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+	setsBefore := server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`)
 
 	// Apply the same settings — should be a no-op (pointer equality via cache).
 	err = manager.ApplySettingsToConn(ctx, conn.Conn(), settings)
 	require.NoError(t, err)
 
-	setsAfter := server.GetPatternCalledNum(`SET SESSION .+ = .+`)
+	setsAfter := server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`)
 	assert.Equal(t, setsBefore, setsAfter, "no SET should have been called for same settings")
 }
 
@@ -557,9 +557,9 @@ func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET, individual RESET, and combined RESET+SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 	server.AddQueryPattern(`RESET search_path`, &sqltypes.Result{})
-	server.AddQueryPattern(`RESET search_path; SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET search_path; SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	manager := newTestManager(t, server)
 	defer manager.Close()
@@ -573,7 +573,7 @@ func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
 	defer conn.Release(reserved.ReleaseCommit)
 
 	// Record calls so far.
-	combinedBefore := server.GetPatternCalledNum(`RESET search_path; SET SESSION .+ = .+`)
+	combinedBefore := server.GetPatternCalledNum(`RESET search_path; SELECT pg_catalog\.set_config\(.+\)`)
 
 	// Apply new settings with search_path removed.
 	newSettings := map[string]string{"work_mem": "256MB"}
@@ -581,7 +581,7 @@ func TestManager_ApplySettingsToConn_RemovedSettings(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify combined RESET+SET was called for the removed setting.
-	combinedAfter := server.GetPatternCalledNum(`RESET search_path; SET SESSION .+ = .+`)
+	combinedAfter := server.GetPatternCalledNum(`RESET search_path; SELECT pg_catalog\.set_config\(.+\)`)
 	assert.Greater(t, combinedAfter, combinedBefore, "combined RESET+SET should have been called for removed setting")
 }
 
