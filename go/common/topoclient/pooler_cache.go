@@ -107,7 +107,7 @@ func NewPoolerCache(ctx context.Context, store ConnProvider, logger *slog.Logger
 func (c *PoolerCache) Start() {
 	c.wg.Go(c.deliverNotifications)
 	c.wg.Go(func() {
-		WatchAllPoolersWithRetry(c.ctx, c.store, c.logger,
+		watchAllPoolersWithRetry(c.ctx, c.store, c.logger,
 			c.onInitialCell,
 			c.onUpserted,
 			c.onDeleted,

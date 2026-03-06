@@ -26,15 +26,15 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// WatchPoolersWithRetry watches the poolers directory for a single cell, delivering
+// watchPoolersWithRetry watches the poolers directory for a single cell, delivering
 // typed events. It handles retry/reconnect internally.
 //
 // onInitial is called with all poolers present in the initial snapshot (including on reconnect).
 // onUpserted is called when a pooler is added or its metadata changes.
 // onDeleted is called with the pooler ID string when a pooler is removed from the topology.
 //
-// WatchPoolersWithRetry returns when ctx is cancelled.
-func WatchPoolersWithRetry(
+// watchPoolersWithRetry returns when ctx is cancelled.
+func watchPoolersWithRetry(
 	ctx context.Context,
 	store ConnProvider,
 	cell string,
@@ -79,7 +79,7 @@ func WatchPoolersWithRetry(
 	)
 }
 
-// WatchAllPoolersWithRetry discovers cells automatically and watches poolers in each cell.
+// watchAllPoolersWithRetry discovers cells automatically and watches poolers in each cell.
 // It starts a per-cell pooler watcher when a cell is discovered, and cancels it when the
 // cell is removed. The function handles all retry/reconnect logic internally.
 //
@@ -92,8 +92,8 @@ func WatchPoolersWithRetry(
 // be called only after all onInitial/onUpserted/onDeleted callbacks for that cell have
 // completed, so callers can safely clean up per-cell state.
 //
-// WatchAllPoolersWithRetry returns when ctx is cancelled.
-func WatchAllPoolersWithRetry(
+// watchAllPoolersWithRetry returns when ctx is cancelled.
+func watchAllPoolersWithRetry(
 	ctx context.Context,
 	store ConnProvider,
 	logger *slog.Logger,
@@ -122,7 +122,7 @@ func WatchAllPoolersWithRetry(
 		cellEntries[cell] = &cellEntry{cancel: cancel, done: done}
 		wg.Go(func() {
 			defer close(done)
-			WatchPoolersWithRetry(cellCtx, store, cell, logger.With("cell", cell),
+			watchPoolersWithRetry(cellCtx, store, cell, logger.With("cell", cell),
 				func(poolers []*clustermetadatapb.MultiPooler) { onInitial(cell, poolers) },
 				onUpserted,
 				onDeleted,
