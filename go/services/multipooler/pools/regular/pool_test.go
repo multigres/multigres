@@ -281,7 +281,7 @@ func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	defer server.Close()
 
 	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
-	server.AddQueryPattern(`RESET ALL`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET ROLE; RESET ALL`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -300,8 +300,8 @@ func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	err = pooled.Conn.ApplySettings(ctx, nil)
 	require.NoError(t, err)
 
-	// Verify RESET ALL was called.
-	assert.Greater(t, server.GetPatternCalledNum(`RESET ALL`), 0, "RESET ALL should have been called")
+	// Verify RESET ROLE; RESET ALL was called.
+	assert.Greater(t, server.GetPatternCalledNum(`RESET ROLE; RESET ALL`), 0, "RESET ROLE; RESET ALL should have been called")
 
 	// Tracked state should be nil.
 	assert.Nil(t, pooled.Conn.Settings())

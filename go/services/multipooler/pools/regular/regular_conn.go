@@ -121,6 +121,9 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 	var b strings.Builder
 
 	// RESET variables present in current but absent from desired.
+	// Note: "role" and "session_authorization" have GUC_NO_RESET_ALL in
+	// PostgreSQL, so they MUST be reset individually — RESET ALL won't
+	// touch them. We handle them here with explicit RESET commands.
 	if current != nil {
 		for name := range current.Vars {
 			if _, ok := desired.Vars[name]; !ok {
@@ -157,7 +160,19 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 }
 
 // ResetAllSettings resets the connection to a clean state.
-// This executes RESET ALL to clear all session variables.
+//
+// Executes RESET ROLE and RESET ALL. RESET ROLE must come first because
+// PostgreSQL marks the "role" and "session_authorization" GUCs with
+// GUC_NO_RESET_ALL, meaning RESET ALL intentionally skips them.
+// Without the explicit RESET ROLE, a pooled connection that had SET ROLE
+// applied will retain the role after RESET ALL. If that role was
+// subsequently dropped (e.g. by test cleanup), the next query on the
+// connection fails with "role NNNNN was concurrently dropped".
+//
+// See: src/backend/utils/misc/guc_tables.c — role has GUC_NO_RESET_ALL.
+// See: src/backend/commands/discard.c — DISCARD ALL resets session_authorization
+// explicitly for the same reason, but DISCARD ALL cannot be used inside
+// transactions, so we use RESET ROLE instead.
 func (c *Conn) ResetAllSettings(ctx context.Context) error {
 	state := c.State()
 	if state == nil {
@@ -169,8 +184,8 @@ func (c *Conn) ResetAllSettings(ctx context.Context) error {
 		return nil
 	}
 
-	// Execute RESET ALL.
-	_, err := c.Query(ctx, "RESET ALL")
+	// RESET ROLE first (GUC_NO_RESET_ALL), then RESET ALL for everything else.
+	_, err := c.Query(ctx, "RESET ROLE; RESET ALL")
 	if err != nil {
 		return fmt.Errorf("failed to reset settings: %w", err)
 	}

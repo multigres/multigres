@@ -232,7 +232,7 @@ func TestSettingsQueries(t *testing.T) {
 	assert.Equal(t, expected, s.ApplyQuery())
 
 	// ResetQuery should return RESET ALL
-	assert.Equal(t, "RESET ALL", s.ResetQuery())
+	assert.Equal(t, "RESET ROLE; RESET ALL", s.ResetQuery())
 }
 
 func TestSettingsApplyQueryListGUC(t *testing.T) {

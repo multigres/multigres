@@ -304,11 +304,14 @@ func (s *Settings) ApplyQuery() string {
 }
 
 // ResetQuery returns the SQL to reset these settings on a connection.
+// ResetQuery returns the SQL to reset these settings on a connection.
+// Includes RESET ROLE before RESET ALL because PostgreSQL marks "role"
+// and "session_authorization" with GUC_NO_RESET_ALL.
 func (s *Settings) ResetQuery() string {
 	if s == nil || len(s.Vars) == 0 {
 		return ""
 	}
-	return "RESET ALL"
+	return "RESET ROLE; RESET ALL"
 }
 
 // IsEmpty returns true if there are no variables set.
