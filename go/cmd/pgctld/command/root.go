@@ -121,6 +121,9 @@ It provides lifecycle management including start, stop, restart, and configurati
 management for PostgreSQL servers.`,
 		Args: cobra.NoArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Flags parsed successfully at this point — suppress usage for any subsequent
+			// runtime errors so the error message is not buried under the usage text.
+			cmd.Root().SilenceUsage = true
 			pc.lg.SetupLogging()
 			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
 			var err error
