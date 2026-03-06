@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/tools/retry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
@@ -73,63 +72,9 @@ func NewCellPoolerDiscovery(ctx context.Context, topoStore topoclient.Store, cel
 func (pd *CellPoolerDiscovery) Start() {
 	pd.wg.Go(func() {
 		pd.logger.Info("Starting pooler discovery with topology watch", "cell", pd.cell)
-
-		r := retry.New(100*time.Millisecond, 30*time.Second)
-		for attempt, err := range r.Attempts(pd.ctx) {
-			if err != nil {
-				// Context cancelled
-				pd.logger.Info("Pooler discovery shutting down")
-				return
-			}
-
-			if attempt > 0 {
-				pd.logger.Info("Restarting pooler discovery with topology watch", "cell", pd.cell)
-			}
-
-			// Establish watch and process changes
-			func() {
-				// Get connection for the cell
-				conn, err := pd.topoStore.ConnForCell(pd.ctx, pd.cell)
-				if err != nil {
-					pd.logger.Error("Failed to get connection for cell", "cell", pd.cell, "error", err)
-					return
-				}
-
-				// Start watching the poolers directory
-				poolersPath := "poolers" // This matches the PoolersPath constant from store.go
-				initial, changes, err := conn.WatchRecursive(pd.ctx, poolersPath)
-				if err != nil {
-					pd.logger.Error("Failed to start recursive watch on poolers", "path", poolersPath, "error", err)
-					return
-				}
-
-				// Process initial values
-				pd.processInitialPoolers(initial)
-
-				// Reset backoff after watch has been stable for 30s
-				resetTimer := time.AfterFunc(30*time.Second, func() {
-					r.Reset()
-				})
-				defer resetTimer.Stop()
-
-				// Process changes as they come in
-				for {
-					select {
-					case <-pd.ctx.Done():
-						return
-					case watchData, ok := <-changes:
-						if !ok {
-							pd.logger.Info("Watch channel closed, will reconnect")
-							return
-						}
-
-						// Process the change - this handles both updates and deletions.
-						// Deletions come as events with Err set to NoNode error.
-						pd.processPoolerChange(watchData)
-					}
-				}
-			}()
-		}
+		topoclient.WatchPathWithRetry(pd.ctx, pd.topoStore, pd.cell, topoclient.PoolersPath, pd.logger,
+			pd.processInitialPoolers, pd.watchPoolers)
+		pd.logger.Info("Pooler discovery shutting down")
 	})
 }
 
@@ -195,6 +140,24 @@ func (pd *CellPoolerDiscovery) processInitialPoolers(initial []*topoclient.Watch
 	pd.logger.Info("Initial pooler discovery completed",
 		"cell", pd.cell,
 		"pooler_count", len(pd.poolers))
+}
+
+// watchPoolers is the watchFn passed to WatchPathWithRetry for the poolers directory.
+// It selects on the changes channel until the channel closes or the context is done.
+func (pd *CellPoolerDiscovery) watchPoolers(changes <-chan *topoclient.WatchDataRecursive) {
+	for {
+		select {
+		case <-pd.ctx.Done():
+			return
+		case watchData, ok := <-changes:
+			if !ok {
+				return
+			}
+			// Process the change - this handles both updates and deletions.
+			// Deletions come as events with Err set to NoNode error.
+			pd.processPoolerChange(watchData)
+		}
+	}
 }
 
 // processPoolerChange processes a single pooler change from the watch
@@ -466,57 +429,9 @@ func (gd *GlobalPoolerDiscovery) Start() {
 
 	gd.wg.Go(func() {
 		gd.logger.Info("Starting global pooler discovery")
-
-		r := retry.New(100*time.Millisecond, 30*time.Second)
-		for attempt, err := range r.Attempts(gd.ctx) {
-			if err != nil {
-				// Context cancelled
-				gd.logger.Info("Global pooler discovery shutting down")
-				return
-			}
-
-			if attempt > 0 {
-				gd.logger.Info("Restarting global pooler discovery")
-			}
-
-			// Watch for cells and manage cell watchers
-			func() {
-				conn, err := gd.topoStore.ConnForCell(gd.ctx, topoclient.GlobalCell)
-				if err != nil {
-					gd.logger.Error("Failed to get global topo connection", "error", err)
-					return
-				}
-
-				initial, changes, err := conn.WatchRecursive(gd.ctx, topoclient.CellsPath)
-				if err != nil {
-					gd.logger.Error("Failed to start watch on cells", "error", err)
-					return
-				}
-
-				// Process initial cells
-				gd.processInitialCells(initial)
-
-				// Reset backoff after watch has been stable for 30s
-				resetTimer := time.AfterFunc(30*time.Second, func() {
-					r.Reset()
-				})
-				defer resetTimer.Stop()
-
-				// Watch for cell changes (additions/removals)
-				for {
-					select {
-					case <-gd.ctx.Done():
-						return
-					case event, ok := <-changes:
-						if !ok {
-							gd.logger.Info("Cell watch channel closed, will reconnect")
-							return
-						}
-						gd.processCellChange(event)
-					}
-				}
-			}()
-		}
+		topoclient.WatchPathWithRetry(gd.ctx, gd.topoStore, topoclient.GlobalCell, topoclient.CellsPath, gd.logger,
+			gd.processInitialCells, gd.watchCells)
+		gd.logger.Info("Global pooler discovery shutting down")
 	})
 }
 
@@ -529,7 +444,7 @@ func (gd *GlobalPoolerDiscovery) processInitialCells(initial []*topoclient.Watch
 		if event.Err != nil {
 			continue
 		}
-		cell := extractCellFromPath(event.Path)
+		cell := topoclient.ExtractCellFromPath(event.Path)
 		if cell == "" {
 			continue
 		}
@@ -547,9 +462,25 @@ func (gd *GlobalPoolerDiscovery) processInitialCells(initial []*topoclient.Watch
 	gd.logger.Info("Initial cell discovery completed", "cells", cells)
 }
 
+// watchCells is the watchFn passed to WatchPathWithRetry for the cells directory.
+// It selects on the changes channel until the channel closes or the context is done.
+func (gd *GlobalPoolerDiscovery) watchCells(changes <-chan *topoclient.WatchDataRecursive) {
+	for {
+		select {
+		case <-gd.ctx.Done():
+			return
+		case event, ok := <-changes:
+			if !ok {
+				return
+			}
+			gd.processCellChange(event)
+		}
+	}
+}
+
 // processCellChange handles a single cell change event from the watch.
 func (gd *GlobalPoolerDiscovery) processCellChange(event *topoclient.WatchDataRecursive) {
-	cell := extractCellFromPath(event.Path)
+	cell := topoclient.ExtractCellFromPath(event.Path)
 	if cell == "" {
 		return
 	}
@@ -579,18 +510,6 @@ func (gd *GlobalPoolerDiscovery) processCellChange(event *topoclient.WatchDataRe
 		gd.lastCellRefresh = time.Now()
 	}
 	gd.mu.Unlock()
-}
-
-// extractCellFromPath extracts the cell name from a cells watch path.
-// Handles both relative paths (memorytopo: "cells/zone1/Cell") and
-// absolute paths with root prefix (etcd: "/multigres/global/cells/zone1/Cell").
-func extractCellFromPath(watchPath string) string {
-	_, after, found := strings.Cut(watchPath, topoclient.CellsPath+"/")
-	if !found {
-		return ""
-	}
-	cell, _, _ := strings.Cut(after, "/")
-	return cell
 }
 
 // startCellWatcher starts a CellPoolerDiscovery for the given cell.

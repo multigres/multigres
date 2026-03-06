@@ -917,7 +917,7 @@ func TestExtractCellFromPath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
-			result := extractCellFromPath(tc.path)
+			result := topoclient.ExtractCellFromPath(tc.path)
 			assert.Equal(t, tc.expected, result)
 		})
 	}

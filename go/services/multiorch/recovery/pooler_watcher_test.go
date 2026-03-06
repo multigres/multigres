@@ -64,6 +64,8 @@ func waitForCondition(t *testing.T, timeout time.Duration, fn func() bool) bool 
 	return false
 }
 
+// TestPoolerWatcher_InitialDiscovery verifies that poolers already present in topology
+// when Start is called are discovered and added to the store.
 func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	ctx := t.Context()
 
@@ -113,6 +115,8 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	assert.Equal(t, 2, queue.QueueLen())
 }
 
+// TestPoolerWatcher_NewPoolerAddedAfterStart verifies that a pooler registered in topology
+// after Start is called is discovered via the watch and added to the store.
 func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	ctx := t.Context()
 
@@ -154,6 +158,8 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	assert.Equal(t, 1, queue.QueueLen())
 }
 
+// TestPoolerWatcher_PoolerMetadataUpdate verifies that a topology update to an existing pooler
+// refreshes its metadata in the store while preserving health-check state and without re-queuing it.
 func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	ctx := t.Context()
 
@@ -221,6 +227,8 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	assert.Equal(t, queueLenAfterDiscovery, queue.QueueLen(), "existing pooler should not be re-queued on metadata update")
 }
 
+// TestPoolerWatcher_WatchTargetFiltering verifies that only poolers matching the configured
+// WatchTargets are added to the store; poolers in other databases or tablegroups are ignored.
 func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	ctx := t.Context()
 
@@ -274,6 +282,8 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	assert.False(t, exists, "pooler in other tablegroup should be filtered out")
 }
 
+// TestPoolerWatcher_NewCellDiscovered verifies that when a new cell is added to the topology
+// after Start, the watcher discovers the cell and starts watching its poolers.
 func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	ctx := t.Context()
 
@@ -322,6 +332,8 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	assert.True(t, exists)
 }
 
+// TestPoolerWatcher_PoolerDeletedFromTopology verifies that deleting a pooler from topology
+// does not immediately remove it from the store; that is handled by bookkeeping.
 func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	ctx := t.Context()
 
