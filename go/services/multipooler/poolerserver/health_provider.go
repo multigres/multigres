@@ -51,7 +51,7 @@ type PrimaryObservation struct {
 
 	// PrimaryTerm is the primary term at which this observation was made.
 	// The primary never changes within a primary term. Higher values indicate
-	// more recent primary elections.
+	// more recent primary appointments.
 	PrimaryTerm int64
 }
 
