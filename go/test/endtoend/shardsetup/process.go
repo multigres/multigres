@@ -67,6 +67,10 @@ type ProcessInstance struct {
 	TLSCertFile string // TLS certificate file (multigateway)
 	TLSKeyFile  string // TLS private key file (multigateway)
 
+	// ExtraArgs holds additional command-line flags appended to the process args.
+	// Used by multigateway for buffer config, etc.
+	ExtraArgs []string
+
 	// PgBackRest-specific fields (used by multipooler and pgctld)
 	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
 	PgBackRestPort      int                        // pgBackRest server port (multipooler, pgctld)
@@ -280,6 +284,9 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 			"--pg-tls-key-file", p.TLSKeyFile,
 		)
 	}
+
+	// Append any extra args (e.g., buffer configuration flags)
+	args = append(args, p.ExtraArgs...)
 
 	p.Process = exec.Command(p.Binary, args...)
 

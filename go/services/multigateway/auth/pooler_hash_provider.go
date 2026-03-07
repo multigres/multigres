@@ -29,43 +29,30 @@ import (
 // PoolerSystemClient is the interface for system-level operations on multipooler.
 // This is used for authentication and other tasks that act as the system rather
 // than as a specific user, bypassing per-user connection pools.
+// PoolerGateway implements this with full failover buffering support.
 type PoolerSystemClient interface {
 	GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error)
-}
-
-// PoolerSystemDiscoverer provides system clients for multipooler operations.
-// At authentication time, the discoverer selects an appropriate pooler
-// from what discovery knows is currently available.
-type PoolerSystemDiscoverer interface {
-	// GetSystemClient returns a PoolerSystemClient for the given database.
-	// The implementation chooses which pooler to use based on availability.
-	GetSystemClient(ctx context.Context, database string) (PoolerSystemClient, error)
 }
 
 // PoolerHashProvider implements scram.PasswordHashProvider by fetching
 // credentials from multipooler via gRPC.
 type PoolerHashProvider struct {
-	discoverer PoolerSystemDiscoverer
+	client PoolerSystemClient
 }
 
 // NewPoolerHashProvider creates a new PoolerHashProvider.
-// The discoverer is used at authentication time to select an available
-// pooler for the target database.
-func NewPoolerHashProvider(discoverer PoolerSystemDiscoverer) *PoolerHashProvider {
+// The client is typically a PoolerGateway, which handles pooler selection
+// and failover buffering internally.
+func NewPoolerHashProvider(client PoolerSystemClient) *PoolerHashProvider {
 	return &PoolerHashProvider{
-		discoverer: discoverer,
+		client: client,
 	}
 }
 
 // GetPasswordHash retrieves the SCRAM-SHA-256 hash for a user from multipooler.
 // Returns scram.ErrUserNotFound if the user does not exist or has no password.
 func (p *PoolerHashProvider) GetPasswordHash(ctx context.Context, username, database string) (*scram.ScramHash, error) {
-	client, err := p.discoverer.GetSystemClient(ctx, database)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get system client for database %q: %w", database, err)
-	}
-
-	resp, err := client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
+	resp, err := p.client.GetAuthCredentials(ctx, &multipoolerpb.GetAuthCredentialsRequest{
 		Database: database,
 		Username: username,
 	})
