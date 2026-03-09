@@ -160,7 +160,6 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			Links: []Link{
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
-				{"Ready", "URL for readiness check", "/ready"},
 			},
 		},
 	}
@@ -310,7 +309,6 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
-	mp.senv.HTTPHandleFunc("/ready", mp.handleReady)
 
 	mp.senv.OnRun(
 		func() {

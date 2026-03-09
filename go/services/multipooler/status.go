@@ -67,18 +67,3 @@ func (mp *MultiPooler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
-
-// handleReady serves the readiness check
-func (mp *MultiPooler) handleReady(w http.ResponseWriter, r *http.Request) {
-	mp.serverStatus.mu.Lock()
-	defer mp.serverStatus.mu.Unlock()
-
-	isReady := (len(mp.serverStatus.InitError) == 0)
-	if !isReady {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}
-	if err := web.Templates.ExecuteTemplate(w, "isok.html", isReady); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
-}

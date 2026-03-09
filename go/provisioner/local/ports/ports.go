@@ -40,6 +40,7 @@ const (
 	DefaultMultiorchGRPC = 15370
 
 	// Pgctld
+	DefaultPgctldHTTP = 15400
 	DefaultPgctldGRPC = 15470
 
 	// pgBackRest server

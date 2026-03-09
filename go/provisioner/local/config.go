@@ -132,6 +132,7 @@ type MultiadminConfig struct {
 // PgctldConfig holds pgctld service configuration
 type PgctldConfig struct {
 	Path              string `yaml:"path"`
+	HttpPort          int    `yaml:"http-port"`           // HTTP port for health endpoints
 	PoolerDir         string `yaml:"pooler-dir"`          // Base directory for this pgctld instance
 	GrpcPort          int    `yaml:"grpc-port"`           // gRPC port for pgctld server
 	GRPCSocketFile    string `yaml:"grpc-socket-file"`    // Unix socket file path for gRPC
@@ -307,6 +308,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 				},
 				Pgctld: PgctldConfig{
 					Path:              filepath.Join(binDir, "pgctld"),
+					HttpPort:          ports.DefaultPgctldHTTP,
 					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone1),
 					GrpcPort:          ports.DefaultPgctldGRPC,
 					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone1.sock"),
@@ -351,6 +353,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 				},
 				Pgctld: PgctldConfig{
 					Path:              filepath.Join(binDir, "pgctld"),
+					HttpPort:          ports.DefaultPgctldHTTP + 1,
 					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone2),
 					GrpcPort:          ports.DefaultPgctldGRPC + 1,
 					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone2.sock"),
@@ -396,6 +399,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 				},
 				Pgctld: PgctldConfig{
 					Path:              filepath.Join(binDir, "pgctld"),
+					HttpPort:          ports.DefaultPgctldHTTP + 2,
 					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone3),
 					GrpcPort:          ports.DefaultPgctldGRPC + 2,
 					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone3.sock"),
@@ -496,6 +500,7 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 	case constants.ServicePgctld:
 		return map[string]any{
 			"path":                cellServices.Pgctld.Path,
+			"http_port":           cellServices.Pgctld.HttpPort,
 			"pooler_dir":          cellServices.Pgctld.PoolerDir,
 			"grpc_port":           cellServices.Pgctld.GrpcPort,
 			"grpc_socket_file":    cellServices.Pgctld.GRPCSocketFile,

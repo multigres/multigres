@@ -209,9 +209,12 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// Allocate a port for pgBackRest server (one per multipooler)
 	pgbackrestPort := utils.GetFreePort(t)
 
+	// Allocate an HTTP port for pgctld health endpoints
+	pgctldHttpPort := utils.GetFreePort(t)
+
 	// Create pgctld instance
 	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
-	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
+	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgctldHttpPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
@@ -231,7 +234,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, httpPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -246,6 +249,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		DataDir:           dataDir,
 		LogFile:           logFile,
 		GrpcPort:          grpcPort,
+		HttpPort:          httpPort,
 		PgPort:            pgPort,
 		Binary:            "pgctld",
 		PgBackRestPort:    pgbackrestPort,
