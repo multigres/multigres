@@ -27,6 +27,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/multigres/multigres/go/tools/grpccommon"
 
@@ -291,7 +292,18 @@ func (cc *connCache) pollOnce(ctx context.Context, addr string, poolerID *cluste
 func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *clustermetadatapb.ID) (*cachedConn, closeFunc, error) {
 	// Build client options with multipooler target for telemetry
 	clientOpts := []grpccommon.ClientOption{
-		grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		grpccommon.WithDialOptions(
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				// Send a ping after this period of inactivity to detect dead connections.
+				// Matches the server-side keepalive Time to stay within server enforcement policy.
+				Time: 10 * time.Second,
+				// Close the connection if no response within this window.
+				Timeout: 10 * time.Second,
+				// Probe even when there are no active streams.
+				PermitWithoutStream: true,
+			}),
+		),
 	}
 	if poolerID != nil {
 		clientOpts = append(clientOpts, grpccommon.WithAttributes(PoolerSpanAttributes(poolerID)...))
