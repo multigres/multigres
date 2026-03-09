@@ -287,11 +287,21 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
 
+	// Build environment: start from the current process environment,
+	// then layer on macOS locale fix and the PostgreSQL password.
+	pgctldCmd.Env = os.Environ()
+
 	// On macOS, ensure a valid locale is set for pgctld and its children (initdb, pg_ctl).
 	// Without LC_ALL or LANG, initdb fails with "invalid locale settings".
 	// Only inject when neither is set; an existing value in either variable is left untouched.
 	if runtime.GOOS == "darwin" && os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
-		pgctldCmd.Env = append(os.Environ(), "LC_ALL=C")
+		pgctldCmd.Env = append(pgctldCmd.Env, "LC_ALL=C")
+	}
+
+	// Pass the PostgreSQL password so pgctld can use it during init (--pwfile)
+	// and pg_hba.conf setup.
+	if password, ok := pgctldConfig["password"].(string); ok && password != "" {
+		pgctldCmd.Env = append(pgctldCmd.Env, constants.PgPasswordEnvVar+"="+password)
 	}
 
 	if err := telemetry.StartCmd(ctx, pgctldCmd); err != nil {
