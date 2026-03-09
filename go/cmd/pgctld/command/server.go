@@ -161,6 +161,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	s.senv.OnRun(func() {
 		logger.Info("pgctld server starting up",
 			"grpc_port", s.grpcServer.Port(),
+			"http_port", s.senv.GetHTTPPort(),
 		)
 
 		// Start pgBackRest management
@@ -170,7 +171,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		if s.grpcServer.CheckServiceMap(constants.ServicePgctld, s.senv) {
 			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
-		// TODO(sougou): Add http server
 	})
 
 	s.senv.OnClose(func() {
