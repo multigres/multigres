@@ -119,13 +119,55 @@ func (c *Conn) GetRolPassword(ctx context.Context, username string) (string, err
 	return scramHash, nil
 }
 
+// QueryWithRetry executes a query with automatic retry and reconnection on
+// connection error. Safe for stateless internal queries (heartbeat, replication tracking).
+func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+	return c.queryWithRetry(ctx, sql)
+}
+
+// QueryArgsWithRetry executes a parameterized query with automatic retry and
+// reconnection on connection error.
+func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
+		results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
+			return c.conn.QueryArgs(ctx, sql, args...)
+		})
+		switch {
+		case err == nil:
+			return results, nil
+		case !mterrors.IsConnectionError(err):
+			return nil, err
+		case attempt == maxQueryAttempts:
+			c.conn.Close()
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
+		backoffTimer := time.NewTimer(retryBackoff)
+		select {
+		case <-backoffTimer.C:
+		case <-ctx.Done():
+			backoffTimer.Stop()
+			return nil, context.Cause(ctx)
+		}
+		if reconnectErr := c.conn.Reconnect(ctx); reconnectErr != nil {
+			c.conn.Close()
+			return nil, reconnectErr
+		}
+	}
+	panic("unreachable")
+}
+
 // queryWithRetry executes a query with automatic retry on connection error.
 // If the first attempt fails with a connection error, it reconnects and retries
 // up to maxQueryAttempts total. This handles stale connections that occur when
 // PostgreSQL restarts while the pool holds old socket FDs.
 func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
 	for attempt := 1; attempt <= maxQueryAttempts; attempt++ {
-		results, err := c.conn.Query(ctx, sql)
+		results, err := execQueryWithContextCancel(ctx, c.conn, func() ([]*sqltypes.Result, error) {
+			return c.conn.Query(ctx, sql)
+		})
 		switch {
 		case err == nil:
 			return results, nil
@@ -156,6 +198,44 @@ func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 		}
 	}
 	panic("unreachable")
+}
+
+// execQueryWithContextCancel executes a query operation in a goroutine so that
+// context cancellation can interrupt a blocking network read.
+//
+// When the context is cancelled while a query is blocked waiting for PostgreSQL
+// (e.g. an INSERT waiting for synchronous standby acknowledgement), the underlying
+// connection is force-closed to unblock the goroutine's read. The goroutine is
+// waited on before returning to prevent goroutine leaks.
+//
+// ForceClose is used instead of Close to avoid a concurrent write race: the
+// goroutine may hold bufmu while reading from the buffered reader, and Close
+// would also write to the same buffered writer.
+//
+// After a force-close, IsClosed() returns true. The caller's Recycle() will
+// then signal the pool to replace the connection rather than returning it.
+func execQueryWithContextCancel(ctx context.Context, conn *client.Conn, op func() ([]*sqltypes.Result, error)) ([]*sqltypes.Result, error) {
+	type result struct {
+		results []*sqltypes.Result
+		err     error
+	}
+
+	ch := make(chan result, 1)
+	go func() {
+		results, err := op()
+		ch <- result{results: results, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Force-close the connection to unblock the goroutine's blocking network read.
+		conn.ForceClose()
+		// Wait for the goroutine to finish (it returns quickly after ForceClose).
+		<-ch
+		return nil, context.Cause(ctx)
+	case res := <-ch:
+		return res.results, res.err
+	}
 }
 
 // TerminateBackend terminates a backend process using pg_terminate_backend().
