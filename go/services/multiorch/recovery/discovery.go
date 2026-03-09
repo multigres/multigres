@@ -147,8 +147,22 @@ func (re *Engine) refreshPoolersForTarget(ctx context.Context, database, tablegr
 				// Update the pooler metadata in case topology changed
 				// but preserve all timestamps and computed fields.
 				// ProtoStore.Set() clones on write, so we can mutate existing safely.
+				oldMultiPooler := existing.MultiPooler
 				existing.MultiPooler = pooler.MultiPooler
 				re.poolerStore.Set(poolerID, existing)
+
+				// If the address changed, proactively close the stale connection so it
+				// doesn't occupy a cache slot until LRU eviction. The next health check
+				// will create a fresh connection to the new address.
+				if oldMultiPooler.GetHostname() != pooler.MultiPooler.GetHostname() ||
+					oldMultiPooler.GetPortMap()["grpc"] != pooler.MultiPooler.GetPortMap()["grpc"] {
+					re.logger.InfoContext(ctx, "pooler address changed, closing stale connection",
+						"pooler_id", poolerID,
+						"old_hostname", oldMultiPooler.GetHostname(),
+						"new_hostname", pooler.MultiPooler.GetHostname(),
+					)
+					re.rpcClient.CloseTablet(oldMultiPooler)
+				}
 			} else {
 				// New pooler - we've discovered it in the topology, but we haven't
 				// performed a health check yet. The health check loop will update
