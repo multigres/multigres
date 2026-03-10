@@ -50,8 +50,6 @@ func TestRecoveryEngine_ConfigReload(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(1*time.Minute),
-		config.WithClusterMetadataRefreshInterval(15*time.Second),
-		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
 	// Initial config
@@ -115,8 +113,6 @@ func TestRecoveryEngine_ConfigReload_NoChange(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(1*time.Minute),
-		config.WithClusterMetadataRefreshInterval(15*time.Second),
-		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
 	initialTargets := []config.WatchTarget{
@@ -167,8 +163,6 @@ func TestRecoveryEngine_ConfigReload_EmptyTargets(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(1*time.Minute),
-		config.WithClusterMetadataRefreshInterval(15*time.Second),
-		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
 	initialTargets := []config.WatchTarget{
@@ -212,8 +206,6 @@ func TestRecoveryEngine_StartStop(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(1*time.Minute),
-		config.WithClusterMetadataRefreshInterval(15*time.Second),
-		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
 	re := NewEngine(
@@ -257,8 +249,6 @@ func TestRecoveryEngine_MaintenanceLoop(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(200*time.Millisecond),
-		config.WithClusterMetadataRefreshInterval(100*time.Millisecond),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	re := NewEngine(
@@ -310,8 +300,6 @@ func TestRecoveryEngine_ConfigReloadError(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(1*time.Minute),
-		config.WithClusterMetadataRefreshInterval(15*time.Second),
-		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
 	initialTargets := []config.WatchTarget{
@@ -370,8 +358,6 @@ func TestRecoveryEngine_ViperDynamicConfig(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(200*time.Millisecond),
-		config.WithClusterMetadataRefreshInterval(100*time.Millisecond),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	re := NewEngine(
@@ -445,9 +431,7 @@ func TestRecoveryEngine_DiscoveryLoop_Integration(t *testing.T) {
 	// Create engine with short refresh interval for testing
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
-		config.WithBookkeepingInterval(5*time.Second),                   // bookkeeping interval (not relevant for this test)
-		config.WithClusterMetadataRefreshInterval(100*time.Millisecond), // metadata refresh interval - short for testing
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),         // metadata refresh timeout
+		config.WithBookkeepingInterval(5*time.Second), // bookkeeping interval (not relevant for this test)
 	)
 
 	re := NewEngine(
@@ -493,10 +477,8 @@ func TestRecoveryEngine_BookkeepingLoop_Integration(t *testing.T) {
 	// Create engine with short bookkeeping interval for testing
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
-		config.WithBookkeepingInterval(100*time.Millisecond),     // bookkeeping interval - short for testing
-		config.WithClusterMetadataRefreshInterval(5*time.Second), // metadata refresh interval (not relevant for this test)
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),  // metadata refresh timeout
-		config.WithHealthCheckWorkers(0),                         // no workers - we're not testing health checks
+		config.WithBookkeepingInterval(100*time.Millisecond), // bookkeeping interval - short for testing
+		config.WithHealthCheckWorkers(0),                     // no workers - we're not testing health checks
 	)
 
 	re := NewEngine(
@@ -586,10 +568,8 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	// Create engine with short intervals for testing
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
-		config.WithBookkeepingInterval(150*time.Millisecond),            // bookkeeping interval
-		config.WithClusterMetadataRefreshInterval(100*time.Millisecond), // metadata refresh interval
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),         // metadata refresh timeout
-		config.WithHealthCheckWorkers(0),                                // no workers - we're not testing health checks
+		config.WithBookkeepingInterval(150*time.Millisecond), // bookkeeping interval
+		config.WithHealthCheckWorkers(0),                     // no workers - we're not testing health checks
 	)
 
 	re := NewEngine(
