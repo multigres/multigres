@@ -142,6 +142,9 @@ type MultiPoolerManager struct {
 	primaryPoolerID *clustermetadatapb.ID
 	primaryHost     string
 	primaryPort     int32
+
+	// metrics holds OTel gauges for pgBackRest server health.
+	metrics *Metrics
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -237,6 +240,13 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
+
+	// Register pgBackRest health metrics.
+	var metricsErr error
+	pm.metrics, metricsErr = NewMetrics()
+	if metricsErr != nil {
+		logger.Warn("failed to register pgBackRest metrics", "error", metricsErr)
+	}
 
 	return pm, nil
 }

@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -59,15 +60,23 @@ type MultiGatewayHandler struct {
 	logger           *slog.Logger
 	psc              *preparedstatement.Consolidator
 	statementTimeout time.Duration
+	metrics          *HandlerMetrics
+	slowThreshold    time.Duration
 }
 
 // NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
 func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTimeout time.Duration) *MultiGatewayHandler {
+	metrics, err := NewHandlerMetrics()
+	if err != nil {
+		logger.Warn("failed to initialise some handler metrics", "error", err)
+	}
 	return &MultiGatewayHandler{
 		executor:         executor,
 		logger:           logger.With("component", "multigateway_handler"),
 		psc:              preparedstatement.NewConsolidator(),
 		statementTimeout: statementTimeout,
+		metrics:          metrics,
+		slowThreshold:    constants.DefaultSlowQueryThreshold,
 	}
 }
 
@@ -99,10 +108,14 @@ func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 
+	parseStart := time.Now()
 	asts, err := parser.ParseSQL(queryStr)
+	parseDuration := time.Since(parseStart)
 	if err != nil {
+		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "simple", parseDuration, 0, time.Since(queryStart), 0, err)
 		return err
 	}
 
@@ -111,6 +124,14 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	if len(asts) == 0 {
 		return callback(ctx, nil)
 	}
+
+	// TODO: For multi-statement batches, this only captures the first statement's
+	// operation name. Consider recording per-statement metrics or using "MULTI" as
+	// the operation name when len(asts) > 1.
+	operationName := asts[0].StatementType()
+	ctx, span := startQuerySpan(ctx, operationName, "simple", conn.Database(), conn.User())
+	defer span.End()
+
 	st := h.getConnectionState(conn)
 
 	// If the transaction is in an aborted state, reject all queries unless the
@@ -121,9 +142,22 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// remaining statements execute normally.
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
 		if !h.startsWithRollback(asts) {
+			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, errAbortedTransaction)
+			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
 		}
 	}
+
+	// Row-counting callback wraps the original to track rows streamed to the client.
+	var rowCount int64
+	countingCallback := func(ctx context.Context, result *sqltypes.Result) error {
+		if result != nil {
+			rowCount += int64(len(result.Rows))
+		}
+		return callback(ctx, result)
+	}
+
+	execStart := time.Now()
 
 	// For multi-statement batches, use implicit transaction handling.
 	// This handles cases where transactions start/end mid-batch and ensures
@@ -132,22 +166,29 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
 			"statement_count", len(asts),
 			"already_in_transaction", conn.IsInTransaction())
-		return h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, callback)
+		err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
+	} else {
+		// Single statement - execute with timeout enforcement
+		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
+		defer cancel()
+
+		err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], countingCallback)
+		if err != nil {
+			// If we're in an active transaction and the query failed,
+			// transition to aborted state. The client must ROLLBACK to recover.
+			if conn.TxnStatus() == protocol.TxnStatusInBlock {
+				conn.SetTxnStatus(protocol.TxnStatusFailed)
+			}
+		}
 	}
 
-	// Single statement - execute with timeout enforcement
-	ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
-	defer cancel()
-	err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], callback)
+	execDuration := time.Since(execStart)
+	totalDuration := time.Since(queryStart)
+	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, err)
 	if err != nil {
-		// If we're in an active transaction and the query failed,
-		// transition to aborted state. The client must ROLLBACK to recover.
-		if conn.TxnStatus() == protocol.TxnStatusInBlock {
-			conn.SetTxnStatus(protocol.TxnStatusFailed)
-		}
-		return err
+		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
-	return nil
+	return err
 }
 
 // startsWithRollback returns true if the first statement is ROLLBACK,
@@ -224,6 +265,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 // HandleExecute processes an Execute message ('E') for the extended query protocol.
 // Executes the specified portal's query with bound parameters and streams results via callback.
 func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "execute", "portal", portalName, "max_rows", maxRows)
 
 	// Get the connection state.
@@ -232,30 +274,59 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
-		return mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
+		portalErr := mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
 			fmt.Sprintf("portal \"%s\" does not exist", portalName), "")
+		// Record before span creation since we don't have an operation name yet.
+		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "extended", 0, 0, time.Since(queryStart), 0, portalErr)
+		return portalErr
 	}
+
+	operationName := "UNKNOWN"
+	if stmt := portalInfo.AstStmt(); stmt != nil {
+		operationName = stmt.StatementType()
+	}
+	ctx, span := startQuerySpan(ctx, operationName, "extended", conn.Database(), conn.User())
+	defer span.End()
 
 	// Reject queries in aborted transaction state, except ROLLBACK which is the
 	// only statement that can recover from an aborted transaction.
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
 		if !ast.IsRollbackStatement(portalInfo.AstStmt()) {
+			h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, 0, time.Since(queryStart), 0, errAbortedTransaction)
+			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
 		}
+	}
+
+	// Row-counting callback.
+	var rowCount int64
+	countingCallback := func(ctx context.Context, result *sqltypes.Result) error {
+		if result != nil {
+			rowCount += int64(len(result.Rows))
+		}
+		return callback(ctx, result)
 	}
 
 	// Use the original query string for directive parsing (extended protocol preserves comments).
 	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
 	ctx, cancel := h.statementTimeoutCtx(ctx, state, astStmt)
 	defer cancel()
-	err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, callback)
+
+	execStart := time.Now()
+	err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, countingCallback)
 	if err != nil {
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
 		}
-		return err
 	}
-	return nil
+
+	execDuration := time.Since(execStart)
+	totalDuration := time.Since(queryStart)
+	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, err)
+	if err != nil {
+		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
+	}
+	return err
 }
 
 // HandleDescribe processes a Describe message ('D').
@@ -343,6 +414,48 @@ func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
 
 	// Always clean up prepared statements for this connection.
 	h.psc.RemoveConnection(conn.ConnectionID())
+}
+
+// recordQueryCompletion records all three metrics and emits a structured
+// query log entry. Centralises the instrumentation logic shared by
+// HandleQuery and HandleExecute.
+func (h *MultiGatewayHandler) recordQueryCompletion(
+	ctx context.Context,
+	conn *server.Conn,
+	operationName string,
+	queryProtocol string,
+	parseDuration time.Duration,
+	execDuration time.Duration,
+	totalDuration time.Duration,
+	rowCount int64,
+	err error,
+) {
+	dbNamespace := conn.Database()
+
+	status := QueryStatusOK
+	errorType := ""
+	if err != nil {
+		status = QueryStatusError
+		errorType = mterrors.ExtractSQLSTATE(err)
+		h.metrics.queryErrors.Add(ctx, errorType, mterrors.ClassifyErrorSource(err), dbNamespace, operationName)
+	}
+
+	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status)
+	h.metrics.rowsReturned.Record(ctx, float64(rowCount), dbNamespace, operationName)
+
+	emitQueryLog(ctx, h.logger, queryLogEntry{
+		User:          conn.User(),
+		Database:      dbNamespace,
+		OperationName: operationName,
+		Protocol:      queryProtocol,
+		TotalDuration: totalDuration,
+		ParseDuration: parseDuration,
+		ExecDuration:  execDuration,
+		RowCount:      rowCount,
+		Error:         err,
+		SQLSTATE:      errorType,
+		ErrorSource:   mterrors.ClassifyErrorSource(err),
+	}, h.slowThreshold)
 }
 
 // Ensure MultiGatewayHandler implements server.Handler interface.

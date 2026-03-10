@@ -56,7 +56,7 @@ type ProcessInstance struct {
 	Environment []string
 
 	// Multiorch-specific fields
-	HttpPort                            int      // HTTP port (used by multiorch for /ready endpoint)
+	HttpPort                            int      // HTTP port (used by pgctld and multiorch for health endpoints)
 	Cell                                string   // Cell name (used by multipooler and multiorch)
 	WatchTargets                        []string // Database/tablegroup/shard targets to watch (multiorch)
 	ServiceID                           string   // Service ID (used by multipooler and multiorch)
@@ -110,6 +110,11 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--timeout", "60",
 		"--log-output", p.LogFile,
+	}
+
+	// Add HTTP port if configured
+	if p.HttpPort > 0 {
+		args = append(args, "--http-port", strconv.Itoa(p.HttpPort))
 	}
 
 	// Add pgBackRest configuration if provided

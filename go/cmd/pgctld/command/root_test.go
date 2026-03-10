@@ -15,6 +15,7 @@
 package command
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -239,5 +240,46 @@ work_mem = {{.WorkMem}}
 
 		// Verify template was NOT changed
 		assert.Equal(t, originalTemplate, config.PostgresConfigDefaultTmpl)
+	})
+}
+
+func TestSilenceUsage(t *testing.T) {
+	t.Run("SilenceUsage_is_false_initially", func(t *testing.T) {
+		root, _ := GetRootCommand()
+		assert.False(t, root.SilenceUsage)
+	})
+
+	t.Run("flag_error_keeps_SilenceUsage_false", func(t *testing.T) {
+		root, _ := GetRootCommand()
+		root.SetArgs([]string{"--nonexistent-flag-xyz"})
+		_ = root.Execute()
+		assert.False(t, root.SilenceUsage, "PersistentPreRunE should not have run for a flag parse error")
+	})
+
+	t.Run("flag_error_prints_usage", func(t *testing.T) {
+		root, _ := GetRootCommand()
+		var outBuf bytes.Buffer
+		root.SetOut(&outBuf) // cobra writes usage via c.Print → OutOrStderr (the "out" writer)
+		root.SetArgs([]string{"--nonexistent-flag-xyz"})
+		err := root.Execute()
+		require.Error(t, err)
+		assert.Contains(t, outBuf.String(), "Usage:")
+	})
+
+	t.Run("runtime_error_sets_SilenceUsage_true", func(t *testing.T) {
+		root, _ := GetRootCommand()
+		root.SetArgs([]string{"status", "--pooler-dir", ""})
+		_ = root.Execute()
+		assert.True(t, root.SilenceUsage, "PersistentPreRunE should have set SilenceUsage=true before the runtime error")
+	})
+
+	t.Run("runtime_error_does_not_print_usage", func(t *testing.T) {
+		root, _ := GetRootCommand()
+		var outBuf bytes.Buffer
+		root.SetOut(&outBuf) // cobra writes usage via c.Print → OutOrStderr (the "out" writer)
+		root.SetArgs([]string{"status", "--pooler-dir", ""})
+		err := root.Execute()
+		require.Error(t, err)
+		assert.NotContains(t, outBuf.String(), "Usage:", "usage should be suppressed for runtime errors")
 	})
 }

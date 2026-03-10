@@ -1239,10 +1239,13 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		// Ensure monitor is disabled (in case something during test re-enabled it)
 		s.disableMonitorOnAll(t, cleanupCtx)
 
-		// Validate cleanup worked
+		// Validate cleanup worked.
+		// Use a generous timeout: GUC values written by RestoreGUCs are already
+		// waited on inside that function, so this is a final sanity check that
+		// should pass quickly. The extra headroom guards against slow CI runners.
 		require.Eventually(t, func() bool {
 			return s.ValidateCleanState() == nil
-		}, 2*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
+		}, 15*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
 	})
 }
 
@@ -1296,7 +1299,7 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		if err == nil {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_standby_names", 0)
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_commit", 0)
-			_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+			ReloadConfig(ctx, t, client.Pooler, s.PrimaryName)
 			client.Close()
 			t.Logf("SetupTest: Cleared synchronous_standby_names on primary %s", s.PrimaryName)
 		}
@@ -1315,10 +1318,10 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		}
 
 		_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
-		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		ReloadConfig(ctx, t, client.Pooler, name)
 
-		// Wait for primary_conninfo to be cleared and WAL receiver to stop
-		// pg_reload_conf() is async, so we need to wait for changes to take effect
+		// Wait for the WAL receiver to stop. ReloadConfig has already confirmed
+		// primary_conninfo is cleared; this waits for postgres to act on it.
 		require.Eventually(t, func() bool {
 			connInfo, err := QueryStringValue(ctx, client.Pooler, "SHOW primary_conninfo")
 			if err != nil || connInfo != "" {
