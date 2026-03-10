@@ -112,10 +112,12 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
 
 	// Build admin pool config
+	connectTimeout := 2 * m.config.DialTimeout()
 	adminPoolConfig := &connpool.Config{
-		Name:     "admin",
-		Capacity: m.config.AdminCapacity(),
-		Logger:   m.logger,
+		Name:           "admin",
+		Capacity:       m.config.AdminCapacity(),
+		ConnectTimeout: connectTimeout,
+		Logger:         m.logger,
 	}
 
 	// Create shared admin pool (used by all user pools for kill operations)
@@ -159,12 +161,13 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // buildClientConfig creates a client.Config with the specified user and password.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
-		SocketFile: m.connConfig.SocketFile,
-		Host:       m.connConfig.Host,
-		Port:       m.connConfig.Port,
-		Database:   m.connConfig.Database,
-		User:       user,
-		Password:   password,
+		SocketFile:  m.connConfig.SocketFile,
+		Host:        m.connConfig.Host,
+		Port:        m.connConfig.Port,
+		Database:    m.connConfig.Database,
+		User:        user,
+		Password:    password,
+		DialTimeout: m.config.DialTimeout(),
 	}
 }
 
@@ -228,6 +231,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
 	// Create new user pool with initial capacity. The rebalancer will adjust
 	// the capacity based on demand within a few seconds.
+	userConnectTimeout := 2 * m.config.DialTimeout()
 	pool, err := NewUserPool(ctx, &UserPoolConfig{
 		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
 		AdminPool:    m.adminPool,
@@ -236,6 +240,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 			Capacity:        initialRegularCap,
 			IdleTimeout:     m.config.UserRegularIdleTimeout(),
 			MaxLifetime:     m.config.UserRegularMaxLifetime(),
+			ConnectTimeout:  userConnectTimeout,
 			ConnectionCount: m.metrics.RegularConnCount(),
 			Logger:          m.logger,
 		},
@@ -244,6 +249,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 			Capacity:        initialReservedCap,
 			IdleTimeout:     m.config.UserReservedIdleTimeout(),
 			MaxLifetime:     m.config.UserReservedMaxLifetime(),
+			ConnectTimeout:  userConnectTimeout,
 			ConnectionCount: m.metrics.ReservedConnCount(),
 			Logger:          m.logger,
 		},
