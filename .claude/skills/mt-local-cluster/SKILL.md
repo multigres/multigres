@@ -12,6 +12,8 @@ Manage local multigres cluster - both cluster-wide operations and individual com
 Invoke this skill when the user asks to:
 
 - Start/stop/restart the entire cluster or individual components
+- Start cluster with observability (OTel, Grafana, Prometheus)
+- Teardown and restart the full stack (cluster + observability)
 - View logs for any component
 - Connect to multipooler or multigateway with psql
 - Check status of cluster components
@@ -202,6 +204,65 @@ tail -f ./multigres_local/data/pooler_*/pg_data/log/pgbackrest-*.log
 aws s3 ls <s3-bucket-path> --region <region>
 ```
 
+## Observability Stack
+
+Start the observability stack (Grafana + Prometheus + Loki + Tempo) for metrics, traces, and logs visualization.
+
+**Start cluster with observability**:
+
+```bash
+# 1. Start observability stack (separate terminal, runs in foreground)
+demo/local/run-observability.sh
+
+# 2. Start cluster with OTel export (separate terminal)
+demo/local/multigres-with-otel.sh cluster start --config-path <config-path>
+```
+
+**Generate traffic with pgbench**:
+
+```bash
+PGPASSWORD=postgres pgbench -h localhost -p 15432 -U postgres -i postgres
+PGPASSWORD=postgres pgbench -h localhost -p 15432 -U postgres -c 4 -j 2 -T 300 -P 5 postgres
+```
+
+**View telemetry**:
+
+- Grafana Dashboard: <http://localhost:3000/d/multigres-overview>
+- Grafana Explore (ad-hoc PromQL): <http://localhost:3000/explore>
+- Prometheus UI: <http://localhost:9090>
+
+**Teardown** (stop in this order to avoid OTel export errors):
+
+```bash
+# 1. Stop the cluster first
+./bin/multigres cluster stop --config-path <config-path>
+
+# 2. Stop the observability stack
+docker rm -f multigres-observability
+```
+
+**Full restart**:
+
+```bash
+# Teardown
+./bin/multigres cluster stop --config-path <config-path>
+docker rm -f multigres-observability
+
+# Start
+demo/local/run-observability.sh          # terminal 1
+demo/local/multigres-with-otel.sh cluster start --config-path <config-path>  # terminal 2
+```
+
+**Observability ports**:
+
+| Service | Port |
+|---|---|
+| Grafana | 3000 |
+| OTLP (HTTP) | 4318 |
+| Prometheus | 9090 |
+| Loki | 3100 |
+| Tempo | 3200 |
+
 ## Individual Component Operations
 
 ### Configuration
@@ -326,6 +387,26 @@ User: "check zone1 multipooler status"
 
 - Look up service ID for zone1
 - Execute: `./bin/multigres getpoolerstatus --cell zone1 --service-id <id>`
+
+**Observability:**
+
+User: "start cluster with otel" or "start cluster with observability"
+
+- Start `demo/local/run-observability.sh` (if not running)
+- Start `demo/local/multigres-with-otel.sh cluster start --config-path <path>`
+
+User: "teardown everything" or "stop everything"
+
+- Stop cluster: `./bin/multigres cluster stop --config-path <path>`
+- Stop observability: `docker rm -f multigres-observability`
+
+User: "restart everything" or "full restart"
+
+- Teardown, then start observability + cluster
+
+User: "push traffic" or "generate load"
+
+- Run pgbench init + pgbench with `-P 5` for progress
 
 **Individual components:**
 
