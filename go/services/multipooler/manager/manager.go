@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 
 	"google.golang.org/grpc"
@@ -1755,7 +1756,9 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"backup_id", latestBackup.BackupId)
 
 	// Perform the restore
-	if err := pm.restoreFromBackupLocked(ctx, latestBackup.BackupId); err != nil {
+	if err := telemetry.WithSpan(ctx, "monitor-postgres-restore", func(ctx context.Context) error {
+		return pm.restoreFromBackupLocked(ctx, latestBackup.BackupId)
+	}); err != nil {
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 

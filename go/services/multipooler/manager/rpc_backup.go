@@ -248,7 +248,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 	defer pm.actionLock.Release(ctx)
 
-	return telemetry.WithSpan(ctx, "restore", func(ctx context.Context) error {
+	return telemetry.WithSpan(ctx, "restore-from-backup", func(ctx context.Context) error {
 		// Pause monitoring during restore to prevent interference
 		var resumeMonitor func(context.Context)
 		err := telemetry.WithSpan(ctx, "restore/pause-monitor", func(ctx context.Context) error {
