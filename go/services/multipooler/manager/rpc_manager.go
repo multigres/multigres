@@ -1160,6 +1160,17 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
+	// Transition query service back to SERVING now that the node is a healthy replica.
+	// During emergency demotion, setServingReadOnly set SERVING_RDONLY which causes
+	// Executor() to reject all queries with MTF01. Now that recovery is complete,
+	// the replica should accept read queries again.
+	// TODO: REMOVE IN FAVOUR OF PROPER STATE MANAGEMENT
+	if pm.qsc != nil {
+		if err := pm.qsc.SetServingType(ctx, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to set query serving state to SERVING", "error", err)
+		}
+	}
+
 	pm.logger.InfoContext(ctx, "DemoteStalePrimary completed successfully",
 		"rewind_performed", rewindPerformed,
 		"lsn_position", finalLSN)
@@ -1309,6 +1320,14 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if pm.replTracker != nil {
 		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
 		pm.replTracker.MakePrimary()
+	}
+
+	// Transition query service to accept all queries now that promotion is complete.
+	// This is needed when a previously demoted replica (SERVING_RDONLY) is re-promoted.
+	if pm.qsc != nil {
+		if err := pm.qsc.SetServingType(ctx, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to set query serving state to SERVING", "error", err)
+		}
 	}
 
 	// Update topology if needed (best-effort, don't fail promotion)
