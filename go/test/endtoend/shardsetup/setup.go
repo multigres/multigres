@@ -101,7 +101,7 @@ func WithCellName(cell string) SetupOption {
 }
 
 // WithDurabilityPolicy sets the durability policy for the database.
-// Default is "ANY_2".
+// Default is "AT_LEAST_2".
 func WithDurabilityPolicy(policy string) SetupOption {
 	return func(c *SetupConfig) {
 		c.DurabilityPolicy = policy
@@ -259,7 +259,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		TableGroup:       constants.DefaultTableGroup,
 		Shard:            constants.DefaultShard,
 		CellName:         "test-cell",
-		DurabilityPolicy: "ANY_2",
+		DurabilityPolicy: "AT_LEAST_2",
 	}
 
 	// Apply options

@@ -34,7 +34,7 @@ import (
 // This variant uses SIGKILL to simulate a hard crash of postgres.
 //
 // Scenario:
-// 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with ANY_2 durability
+// 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with AT_LEAST_2 durability
 // 2. Kill P1's postgres with SIGKILL to trigger failover
 // 3. Wait for multiorch to elect new primary (S1 becomes P2)
 // 4. Write data to new primary to ensure timeline has diverged
@@ -146,7 +146,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 // This variant uses graceful shutdown to simulate a clean postgres stop.
 //
 // Scenario:
-// 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with ANY_2 durability
+// 1. 3-node cluster: primary (P1) + 2 standbys (S1, S2) with AT_LEAST_2 durability
 // 2. Gracefully shutdown P1's postgres to trigger failover
 // 3. Wait for multiorch to elect new primary (S1 becomes P2)
 // 4. Write data to new primary to ensure timeline has diverged
