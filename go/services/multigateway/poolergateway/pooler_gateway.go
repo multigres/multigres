@@ -315,7 +315,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	err := pg.withBuffering(ctx, target, func(conn *PoolerConnection) error {
 		var err error
 		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
-		// Convert gRPC error so classifyError can read the error code for buffering.
+		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE for buffering.
 		return mterrors.FromGRPC(err)
 	})
 	return resp, err

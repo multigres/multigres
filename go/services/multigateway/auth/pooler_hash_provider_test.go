@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
@@ -59,8 +60,10 @@ func TestPoolerHashProvider_GetPasswordHash(t *testing.T) {
 	})
 
 	t.Run("user not found", func(t *testing.T) {
+		// Use FromGRPC to match production: PoolerGateway.GetAuthCredentials
+		// converts gRPC errors via mterrors.FromGRPC before returning.
 		client := &mockPoolerSystemClient{
-			err: status.Error(codes.NotFound, "user not found"),
+			err: mterrors.FromGRPC(status.Error(codes.NotFound, "user not found")),
 		}
 		provider := NewPoolerHashProvider(client)
 
