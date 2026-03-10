@@ -259,13 +259,12 @@ func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, db
 		// Only create multiorch for zone1 to avoid concurrent bootstrap race conditions
 		if i == 0 {
 			cellConfig.Multiorch = local.MultiorchConfig{
-				Path:                           "multiorch",
-				HttpPort:                       zonePort.MultiorchHTTPPort,
-				GrpcPort:                       zonePort.MultiorchGRPCPort,
-				LogLevel:                       "info",
-				ClusterMetadataRefreshInterval: "500ms",
-				PoolerHealthCheckInterval:      "500ms",
-				RecoveryCycleInterval:          "500ms",
+				Path:                      "multiorch",
+				HttpPort:                  zonePort.MultiorchHTTPPort,
+				GrpcPort:                  zonePort.MultiorchGRPCPort,
+				LogLevel:                  "info",
+				PoolerHealthCheckInterval: "500ms",
+				RecoveryCycleInterval:     "500ms",
 			}
 		}
 
