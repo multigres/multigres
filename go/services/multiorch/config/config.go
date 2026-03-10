@@ -150,8 +150,6 @@ type Config struct {
 	serviceID                           viperutil.Value[string]
 	shardWatchTargets                   viperutil.Value[[]string]
 	bookkeepingInterval                 viperutil.Value[time.Duration]
-	clusterMetadataRefreshInterval      viperutil.Value[time.Duration]
-	clusterMetadataRefreshTimeout       viperutil.Value[time.Duration]
 	poolerHealthCheckInterval           viperutil.Value[time.Duration]
 	healthCheckWorkers                  viperutil.Value[int]
 	recoveryCycleInterval               viperutil.Value[time.Duration]
@@ -192,18 +190,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			FlagName: "bookkeeping-interval",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_BOOKKEEPING_INTERVAL"},
-		}),
-		clusterMetadataRefreshInterval: viperutil.Configure(reg, "cluster-metadata-refresh-interval", viperutil.Options[time.Duration]{
-			Default:  15 * time.Second,
-			FlagName: "cluster-metadata-refresh-interval",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_CLUSTER_METADATA_REFRESH_INTERVAL"},
-		}),
-		clusterMetadataRefreshTimeout: viperutil.Configure(reg, "cluster-metadata-refresh-timeout", viperutil.Options[time.Duration]{
-			Default:  30 * time.Second,
-			FlagName: "cluster-metadata-refresh-timeout",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_CLUSTER_METADATA_REFRESH_TIMEOUT"},
 		}),
 		poolerHealthCheckInterval: viperutil.Configure(reg, "pooler-health-check-interval", viperutil.Options[time.Duration]{
 			Default:  5 * time.Second,
@@ -262,14 +248,6 @@ func (c *Config) GetBookkeepingInterval() time.Duration {
 	return c.bookkeepingInterval.Get()
 }
 
-func (c *Config) GetClusterMetadataRefreshInterval() time.Duration {
-	return c.clusterMetadataRefreshInterval.Get()
-}
-
-func (c *Config) GetClusterMetadataRefreshTimeout() time.Duration {
-	return c.clusterMetadataRefreshTimeout.Get()
-}
-
 func (c *Config) GetPoolerHealthCheckInterval() time.Duration {
 	return c.poolerHealthCheckInterval.Get()
 }
@@ -312,14 +290,6 @@ func (c *Config) DefaultBookkeepingInterval() time.Duration {
 	return c.bookkeepingInterval.Default()
 }
 
-func (c *Config) DefaultClusterMetadataRefreshInterval() time.Duration {
-	return c.clusterMetadataRefreshInterval.Default()
-}
-
-func (c *Config) DefaultClusterMetadataRefreshTimeout() time.Duration {
-	return c.clusterMetadataRefreshTimeout.Default()
-}
-
 func (c *Config) DefaultPoolerHealthCheckInterval() time.Duration {
 	return c.poolerHealthCheckInterval.Default()
 }
@@ -350,8 +320,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("service-id", c.DefaultServiceID(), "optional service ID (if empty, a random ID will be generated)")
 	fs.StringSlice("watch-targets", c.DefaultShardWatchTargets(), "list of db/tablegroup/shard targets to watch")
 	fs.Duration("bookkeeping-interval", c.DefaultBookkeepingInterval(), "interval for bookkeeping tasks")
-	fs.Duration("cluster-metadata-refresh-interval", c.DefaultClusterMetadataRefreshInterval(), "interval for refreshing cluster metadata from topology")
-	fs.Duration("cluster-metadata-refresh-timeout", c.DefaultClusterMetadataRefreshTimeout(), "timeout for cluster metadata refresh operation")
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
@@ -363,8 +331,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.serviceID,
 		c.shardWatchTargets,
 		c.bookkeepingInterval,
-		c.clusterMetadataRefreshInterval,
-		c.clusterMetadataRefreshTimeout,
 		c.poolerHealthCheckInterval,
 		c.healthCheckWorkers,
 		c.recoveryCycleInterval,
@@ -398,24 +364,10 @@ func WithCell(cell string) func(*Config) {
 	}
 }
 
-// WithClusterMetadataRefreshTimeout sets the cluster metadata refresh timeout for testing.
-func WithClusterMetadataRefreshTimeout(d time.Duration) func(*Config) {
-	return func(cfg *Config) {
-		cfg.clusterMetadataRefreshTimeout.Set(d)
-	}
-}
-
 // WithBookkeepingInterval sets the bookkeeping interval for testing.
 func WithBookkeepingInterval(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
 		cfg.bookkeepingInterval.Set(d)
-	}
-}
-
-// WithClusterMetadataRefreshInterval sets the cluster metadata refresh interval for testing.
-func WithClusterMetadataRefreshInterval(d time.Duration) func(*Config) {
-	return func(cfg *Config) {
-		cfg.clusterMetadataRefreshInterval.Set(d)
 	}
 }
 
