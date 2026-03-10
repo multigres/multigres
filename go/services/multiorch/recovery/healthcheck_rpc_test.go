@@ -45,8 +45,6 @@ func TestPollPooler_UpdatesStore_Primary(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(100*time.Millisecond),
-		config.WithClusterMetadataRefreshInterval(5*time.Second),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	// Create fake RPC client with mock response for PRIMARY
@@ -131,8 +129,6 @@ func TestPollPooler_UpdatesStore_Replica(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(100*time.Millisecond),
-		config.WithClusterMetadataRefreshInterval(5*time.Second),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	// Create fake RPC client with mock response for REPLICA
@@ -227,8 +223,6 @@ func TestPollPooler_RPCFailure(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(100*time.Millisecond),
-		config.WithClusterMetadataRefreshInterval(5*time.Second),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	// Create fake RPC client that returns errors
@@ -299,8 +293,6 @@ func TestPollPooler_TypeMismatch(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(100*time.Millisecond),
-		config.WithClusterMetadataRefreshInterval(5*time.Second),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	// Create fake RPC client where pooler reports PRIMARY but topology says REPLICA

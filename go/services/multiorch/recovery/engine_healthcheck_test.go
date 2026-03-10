@@ -45,8 +45,6 @@ func TestRecoveryEngine_HealthCheckQueue(t *testing.T) {
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(100*time.Millisecond), // health check interval - short for testing
 		config.WithHealthCheckWorkers(1),                           // single worker for testing
-		config.WithClusterMetadataRefreshInterval(50*time.Millisecond),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	re := NewEngine(
@@ -140,8 +138,6 @@ func TestRecoveryEngine_HealthCheckQueueDeduplication(t *testing.T) {
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(100*time.Millisecond),
 		config.WithHealthCheckWorkers(2),
-		config.WithClusterMetadataRefreshInterval(50*time.Millisecond),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	re := NewEngine(
@@ -198,8 +194,6 @@ func TestRecoveryEngine_HealthCheckWorkerPool(t *testing.T) {
 		config.WithCell("zone1"),
 		config.WithPoolerHealthCheckInterval(50*time.Millisecond),
 		config.WithHealthCheckWorkers(10), // multiple workers
-		config.WithClusterMetadataRefreshInterval(50*time.Millisecond),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
 	)
 
 	re := NewEngine(
