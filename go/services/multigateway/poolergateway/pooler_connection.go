@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -37,24 +38,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-const (
-	// defaultHealthRetryDelay is the initial delay before retrying a failed health stream.
-	// Matches Vitess DefaultHealthCheckRetryDelay.
-	defaultHealthRetryDelay = 5 * time.Second
-
-	// defaultHealthCheckTimeout is the timeout for detecting a stale health stream.
-	// If no message is received within this duration, the connection is marked unhealthy.
-	// Matches Vitess DefaultHealthCheckTimeout.
-	defaultHealthCheckTimeout = 1 * time.Minute
-)
-
 // errPoolerUninitialized is the initial error before health stream connects.
-// Matches Vitess errUninitialized pattern.
 var errPoolerUninitialized = errors.New("pooler health not initialized")
 
 // PoolerHealth represents the health state received from a multipooler.
-// This mirrors Vitess's TabletHealth pattern - a snapshot of health state
-// that can be safely passed around without synchronization.
+// This is a snapshot of health state that can be safely passed around
+// without synchronization.
 type PoolerHealth struct {
 	// Target identifies the tablegroup, shard, and pooler type.
 	Target *query.Target
@@ -89,7 +78,7 @@ func (h *PoolerHealth) IsServing() bool {
 // This is not a deep copy: pointer fields (Target, PoolerID, PrimaryObservation)
 // reference the same underlying objects. This is safe because these proto objects
 // are treated as immutable - they are never modified after creation.
-// Follows the Vitess TabletHealth.SimpleCopy pattern.
+// Returns a shallow copy that is safe to read concurrently.
 func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 	if h == nil {
 		return nil
@@ -112,7 +101,6 @@ func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
 //
 // The connection maintains a health stream to the multipooler and tracks serving state.
 // Only connections that are serving should be used for query routing.
-// This follows the Vitess tabletHealthCheck pattern.
 type PoolerConnection struct {
 	// poolerInfo contains the pooler metadata from discovery.
 	// Accessed atomically to avoid data races between UpdatePoolerInfo and readers.
@@ -132,7 +120,7 @@ type PoolerConnection struct {
 
 	// ctx and cancel control the health stream goroutine lifecycle.
 	// cancel must be called before discarding PoolerConnection to ensure
-	// the checkConn goroutine terminates. (Vitess pattern)
+	// the checkConn goroutine terminates.
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -145,7 +133,7 @@ type PoolerConnection struct {
 
 	// healthTimedOut indicates if the health stream has timed out.
 	// Accessed atomically because there's a race between the timeout
-	// goroutine and the stream processing. (Vitess pattern)
+	// goroutine and the stream processing.
 	healthTimedOut atomic.Bool
 
 	// onHealthUpdate is called when health state changes.
@@ -193,7 +181,6 @@ func NewPoolerConnection(
 	queryService := newGRPCQueryService(conn, poolerID, logger)
 
 	// Initialize health state to NOT_SERVING until health stream provides data.
-	// This matches Vitess where tablets start with errUninitialized.
 	initialTarget := &query.Target{
 		TableGroup: pooler.GetTableGroup(),
 		Shard:      pooler.GetShard(),
@@ -290,7 +277,7 @@ func (pc *PoolerConnection) Close() error {
 // Health returns the current health state.
 // The returned PoolerHealth is a snapshot that can be safely used without
 // synchronization. We don't deep-copy because the PoolerHealth object is
-// never modified after creation (same pattern as Vitess SimpleCopy).
+// never modified after creation.
 func (pc *PoolerConnection) Health() *PoolerHealth {
 	pc.healthMu.Lock()
 	defer pc.healthMu.Unlock()
@@ -299,12 +286,12 @@ func (pc *PoolerConnection) Health() *PoolerHealth {
 
 // checkConn performs health checking on the pooler connection.
 // It continuously attempts to maintain a health stream, retrying with
-// exponential backoff on failures. This follows the Vitess tabletHealthCheck pattern.
+// exponential backoff on failures.
 func (pc *PoolerConnection) checkConn() {
 	poolerID := pc.ID()
 	pc.logger.Debug("starting health check loop", "pooler_id", poolerID)
 
-	streamRetrier := retry.New(defaultHealthRetryDelay, defaultHealthCheckTimeout)
+	streamRetrier := retry.New(constants.DefaultHealthRetryDelay, constants.DefaultHealthCheckTimeout)
 
 	for attempt, waitErr := range streamRetrier.Attempts(pc.ctx) {
 		if waitErr != nil {
@@ -365,7 +352,7 @@ func (pc *PoolerConnection) streamHealth(
 
 	// Set up staleness timer. If no message is received within the timeout,
 	// the timer cancels the stream context to unblock stream.Recv().
-	stalenessTimeout := defaultHealthCheckTimeout
+	stalenessTimeout := constants.DefaultHealthCheckTimeout
 	stalenessTimer := time.AfterFunc(stalenessTimeout, func() {
 		pc.healthTimedOut.Store(true)
 		pc.logger.Warn("health stream timed out", "pooler_id", poolerID)
@@ -415,7 +402,7 @@ func (pc *PoolerConnection) streamHealth(
 }
 
 // processHealthResponse updates the health state from a StreamPoolerHealthResponse.
-// Creates a new PoolerHealth snapshot (following Vitess's immutable snapshot pattern).
+// Creates a new immutable PoolerHealth snapshot.
 func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.StreamPoolerHealthResponse) {
 	poolerID := pc.ID()
 

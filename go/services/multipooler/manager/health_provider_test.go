@@ -47,11 +47,14 @@ func TestHealthStreamer_BroadcastToSubscribers(t *testing.T) {
 	hs.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 
 	// Both clients should receive the state
+	timeout1 := time.After(100 * time.Millisecond)
+	timeout2 := time.After(100 * time.Millisecond)
+
 	select {
 	case received := <-ch1:
 		assert.Equal(t, "tg1", received.Target.TableGroup)
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
-	case <-time.After(100 * time.Millisecond):
+	case <-timeout1:
 		t.Fatal("ch1 did not receive broadcast")
 	}
 
@@ -59,7 +62,7 @@ func TestHealthStreamer_BroadcastToSubscribers(t *testing.T) {
 	case received := <-ch2:
 		assert.Equal(t, "tg1", received.Target.TableGroup)
 		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
-	case <-time.After(100 * time.Millisecond):
+	case <-timeout2:
 		t.Fatal("ch2 did not receive broadcast")
 	}
 }
@@ -113,6 +116,9 @@ func TestHealthStreamer_FullBufferClosesChannel(t *testing.T) {
 		if ok {
 			// Drain any remaining buffered items
 			for range ch {
+				if t.Context().Err() != nil {
+					t.Fatal("test context cancelled while draining channel")
+				}
 			}
 		}
 		// Channel is closed, which is expected

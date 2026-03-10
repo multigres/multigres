@@ -129,9 +129,6 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	defer lb.mu.Unlock()
 
 	targetType := target.PoolerType
-	if targetType == clustermetadatapb.PoolerType_UNKNOWN {
-		targetType = clustermetadatapb.PoolerType_PRIMARY
-	}
 
 	if targetType == clustermetadatapb.PoolerType_PRIMARY {
 		// For PRIMARY: collect ALL poolers in the shard (regardless of type)
@@ -323,13 +320,8 @@ func matchesTarget(conn *PoolerConnection, target *query.Target) bool {
 	}
 
 	// Check type match
-	targetType := target.PoolerType
-	if targetType == clustermetadatapb.PoolerType_UNKNOWN {
-		targetType = clustermetadatapb.PoolerType_PRIMARY
-	}
-
 	poolerType := conn.Type()
-	switch targetType {
+	switch target.PoolerType {
 	case clustermetadatapb.PoolerType_PRIMARY:
 		return poolerType == clustermetadatapb.PoolerType_PRIMARY
 	case clustermetadatapb.PoolerType_REPLICA:

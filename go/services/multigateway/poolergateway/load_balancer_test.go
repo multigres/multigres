@@ -198,26 +198,6 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	assert.Equal(t, poolerID(shard1), conn.ID())
 }
 
-func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
-	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
-
-	// Add both primary and replica
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	require.NoError(t, lb.AddPooler(primary))
-	require.NoError(t, lb.AddPooler(replica))
-
-	// Request with UNKNOWN type should default to PRIMARY
-	target := &query.Target{
-		TableGroup: constants.DefaultTableGroup,
-		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
-	}
-	conn, err := lb.GetConnection(target)
-	require.NoError(t, err)
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type(), "Should default to PRIMARY")
-}
-
 func TestLoadBalancer_Close(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger)
