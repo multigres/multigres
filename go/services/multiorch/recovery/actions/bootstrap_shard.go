@@ -91,6 +91,13 @@ func (a *BootstrapShardAction) WithStatusRPCTimeout(timeout time.Duration) *Boot
 
 // Execute performs bootstrap initialization for a new shard
 func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
+	return telemetry.WithSpan(ctx, "bootstrap", func(ctx context.Context) error {
+		return a.executeInner(ctx, problem)
+	})
+}
+
+// executeInner performs the bootstrap steps inside the parent "bootstrap" span.
+func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.Problem) (retErr error) {
 	a.logger.InfoContext(ctx, "executing bootstrap shard action",
 		"database", problem.ShardKey.Database,
 		"tablegroup", problem.ShardKey.TableGroup,
@@ -122,13 +129,6 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 
 	a.logger.InfoContext(ctx, "acquired recovery lock", "shard_key", problem.ShardKey.String())
 
-	return telemetry.WithSpan(ctx, "bootstrap", func(ctx context.Context) error {
-		return a.bootstrapShardLocked(ctx, problem)
-	})
-}
-
-// bootstrapShardLocked performs the bootstrap steps inside the parent "bootstrap" span.
-func (a *BootstrapShardAction) bootstrapShardLocked(ctx context.Context, problem types.Problem) (retErr error) {
 	// Fetch cohort from pooler store
 	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
