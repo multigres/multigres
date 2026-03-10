@@ -15,6 +15,7 @@
 package poolerserver
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"testing"
@@ -22,6 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 )
 
@@ -123,4 +126,29 @@ func TestNewQueryPoolerServer_InternalUserPassthrough(t *testing.T) {
 	exec, err := pooler.Executor()
 	require.NoError(t, err)
 	require.NotNil(t, exec)
+}
+
+func TestExecutor_ReturnsMTF01WhenServingReadOnly(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mockMgr := &mockPoolManager{internalUser: "postgres"}
+
+	pooler := NewQueryPoolerServer(logger, mockMgr, nil)
+
+	// Transition to SERVING_RDONLY (planned failover)
+	err := pooler.SetServingType(context.Background(), clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
+	require.NoError(t, err)
+
+	// Executor should return MTF01 error
+	exec, err := pooler.Executor()
+	assert.Nil(t, exec)
+	require.Error(t, err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
+
+	// Transition back to SERVING — executor should work again
+	err = pooler.SetServingType(context.Background(), clustermetadatapb.PoolerServingStatus_SERVING)
+	require.NoError(t, err)
+
+	exec, err = pooler.Executor()
+	require.NoError(t, err)
+	assert.NotNil(t, exec)
 }

@@ -187,7 +187,7 @@ func TestBufferGlobalEviction(t *testing.T) {
 	wg.Wait()
 
 	// First request should have MTB01 (buffer full).
-	assert.True(t, mterrors.IsError(errs[0], mterrors.MTB01.ID))
+	assert.True(t, mterrors.IsErrorCode(errs[0], mterrors.MTB01.ID))
 
 	// Others should succeed.
 	for i := 1; i < 3; i++ {
@@ -203,7 +203,7 @@ func TestBufferWindowTimeout(t *testing.T) {
 	defer buf.Shutdown()
 
 	retryDone, err := buf.WaitForFailoverEnd(context.Background(), shard1Key)
-	assert.True(t, mterrors.IsError(err, mterrors.MTB02.ID))
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTB02.ID))
 	assert.Nil(t, retryDone)
 }
 
@@ -439,7 +439,7 @@ func TestBufferShutdown(t *testing.T) {
 	buf.Shutdown()
 	wg.Wait()
 
-	assert.True(t, mterrors.IsError(err, mterrors.MTB03.ID))
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTB03.ID))
 	assert.Nil(t, retryDone)
 }
 

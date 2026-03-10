@@ -34,7 +34,6 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
@@ -59,18 +58,18 @@ const (
 )
 
 // classifyError determines whether an error is eligible for failover buffering.
-// Only PRIMARY traffic with specific error codes is buffered.
+// Only PRIMARY traffic is buffered, and only for:
+//   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
+//   - 25006: PostgreSQL read_only_sql_transaction (in-flight query hit a
+//     primary that has already transitioned to replica)
 func classifyError(err error, target *query.Target) errorAction {
 	if target.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
 		return actionFail
 	}
-	code := mterrors.Code(err)
-	switch code {
-	case mtrpcpb.Code_UNAVAILABLE, mtrpcpb.Code_CLUSTER_EVENT, mtrpcpb.Code_READ_ONLY:
+	if mterrors.IsErrorCode(err, mterrors.MTF01.ID, mterrors.PgSSReadOnlyTransaction) {
 		return actionBuffer
-	default:
-		return actionFail
 	}
+	return actionFail
 }
 
 // PoolerGateway selects and manages connections to multipooler instances.

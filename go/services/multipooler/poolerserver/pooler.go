@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
@@ -131,6 +132,14 @@ func (s *QueryPoolerServer) StartServiceForTests() error {
 func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// TODO: FIX BEFORE PR IS MERGED
+	// THIS IS A CRUTCH FOR REJECTING QUERIES DURING TRANSITION
+	// THIS CHECK SHOULD HAPPEN IN THE EXECUTOR METHODS AFTER WE ADD
+	// FULL STATE MANAGEMENT.
+	if s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY {
+		return nil, mterrors.MTF01.New()
+	}
 
 	if s.executor == nil {
 		return nil, errors.New("executor not initialized - pool manager was nil")
