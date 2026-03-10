@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -58,7 +59,7 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
-func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string, reason string) error {
+func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort []*multiorchdatapb.PoolerHealthState, database string, reason string) (retErr error) {
 	c.logger.InfoContext(ctx, "Starting leader appointment",
 		"shard", shardID,
 		"database", database,
@@ -109,6 +110,22 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardID string, cohort 
 		"term", term,
 		"candidate", candidate.MultiPooler.Id.Name,
 		"standbys", len(standbys))
+
+	// We know the candidate now — emit Started before establishing leadership.
+	eventlog.Emit(ctx, c.logger, eventlog.Started, eventlog.PrimaryPromotion{
+		NewPrimary: candidate.MultiPooler.Id.Name,
+	})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, c.logger, eventlog.Success, eventlog.PrimaryPromotion{
+				NewPrimary: candidate.MultiPooler.Id.Name,
+			})
+		} else {
+			eventlog.Emit(ctx, c.logger, eventlog.Failed, eventlog.PrimaryPromotion{
+				NewPrimary: candidate.MultiPooler.Id.Name,
+			}, "error", retErr)
+		}
+	}()
 
 	// Reconstruct the recruited list (nodes that accepted the term).
 	// This is candidate + standbys.

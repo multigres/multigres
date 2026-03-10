@@ -147,6 +147,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		s.pgCtlCmd.pgPort.Get(),
 		s.pgCtlCmd.pgUser.Get(),
 		s.pgCtlCmd.pgDatabase.Get(),
+		s.pgCtlCmd.pgPassword.Get(),
 		s.pgCtlCmd.timeout.Get(),
 		poolerDir,
 		s.pgCtlCmd.pgListenAddresses.Get(),
@@ -212,6 +213,7 @@ type PgCtldService struct {
 	pgPort     int
 	pgUser     string
 	pgDatabase string
+	pgPassword string
 	timeout    int
 	poolerDir  string
 	config     *pgctld.PostgresCtlConfig
@@ -224,6 +226,7 @@ type PgCtldService struct {
 	pgBackRestStatus *pb.PgBackRestStatus
 	statusMu         sync.RWMutex
 	restartCount     int32
+	metrics          *Metrics
 }
 
 // pgbackrestServerConfigPath returns the path to the pgbackrest server config file.
@@ -237,6 +240,7 @@ func NewPgCtldService(
 	pgPort int,
 	pgUser string,
 	pgDatabase string,
+	pgPassword string,
 	timeout int,
 	poolerDir string,
 	listenAddresses string,
@@ -297,6 +301,11 @@ func NewPgCtldService(
 		logger.Info("Generated pgbackrest-server.conf", "path", configPath)
 	}
 
+	metrics, metricsErr := NewMetrics()
+	if metricsErr != nil {
+		logger.Warn("Failed to register pgctld metrics", "error", metricsErr)
+	}
+
 	//nolint:gocritic // Background context for pgBackRest lifecycle management
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -305,11 +314,13 @@ func NewPgCtldService(
 		pgPort:     pgPort,
 		pgUser:     pgUser,
 		pgDatabase: pgDatabase,
+		pgPassword: pgPassword,
 		timeout:    timeout,
 		poolerDir:  poolerDir,
 		config:     config,
 		ctx:        ctx,
 		cancel:     cancel,
+		metrics:    metrics,
 		pgBackRestStatus: &pb.PgBackRestStatus{
 			Running: false,
 		},
@@ -332,6 +343,9 @@ func (s *PgCtldService) setPgBackRestStatus(running bool, errorMessage string, i
 	if running {
 		s.pgBackRestStatus.LastStarted = timestamppb.Now()
 	}
+
+	s.metrics.SetServerUp(running)
+	s.metrics.SetRestartCount(s.restartCount)
 
 	return s.restartCount
 }
@@ -637,7 +651,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser)
+	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, s.pgPassword)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
@@ -668,12 +682,6 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		}
 	}
 
-	// Resolve password using existing function
-	password, err := resolvePassword(s.poolerDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve password: %w", err)
-	}
-
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
 	// Include application_name if provided (used for replication identification)
 	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
@@ -683,7 +691,7 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}
 
 	// Use the shared rewind function with detailed result, passing password separately
-	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, password, req.GetDryRun(), req.GetExtraArgs())
+	result, err := PgRewindWithResult(ctx, s.logger, s.poolerDir, sourceServer, s.pgPassword, req.GetDryRun(), req.GetExtraArgs())
 	if err != nil {
 		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
 		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)

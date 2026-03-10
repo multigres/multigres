@@ -26,6 +26,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -40,6 +45,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // ScatterConn coordinates query execution across multiple multipooler instances.
@@ -49,13 +55,20 @@ type ScatterConn struct {
 
 	// gateway is used for executing queries (typically a PoolerGateway)
 	gateway poolergateway.Gateway
+
+	metrics *ScatterMetrics
 }
 
 // NewScatterConn creates a new ScatterConn instance.
 func NewScatterConn(gateway poolergateway.Gateway, logger *slog.Logger) *ScatterConn {
+	metrics, err := NewScatterMetrics()
+	if err != nil {
+		logger.Warn("failed to initialise some scatter metrics", "error", err)
+	}
 	return &ScatterConn{
 		logger:  logger,
 		gateway: gateway,
+		metrics: metrics,
 	}
 }
 
@@ -98,7 +111,18 @@ func (sc *ScatterConn) StreamExecute(
 	sql string,
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (retErr error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+	start := time.Now()
+	defer sc.endAction(ctx, span, start, conn.Database(), tableGroup, shard, &retErr)
+
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -205,7 +229,18 @@ func (sc *ScatterConn) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (retErr error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+	start := time.Now()
+	defer sc.endAction(ctx, span, start, conn.Database(), tableGroup, shard, &retErr)
+
 	sc.logger.DebugContext(ctx, "scatter conn executing portal",
 		"tablegroup", tableGroup,
 		"shard", shard,
@@ -361,6 +396,13 @@ func (sc *ScatterConn) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.conclude_transaction",
+		trace.WithAttributes(
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
 	// Collect shard state updates to apply after iteration.
 	// We cannot call ClearReservedConnection during iteration because it
 	// uses swap-and-truncate which mutates the underlying slice.
@@ -480,6 +522,15 @@ func (sc *ScatterConn) CopyInitiate(
 	state *handler.MultiGatewayConnectionState,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) (int16, []int16, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_initiate",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
 	sc.logger.DebugContext(ctx, "initiating COPY FROM STDIN",
 		"query", queryStr,
 		"tablegroup", tableGroup,
@@ -591,6 +642,15 @@ func (sc *ScatterConn) CopyFinalize(
 	finalData []byte,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_finalize",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
 	sc.logger.DebugContext(ctx, "finalizing COPY",
 		"final_chunk_size", len(finalData),
 		"tablegroup", tableGroup,
@@ -733,6 +793,28 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 
 	state.ClearAllReservedConnections()
 	return errors.Join(errs...)
+}
+
+// endAction records shard-level metrics and span status for both success and
+// error outcomes. Designed to be called via defer with a pointer to the named
+// error return.
+func (sc *ScatterConn) endAction(ctx context.Context, span trace.Span, start time.Time, dbNamespace, tableGroup, shard string, err *error) {
+	duration := time.Since(start).Seconds()
+	if *err != nil {
+		sqlstate := mterrors.ExtractSQLSTATE(*err)
+		span.RecordError(*err)
+		span.SetStatus(codes.Error, (*err).Error())
+		if sqlstate != "" {
+			span.SetAttributes(attribute.String("db.response.status_code", sqlstate))
+		}
+		sc.metrics.executeDuration.Record(ctx, duration, dbNamespace, tableGroup, shard, ScatterStatusError)
+		// TODO: Consider filtering out client-caused errors (e.g. unique constraint violations)
+		// from the counter to avoid inflating error rates. We currently count all errors and
+		// rely on the error.type label for dashboard filtering. Revisit if counters get noisy.
+		sc.metrics.executeErrors.Add(ctx, tableGroup, shard, sqlstate)
+		return
+	}
+	sc.metrics.executeDuration.Record(ctx, duration, dbNamespace, tableGroup, shard, ScatterStatusOK)
 }
 
 // Ensure ScatterConn implements engine.IExecute interface.

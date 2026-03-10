@@ -19,8 +19,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 
@@ -59,8 +57,7 @@ start the PostgreSQL server. Configuration can be provided via config file,
 environment variables, or CLI flags. CLI flags take precedence over config
 file and environment variable settings.
 
-Password can be set via PGPASSWORD environment variable or by placing a
-password file at <pooler-dir>/pgpassword.txt.
+Password can be set via the POSTGRES_PASSWORD environment variable.
 
 Examples:
   # Initialize data directory
@@ -81,7 +78,7 @@ Examples:
 }
 
 // InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information
-func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string) (*InitResult, error) {
+func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPassword string) (*InitResult, error) {
 	result := &InitResult{}
 	dataDir := pgctld.PostgresDataDir(poolerDir)
 
@@ -94,7 +91,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 	}
 
 	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
-	if err := initializeDataDir(logger, poolerDir, pgUser); err != nil {
+	if err := initializeDataDir(logger, poolerDir, pgUser, pgPassword); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
@@ -111,7 +108,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
-	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get())
+	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgCtlCmd.pgPassword.Get())
 	if err != nil {
 		return err
 	}
@@ -126,27 +123,12 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) error {
+func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string, pgPassword string) error {
 	// Derive dataDir from poolerDir using the standard convention
 	dataDir := pgctld.PostgresDataDir(poolerDir)
 
 	// Note: initdb will create the data directory itself if it doesn't exist.
 	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
-
-	// Get the effective password and validate it
-	effectivePassword, err := resolvePassword(poolerDir)
-	if err != nil {
-		return fmt.Errorf("failed to resolve password: %w", err)
-	}
-
-	// Determine password source for logging
-	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
-	passwordSource := "default"
-	if _, err := os.Stat(pwfile); err == nil {
-		passwordSource = "password file"
-	} else if os.Getenv("PGPASSWORD") != "" {
-		passwordSource = "PGPASSWORD environment variable"
-	}
 
 	// Build initdb command
 	// It's generally a good idea to enable page data checksums. Furthermore,
@@ -157,7 +139,7 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 
 	// If password is provided, create a temporary password file for initdb
 	var tempPwFile string
-	if effectivePassword != "" {
+	if pgPassword != "" {
 		// Create temporary password file
 		tmpFile, err := os.CreateTemp("", "pgpassword-*.txt")
 		if err != nil {
@@ -166,7 +148,7 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 		tempPwFile = tmpFile.Name()
 		defer os.Remove(tempPwFile)
 
-		if _, err := tmpFile.WriteString(effectivePassword); err != nil {
+		if _, err := tmpFile.WriteString(pgPassword); err != nil {
 			tmpFile.Close()
 			return fmt.Errorf("failed to write password to temporary file: %w", err)
 		}
@@ -176,23 +158,12 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 
 		// Add pwfile argument to initdb
 		args = append(args, "--pwfile="+tempPwFile)
-		logger.Info("Setting password during initdb", "user", pgUser, "password_source", passwordSource)
+		logger.Info("Setting password during initdb", "user", pgUser, "password_source", "POSTGRES_PASSWORD environment variable")
 	} else {
 		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
 	}
 
 	cmd := exec.Command("initdb", args...)
-
-	// On macOS, ensure locale environment variables are set for initdb.
-	// initdb requires valid locale settings to avoid "invalid locale settings" errors.
-	// This is specific to macOS where LC_ALL may not be set by default.
-	if runtime.GOOS == "darwin" {
-		cmd.Env = os.Environ()
-		if os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
-			// Set LC_ALL=C as a safe default if no locale is configured.
-			cmd.Env = append(cmd.Env, "LC_ALL=C")
-		}
-	}
 
 	// Capture both stdout and stderr to include in error messages
 	output, err := cmd.CombinedOutput()
@@ -201,8 +172,8 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string) err
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
 
-	if effectivePassword != "" {
-		logger.Info("User password set successfully", "user", pgUser, "password_source", passwordSource)
+	if pgPassword != "" {
+		logger.Info("User password set successfully", "user", pgUser, "password_source", "POSTGRES_PASSWORD environment variable")
 	}
 
 	return nil
