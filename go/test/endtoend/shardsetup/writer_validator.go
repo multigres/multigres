@@ -43,6 +43,7 @@ type WriterValidator struct {
 
 	ctx     context.Context
 	cancel  context.CancelFunc
+	stop    chan struct{} // signals workers to stop issuing new writes
 	wg      sync.WaitGroup
 	started bool
 }
@@ -125,6 +126,7 @@ func (w *WriterValidator) Start(t *testing.T) {
 	}
 	w.started = true
 	w.ctx, w.cancel = context.WithCancel(t.Context())
+	w.stop = make(chan struct{})
 
 	for i := 0; i < w.workerCount; i++ {
 		w.wg.Add(1)
@@ -132,24 +134,25 @@ func (w *WriterValidator) Start(t *testing.T) {
 	}
 }
 
-// Stop signals all worker goroutines to stop and waits for them to complete.
+// Stop gracefully stops all worker goroutines. It signals workers to stop
+// issuing new writes, then waits for any in-flight writes to complete.
+// This avoids context cancellation errors on in-flight queries.
 func (w *WriterValidator) Stop() {
-	// Get cancel func while holding lock (defer ensures unlock)
-	cancel := func() context.CancelFunc {
+	stop := func() chan struct{} {
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		if !w.started {
 			return nil
 		}
-		return w.cancel
+		return w.stop
 	}()
 
-	if cancel == nil {
+	if stop == nil {
 		return
 	}
 
-	// Cancel and wait outside lock to avoid deadlock with workers
-	cancel()
+	// Signal workers to stop, then wait for in-flight writes to finish.
+	close(stop)
 	w.wg.Wait()
 
 	w.mu.Lock()
@@ -166,7 +169,7 @@ func (w *WriterValidator) worker() {
 
 	for {
 		select {
-		case <-w.ctx.Done():
+		case <-w.stop:
 			return
 		case <-ticker.C:
 			id := w.nextID.Add(1)
