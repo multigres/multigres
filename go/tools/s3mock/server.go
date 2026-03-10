@@ -38,16 +38,31 @@ import (
 	"time"
 )
 
+// PutCallback is called before each PutObject or UploadPart request.
+// It can block to pause the upload or return an error to reject it.
+// The ctx parameter is the request context — cancellation unblocks automatically.
+type PutCallback func(ctx context.Context, bucket, key string) error
+
+// ServerOption configures a Server.
+type ServerOption func(*Server)
+
+// WithPutCallback returns a ServerOption that installs cb as the PutCallback.
+// cb is called before every PutObject and UploadPart request.
+func WithPutCallback(cb PutCallback) ServerOption {
+	return func(s *Server) { s.putCallback = cb }
+}
+
 // Server is an S3-compatible mock server
 type Server struct {
-	storage  *Storage
-	server   *http.Server
-	listener net.Listener
-	endpoint string
+	storage     *Storage
+	server      *http.Server
+	listener    net.Listener
+	endpoint    string
+	putCallback PutCallback // optional; called before each PutObject/UploadPart
 }
 
 // NewServer creates and starts a new S3 mock server on the specified port
-func NewServer(port int) (*Server, error) {
+func NewServer(port int, opts ...ServerOption) (*Server, error) {
 	storage := NewStorage()
 
 	// Generate TLS config
@@ -75,6 +90,9 @@ func NewServer(port int) (*Server, error) {
 		storage:  storage,
 		listener: listener,
 		endpoint: endpoint,
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	// Create HTTP server with router
@@ -123,7 +141,7 @@ func (s *Server) router() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, key := parseBucketAndKey(r.URL.Path)
+		bucket, key := parseBucketAndKey(r.URL.Path)
 
 		// Route based on method and query params
 		switch r.Method {
@@ -159,12 +177,21 @@ func (s *Server) router() http.Handler {
 			if key == "" {
 				// Create bucket
 				writeS3Error(w, "MethodNotAllowed", "Bucket creation not supported via HTTP", http.StatusMethodNotAllowed)
-			} else if r.URL.Query().Has("uploadId") {
-				// UploadPart
-				handleUploadPart(w, r, s.storage)
 			} else {
-				// PutObject
-				handlePutObject(w, r, s.storage)
+				// Call PutCallback before any upload (PutObject or UploadPart)
+				if s.putCallback != nil {
+					if err := s.putCallback(r.Context(), bucket, key); err != nil {
+						writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+						return
+					}
+				}
+				if r.URL.Query().Has("uploadId") {
+					// UploadPart
+					handleUploadPart(w, r, s.storage)
+				} else {
+					// PutObject
+					handlePutObject(w, r, s.storage)
+				}
 			}
 		case "DELETE":
 			if r.URL.Query().Has("uploadId") {
