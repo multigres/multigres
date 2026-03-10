@@ -122,6 +122,13 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 
 	a.logger.InfoContext(ctx, "acquired recovery lock", "shard_key", problem.ShardKey.String())
 
+	return telemetry.WithSpan(ctx, "bootstrap", func(ctx context.Context) error {
+		return a.bootstrapShardLocked(ctx, problem)
+	})
+}
+
+// bootstrapShardLocked performs the bootstrap steps inside the parent "bootstrap" span.
+func (a *BootstrapShardAction) bootstrapShardLocked(ctx context.Context, problem types.Problem) (retErr error) {
 	// Fetch cohort from pooler store
 	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {

@@ -74,6 +74,16 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 		return "", err
 	}
 
+	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
+		var err error
+		retBackupID, err = pm.backupLockedInner(ctx, forcePrimary, backupType, jobID, overrides)
+		return err
+	})
+	return retBackupID, retErr
+}
+
+// backupLockedInner performs the backup steps inside the parent "backup" span.
+func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
 	pm.metrics.IncBackupAttempts(ctx)
 	defer func() {
 		if retErr == nil {
@@ -163,7 +173,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	// Execute backup with progress logging
 	var output []byte
-	err = telemetry.WithSpan(ctx, "backup/pgbackrest-backup", func(ctx context.Context) error {
+	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(ctx context.Context) error {
 		var runErr error
 		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 		return runErr
@@ -175,7 +185,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	// Find the backup ID by querying pgbackrest info with our unique annotations
 	var foundBackupID string
-	err = telemetry.WithSpan(ctx, "backup/find-backup", func(ctx context.Context) error {
+	err = telemetry.WithSpan(ctx, "backup/find", func(ctx context.Context) error {
 		var findErr error
 		foundBackupID, findErr = pm.findBackupByJobID(ctx, effectiveJobID)
 		return findErr
@@ -238,19 +248,21 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Pause monitoring during restore to prevent interference
-	var resumeMonitor func(context.Context)
-	err = telemetry.WithSpan(ctx, "restore/pause-monitor", func(ctx context.Context) error {
-		var pauseErr error
-		resumeMonitor, pauseErr = pm.PausePostgresMonitor(ctx)
-		return pauseErr
-	})
-	if err != nil {
-		return err
-	}
-	defer resumeMonitor(ctx)
+	return telemetry.WithSpan(ctx, "restore", func(ctx context.Context) error {
+		// Pause monitoring during restore to prevent interference
+		var resumeMonitor func(context.Context)
+		err := telemetry.WithSpan(ctx, "restore/pause-monitor", func(ctx context.Context) error {
+			var pauseErr error
+			resumeMonitor, pauseErr = pm.PausePostgresMonitor(ctx)
+			return pauseErr
+		})
+		if err != nil {
+			return err
+		}
+		defer resumeMonitor(ctx)
 
-	return pm.restoreFromBackupLocked(ctx, backupID)
+		return pm.restoreFromBackupLocked(ctx, backupID)
+	})
 }
 
 // restoreFromBackupLocked performs the restore. Caller must hold the action lock
@@ -285,7 +297,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	}
 
 	// Restore the backup
-	if err := telemetry.WithSpan(ctx, "restore/pgbackrest-restore", func(ctx context.Context) error {
+	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
 		return pm.executePgBackrestRestore(ctx, backupID)
 	}); err != nil {
 		return err
