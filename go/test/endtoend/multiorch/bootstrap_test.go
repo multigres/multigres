@@ -207,9 +207,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify Description
 		description, ok := quorumRule["description"].(string)
 		require.True(t, ok, "description should be a string")
-		assert.Equal(t, "Any 2 nodes must acknowledge", description)
+		assert.Equal(t, "At least 2 nodes must acknowledge", description)
 
-		t.Logf("Verified durability policy: policy_name=%s, quorum_type=ANY_N, required_count=%d",
+		t.Logf("Verified durability policy: policy_name=%s, quorum_type=AT_LEAST_N, required_count=%d",
 			policyName, int(requiredCount))
 	})
 

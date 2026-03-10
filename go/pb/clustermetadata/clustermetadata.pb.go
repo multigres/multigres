@@ -1247,8 +1247,8 @@ type QuorumRule struct {
 	// quorum_type determines which quorum algorithm to use
 	QuorumType QuorumType `protobuf:"varint,1,opt,name=quorum_type,json=quorumType,proto3,enum=clustermetadata.QuorumType" json:"quorum_type,omitempty"`
 	// required_count: number of nodes/cells required
-	//   - For QUORUM_TYPE_AT_LEAST_N (or deprecated QUORUM_TYPE_ANY_N): number of nodes required from discovered cohort
-	//   - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N (or deprecated QUORUM_TYPE_MULTI_CELL_ANY_N): number of distinct cells required,
+	//   - For QUORUM_TYPE_AT_LEAST_N: number of nodes required from discovered cohort
+	//   - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N: number of distinct cells required,
 	//     with at least one node from each cell
 	RequiredCount int32 `protobuf:"varint,2,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
 	// Human-readable description
