@@ -29,9 +29,25 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
+// shardKey identifies a shard for primary caching.
+type shardKey struct {
+	tableGroup string
+	shard      string
+}
+
+// cachedPrimary holds the cached primary connection for a shard.
+type cachedPrimary struct {
+	conn *PoolerConnection
+	term int64
+}
+
 // LoadBalancer manages PoolerConnections and selects connections for queries.
 // It creates connections based on discovery events and destroys them when poolers
 // are removed from discovery.
+//
+// For PRIMARY targets, the LoadBalancer caches the primary connection per-shard.
+// The cache is updated via health stream callbacks, so the hot path (GetConnection)
+// is a simple map lookup rather than iterating all poolers.
 type LoadBalancer struct {
 	// localCell is the cell where this gateway is running
 	localCell string
@@ -42,20 +58,25 @@ type LoadBalancer struct {
 	// ctx is the service-lifetime context for child goroutines (health streams)
 	ctx context.Context
 
-	// mu protects the connections map
+	// mu protects connections and cachedPrimaries
 	mu sync.Mutex
 
 	// connections maps pooler ID to PoolerConnection
 	connections map[string]*PoolerConnection
+
+	// cachedPrimaries maps shard key to the cached primary connection.
+	// Updated by onPoolerHealthUpdate when health streams report PrimaryObservation.
+	cachedPrimaries map[shardKey]*cachedPrimary
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
 func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger) *LoadBalancer {
 	return &LoadBalancer{
-		localCell:   localCell,
-		logger:      logger,
-		ctx:         ctx,
-		connections: make(map[string]*PoolerConnection),
+		localCell:       localCell,
+		logger:          logger,
+		ctx:             ctx,
+		connections:     make(map[string]*PoolerConnection),
+		cachedPrimaries: make(map[shardKey]*cachedPrimary),
 	}
 }
 
@@ -74,11 +95,7 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 		return nil
 	}
 
-	// Create new connection.
-	// Pass nil for onHealthUpdate - the LoadBalancer currently uses Health()
-	// to check serving state on demand rather than maintaining a separate list.
-	// TODO: Consider adding a callback to proactively update routing when health changes.
-	conn, err := NewPoolerConnection(lb.ctx, pooler, lb.logger, nil)
+	conn, err := NewPoolerConnection(lb.ctx, pooler, lb.logger, lb.onPoolerHealthUpdate)
 	if err != nil {
 		return fmt.Errorf("failed to create connection to pooler %s: %w", poolerID, err)
 	}
@@ -102,6 +119,12 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 		return
 	}
 	delete(lb.connections, poolerID)
+	// Invalidate cached primary if the removed pooler was the cached primary.
+	for key, cached := range lb.cachedPrimaries {
+		if cached.conn == conn {
+			delete(lb.cachedPrimaries, key)
+		}
+	}
 	lb.mu.Unlock()
 
 	// Close outside the lock
@@ -118,7 +141,7 @@ func (lb *LoadBalancer) RemovePooler(poolerID string) {
 // Returns an error immediately if no suitable connection is available.
 //
 // Selection logic:
-// - For PRIMARY: uses term-based reconciliation across all shard poolers
+// - For PRIMARY: uses cached primary (updated by health stream callbacks)
 // - For REPLICA: prefers local cell serving replicas, with randomization
 func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, error) {
 	if target == nil {
@@ -131,28 +154,17 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 	targetType := target.PoolerType
 
 	if targetType == clustermetadatapb.PoolerType_PRIMARY {
-		// For PRIMARY: collect ALL poolers in the shard (regardless of type)
-		// because any pooler can report PrimaryObservation about who the primary is.
-		var shardPoolers []*PoolerConnection
-		for _, conn := range lb.connections {
-			if matchesShardTarget(conn, target) {
-				shardPoolers = append(shardPoolers, conn)
-			}
+		// Use cached primary (populated by health stream callbacks).
+		// The health stream's PrimaryObservation is the authoritative source
+		// for primary identity — no type-based fallback.
+		key := shardKey{tableGroup: target.TableGroup, shard: target.Shard}
+		if cached, ok := lb.cachedPrimaries[key]; ok {
+			return cached.conn, nil
 		}
 
-		if len(shardPoolers) == 0 {
-			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-				"no pooler found for target: tablegroup=%s, shard=%s, type=%s",
-				target.TableGroup, target.Shard, target.PoolerType.String())
-		}
-
-		conn := lb.selectPrimaryByTerm(shardPoolers)
-		if conn == nil {
-			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-				"no pooler found for target: tablegroup=%s, shard=%s, type=%s (no PRIMARY type)",
-				target.TableGroup, target.Shard, target.PoolerType.String())
-		}
-		return conn, nil
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"no primary cached for target: tablegroup=%s, shard=%s (waiting for health stream)",
+			target.TableGroup, target.Shard)
 	}
 
 	// For REPLICA: collect only replica-type poolers
@@ -229,74 +241,45 @@ func (lb *LoadBalancer) selectReplicaConnection(candidates []*PoolerConnection) 
 	return candidates[rand.IntN(len(candidates))]
 }
 
-// selectPrimaryByTerm finds the primary by looking at all poolers' PrimaryObservation.
-// The observation with the highest term indicates the most recently elected primary.
-// Returns the connection for the primary_id specified in that observation.
+// onPoolerHealthUpdate is the callback invoked by PoolerConnection when health
+// state changes. It updates the cached primary for the connection's shard
+// based on PrimaryObservation term reconciliation.
 //
-// This handles split-brain scenarios: during failover, multiple poolers may have
-// different views of who the primary is. The highest term wins.
-//
-// TODO: Consider caching the best primary observation per-shard and updating it via
-// onHealthUpdate callbacks, rather than recomputing on every GetConnection call.
-// For now, the dynamic approach is simpler and n (poolers per shard) is typically small.
-func (lb *LoadBalancer) selectPrimaryByTerm(shardPoolers []*PoolerConnection) *PoolerConnection {
-	if len(shardPoolers) == 0 {
-		return nil
+// This is safe to call concurrently: both processHealthResponse and setHealthError
+// release healthMu before invoking this callback.
+func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
+	health := conn.Health()
+	if health == nil || health.PrimaryObservation == nil {
+		return
 	}
 
-	// Find the observation with the highest term across all poolers
-	var bestObservation *PoolerConnection
-	var bestTerm int64 = -1
-	var bestPrimaryID string
+	key := shardKey{
+		tableGroup: health.Target.GetTableGroup(),
+		shard:      health.Target.GetShard(),
+	}
+	term := health.PrimaryObservation.PrimaryTerm
+	primaryID := poolerIDString(health.PrimaryObservation.PrimaryId)
 
-	for _, conn := range shardPoolers {
-		health := conn.Health()
-		if health == nil || health.PrimaryObservation == nil {
-			continue
-		}
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
 
-		term := health.PrimaryObservation.PrimaryTerm
-		if term > bestTerm {
-			bestTerm = term
-			bestObservation = conn
-			bestPrimaryID = poolerIDString(health.PrimaryObservation.PrimaryId)
-		}
+	cached := lb.cachedPrimaries[key]
+	if cached != nil && term <= cached.term {
+		return
 	}
 
-	// If no observations found, fall back to pooler type.
-	// Only return PRIMARY-type poolers - never route PRIMARY requests to UNKNOWN
-	// (uninitialized) poolers since they might be replicas. Multi-cell discovery
-	// will find the PRIMARY when multiorch assigns the type.
-	if bestObservation == nil {
-		for _, conn := range shardPoolers {
-			if conn.Type() == clustermetadatapb.PoolerType_PRIMARY {
-				return conn
-			}
-		}
-		// No PRIMARY pooler found - return nil.
-		// Caller will handle as "no pooler found" error.
-		return nil
+	if primaryConn, exists := lb.connections[primaryID]; exists {
+		lb.cachedPrimaries[key] = &cachedPrimary{conn: primaryConn, term: term}
+		lb.logger.Debug("cached primary updated",
+			"tablegroup", key.tableGroup,
+			"shard", key.shard,
+			"primary_id", primaryID,
+			"term", term)
 	}
-
-	// Find the connection for the primary identified by the best observation
-	for _, conn := range shardPoolers {
-		if conn.ID() == bestPrimaryID {
-			return conn
-		}
-	}
-
-	// Primary identified by observation not found.
-	// Fall back to the observer.
-	lb.logger.Warn("primary from highest-term observation not found in connections",
-		"primary_id", bestPrimaryID,
-		"term", bestTerm,
-		"observer_pooler", bestObservation.ID())
-	return bestObservation
 }
 
 // matchesShardTarget checks if a connection matches the tablegroup and shard,
-// regardless of pooler type. Used for primary selection where we need to consult
-// all poolers in the shard for their PrimaryObservation.
+// regardless of pooler type.
 func matchesShardTarget(conn *PoolerConnection, target *query.Target) bool {
 	poolerInfo := conn.PoolerInfo()
 
@@ -349,6 +332,7 @@ func (lb *LoadBalancer) Close() error {
 	lb.mu.Lock()
 	connections := lb.connections
 	lb.connections = make(map[string]*PoolerConnection)
+	lb.cachedPrimaries = make(map[shardKey]*cachedPrimary)
 	lb.mu.Unlock()
 
 	lb.logger.Info("closing all pooler connections", "count", len(connections))

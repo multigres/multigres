@@ -98,13 +98,20 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
-	// Add a primary
+	// Add a primary and simulate health update to populate cache
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(primary))
 
-	// Should find the primary
+	lb.mu.Lock()
+	connPrimary := lb.connections[poolerID(primary)]
+	lb.mu.Unlock()
+	simulateHealthUpdate(connPrimary, clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.PrimaryObservation{PrimaryId: primary.Id, PrimaryTerm: 1})
+
+	// Should find the primary via cache
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	conn, err := lb.GetConnection(target)
@@ -136,13 +143,20 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
-	// Add primary only in remote cell
+	// Add primary only in remote cell and simulate health update
 	remotePrimary := createTestMultiPooler("remote-primary", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(remotePrimary))
 
-	// Should find primary in remote cell
+	lb.mu.Lock()
+	connRemote := lb.connections[poolerID(remotePrimary)]
+	lb.mu.Unlock()
+	simulateHealthUpdate(connRemote, clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.PrimaryObservation{PrimaryId: remotePrimary.Id, PrimaryTerm: 1})
+
+	// Should find primary in remote cell via cache
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
 		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 	}
 	conn, err := lb.GetConnection(target)
@@ -181,13 +195,22 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
-	// Add primaries for different shards
+	// Add primaries for different shards and simulate health updates
 	shard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	shard1 := createTestMultiPooler("primary-shard1", "zone1", constants.DefaultTableGroup, "1", clustermetadatapb.PoolerType_PRIMARY)
 	require.NoError(t, lb.AddPooler(shard0))
 	require.NoError(t, lb.AddPooler(shard1))
 
-	// Request specific shard
+	lb.mu.Lock()
+	connShard0 := lb.connections[poolerID(shard0)]
+	connShard1 := lb.connections[poolerID(shard1)]
+	lb.mu.Unlock()
+	simulateHealthUpdate(connShard0, clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.PrimaryObservation{PrimaryId: shard0.Id, PrimaryTerm: 1})
+	simulateHealthUpdate(connShard1, clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.PrimaryObservation{PrimaryId: shard1.Id, PrimaryTerm: 1})
+
+	// Request specific shard — should find correct primary via cache
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
 		Shard:      "1",
@@ -236,27 +259,25 @@ func simulateHealthUpdate(conn *PoolerConnection, status clustermetadatapb.Poole
 	})
 }
 
-func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
-	logger := slog.Default()
-	lb := NewLoadBalancer(context.Background(), "zone1", logger)
-
-	// Create poolers in the same shard
-	primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-
-	require.NoError(t, lb.AddPooler(primary1))
-	require.NoError(t, lb.AddPooler(primary2))
-	require.NoError(t, lb.AddPooler(replica1))
-
-	// Get connections to set health
-	lb.mu.Lock()
-	connPrimary1 := lb.connections[poolerID(primary1)]
-	connPrimary2 := lb.connections[poolerID(primary2)]
-	connReplica1 := lb.connections[poolerID(replica1)]
-	lb.mu.Unlock()
-
+func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 	t.Run("highest term wins", func(t *testing.T) {
+		logger := slog.Default()
+		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+
+		require.NoError(t, lb.AddPooler(primary1))
+		require.NoError(t, lb.AddPooler(primary2))
+		require.NoError(t, lb.AddPooler(replica1))
+
+		lb.mu.Lock()
+		connPrimary1 := lb.connections[poolerID(primary1)]
+		connPrimary2 := lb.connections[poolerID(primary2)]
+		connReplica1 := lb.connections[poolerID(replica1)]
+		lb.mu.Unlock()
+
 		// primary1 thinks primary1 is leader with term 5
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
@@ -283,6 +304,7 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
 		conn, err := lb.GetConnection(target)
@@ -291,6 +313,23 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 	})
 
 	t.Run("replica reports higher term primary", func(t *testing.T) {
+		logger := slog.Default()
+		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+
+		require.NoError(t, lb.AddPooler(primary1))
+		require.NoError(t, lb.AddPooler(primary2))
+		require.NoError(t, lb.AddPooler(replica1))
+
+		lb.mu.Lock()
+		connPrimary1 := lb.connections[poolerID(primary1)]
+		connPrimary2 := lb.connections[poolerID(primary2)]
+		connReplica1 := lb.connections[poolerID(replica1)]
+		lb.mu.Unlock()
+
 		// primary1 thinks primary1 is leader with term 15
 		simulateHealthUpdate(connPrimary1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
@@ -317,6 +356,7 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
 		conn, err := lb.GetConnection(target)
@@ -324,31 +364,39 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 		assert.Equal(t, poolerID(primary1), conn.ID(), "Should trust replica's observation with highest term")
 	})
 
-	t.Run("no observations falls back to PRIMARY type", func(t *testing.T) {
-		// Clear observations
-		simulateHealthUpdate(connPrimary1,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			nil)
-		simulateHealthUpdate(connPrimary2,
-			clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-			nil)
-		simulateHealthUpdate(connReplica1,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			nil)
+	t.Run("no observations returns UNAVAILABLE", func(t *testing.T) {
+		logger := slog.Default()
+		lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
+		primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+
+		require.NoError(t, lb.AddPooler(primary))
+		require.NoError(t, lb.AddPooler(replica))
+
+		// No health updates — cache is empty, no type-based fallback
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		conn, err := lb.GetConnection(target)
-		require.NoError(t, err)
-		// Should return a PRIMARY type pooler
-		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type(),
-			"Should fall back to PRIMARY type when no observations")
+		_, err := lb.GetConnection(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no primary cached")
 	})
 
-	t.Run("primary in unwatched cell falls back to observer", func(t *testing.T) {
-		// All poolers observe a primary in zone3 that we don't have a connection to
+	t.Run("unwatched primary not cached", func(t *testing.T) {
+		logger := slog.Default()
+		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		require.NoError(t, lb.AddPooler(primary1))
+
+		lb.mu.Lock()
+		connPrimary1 := lb.connections[poolerID(primary1)]
+		lb.mu.Unlock()
+
+		// primary1 observes a primary in zone3 that we don't have a connection to
 		unknownPrimaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone3",
@@ -360,26 +408,59 @@ func TestLoadBalancer_SelectPrimaryByTerm(t *testing.T) {
 				PrimaryId:   unknownPrimaryID,
 				PrimaryTerm: 100,
 			})
-		simulateHealthUpdate(connPrimary2,
-			clustermetadatapb.PoolerServingStatus_SERVING,
-			&multipoolerservice.PrimaryObservation{
-				PrimaryId:   unknownPrimaryID,
-				PrimaryTerm: 100,
-			})
 
+		// Cache should NOT be updated (unknown-primary not in connections).
+		// No type-based fallback — returns UNAVAILABLE.
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
+			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		}
+		_, err := lb.GetConnection(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no primary cached",
+			"Should return UNAVAILABLE when observed primary not in connections")
+	})
+
+	t.Run("cache invalidated on pooler removal", func(t *testing.T) {
+		logger := slog.Default()
+		lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+		primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		require.NoError(t, lb.AddPooler(primary))
+
+		lb.mu.Lock()
+		connPrimary := lb.connections[poolerID(primary)]
+		lb.mu.Unlock()
+
+		// Health update populates cache
+		simulateHealthUpdate(connPrimary,
+			clustermetadatapb.PoolerServingStatus_SERVING,
+			&multipoolerservice.PrimaryObservation{
+				PrimaryId:   primary.Id,
+				PrimaryTerm: 1,
+			})
+
+		// Verify cached
+		target := &query.Target{
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
 		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
-		// Should fall back to the observer (one of the poolers that reported term 100)
-		assert.Contains(t, []string{poolerID(primary1), poolerID(primary2)}, conn.ID(),
-			"Should fall back to observer when primary not in connections")
+		assert.Equal(t, poolerID(primary), conn.ID())
+
+		// Remove the pooler — cache should be invalidated
+		lb.RemovePooler(poolerID(primary))
+
+		_, err = lb.GetConnection(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no primary cached")
 	})
 }
 
-func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
+func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 	logger := slog.Default()
 	lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
@@ -402,15 +483,16 @@ func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
 		_, err := lb.GetConnection(target)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no PRIMARY type",
+		assert.Contains(t, err.Error(), "no primary cached",
 			"Should not fall back to UNKNOWN type poolers")
 	})
 
-	t.Run("UNKNOWN poolers with observation pointing to UNKNOWN returns error", func(t *testing.T) {
+	t.Run("UNKNOWN poolers with observation cached via health callback", func(t *testing.T) {
 		// Both UNKNOWN poolers point to each other (pathological case)
 		simulateHealthUpdate(connUnknown1,
 			clustermetadatapb.PoolerServingStatus_SERVING,
@@ -427,11 +509,12 @@ func TestLoadBalancer_SelectPrimaryByTerm_UnknownTypeNotUsed(t *testing.T) {
 
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
+			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		// Should find unknown2 via observation with highest term, but unknown2 is UNKNOWN type
-		// The current implementation returns the identified pooler regardless of type,
-		// which is intentional - the observation is authoritative
+		// The health callback caches the observed primary with highest term (unknown2 at term 10).
+		// The cache returns the identified pooler regardless of type —
+		// the observation is authoritative.
 		conn, err := lb.GetConnection(target)
 		require.NoError(t, err)
 		assert.Equal(t, poolerID(unknown2), conn.ID(),
