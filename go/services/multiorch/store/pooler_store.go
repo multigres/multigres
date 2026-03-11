@@ -133,7 +133,7 @@ func (s *PoolerStore) FindHealthyPrimary(
 			continue
 		}
 
-		if statusResp.Status.HasBackup {
+		if statusResp.Status.IsInitialized {
 			if healthyPrimary != nil {
 				return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 					"multiple primaries found: %s and %s (stale primary needs demotion)",

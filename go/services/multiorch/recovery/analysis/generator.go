@@ -181,7 +181,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 		CurrentServingStatus: pooler.MultiPooler.ServingStatus,
 		IsPrimary:            poolerType == clustermetadatapb.PoolerType_PRIMARY,
 		LastCheckValid:       pooler.IsLastCheckValid,
-		HasBackup:            store.HasBackup(pooler),
+		IsInitialized:        store.IsInitialized(pooler),
 		HasDataDirectory:     pooler.HasDataDirectory,
 		AnalyzedAt:           time.Now(),
 	}

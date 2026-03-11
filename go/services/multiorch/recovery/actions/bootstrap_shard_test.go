@@ -24,7 +24,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -296,17 +295,17 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	// Status responses: all nodes uninitialized
 	mockClient.SetStatusResponse(poolerID, &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup: false,
+			IsInitialized: false,
 		},
 	})
 	mockClient.SetStatusResponse(standby1ID, &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup: false,
+			IsInitialized: false,
 		},
 	})
 	mockClient.SetStatusResponse(standby2ID, &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup: false,
+			IsInitialized: false,
 		},
 	})
 
@@ -424,7 +423,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup: false,
+			IsInitialized: false,
 		},
 	})
 	// pooler2 returns an error (unreachable)
@@ -500,12 +499,12 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup: false,
+			IsInitialized: false,
 		},
 	})
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup: false,
+			IsInitialized: false,
 		},
 	})
 
@@ -599,7 +598,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 		key := "multipooler-cell1-" + name
 		fakeClient.SetStatusResponse(key, &multipoolermanagerdatapb.StatusResponse{
 			Status: &multipoolermanagerdatapb.Status{
-				HasBackup: false,
+				IsInitialized: false,
 			},
 		})
 		fakeClient.ChangeTypeResponses[key] = &multipoolermanagerdatapb.ChangeTypeResponse{}
@@ -654,87 +653,6 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	assert.Equal(t, 1, callCounts["InitializeEmptyPrimary"], "exactly one primary should be initialized")
 }
 
-// TestBootstrapShardAction_RateLimitedWhenRecentAttemptExists tests that bootstrap
-// is skipped when another orch recently wrote a BootstrapAttempt record.
-func TestBootstrapShardAction_RateLimitedWhenRecentAttemptExists(t *testing.T) {
-	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
-
-	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
-
-	// Setup database with ANY_2 policy
-	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
-
-	// Create fake RPC client - both poolers are reachable and uninitialized
-	fakeClient := rpcclient.NewFakeClient()
-	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
-	})
-	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
-	})
-
-	poolerStore.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "pooler1",
-			},
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Hostname:   "host1",
-			PortMap:    map[string]int32{"postgres": 5432},
-		},
-	})
-	poolerStore.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "pooler2",
-			},
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-			Hostname:   "host2",
-			PortMap:    map[string]int32{"postgres": 5432},
-		},
-	})
-
-	// Inject a recent BootstrapAttempt from another orch (started 5 seconds ago, within 30s cooldown).
-	shardKey := commontypes.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
-	_, err := ts.UpdateBootstrapAttempt(ctx, shardKey,
-		func(_ *clustermetadatapb.BootstrapAttempt) (*clustermetadatapb.BootstrapAttempt, error) {
-			return &clustermetadatapb.BootstrapAttempt{
-				OrchId:    "other-orch",
-				StartedAt: timestamppb.New(time.Now().Add(-5 * time.Second)),
-			}, nil
-		})
-	require.NoError(t, err)
-
-	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
-
-	problem := types.Problem{
-		Code:     types.ProblemShardNeedsBootstrap,
-		ShardKey: shardKey,
-	}
-
-	err = action.Execute(ctx, problem)
-
-	// Should return nil (rate-limited, not an error — retry on next cycle).
-	require.NoError(t, err)
-
-	// InitializeEmptyPrimary must NOT have been called.
-	callCounts := countCallsByMethod(fakeClient.CallLog)
-	assert.Equal(t, 0, callCounts["InitializeEmptyPrimary"],
-		"InitializeEmptyPrimary should not be called when rate-limited")
-}
-
 // countCallsByMethod counts RPC calls by method name from the FakeClient call log.
 // Call log entries are in format "MethodName(poolerID)".
 func countCallsByMethod(callLog []string) map[string]int {
@@ -766,13 +684,13 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup:    true, // Already initialized!
-			PostgresRole: "primary",
+			IsInitialized: true, // Already initialized!
+			PostgresRole:  "primary",
 		},
 	})
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{
-			HasBackup: false,
+			IsInitialized: false,
 		},
 	})
 
@@ -841,11 +759,11 @@ func TestBootstrapShardAction_CountReachablePoolers(t *testing.T) {
 
 	// pooler1 and pooler3 are reachable, pooler2 is not
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
 	})
 	fakeClient.Errors["multipooler-cell1-pooler2"] = errors.New("connection refused")
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler3", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
 	})
 
 	coord := newTestCoordinator(nil, fakeClient, logger)
@@ -896,10 +814,10 @@ func TestBootstrapShardAction_CountReachablePoolersTimeout(t *testing.T) {
 
 	// pooler1 responds immediately, pooler2 is slow (100ms delay > 10ms timeout)
 	fakeClient.SetStatusResponse("multipooler-cell1-pooler1", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
 	})
 	fakeClient.SetStatusResponseWithDelay("multipooler-cell1-pooler2", &multipoolermanagerdatapb.StatusResponse{
-		Status: &multipoolermanagerdatapb.Status{HasBackup: false},
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: false},
 	}, 100*time.Millisecond)
 
 	coord := newTestCoordinator(nil, fakeClient, logger)

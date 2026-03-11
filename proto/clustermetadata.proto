@@ -341,14 +341,3 @@ enum AsyncReplicationFallbackMode {
   // if synchronous replication cannot be established to meet quorum requirements
   ASYNC_REPLICATION_FALLBACK_MODE_REJECT = 2;
 }
-
-// BootstrapAttempt records that an orchestrator has initiated bootstrap for a shard.
-// Written to etcd immediately before calling InitializeEmptyPrimary so that other
-// orchs can detect a recent in-flight attempt and delay their own retry.
-message BootstrapAttempt {
-  // orch_id is the coordinator ID of the initiating orch
-  string orch_id = 1;
-
-  // started_at is the time the bootstrap attempt was initiated
-  google.protobuf.Timestamp started_at = 2;
-}

@@ -68,7 +68,7 @@ func createPoolerForPreVote(name string, isHealthy bool, termNumber int64, lastA
 		MultiPooler:       pooler,
 		IsLastCheckValid:  isHealthy,
 		ConsensusTerm:     consensusTerm,
-		HasBackup:         isInitialized,
+		IsInitialized:     isInitialized,
 		IsPostgresRunning: isHealthy && isInitialized, // postgres is running if healthy and initialized
 	}
 }

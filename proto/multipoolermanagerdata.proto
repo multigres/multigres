@@ -206,12 +206,8 @@ message Status {
 
   // === Initialization status fields (always available, even without db connection) ===
 
-  // Whether this pooler has a backup in the pgBackRest stanza: either it has
-  // taken one (primary) or restored from one (replica). True only after the
-  // full bootstrap sequence completes (initdb + multigres schema +
-  // pgBackRest stanza-create + backup + marker file for primaries;
-  // restore from backup + marker file for replicas).
-  bool has_backup = 4;
+  // Whether this pooler has been initialized (has data directory and multigres schema)
+  bool is_initialized = 4;
 
   // Whether data directory exists
   bool has_data_directory = 5;
@@ -595,10 +591,8 @@ message ConsensusTerm {
   int64 primary_term = 5;
 }
 
-// InitializeEmptyPrimary bootstraps this pooler as the first primary in a new
-// shard: runs initdb, creates the multigres schema, initializes the pgBackRest
-// stanza, takes the initial full backup, and writes the has-backup marker file.
-// Idempotent: returns success immediately if the marker file already exists.
+// InitializeEmptyPrimary initializes this pooler as an empty primary
+// Used during bootstrap initialization of a new shard
 message InitializeEmptyPrimaryRequest {
   // Consensus term to set for this primary
   int64 consensus_term = 1;

@@ -24,8 +24,8 @@ import (
 	"github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestHasBackup(t *testing.T) {
-	// HasBackup() now uses the IsInitialized field from Status RPC directly,
+func TestIsInitialized(t *testing.T) {
+	// IsInitialized() now uses the IsInitialized field from Status RPC directly,
 	// based on data directory state, not LSN values.
 	tests := []struct {
 		name     string
@@ -37,7 +37,7 @@ func TestHasBackup(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: false,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				HasBackup:        true, // even if field is true, unreachable means not initialized
+				IsInitialized:    true, // even if field is true, unreachable means not initialized
 			},
 			expected: false,
 		},
@@ -46,7 +46,7 @@ func TestHasBackup(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      nil,
-				HasBackup:        true,
+				IsInitialized:    true,
 			},
 			expected: false,
 		},
@@ -55,7 +55,7 @@ func TestHasBackup(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				HasBackup:        true,
+				IsInitialized:    true,
 			},
 			expected: true,
 		},
@@ -64,7 +64,7 @@ func TestHasBackup(t *testing.T) {
 			pooler: &multiorchdata.PoolerHealthState{
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
-				HasBackup:        false,
+				IsInitialized:    false,
 			},
 			expected: false,
 		},
@@ -74,7 +74,7 @@ func TestHasBackup(t *testing.T) {
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
-				HasBackup:        true,
+				IsInitialized:    true,
 				PrimaryStatus:    &multipoolermanagerdata.PrimaryStatus{Lsn: "0/1234"},
 			},
 			expected: true,
@@ -85,7 +85,7 @@ func TestHasBackup(t *testing.T) {
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				HasBackup:        true,
+				IsInitialized:    true,
 				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
 					LastReplayLsn: "0/1234",
 				},
@@ -98,7 +98,7 @@ func TestHasBackup(t *testing.T) {
 				IsLastCheckValid: true,
 				MultiPooler:      &clustermetadatapb.MultiPooler{},
 				PoolerType:       clustermetadatapb.PoolerType_REPLICA,
-				HasBackup:        false,
+				IsInitialized:    false,
 				ReplicationStatus: &multipoolermanagerdata.StandbyReplicationStatus{
 					LastReplayLsn: "0/1234",
 				},
@@ -109,7 +109,7 @@ func TestHasBackup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := HasBackup(tt.pooler)
+			result := IsInitialized(tt.pooler)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

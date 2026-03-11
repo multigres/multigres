@@ -601,7 +601,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		poolerKey := topoclient.MultiPoolerIDString(poolerID)
 		expectedStatus := &multipoolermanagerdatapb.Status{
 			PoolerType:      clustermetadatapb.PoolerType_PRIMARY,
-			HasBackup:       true,
+			IsInitialized:   true,
 			PostgresRunning: true,
 			PostgresRole:    "primary",
 			WalPosition:     "0/1000000",
@@ -623,7 +623,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Status)
 		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType)
-		assert.True(t, resp.Status.HasBackup)
+		assert.True(t, resp.Status.IsInitialized)
 		assert.True(t, resp.Status.PostgresRunning)
 		assert.Equal(t, "primary", resp.Status.PostgresRole)
 		assert.Equal(t, "0/1000000", resp.Status.WalPosition)

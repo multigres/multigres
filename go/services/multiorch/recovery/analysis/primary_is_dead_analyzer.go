@@ -54,7 +54,7 @@ func (a *PrimaryIsDeadAnalyzer) Analyze(poolerAnalysis *store.ReplicationAnalysi
 	}
 
 	// Skip if replica is not initialized (ShardNeedsBootstrap handles that)
-	if !poolerAnalysis.HasBackup {
+	if !poolerAnalysis.IsInitialized {
 		return nil, nil
 	}
 

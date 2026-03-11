@@ -154,14 +154,6 @@ type GlobalStore interface {
 	// it will proceed even if references exist, potentially leaving the system
 	// in an inconsistent state.
 	DeleteDatabase(ctx context.Context, database string, force bool) error
-
-	// UpdateBootstrapAttempt reads the current BootstrapAttempt for the shard (nil if none),
-	// passes it to fn, and writes the result back if fn returns a non-nil record.
-	// Returns (true, nil) if fn returned a non-nil record and it was written.
-	// Returns (false, nil) if fn returned nil (chose not to write).
-	// Returns (false, err) on topology or fn error.
-	// The shard lock must be held by the caller.
-	UpdateBootstrapAttempt(ctx context.Context, shardKey types.ShardKey, fn func(*clustermetadatapb.BootstrapAttempt) (*clustermetadatapb.BootstrapAttempt, error)) (bool, error)
 }
 
 // CellStore defines APIs for cell-level dynamic metadata.

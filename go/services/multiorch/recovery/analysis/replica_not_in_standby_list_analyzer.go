@@ -56,7 +56,7 @@ func (a *ReplicaNotInStandbyListAnalyzer) Analyze(poolerAnalysis *store.Replicat
 	}
 
 	// Skip if replica is not initialized
-	if !poolerAnalysis.HasBackup {
+	if !poolerAnalysis.IsInitialized {
 		return nil, nil
 	}
 

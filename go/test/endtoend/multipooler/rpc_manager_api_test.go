@@ -623,7 +623,7 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryClient.Close() })
 
-	t.Run("Idempotent_AlreadyHasBackup", func(t *testing.T) {
+	t.Run("Idempotent_AlreadyIsInitialized", func(t *testing.T) {
 		// The primary was bootstrapped during test setup, so its has-backup marker
 		// file is already present. Calling InitializeEmptyPrimary again must return
 		// success immediately without re-running the bootstrap sequence.
@@ -638,11 +638,11 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 		// The idempotent path returns an empty backup_id (no new backup was taken).
 		assert.Empty(t, resp.BackupId, "idempotent call should not produce a new backup_id")
 
-		// Verify the pooler still reports HasBackup=true after the idempotent call.
+		// Verify the pooler still reports IsInitialized=true after the idempotent call.
 		statusResp, err := primaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdata.StatusRequest{})
 		require.NoError(t, err)
 		require.NotNil(t, statusResp.Status)
-		assert.True(t, statusResp.Status.HasBackup, "primary should still report HasBackup=true")
+		assert.True(t, statusResp.Status.IsInitialized, "primary should still report IsInitialized=true")
 	})
 
 	t.Run("RejectsInvalidTerm", func(t *testing.T) {

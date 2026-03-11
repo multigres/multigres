@@ -151,5 +151,8 @@ func (s *QueryPoolerServer) PoolManager() connpoolmanager.PoolManager {
 // InternalQueryService returns the executor as an InternalQueryService for internal queries.
 // Implements PoolerController interface.
 func (s *QueryPoolerServer) InternalQueryService() executor.InternalQueryService {
+	if s.executor == nil {
+		return nil
+	}
 	return s.executor
 }

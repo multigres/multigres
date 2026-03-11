@@ -58,14 +58,14 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 		errorContains string
 	}{
 		{
-			// The marker file exists → hasBackup() returns true → early return.
+			// The marker file exists → isInitialized() returns true → early return.
 			// pgctld is never called, so this succeeds without real postgres.
 			name: "idempotent - already has a backup",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
 				dataDir := filepath.Join(poolerDir, "pg_data")
 				require.NoError(t, os.MkdirAll(dataDir, 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
-				require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresBackupMarker), []byte("has_backup\n"), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresInitMarker), []byte("initialized\n"), 0o644))
 			},
 			term:          1,
 			expectSuccess: true,
@@ -157,16 +157,16 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 	}
 }
 
-// TestHasBackup verifies that hasBackup uses only the marker file as the
-// canonical signal. The marker file (MULTIGRES_HAS_BACKUP) is written by
-// markHasBackup() only after the full bootstrap sequence completes:
+// TestIsInitialized verifies that isInitialized requires both the marker file and
+// multigres schema to be present. The marker file (MULTIGRES_INITIALIZED) is written
+// by setInitialized() only after the full bootstrap sequence completes:
 //   - Primary: initdb + multigres schema + pgBackRest stanza-create + backup
 //   - Replica:  restore from canonical backup + postgres started
 //
-// We must NOT use querySchemaExists() as a signal: the multigres schema is
-// created before the backup is taken, so using it would return true prematurely
-// on a crash-restart between schema creation and backup completion.
-func TestHasBackup(t *testing.T) {
+// The marker file prevents false positives on crash-restart between schema creation
+// and backup completion. The schema check is a safety invariant: schema existence is
+// necessary (though not sufficient) for a node to be initialized.
+func TestIsInitialized(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("returns false when no data directory exists", func(t *testing.T) {
@@ -176,7 +176,7 @@ func TestHasBackup(t *testing.T) {
 			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
 		}
 
-		assert.False(t, pm.hasBackup(ctx))
+		assert.False(t, pm.isInitialized(ctx))
 	})
 
 	t.Run("returns false when data directory exists but marker file is absent", func(t *testing.T) {
@@ -184,7 +184,7 @@ func TestHasBackup(t *testing.T) {
 		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
 		// Simulate postgres having run initdb and created the multigres schema,
-		// but the full bootstrap sequence (backup + etcd CAS) did not complete: no marker file.
+		// but the full bootstrap sequence (backup) did not complete: no marker file.
 		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
 
 		pm := &MultiPoolerManager{
@@ -192,38 +192,39 @@ func TestHasBackup(t *testing.T) {
 			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
 		}
 
-		assert.False(t, pm.hasBackup(ctx))
+		assert.False(t, pm.isInitialized(ctx))
 		// Cached state must not be poisoned.
-		assert.False(t, pm.backupComplete)
+		assert.False(t, pm.initialized)
 	})
 
-	t.Run("returns true when marker file is present", func(t *testing.T) {
+	t.Run("returns true when marker file is present but postgres is unreachable; cache not set", func(t *testing.T) {
 		poolerDir := t.TempDir()
 		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresBackupMarker), []byte(""), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresInitMarker), []byte("initialized\n"), 0o644))
 
 		pm := &MultiPoolerManager{
 			config:      &Config{},
 			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
 		}
 
-		assert.True(t, pm.hasBackup(ctx))
-		// Cached state should be set after discovery.
-		assert.True(t, pm.backupComplete)
+		// Marker present, postgres unreachable → trust marker, return true.
+		assert.True(t, pm.isInitialized(ctx))
+		// Cache is NOT set since we could not confirm the schema; re-check on next call.
+		assert.False(t, pm.initialized)
 	})
 
-	t.Run("fast path: returns true when backupComplete is already cached", func(t *testing.T) {
+	t.Run("fast path: returns true when initialized is already cached", func(t *testing.T) {
 		poolerDir := t.TempDir()
 		// No data directory at all, but in-memory cache is true.
 		pm := &MultiPoolerManager{
-			config:         &Config{},
-			multipooler:    &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
-			backupComplete: true,
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+			initialized: true,
 		}
 
-		assert.True(t, pm.hasBackup(ctx))
+		assert.True(t, pm.isInitialized(ctx))
 	})
 }
 

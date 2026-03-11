@@ -320,7 +320,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 
 		resp, err := client.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
-		require.True(t, resp.Status.HasBackup, "Final primary should be initialized")
+		require.True(t, resp.Status.IsInitialized, "Final primary should be initialized")
 		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType, "Final leader should have PRIMARY pooler type")
 
 		// Verify we can connect and query
@@ -555,7 +555,7 @@ func checkPrimary(t *testing.T, name string, inst *shardsetup.MultipoolerInstanc
 		return ""
 	}
 
-	if resp.Status.HasBackup && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+	if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
 		t.Logf("New primary elected: %s (pooler_type=%s)", name, resp.Status.PoolerType)
 		return name
 	}
@@ -838,7 +838,7 @@ func verifyStandbyIsStillReplica(t *testing.T, name string, inst *shardsetup.Mul
 
 	resp, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
-	require.True(t, resp.Status.HasBackup, "Multipooler %s should be initialized", name)
+	require.True(t, resp.Status.IsInitialized, "Multipooler %s should be initialized", name)
 	require.Equal(t, clustermetadatapb.PoolerType_REPLICA, resp.Status.PoolerType,
 		"Multipooler %s should still be REPLICA (no failover should have occurred)", name)
 	require.NotNil(t, resp.Status.ReplicationStatus, "Standby %s should have replication status", name)

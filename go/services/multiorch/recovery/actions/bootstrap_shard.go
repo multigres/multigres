@@ -20,8 +20,6 @@ import (
 	"log/slog"
 	"time"
 
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
@@ -97,13 +95,17 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"tablegroup", problem.ShardKey.TableGroup,
 		"shard", problem.ShardKey.Shard)
 
-	// Acquire distributed lock for this shard
+	// Acquire distributed lock for this shard. A short TTL ensures the lock
+	// auto-expires if this orch crashes mid-bootstrap, allowing another orch
+	// to retry promptly.
+	const shardLockTTL = 60 * time.Second
 	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", problem.ShardKey.String())
 
 	ctx, unlock, err := a.topoStore.LockShard(
 		ctx,
 		problem.ShardKey,
 		"bootstrap recovery",
+		topoclient.WithTTL(shardLockTTL),
 	)
 	if err != nil {
 		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
@@ -174,33 +176,6 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 	a.logger.InfoContext(ctx, "verified shard still needs bootstrap, proceeding",
 		"shard_key", problem.ShardKey.String(),
 		"cohort_size", len(cohort))
-
-	// Rate-limit bootstrap attempts: if another orch recently started InitializeEmptyPrimary,
-	// wait for that attempt to settle before retrying.
-	const bootstrapCooldown = 30 * time.Second
-	orchID := topoclient.ClusterIDString(a.coordinator.GetCoordinatorID())
-	wrote, err := a.topoStore.UpdateBootstrapAttempt(ctx, problem.ShardKey,
-		func(existing *clustermetadatapb.BootstrapAttempt) (*clustermetadatapb.BootstrapAttempt, error) {
-			if existing != nil && existing.StartedAt != nil {
-				age := time.Since(existing.StartedAt.AsTime())
-				if age < bootstrapCooldown {
-					return nil, nil // rate-limited
-				}
-			}
-			return &clustermetadatapb.BootstrapAttempt{
-				OrchId:    orchID,
-				StartedAt: timestamppb.Now(),
-			}, nil
-		})
-	if err != nil {
-		return mterrors.Wrap(err, "failed to write bootstrap attempt record")
-	}
-	if !wrote {
-		a.logger.InfoContext(ctx, "bootstrap attempt rate-limited: another orch recently initiated bootstrap; will retry after cooldown",
-			"shard_key", problem.ShardKey.String(),
-			"cooldown", bootstrapCooldown)
-		return nil // not an error — recovery loop will retry next cycle
-	}
 
 	// Select a bootstrap candidate
 	candidate, err := a.selectBootstrapCandidate(ctx, cohort)
@@ -294,7 +269,7 @@ func (a *BootstrapShardAction) verifyBootstrapNeeded(ctx context.Context, cohort
 			continue
 		}
 
-		if resp.Status != nil && resp.Status.HasBackup {
+		if resp.Status != nil && resp.Status.IsInitialized {
 			a.logger.InfoContext(ctx, "node is now initialized (fresh RPC check), skipping bootstrap",
 				"node", pooler.MultiPooler.Id.Name,
 				"postgres_role", resp.Status.PostgresRole)

@@ -39,7 +39,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     true,
-			HasBackup:     true,
+			IsInitialized: true,
 			PrimaryTerm:   5,
 			ConsensusTerm: 10,
 			OtherPrimariesInShard: []*store.PrimaryInfo{
@@ -86,7 +86,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     true,
-			HasBackup:     true,
+			IsInitialized: true,
 			PrimaryTerm:   6,
 			ConsensusTerm: 11,
 			OtherPrimariesInShard: []*store.PrimaryInfo{
@@ -134,7 +134,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     true,
-			HasBackup:     true,
+			IsInitialized: true,
 			PrimaryTerm:   5,
 			ConsensusTerm: 10,
 			OtherPrimariesInShard: []*store.PrimaryInfo{
@@ -165,9 +165,9 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica1",
 			},
-			ShardKey:  commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsPrimary: false,
-			HasBackup: true,
+			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			IsPrimary:     false,
+			IsInitialized: true,
 		}
 
 		problem, err := analyzer.Analyze(analysis)
@@ -186,7 +186,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 			ShardKey:              commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:             true,
-			HasBackup:             true,
+			IsInitialized:         true,
 			PrimaryTerm:           5,
 			ConsensusTerm:         10,
 			OtherPrimariesInShard: nil, // No other primaries
@@ -206,9 +206,9 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "primary",
 			},
-			ShardKey:  commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			IsPrimary: true,
-			HasBackup: false, // Not initialized
+			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
+			IsPrimary:     true,
+			IsInitialized: false, // Not initialized
 			OtherPrimariesInShard: []*store.PrimaryInfo{
 				{
 					ID: &clustermetadatapb.ID{
@@ -248,7 +248,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     true,
-			HasBackup:     true,
+			IsInitialized: true,
 			PrimaryTerm:   6,
 			ConsensusTerm: 11,
 			OtherPrimariesInShard: []*store.PrimaryInfo{
@@ -302,7 +302,7 @@ func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
 			},
 			ShardKey:      commontypes.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			IsPrimary:     true,
-			HasBackup:     true,
+			IsInitialized: true,
 			PrimaryTerm:   0, // Invalid: initialized PRIMARY should never have PrimaryTerm=0
 			ConsensusTerm: 10,
 			OtherPrimariesInShard: []*store.PrimaryInfo{

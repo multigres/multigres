@@ -53,7 +53,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			LastCheckValid:   true,
-			HasBackup:        false,
+			IsInitialized:    false,
 			HasDataDirectory: false, // Explicitly set - no data directory
 			PrimaryPoolerID:  nil,   // no primary exists
 		}
@@ -69,7 +69,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores initialized pooler", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
-			HasBackup:       true,
+			IsInitialized:   true,
 			PrimaryPoolerID: nil,
 		}
 
@@ -80,7 +80,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores uninitialized pooler if primary exists", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
-			HasBackup:       false,
+			IsInitialized:   false,
 			PrimaryPoolerID: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"},
 		}
 
@@ -95,7 +95,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA, // REPLICA type
 			LastCheckValid:   true,
-			HasBackup:        false,
+			IsInitialized:    false,
 			HasDataDirectory: false, // No data directory
 			PrimaryPoolerID:  nil,   // no primary exists
 		}
@@ -111,7 +111,7 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			PoolerType:       clustermetadatapb.PoolerType_REPLICA, // REPLICA type
-			HasBackup:        false,                                // might be temporarily down
+			IsInitialized:    false,                                // might be temporarily down
 			HasDataDirectory: true,                                 // Has data directory
 			PrimaryPoolerID:  nil,
 		}

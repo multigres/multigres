@@ -307,8 +307,8 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Mark backup complete after successful restore
-	return pm.markHasBackup()
+	// Mark as initialized complete after successful restore
+	return pm.setInitialized()
 }
 
 func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, backupID string) error {

@@ -54,7 +54,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PoolerID:         &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:         commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:        false,
-			HasBackup:        true,
+			IsInitialized:    true,
 			PrimaryPoolerID:  primaryID, // Primary exists in topology
 			PrimaryReachable: false,     // But is unreachable (DEAD)
 		}
@@ -72,7 +72,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &store.ReplicationAnalysis{
 			IsPrimary:        false,
-			HasBackup:        true,
+			IsInitialized:    true,
 			PrimaryPoolerID:  primaryID, // Primary exists
 			PrimaryReachable: true,      // And is reachable (HEALTHY)
 		}
@@ -85,7 +85,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores no primary scenario (future analysis)", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
 			IsPrimary:        false,
-			HasBackup:        true,
+			IsInitialized:    true,
 			PrimaryPoolerID:  nil,   // No primary exists in topology
 			PrimaryReachable: false, // N/A
 		}
@@ -98,7 +98,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores primary itself", func(t *testing.T) {
 		analysis := &store.ReplicationAnalysis{
 			IsPrimary:        true, // This is the primary node
-			HasBackup:        true,
+			IsInitialized:    true,
 			PrimaryPoolerID:  nil,
 			PrimaryReachable: false,
 		}
@@ -112,7 +112,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 		analysis := &store.ReplicationAnalysis{
 			IsPrimary:        false,
-			HasBackup:        false, // Uninitialized
+			IsInitialized:    false, // Uninitialized
 			PrimaryPoolerID:  primaryID,
 			PrimaryReachable: false,
 		}
@@ -132,7 +132,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:                  false,
-			HasBackup:                  true,
+			IsInitialized:              true,
 			PrimaryPoolerID:            primaryID,
 			PrimaryReachable:           false, // Overall not reachable
 			PrimaryPoolerReachable:     false, // Pooler is down
@@ -151,7 +151,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:                  false,
-			HasBackup:                  true,
+			IsInitialized:              true,
 			PrimaryPoolerID:            primaryID,
 			PrimaryReachable:           false, // Not reachable (postgres down)
 			PrimaryPoolerReachable:     true,  // Pooler is up
@@ -171,7 +171,7 @@ func TestPrimaryIsDeadAnalyzer_Analyze(t *testing.T) {
 			PoolerID:                   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"},
 			ShardKey:                   commontypes.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 			IsPrimary:                  false,
-			HasBackup:                  true,
+			IsInitialized:              true,
 			PrimaryPoolerID:            primaryID,
 			PrimaryReachable:           false, // Not reachable
 			PrimaryPoolerReachable:     false, // Pooler is down

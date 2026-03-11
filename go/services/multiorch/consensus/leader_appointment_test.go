@@ -104,7 +104,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	return &multiorchdatapb.PoolerHealthState{
 		MultiPooler:      pooler,
 		IsLastCheckValid: healthy,
-		HasBackup:        term > 0,
+		IsInitialized:    term > 0,
 		ConsensusTerm:    consensusTerm,
 	}
 }
