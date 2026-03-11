@@ -1336,6 +1336,71 @@ func TestClusterLifecycle(t *testing.T) {
 	})
 }
 
+// TestTCPPasswordAuthentication validates that PostgreSQL instances provisioned
+// by the local provisioner accept TCP connections with password authentication.
+// This is a focused test for the password auth code path that doesn't depend on
+// the skipped TestClusterLifecycle subtest.
+func TestTCPPasswordAuthentication(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping TCP password auth test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	_, err := exec.LookPath("etcd")
+	if err != nil {
+		t.Skip("etcd binary not found in PATH")
+	}
+
+	clusterSetup, cleanup := setupTestCluster(t)
+	defer cleanup()
+
+	pgPort := clusterSetup.PortConfig.Zones[0].PgctldPGPort
+
+	t.Run("correct password succeeds", func(t *testing.T) {
+		connStr := fmt.Sprintf(
+			"host=127.0.0.1 port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
+			pgPort,
+		)
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		var result int
+		err = db.QueryRow("SELECT 1").Scan(&result)
+		require.NoError(t, err, "TCP connection with correct password should succeed")
+		assert.Equal(t, 1, result)
+	})
+
+	t.Run("wrong password fails", func(t *testing.T) {
+		connStr := fmt.Sprintf(
+			"host=127.0.0.1 port=%d user=postgres password=wrongpassword dbname=postgres sslmode=disable connect_timeout=5",
+			pgPort,
+		)
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		err = db.Ping()
+		require.Error(t, err, "TCP connection with wrong password should fail")
+		assert.Contains(t, err.Error(), "password authentication failed")
+	})
+
+	t.Run("no password fails", func(t *testing.T) {
+		connStr := fmt.Sprintf(
+			"host=127.0.0.1 port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=5",
+			pgPort,
+		)
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		err = db.Ping()
+		require.Error(t, err, "TCP connection with no password should fail")
+		assert.Contains(t, err.Error(), "password authentication failed")
+	})
+}
+
 // assertDirectoryTreeEmpty recursively checks that a directory tree contains no files,
 // only empty directories. Returns an error if any files are found.
 func assertDirectoryTreeEmpty(rootPath string) error {
