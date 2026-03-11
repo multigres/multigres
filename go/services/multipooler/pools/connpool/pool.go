@@ -606,7 +606,7 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 	}
 
 	if settings := dbconn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
-		err = dbconn.Conn.ApplySettings(ctx, settings)
+		err = dbconn.Conn.ApplySettings(connCtx, settings)
 		if err != nil {
 			dbconn.Close()
 			return err
