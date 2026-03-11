@@ -307,7 +307,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Mark as initialized complete after successful restore
+	// Mark as initialized after successful restore
 	return pm.setInitialized()
 }
 
