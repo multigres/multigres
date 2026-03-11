@@ -59,42 +59,28 @@ func (p *Planner) planVariableSetStmt(
 		return plan, nil
 	}
 
-	// Handle each SET kind:
-	// - VAR_SET_VALUE, VAR_RESET, VAR_RESET_ALL: tracked locally in SessionSettings
-	// - VAR_SET_DEFAULT: equivalent to RESET (PG passes NULL to set_config_option)
-	// - VAR_SET_MULTI: SET TRANSACTION / SET SESSION CHARACTERISTICS — pass through to PG
-	// - VAR_SET_CURRENT: SET FROM CURRENT — pass through to PG
+	// SET var TO DEFAULT is equivalent to RESET var in PostgreSQL
+	// (PG's ExecSetVariableStmt falls through from VAR_SET_DEFAULT to VAR_RESET).
+	// Normalize before the switch so it shares the same tracking path.
+	if stmt.Kind == ast.VAR_SET_DEFAULT {
+		p.logger.Debug("SET TO DEFAULT treated as RESET",
+			"variable", stmt.Name)
+		stmt = &ast.VariableSetStmt{
+			Kind: ast.VAR_RESET,
+			Name: stmt.Name,
+		}
+	}
+
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE, ast.VAR_RESET, ast.VAR_RESET_ALL:
 		// These are tracked locally
 
-	case ast.VAR_SET_DEFAULT:
-		// SET var TO DEFAULT is equivalent to RESET var in PostgreSQL
-		// (PG's ExecSetVariableStmt falls through from VAR_SET_DEFAULT to VAR_RESET)
-		p.logger.Debug("SET TO DEFAULT treated as RESET",
-			"variable", stmt.Name)
-		resetStmt := &ast.VariableSetStmt{
-			Kind: ast.VAR_RESET,
-			Name: stmt.Name,
-		}
-		primitive := engine.NewApplySessionState(sql, resetStmt)
-		plan := engine.NewPlan(sql, primitive)
-		return plan, nil
-
-	case ast.VAR_SET_MULTI:
-		// SET TRANSACTION and SET SESSION CHARACTERISTICS are transaction-scoped
-		// commands that must be executed directly on the backend connection.
-		// They set multiple GUCs internally (transaction_isolation, etc.)
-		// and don't need to be tracked in SessionSettings.
-		p.logger.Debug("SET MULTI (SET TRANSACTION) passing through to PostgreSQL",
-			"variable", stmt.Name)
-		return p.planDefault(sql, conn)
-
-	case ast.VAR_SET_CURRENT:
-		// SET var FROM CURRENT — reads current PG value and sets it.
-		// Must be executed on the backend.
-		p.logger.Debug("SET FROM CURRENT passing through to PostgreSQL",
-			"variable", stmt.Name)
+	case ast.VAR_SET_MULTI, ast.VAR_SET_CURRENT:
+		// VAR_SET_MULTI: SET TRANSACTION / SET SESSION CHARACTERISTICS — transaction-scoped,
+		//   must be executed directly on the backend, no session tracking needed.
+		// VAR_SET_CURRENT: SET var FROM CURRENT — reads current PG value, needs backend execution.
+		p.logger.Debug("passing through to PostgreSQL",
+			"kind", stmt.Kind, "variable", stmt.Name)
 		return p.planDefault(sql, conn)
 
 	default:
