@@ -79,6 +79,7 @@ type zonePortConfig struct {
 	MultipoolerGRPCPort  int
 	MultiorchHTTPPort    int
 	MultiorchGRPCPort    int
+	PgctldHTTPPort       int
 	PgctldGRPCPort       int
 	PgctldPGPort         int
 }
@@ -114,6 +115,7 @@ func getTestPortConfig(t *testing.T, numZones int) *testPortConfig {
 			MultipoolerGRPCPort:  utils.GetFreePort(t),
 			MultiorchHTTPPort:    utils.GetFreePort(t),
 			MultiorchGRPCPort:    utils.GetFreePort(t),
+			PgctldHTTPPort:       utils.GetFreePort(t),
 			PgctldGRPCPort:       utils.GetFreePort(t),
 			PgctldPGPort:         utils.GetFreePort(t),
 		}
@@ -235,6 +237,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			},
 			Pgctld: local.PgctldConfig{
 				Path:           "pgctld",
+				HttpPort:       zonePort.PgctldHTTPPort,
 				GrpcPort:       zonePort.PgctldGRPCPort,
 				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("pgctld-%s.sock", zoneName)),
 				PgPort:         zonePort.PgctldPGPort,
