@@ -106,6 +106,10 @@ type Config struct {
 	// Minimum capacity per user ensures light users always have enough connections
 	// for burst demand that point-in-time sampling might miss.
 	minCapacityPerUser viperutil.Value[int64]
+
+	// dialTimeout is the timeout for establishing new PostgreSQL connections.
+	// Applied to net.Dialer.Timeout for all pool connections (admin, regular, reserved).
+	dialTimeout viperutil.Value[time.Duration]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -141,6 +145,9 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		// Set equal to initialUserPoolCapacity (10) so capacity isn't reduced
 		// below the initial value until there's actual resource pressure.
 		minCapacityPerUser int64 = 10
+
+		// Dial timeout for establishing new PostgreSQL connections.
+		dialTimeout = 5 * time.Second
 	)
 
 	return &Config{
@@ -224,6 +231,10 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  minCapacityPerUser,
 			FlagName: "connpool-min-capacity-per-user",
 		}),
+		dialTimeout: viperutil.Configure(reg, "connpool.dial-timeout", viperutil.Options[time.Duration]{
+			Default:  dialTimeout,
+			FlagName: "connpool-dial-timeout",
+		}),
 	}
 }
 
@@ -258,6 +269,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-demand-window", c.demandWindow.Default(), "Sliding window for peak demand tracking (should be multiple of rebalance-interval)")
 	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
 	fs.Int64("connpool-min-capacity-per-user", c.minCapacityPerUser.Default(), "Minimum connections per user (protects against aggressive capacity reduction for light users)")
+	fs.Duration("connpool-dial-timeout", c.dialTimeout.Default(), "Timeout for establishing new PostgreSQL connections")
 
 	viperutil.BindFlags(fs,
 		c.adminUser,
@@ -276,6 +288,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.demandWindow,
 		c.inactiveTimeout,
 		c.minCapacityPerUser,
+		c.dialTimeout,
 	)
 }
 
@@ -364,6 +377,11 @@ func (c *Config) InactiveTimeout() time.Duration {
 // This ensures light users always have enough capacity for burst demand.
 func (c *Config) MinCapacityPerUser() int64 {
 	return c.minCapacityPerUser.Get()
+}
+
+// DialTimeout returns the timeout for establishing new PostgreSQL connections.
+func (c *Config) DialTimeout() time.Duration {
+	return c.dialTimeout.Get()
 }
 
 // NewManager creates a new connection pool manager from this config.

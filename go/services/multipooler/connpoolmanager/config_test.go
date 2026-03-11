@@ -61,6 +61,9 @@ func TestConfig_DefaultValues(t *testing.T) {
 	assert.Equal(t, 1*time.Hour, config.userReservedMaxLifetime.Default())
 
 	assert.Equal(t, int64(1024), config.settingsCacheSize.Default())
+
+	// Dial timeout
+	assert.Equal(t, 5*time.Second, config.dialTimeout.Default())
 }
 
 func TestConfig_RegisterFlags(t *testing.T) {
@@ -85,6 +88,10 @@ func TestConfig_RegisterFlags(t *testing.T) {
 	demandWindowFlag := cmd.Flags().Lookup("connpool-demand-window")
 	require.NotNil(t, demandWindowFlag)
 	assert.Equal(t, "30s", demandWindowFlag.DefValue)
+
+	dialTimeoutFlag := cmd.Flags().Lookup("connpool-dial-timeout")
+	require.NotNil(t, dialTimeoutFlag)
+	assert.Equal(t, "5s", dialTimeoutFlag.DefValue)
 }
 
 func TestConfig_Getters_ReturnDefaults(t *testing.T) {
@@ -113,6 +120,7 @@ func TestConfig_Getters_ReturnDefaults(t *testing.T) {
 	assert.Equal(t, 1*time.Hour, config.UserReservedMaxLifetime())
 
 	assert.Equal(t, 1024, config.SettingsCacheSize())
+	assert.Equal(t, 5*time.Second, config.DialTimeout())
 }
 
 func TestConfig_NewManager(t *testing.T) {

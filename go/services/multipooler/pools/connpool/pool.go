@@ -85,6 +85,12 @@ type Config struct {
 	LogWait         func(time.Time)
 	Logger          *slog.Logger
 
+	// ConnectTimeout bounds background connection attempts (replacement connections
+	// created during put, idle cleanup, and capacity increases). When non-zero,
+	// a derived context with this timeout is used instead of the unbounded pool.ctx.
+	// This prevents a hung dial from permanently consuming an active slot.
+	ConnectTimeout time.Duration
+
 	// OTel metrics instruments (optional, noop if not set).
 	// These are shared across all pools and created by the owner (e.g., connpoolmanager).
 	ConnectionCount ConnectionCount
@@ -151,6 +157,8 @@ type Pool[C Connection] struct {
 		idleTimeout atomic.Int64
 		// refreshInterval is how often to call the refresh check
 		refreshInterval atomic.Int64
+		// connectTimeout bounds background connection attempts to prevent pool starvation
+		connectTimeout time.Duration
 		// logWait is called every time a client must block waiting for a connection
 		logWait func(time.Time)
 	}
@@ -176,6 +184,7 @@ func NewPool[C Connection](ctx context.Context, config *Config) *Pool[C] {
 	pool.config.maxLifetime.Store(config.MaxLifetime.Nanoseconds())
 	pool.config.idleTimeout.Store(config.IdleTimeout.Nanoseconds())
 	pool.config.refreshInterval.Store(config.RefreshInterval.Nanoseconds())
+	pool.config.connectTimeout = config.ConnectTimeout
 	pool.config.logWait = config.LogWait
 	pool.logger = config.Logger
 	if pool.logger == nil {
@@ -450,6 +459,16 @@ func (pool *Pool[C]) GetWithSettings(ctx context.Context, settings *connstate.Se
 	return pool.getWithSettings(ctx, settings)
 }
 
+// connectionCtx returns a bounded context for connection operations (dial + startup).
+// When connectTimeout is configured, it returns a context with that timeout derived
+// from the given ctx. When zero, it returns ctx unchanged (backward compat).
+func (pool *Pool[C]) connectionCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if pool.config.connectTimeout > 0 {
+		return context.WithTimeout(ctx, pool.config.connectTimeout)
+	}
+	return ctx, func() {}
+}
+
 // put returns a connection to the pool. This is a private API.
 // Return connections to the pool by calling Pooled.Recycle.
 func (pool *Pool[C]) put(conn *Pooled[C]) {
@@ -578,13 +597,16 @@ func (pool *Pool[D]) extendedMaxLifetime() time.Duration {
 }
 
 func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time.Duration) (err error) {
-	dbconn.Conn, err = pool.config.connect(ctx, pool.ctx)
+	connCtx, cancel := pool.connectionCtx(ctx)
+	defer cancel()
+
+	dbconn.Conn, err = pool.config.connect(connCtx, pool.ctx)
 	if err != nil {
 		return err
 	}
 
 	if settings := dbconn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
-		err = dbconn.Conn.ApplySettings(ctx, settings)
+		err = dbconn.Conn.ApplySettings(connCtx, settings)
 		if err != nil {
 			dbconn.Close()
 			return err
@@ -597,7 +619,10 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 }
 
 func (pool *Pool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
-	conn, err := pool.config.connect(ctx, pool.ctx)
+	connCtx, cancel := pool.connectionCtx(ctx)
+	defer cancel()
+
+	conn, err := pool.config.connect(connCtx, pool.ctx)
 	if err != nil {
 		return nil, err
 	}
