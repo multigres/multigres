@@ -18,6 +18,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
@@ -136,10 +139,55 @@ func SaveGUCs(ctx context.Context, client *MultiPoolerTestClient, gucNames []str
 	return saved
 }
 
-// RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM.
+// ReloadConfig calls pg_reload_conf() and waits for the reload to complete
+// using pg_conf_load_time() as an event-based completion signal.
+//
+// pg_reload_conf() sends SIGHUP and returns immediately, before postgres has
+// processed the signal. This function waits until pg_conf_load_time() advances
+// past the pre-reload value, which happens atomically when postgres finishes
+// processing the SIGHUP — at which point all GUC values are guaranteed to
+// reflect the latest postgresql.auto.conf.
+//
+// ctx is used only for the pg_reload_conf() call. The reload-completion wait
+// uses its own internal context so that a short caller deadline does not cut
+// off the wait on a loaded system.
+func ReloadConfig(ctx context.Context, t *testing.T, client *MultiPoolerTestClient, instanceName string) {
+	t.Helper()
+
+	loadTimeBefore, err := QueryStringValue(ctx, client, "SELECT pg_conf_load_time()")
+	// pg_conf_load_tim() should not normally fail, but if it does, log the
+	// error so that we can debug the issue.
+	require.NoError(t, err, "Failed to get pg_conf_load_time on %s: %v", instanceName, err)
+
+	_, err = client.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
+	require.NoError(t, err, "Failed to reload config on %s: %v", instanceName, err)
+
+	// Use a fresh context for polling so a short caller ctx does not cut off the wait.
+	pollCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var funcCallError error
+	require.Eventually(t, func() bool {
+		loadTimeAfter, err := QueryStringValue(pollCtx, client, "SELECT pg_conf_load_time()")
+		// pg_conf_load_tim() should not normally fail, but if it does, stop
+		// polling and report it, instead of polling until timeout.
+		if err != nil {
+			funcCallError = err
+			return true
+		}
+		return loadTimeAfter != loadTimeBefore
+	}, 30*time.Second, 10*time.Millisecond,
+		"%s: pg_conf_load_time did not advance after pg_reload_conf()", instanceName)
+
+	require.NoError(t, funcCallError, "Error calling pg_conf_load_time on %s: %v", instanceName, funcCallError)
+}
+
+// RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM, then
+// calls ReloadConfig to apply the changes and wait for the reload to complete.
 // Empty values are treated as RESET (restore to default).
 func RestoreGUCs(ctx context.Context, t *testing.T, client *MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
 	t.Helper()
+
 	for gucName, gucValue := range savedGucs {
 		var query string
 		if gucValue == "" {
@@ -153,11 +201,7 @@ func RestoreGUCs(ctx context.Context, t *testing.T, client *MultiPoolerTestClien
 		}
 	}
 
-	// Reload configuration to apply changes
-	_, err := client.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 1)
-	if err != nil {
-		t.Logf("Warning: Failed to reload config on %s in cleanup: %v", instanceName, err)
-	}
+	ReloadConfig(ctx, t, client, instanceName)
 }
 
 // ValidateGUCValue queries a GUC and returns an error if it doesn't match the expected value.

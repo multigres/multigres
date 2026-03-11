@@ -321,7 +321,20 @@ func (m *Manager) InternalUser() string {
 // Admin connections are used for control plane operations like killing queries.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
-	return m.adminPool.Get(ctx)
+	// Read adminPool under createMu to avoid a nil-pointer panic if Close() is
+	// racing with this call. Close() sets m.adminPool = nil while holding
+	// createMu, so a snapshot taken here is either the valid pool or nil.
+	//
+	// We do not use the defer pattern used in other methods because that would
+	// mean that we hold the mutex while calling Get() below. If the Get() call
+	// block waiting for I/O, no other action will be able to get a connection.
+	m.createMu.Lock()
+	adminPool := m.adminPool
+	m.createMu.Unlock()
+	if adminPool == nil {
+		return nil, errors.New("admin pool is closed")
+	}
+	return adminPool.Get(ctx)
 }
 
 // --- Regular Pool Operations ---

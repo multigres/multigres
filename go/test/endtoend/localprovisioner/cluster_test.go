@@ -243,7 +243,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				Timeout:        60,
 				LogLevel:       "info",
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
-				// PgPwfile not set - provisioner will create pgpassword.txt with default "postgres" password
+				// PgPassword not set - defaults to "postgres"
 			},
 		}
 
@@ -816,18 +816,18 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	t.Logf("Zone %s PostgreSQL (port %d) is responding correctly", zone, port)
 
 	// Also test TCP connection with password to validate password was set correctly
-	// The default password is "postgres" (set by the local provisioner at pgpassword.txt)
+	// The default password is "postgres" (set by PgPassword in local provisioner config)
 	testPostgreSQLTCPConnection(t, port, zone)
 }
 
 // testPostgreSQLTCPConnection tests TCP connection with password authentication.
-// This validates that the password file convention is working correctly.
+// This validates that the password configuration is working correctly.
 func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
 	t.Helper()
 
 	t.Logf("Testing PostgreSQL TCP connection with password on port %d (Zone %s)...", port, zone)
 
-	// Connect via TCP using the default password "postgres" (from pgpassword.txt)
+	// Connect via TCP using the default password "postgres" (from PgPassword config)
 	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
 	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
 

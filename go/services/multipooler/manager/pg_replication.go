@@ -705,7 +705,7 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 		defer execCancel()
 
 		pm.logger.InfoContext(ctx, "Clearing synchronous_standby_names (empty standby list)")
-		if err := pm.exec(execCtx, "ALTER SYSTEM SET synchronous_standby_names = ''"); err != nil {
+		if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 			return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 		}
@@ -809,7 +809,7 @@ func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 
 	// ALTER SYSTEM writes to postgresql.auto.conf (not WAL), so it doesn't require
 	// sync replication acknowledgment and won't block.
-	if err := pm.exec(execCtx, "ALTER SYSTEM SET synchronous_standby_names = ''"); err != nil {
+	if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to clear synchronous_standby_names for demotion", "error", err)
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names for demotion")
 	}
@@ -833,7 +833,7 @@ func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) e
 	defer execCancel()
 
 	// Clear synchronous_standby_names to remove all standbys
-	if err := pm.exec(execCtx, "ALTER SYSTEM SET synchronous_standby_names = ''"); err != nil {
+	if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
 	}

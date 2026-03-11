@@ -936,29 +936,29 @@ func (pool *Pool[C]) closeIdleResources(now time.Time) {
 		// besides the head. When clients pop from the stack, they'll immediately
 		// notice the expired connection and ignore it.
 		// see: timestamp.expired
+		var expiredCount int
 		s.ForEach(func(conn *Pooled[C]) bool {
 			if conn.timeUsed.expired(mono, timeout) {
 				pool.Metrics.idleClosed.Add(1)
 
 				conn.Close()
 				pool.closedConn()
-
-				// Try to open a new connection to replace the closed one
-				c, err := pool.getNew(pool.ctx)
-				if err != nil {
-					// If we couldn't open a new connection, just continue
-					return true
-				}
-
-				// Opening a new connection might have raced with other goroutines,
-				// so it's possible that we got back `nil` here
-				if c != nil {
-					// Return the new connection to the pool
-					pool.tryReturnConn(c)
-				}
+				expiredCount++
 			}
 			return true // continue iteration
 		})
+
+		// Create replacement connections AFTER ForEach releases the stack
+		// mutex. Calling getNew/tryReturnConn inside ForEach would deadlock:
+		// tryReturnConn may Push to the same stack whose mutex ForEach holds,
+		// and sync.Mutex is not reentrant.
+		for range expiredCount {
+			c, err := pool.getNew(pool.ctx)
+			if err != nil || c == nil {
+				return
+			}
+			pool.tryReturnConn(c)
+		}
 	}
 
 	for i := 0; i <= stackMask; i++ {

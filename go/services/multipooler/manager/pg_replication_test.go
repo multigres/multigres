@@ -1518,7 +1518,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 		{
 			name: "successful clear synchronous replication",
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
@@ -1526,7 +1526,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 		{
 			name: "ALTER SYSTEM fails",
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names = ''", errors.New("permission denied"))
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM RESET synchronous_standby_names", errors.New("permission denied"))
 			},
 			expectError:   true,
 			errorContains: "failed to clear synchronous_standby_names for demotion",
@@ -1534,7 +1534,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 		{
 			name: "pg_reload_conf fails",
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
 			},
 			expectError:   true,

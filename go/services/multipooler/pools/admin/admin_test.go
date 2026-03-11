@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -537,6 +538,65 @@ func TestTerminateBackend_ReconnectsOnConnectionError(t *testing.T) {
 	assert.True(t, success)
 
 	server.VerifyAllExecutedOrFail()
+}
+
+// TestQueryWithRetry_ContextCancelledWhileBlocked is a regression test for the
+// action lock bug: previously, when a PostgreSQL backend stalled (e.g. an INSERT
+// waiting for synchronous standby acknowledgement), the admin conn goroutine
+// remained stuck in readMessage() after the caller's context expired, holding
+// the action lock and causing all subsequent RPCs that need the lock to time out.
+//
+// With execQueryWithContextCancel, context cancellation force-closes the connection
+// to unblock readMessage, and the call returns promptly with context.Canceled.
+func TestQueryWithRetry_ContextCancelledWhileBlocked(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// blockCh simulates a stalled PostgreSQL backend. The server withholds its
+	// response until blockCh is closed, mimicking an INSERT waiting for a
+	// synchronous standby that never acknowledges.
+	blockCh := make(chan struct{})
+	serverReceived := make(chan struct{})
+
+	server.AddQueryPatternWithCallback(
+		`SELECT pg_sleep\(100\)`,
+		fakepgserver.MakeResult([]string{"pg_sleep"}, [][]any{{""}}),
+		func(_ string) {
+			close(serverReceived) // signal: server accepted the query and is now stalled
+			<-blockCh
+		},
+	)
+
+	conn := newTestDirectConn(t, server)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := conn.QueryWithRetry(ctx, "SELECT pg_sleep(100)")
+		errCh <- err
+	}()
+
+	// Wait until the server has stalled, then cancel — this is the trigger that
+	// should force-close the connection and unblock the goroutine in readMessage.
+	<-serverReceived
+	cancel()
+
+	// QueryWithRetry must return promptly, not hang indefinitely holding the lock.
+	select {
+	case err := <-errCh:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("QueryWithRetry did not return after context cancellation")
+	}
+
+	// After force-close, IsClosed() must be true so that Recycle() replaces the
+	// connection rather than returning a broken one to the idle pool.
+	assert.True(t, conn.IsClosed())
+
+	// Release the blocked server goroutine so it can exit cleanly.
+	close(blockCh)
 }
 
 func TestCancelBackend_ReconnectsOnConnectionError(t *testing.T) {

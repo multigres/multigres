@@ -203,11 +203,10 @@ func restoreAfterEmergencyDemotion(t *testing.T, setup *MultipoolerTestSetup, pg
 	require.NoError(t, err)
 	defer poolerClient.Close()
 
-	_, err = poolerClient.ExecuteQuery(context.Background(), "ALTER SYSTEM SET synchronous_standby_names = ''", 1)
+	_, err = poolerClient.ExecuteQuery(context.Background(), "ALTER SYSTEM RESET synchronous_standby_names", 1)
 	require.NoError(t, err, "Should clear synchronous_standby_names on pooler: %s", multipoolerName)
 
-	_, err = poolerClient.ExecuteQuery(context.Background(), "SELECT pg_reload_conf()", 1)
-	require.NoError(t, err, "Should reload postgres config on pooler: %s", multipoolerName)
+	shardsetup.ReloadConfig(context.Background(), t, poolerClient, multipoolerName)
 
 	t.Logf("Pooler %s restored after emergency demotion", multipoolerName)
 }
