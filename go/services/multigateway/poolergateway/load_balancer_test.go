@@ -364,7 +364,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		assert.Equal(t, poolerID(primary1), conn.ID(), "Should trust replica's observation with highest term")
 	})
 
-	t.Run("no observations returns UNAVAILABLE", func(t *testing.T) {
+	t.Run("no observations uses discovery seed", func(t *testing.T) {
 		logger := slog.Default()
 		lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
@@ -374,18 +374,19 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		require.NoError(t, lb.AddPooler(primary))
 		require.NoError(t, lb.AddPooler(replica))
 
-		// No health updates — cache is empty, no type-based fallback
+		// No health updates — but discovery seed (term 0) provides a primary
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		_, err := lb.GetConnection(target)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no primary cached")
+		conn, err := lb.GetConnection(target)
+		require.NoError(t, err)
+		assert.Equal(t, poolerID(primary), conn.ID(),
+			"Should return discovery-seeded primary before health stream connects")
 	})
 
-	t.Run("unwatched primary not cached", func(t *testing.T) {
+	t.Run("unwatched primary keeps discovery seed", func(t *testing.T) {
 		logger := slog.Default()
 		lb := NewLoadBalancer(context.Background(), "zone1", logger)
 
@@ -409,17 +410,17 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 				PrimaryTerm: 100,
 			})
 
-		// Cache should NOT be updated (unknown-primary not in connections).
-		// No type-based fallback — returns UNAVAILABLE.
+		// Cache NOT updated (unknown-primary not in connections).
+		// Discovery seed (term 0) for primary1 remains intact.
 		target := &query.Target{
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      "0",
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		}
-		_, err := lb.GetConnection(target)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no primary cached",
-			"Should return UNAVAILABLE when observed primary not in connections")
+		conn, err := lb.GetConnection(target)
+		require.NoError(t, err)
+		assert.Equal(t, poolerID(primary1), conn.ID(),
+			"Discovery seed should survive when observed primary is not in connections")
 	})
 
 	t.Run("cache invalidated on pooler removal", func(t *testing.T) {
@@ -458,6 +459,76 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no primary cached")
 	})
+}
+
+func TestLoadBalancer_PrimaryCachedFromDiscovery(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+	// AddPooler with PRIMARY type seeds the cache — no health update needed
+	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, lb.AddPooler(primary))
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	conn, err := lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(primary), conn.ID(), "Should find primary seeded from discovery")
+}
+
+func TestLoadBalancer_PrimarySeedInvalidatedOnTypeChange(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+	// Add as PRIMARY — seeds cache
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, lb.AddPooler(pooler))
+
+	// Topo update: type changed to REPLICA — seed should be invalidated
+	poolerAsReplica := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, lb.AddPooler(poolerAsReplica))
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	_, err := lb.GetConnection(target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no primary cached")
+}
+
+func TestLoadBalancer_HealthStreamOverridesSeed(t *testing.T) {
+	logger := slog.Default()
+	lb := NewLoadBalancer(context.Background(), "zone1", logger)
+
+	// Add as PRIMARY — seeds cache with term 0
+	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	require.NoError(t, lb.AddPooler(pooler))
+
+	// Health stream confirms primary with real term
+	lb.mu.Lock()
+	conn := lb.connections[poolerID(pooler)]
+	lb.mu.Unlock()
+	simulateHealthUpdate(conn, clustermetadatapb.PoolerServingStatus_SERVING,
+		&multipoolerservice.PrimaryObservation{PrimaryId: pooler.Id, PrimaryTerm: 5})
+
+	// Topo update: type changed to REPLICA — but health-confirmed entry (term > 0) is NOT invalidated
+	poolerAsReplica := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	require.NoError(t, lb.AddPooler(poolerAsReplica))
+
+	target := &query.Target{
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      "0",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	conn2, err := lb.GetConnection(target)
+	require.NoError(t, err)
+	assert.Equal(t, poolerID(pooler), conn2.ID(),
+		"Health-confirmed primary (term > 0) should survive topo type change")
 }
 
 func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {

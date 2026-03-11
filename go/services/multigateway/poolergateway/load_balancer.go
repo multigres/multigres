@@ -91,7 +91,30 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 
 	// Check if already exists - update info instead of skipping
 	if conn, exists := lb.connections[poolerID]; exists {
+		oldType := conn.Type()
 		conn.UpdatePoolerInfo(pooler)
+		newType := conn.Type()
+
+		// Invalidate seed if type changed away from PRIMARY
+		if oldType == clustermetadatapb.PoolerType_PRIMARY && newType != clustermetadatapb.PoolerType_PRIMARY {
+			key := shardKey{tableGroup: pooler.GetTableGroup(), shard: pooler.GetShard()}
+			if cached, ok := lb.cachedPrimaries[key]; ok && cached.conn == conn && cached.term == 0 {
+				delete(lb.cachedPrimaries, key)
+				lb.logger.Debug("invalidated seeded primary cache on type change",
+					"pooler_id", poolerID, "old_type", oldType, "new_type", newType)
+			}
+		}
+
+		// Seed if type changed to PRIMARY
+		if oldType != clustermetadatapb.PoolerType_PRIMARY && newType == clustermetadatapb.PoolerType_PRIMARY {
+			key := shardKey{tableGroup: pooler.GetTableGroup(), shard: pooler.GetShard()}
+			if existing, ok := lb.cachedPrimaries[key]; !ok || existing.term == 0 {
+				lb.cachedPrimaries[key] = &cachedPrimary{conn: conn, term: 0}
+				lb.logger.Debug("seeded primary cache on type change",
+					"pooler_id", poolerID, "old_type", oldType, "new_type", newType)
+			}
+		}
+
 		return nil
 	}
 
@@ -101,6 +124,18 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	}
 
 	lb.connections[poolerID] = conn
+
+	// Seed primary cache from discovery type (term 0 = unconfirmed).
+	// Health stream callbacks will overwrite with real term data.
+	if pooler.Type == clustermetadatapb.PoolerType_PRIMARY {
+		key := shardKey{tableGroup: pooler.GetTableGroup(), shard: pooler.GetShard()}
+		if existing, ok := lb.cachedPrimaries[key]; !ok || existing.term == 0 {
+			lb.cachedPrimaries[key] = &cachedPrimary{conn: conn, term: 0}
+			lb.logger.Debug("seeded primary cache from discovery",
+				"pooler_id", poolerID, "tablegroup", key.tableGroup, "shard", key.shard)
+		}
+	}
+
 	lb.logger.Debug("added pooler connection",
 		"pooler_id", poolerID,
 		"type", pooler.Type.String(),
