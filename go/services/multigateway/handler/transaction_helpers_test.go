@@ -46,20 +46,21 @@ func (m *trackingMockExecutor) StreamExecute(
 	_ string,
 	astStmt ast.Stmt,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (*ExecuteResult, error) {
 	m.executedStmts = append(m.executedStmts, astStmt)
 	idx := m.callCount
 	m.callCount++
 	if m.errOnCallIndex >= 0 && idx == m.errOnCallIndex {
-		return m.errToReturn
+		return nil, m.errToReturn
 	}
 	// Call the callback with a result that includes a CommandTag,
 	// mimicking real executor behavior.
-	return callback(ctx, &sqltypes.Result{CommandTag: astStmt.SqlString()})
+	err := callback(ctx, &sqltypes.Result{CommandTag: astStmt.SqlString()})
+	return &ExecuteResult{}, err
 }
 
-func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, func(context.Context, *sqltypes.Result) error) error {
-	return nil
+func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
+	return &ExecuteResult{}, nil
 }
 
 func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
@@ -118,7 +119,7 @@ func TestExecuteWithImplicitTransaction_PureImplicit(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -133,7 +134,7 @@ func TestExecuteWithImplicitTransaction_UserBeginMidBatch(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; BEGIN; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; BEGIN; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -149,7 +150,7 @@ func TestExecuteWithImplicitTransaction_UserCommitMidBatch(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; COMMIT; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; COMMIT; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -165,7 +166,7 @@ func TestExecuteWithImplicitTransaction_UserRollbackMidBatch(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; ROLLBACK; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; ROLLBACK; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -182,7 +183,7 @@ func TestExecuteWithImplicitTransaction_AlreadyInTransaction(t *testing.T) {
 	tc.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), tc.Conn, state, "SELECT 1; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -201,7 +202,7 @@ func TestExecuteWithImplicitTransaction_ErrorInImplicitTx(t *testing.T) {
 	state := NewMultiGatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -225,7 +226,7 @@ func TestExecuteWithImplicitTransaction_ErrorInExplicitTx(t *testing.T) {
 	// Then SELECT 2 fails → no auto-rollback because we're in explicit tx
 	stmts := parseStmts(t, "SELECT 1; BEGIN; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), conn, state, "SELECT 1; BEGIN; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -246,7 +247,7 @@ func TestExecuteWithImplicitTransaction_CommandTagDeferredUntilCommit(t *testing
 
 	// Track the order of CommandTags received by the callback.
 	var commandTags []string
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; SELECT 2", stmts,
 		func(_ context.Context, result *sqltypes.Result) error {
 			if result.CommandTag != "" {
@@ -276,7 +277,7 @@ func TestExecuteWithImplicitTransaction_CommandTagNotSentOnCommitFailure(t *test
 
 	// Track CommandTags received by the callback.
 	var commandTags []string
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state, "SELECT 1; SELECT 2", stmts,
 		func(_ context.Context, result *sqltypes.Result) error {
 			if result.CommandTag != "" {
@@ -310,7 +311,7 @@ func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitFailure(t *testi
 	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COPY t FROM STDIN")
 
 	var commandTags []string
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state,
 		"INSERT INTO t VALUES(1); COPY t FROM STDIN", stmts,
 		func(_ context.Context, result *sqltypes.Result) error {
@@ -339,7 +340,7 @@ func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitSuccess(t *testi
 	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COPY t FROM STDIN")
 
 	var commandTags []string
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), newImplicitTxTestConn(), state,
 		"INSERT INTO t VALUES(1); COPY t FROM STDIN", stmts,
 		func(_ context.Context, result *sqltypes.Result) error {
@@ -367,7 +368,7 @@ func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *t
 	tc.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	stmts := parseStmts(t, "SELECT 1; COMMIT; SELECT 2")
 
-	err := h.executeWithImplicitTransaction(
+	_, err := h.executeWithImplicitTransaction(
 		context.Background(), tc.Conn, state, "SELECT 1; COMMIT; SELECT 2", stmts,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)

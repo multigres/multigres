@@ -70,7 +70,7 @@ func (e *Executor) StreamExecute(
 	queryStr string,
 	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
-) error {
+) (*handler.ExecuteResult, error) {
 	e.logger.DebugContext(ctx, "executing query",
 		"query", queryStr,
 		"user", conn.User(),
@@ -83,7 +83,11 @@ func (e *Executor) StreamExecute(
 		e.logger.ErrorContext(ctx, "query planning failed",
 			"query", queryStr,
 			"error", err)
-		return err
+		return nil, err
+	}
+
+	result := &handler.ExecuteResult{
+		TablesUsed: plan.TablesUsed,
 	}
 
 	e.logger.DebugContext(ctx, "query plan created",
@@ -98,14 +102,14 @@ func (e *Executor) StreamExecute(
 			"query", queryStr,
 			"plan", plan.String(),
 			"error", err)
-		return err
+		return result, err
 	}
 
 	e.logger.DebugContext(ctx, "query execution completed",
 		"query", queryStr,
 		"tablegroup", plan.GetTableGroup())
 
-	return nil
+	return result, nil
 }
 
 // PortalStreamExecute executes a portal and streams results back via the callback function.
@@ -116,7 +120,7 @@ func (e *Executor) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
-) error {
+) (*handler.ExecuteResult, error) {
 	e.logger.DebugContext(ctx, "executing portal",
 		"portal", portalInfo.Portal.Name,
 		"max_rows", maxRows,
@@ -133,15 +137,17 @@ func (e *Executor) PortalStreamExecute(
 		e.logger.ErrorContext(ctx, "portal query planning failed",
 			"query", portalInfo.PreparedStatementInfo.Query,
 			"error", err)
-		return err
+		return nil, err
 	}
 	if plan != nil {
 		e.logger.DebugContext(ctx, "executing portal plan locally",
 			"plan", plan.String())
-		return plan.StreamExecute(ctx, e.exec, conn, state, callback)
+		err = plan.StreamExecute(ctx, e.exec, conn, state, callback)
+		return &handler.ExecuteResult{TablesUsed: plan.TablesUsed}, err
 	}
 
-	return e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
+	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
+	return nil, err
 }
 
 // Describe returns metadata about a prepared statement or portal.
