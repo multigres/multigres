@@ -61,10 +61,10 @@ demo/local/multigres-with-otel.sh cluster start --config-path /path/to/multigres
 
 ### Ports
 
-| Service | Port |
-|---|---|
-| Grafana | 3000 |
+| Service     | Port |
+| ----------- | ---- |
+| Grafana     | 3000 |
 | OTLP (HTTP) | 4318 |
-| Prometheus | 9090 |
-| Loki | 3100 |
-| Tempo | 3200 |
+| Prometheus  | 9090 |
+| Loki        | 3100 |
+| Tempo       | 3200 |
