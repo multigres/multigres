@@ -33,13 +33,21 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
+// ExecuteResult carries plan metadata back from the executor to the handler
+// for metrics and observability.
+type ExecuteResult struct {
+	// TablesUsed contains deduplicated, schema-qualified table names
+	// referenced by the executed query.
+	TablesUsed []string
+}
+
 // Executor defines the interface for query execution.
 type Executor interface {
 	// StreamExecute is used to run the provided query in streaming mode.
-	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) error
+	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
 
 	// PortalStreamExecute is used to execute a Portal that was previously created.
-	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error
+	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
@@ -115,7 +123,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	asts, err := parser.ParseSQL(queryStr)
 	parseDuration := time.Since(parseStart)
 	if err != nil {
-		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "simple", parseDuration, 0, time.Since(queryStart), 0, err)
+		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "simple", parseDuration, 0, time.Since(queryStart), 0, nil, err)
 		return err
 	}
 
@@ -142,7 +150,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// remaining statements execute normally.
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
 		if !h.startsWithRollback(asts) {
-			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, errAbortedTransaction)
+			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
 		}
@@ -162,17 +170,22 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// For multi-statement batches, use implicit transaction handling.
 	// This handles cases where transactions start/end mid-batch and ensures
 	// proper auto-rollback for implicit transaction segments on failure.
+	var tablesUsed []string
 	if len(asts) > 1 {
 		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
 			"statement_count", len(asts),
 			"already_in_transaction", conn.IsInTransaction())
-		err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
+		tablesUsed, err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
 	} else {
 		// Single statement - execute with timeout enforcement
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
 		defer cancel()
 
-		err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], countingCallback)
+		var result *ExecuteResult
+		result, err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], countingCallback)
+		if result != nil {
+			tablesUsed = result.TablesUsed
+		}
 		if err != nil {
 			// If we're in an active transaction and the query failed,
 			// transition to aborted state. The client must ROLLBACK to recover.
@@ -184,7 +197,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 	execDuration := time.Since(execStart)
 	totalDuration := time.Since(queryStart)
-	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, err)
+	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, tablesUsed, err)
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
@@ -277,7 +290,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		portalErr := mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
 			fmt.Sprintf("portal \"%s\" does not exist", portalName), "")
 		// Record before span creation since we don't have an operation name yet.
-		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "extended", 0, 0, time.Since(queryStart), 0, portalErr)
+		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "extended", 0, 0, time.Since(queryStart), 0, nil, portalErr)
 		return portalErr
 	}
 
@@ -292,7 +305,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// only statement that can recover from an aborted transaction.
 	if conn.TxnStatus() == protocol.TxnStatusFailed {
 		if !ast.IsRollbackStatement(portalInfo.AstStmt()) {
-			h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, 0, time.Since(queryStart), 0, errAbortedTransaction)
+			h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
 		}
@@ -313,7 +326,11 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	defer cancel()
 
 	execStart := time.Now()
-	err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, countingCallback)
+	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, countingCallback)
+	var tablesUsed []string
+	if result != nil {
+		tablesUsed = result.TablesUsed
+	}
 	if err != nil {
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
@@ -322,7 +339,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	execDuration := time.Since(execStart)
 	totalDuration := time.Since(queryStart)
-	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, err)
+	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, tablesUsed, err)
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
@@ -428,6 +445,7 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	execDuration time.Duration,
 	totalDuration time.Duration,
 	rowCount int64,
+	tablesUsed []string,
 	err error,
 ) {
 	dbNamespace := conn.Database()
@@ -442,6 +460,10 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status)
 	h.metrics.rowsReturned.Record(ctx, float64(rowCount), dbNamespace, operationName)
+
+	for _, table := range tablesUsed {
+		h.metrics.tableQueries.Add(ctx, dbNamespace, table, operationName)
+	}
 
 	emitQueryLog(ctx, h.logger, queryLogEntry{
 		User:          conn.User(),

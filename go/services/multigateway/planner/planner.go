@@ -71,27 +71,37 @@ func (p *Planner) Plan(
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
+	var plan *engine.Plan
+	var err error
+
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
-		return p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn)
+		plan, err = p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn)
 
 	case ast.T_CopyStmt:
-		return p.planCopyStmt(sql, stmt.(*ast.CopyStmt))
+		plan, err = p.planCopyStmt(sql, stmt.(*ast.CopyStmt))
 
 	case ast.T_TransactionStmt:
-		return p.planTransactionStmt(sql, stmt.(*ast.TransactionStmt))
+		plan, err = p.planTransactionStmt(sql, stmt.(*ast.TransactionStmt))
 
 	case ast.T_VariableShowStmt:
-		return p.planVariableShowStmt(sql, stmt.(*ast.VariableShowStmt), conn)
+		plan, err = p.planVariableShowStmt(sql, stmt.(*ast.VariableShowStmt), conn)
 
 	// Future: Add more statement types here
 	// case ast.T_SelectStmt:
-	//     return p.planSelectStmt(sql, stmt.(*ast.SelectStmt), conn)
+	//     plan, err = p.planSelectStmt(sql, stmt.(*ast.SelectStmt), conn)
 
 	default:
 		// Default: simple route to PostgreSQL
-		return p.planDefault(sql, conn)
+		plan, err = p.planDefault(sql, conn)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	plan.TablesUsed = ExtractTablesUsed(stmt)
+	return plan, nil
 }
 
 // planDefault creates a simple route plan for queries without special handling.
