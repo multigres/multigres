@@ -45,7 +45,7 @@ type ReplicationAnalysis struct {
 	// valid status response
 	LastCheckValid   bool
 	IsStale          bool
-	IsInitialized    bool // Whether this pooler has been initialized
+	IsInitialized    bool // Whether this pooler is fully initialized and ready to join the cohort
 	HasDataDirectory bool // Whether this pooler has a PostgreSQL data directory (PG_VERSION exists)
 	AnalyzedAt       time.Time
 

@@ -154,14 +154,6 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	// Create initial backup for standby initialization
-	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full", "", nil)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to create initial backup")
-	}
-	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
-
 	// Create durability policy if requested
 	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
 		if err := pm.createDurabilityPolicyLocked(ctx, req.DurabilityPolicyName, req.DurabilityQuorumRule); err != nil {
@@ -201,6 +193,14 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			"error", err)
 	}
 
+	// Create initial backup for standby initialization
+	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
+	backupID, err := pm.backupLocked(ctx, true, "full", "", nil)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to create initial backup")
+	}
+	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
+
 	// Mark as initialized after successful primary initialization.
 	// This sets the cached boolean and writes the marker file.
 	if err := pm.setInitialized(); err != nil {
@@ -237,13 +237,14 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 	}
 
 	var initialized bool
+	cacheInitialized := false
 
 	// Try to check if multigres schema exists via a query
 	exists, err := pm.querySchemaExists(ctx)
 	if err == nil {
 		initialized = exists
+		cacheInitialized = true
 	} else {
-		// If database is not connected (e.g., postgres is down), check for the initialization marker.
 		// This marker is created after full initialization completes (schema created, backup done).
 		// It's more reliable than checking for PG_VERSION/global because those exist after initdb
 		// but before the full initialization process completes.
@@ -254,7 +255,7 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 	}
 
 	// Update cached state if we discovered initialization
-	if initialized {
+	if initialized && cacheInitialized {
 		pm.mu.Lock()
 		pm.initialized = true
 		pm.mu.Unlock()
