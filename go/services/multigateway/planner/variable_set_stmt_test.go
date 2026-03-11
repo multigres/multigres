@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -104,7 +103,7 @@ func TestPlanVariableSetStmt_SET_LOCAL_PassesThrough(t *testing.T) {
 	assert.False(t, ok, "SET LOCAL should not produce ApplySessionState")
 }
 
-func TestPlanVariableSetStmt_UnsupportedKind(t *testing.T) {
+func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger)
 	testConn := server.NewTestConn(&bytes.Buffer{})
@@ -114,10 +113,50 @@ func TestPlanVariableSetStmt_UnsupportedKind(t *testing.T) {
 		Name: "work_mem",
 	}
 
-	_, err := p.planVariableSetStmt("SET work_mem TO DEFAULT", stmt, testConn.Conn)
-	require.Error(t, err)
+	plan, err := p.planVariableSetStmt("SET work_mem TO DEFAULT", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
 
-	var pgDiag *mterrors.PgDiagnostic
-	require.ErrorAs(t, err, &pgDiag)
-	assert.Equal(t, "0A000", pgDiag.Code)
+	// VAR_SET_DEFAULT should produce an ApplySessionState with RESET kind
+	prim, ok := plan.Primitive.(*engine.ApplySessionState)
+	assert.True(t, ok, "expected ApplySessionState primitive")
+	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
+}
+
+func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_MULTI,
+		Name: "TRANSACTION",
+	}
+
+	plan, err := p.planVariableSetStmt("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// SET TRANSACTION should pass through to PG (Route), not be handled locally
+	_, ok := plan.Primitive.(*engine.ApplySessionState)
+	assert.False(t, ok, "SET TRANSACTION should not produce ApplySessionState")
+}
+
+func TestPlanVariableSetStmt_SET_CURRENT_PassesThrough(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_CURRENT,
+		Name: "search_path",
+	}
+
+	plan, err := p.planVariableSetStmt("SET search_path FROM CURRENT", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// SET FROM CURRENT should pass through to PG (Route)
+	_, ok := plan.Primitive.(*engine.ApplySessionState)
+	assert.False(t, ok, "SET FROM CURRENT should not produce ApplySessionState")
 }
