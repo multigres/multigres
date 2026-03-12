@@ -154,13 +154,13 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		// PostgreSQL superuser credentials (also used for internal system queries)
 		pgUser: viperutil.Configure(reg, "connpool.pg.user", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresUser,
-			FlagName: "connpool-admin-user",
-			EnvVars:  []string{"CONNPOOL_ADMIN_USER", constants.PgUserEnvVar},
+			FlagName: "connpool-pg-user",
+			EnvVars:  []string{constants.PgUserEnvVar},
 		}),
 		pgPassword: viperutil.Configure(reg, "connpool.pg.password", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "connpool-admin-password",
-			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar},
+			Default: "",
+			EnvVars: []string{constants.PgPasswordEnvVar},
+			// No FlagName — passwords are set via environment variable only
 		}),
 
 		// Admin pool (shared across all users)
@@ -235,9 +235,8 @@ func NewConfig(reg *viperutil.Registry) *Config {
 
 // RegisterFlags registers all connection pool flags with the given FlagSet.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
-	// PostgreSQL superuser credentials
-	fs.String("connpool-admin-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (default: POSTGRES_USER env var)")
-	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (default: POSTGRES_PASSWORD env var)")
+	// PostgreSQL superuser credentials (password is env-var only: POSTGRES_PASSWORD)
+	fs.String("connpool-pg-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (default: POSTGRES_USER env var)")
 
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
