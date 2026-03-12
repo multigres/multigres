@@ -95,6 +95,7 @@ type MultiPoolerManager struct {
 	isOpen bool
 	// all fields other than Type and ServingStatus never change after initialization.
 	// They can be accessed without holding the lock.
+	// TODO: Maybe the StateManager should own this now.
 	multipooler     *clustermetadatapb.MultiPooler
 	state           ManagerState
 	stateError      error
@@ -132,11 +133,9 @@ type MultiPoolerManager struct {
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
-	// TODO: Implement async query serving state management system
-	// This should include: target state, current state, convergence goroutine,
-	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
-	// See design discussion for full details.
-	queryServingState clustermetadatapb.PoolerServingStatus
+	// servingState coordinates serving state transitions across components
+	// (query service, heartbeat tracker) and updates the multipooler record.
+	servingState *ServingStateManager
 
 	// The following three variables are for pgbackrest.
 	primaryPoolerID *clustermetadatapb.ID
@@ -157,7 +156,7 @@ type promotionState struct {
 
 // demotionState tracks which parts of the demotion are complete
 type demotionState struct {
-	isServingReadOnly   bool   // PoolerServingStatus == SERVING_RDONLY (includes heartbeat stopped)
+	isNotServing        bool   // PoolerServingStatus == NOT_SERVING (includes heartbeat stopped)
 	isReplicaInTopology bool   // PoolerType == REPLICA
 	isReadOnly          bool   // default_transaction_read_only = on
 	finalLSN            string // Captured LSN before demotion
@@ -224,7 +223,6 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		state:                  ManagerStateStarting,
 		loadTimeout:            loadTimeout,
 		pgMonitorRetryInterval: monitorRetryInterval,
-		queryServingState:      clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:           pgctldClient,
 		connPoolMgr:            connPoolMgr,
 		readyChan:              make(chan struct{}),
@@ -240,6 +238,10 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
+
+	// Create the serving state manager with the query service as the initial component.
+	// The ReplTracker is registered later when heartbeat is started.
+	pm.servingState = NewServingStateManager(logger, pm.multipooler, pm.qsc)
 
 	// Register pgBackRest health metrics.
 	var metricsErr error
@@ -378,6 +380,7 @@ func (pm *MultiPoolerManager) closeLocked(logMessage string) bool {
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
 	// Create the replication tracker using the executor's InternalQueryService
 	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQueryService(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
+	pm.servingState.Register(pm.replTracker)
 
 	// Check if we're connected to a primary
 	isPrimary, err := pm.isPrimary(ctx)
@@ -942,7 +945,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	pm.mu.Unlock()
 
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
-	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
+	state.isNotServing = (servingStatus == clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
 	isPrimary, err := pm.isPrimary(ctx)
@@ -960,7 +963,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
-		"is_serving_read_only", state.isServingReadOnly,
+		"is_not_serving", state.isNotServing,
 		"is_replica_in_topology", state.isReplicaInTopology,
 		"is_read_only", state.isReadOnly,
 		"is_primary", isPrimary,
@@ -970,45 +973,38 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	return state, nil
 }
 
-// setServingReadOnly transitions the pooler to SERVING_RDONLY status
-// Note: the following code should be refactored to be async and work
-// a state transita desired state that the manager converges, makes
-// the pooler converge.
-// Similar to how ManagerState works today.
-// At the moment, setServingReadOnly means:
-// - The heartbeat writer is stopped.
-// - We update the topology serving state for the pooler record.
-// - TODO: QueryPooler should stop accepting write traffic.
-func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *demotionState) error {
-	if state.isServingReadOnly {
-		pm.logger.InfoContext(ctx, "Already in SERVING_RDONLY state, skipping")
+// setNotServing transitions the pooler to NOT_SERVING status during demotion.
+// This uses the ServingStateManager to coordinate:
+//   - Query service rejects all queries
+//   - Heartbeat writer is stopped
+//   - Multipooler record is updated
+//
+// After this, topology is synced to persist the state change.
+func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotionState) error {
+	if state.isNotServing {
+		pm.logger.InfoContext(ctx, "Already in NOT_SERVING state, skipping")
 		return nil
 	}
 
-	pm.logger.InfoContext(ctx, "Transitioning to SERVING_RDONLY")
+	pm.logger.InfoContext(ctx, "Transitioning to NOT_SERVING")
 
-	// Update local state first
+	// Use the serving state manager to transition components.
+	// This updates query service, heartbeat, and the multipooler record.
+	if err := pm.servingState.SetState(ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
+	}
+
+	// Sync to topology
 	pm.mu.Lock()
-	pm.multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
-	pm.queryServingState = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
-	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update serving status in topology", "error", err)
-		return mterrors.Wrap(err, "failed to transition to SERVING_RDONLY")
+		return mterrors.Wrap(err, "failed to sync NOT_SERVING to topology")
 	}
 
-	// Stop heartbeat writer
-	if pm.replTracker != nil {
-		pm.logger.InfoContext(ctx, "Stopping heartbeat writer")
-		pm.replTracker.MakeNonPrimary()
-	}
-
-	// TODO: Configure QueryService to reject writes
-
-	pm.logger.InfoContext(ctx, "Transitioned to SERVING_RDONLY successfully")
+	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
 	return nil
 }
 

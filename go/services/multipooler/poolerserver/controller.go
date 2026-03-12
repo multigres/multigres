@@ -26,30 +26,34 @@ import (
 // This follows the Vitess Controller pattern (see vitess/go/vt/vttablet/tabletserver/controller.go)
 //
 // The controller is responsible for:
-// - Managing query serving state (SERVING, NOT_SERVING, SERVING_RDONLY, DRAINED)
+// - Managing query serving state (SERVING, NOT_SERVING)
 // - Handling query execution through the executor
 // - Providing health status
 //
-// The MultiPoolerManager creates and controls the lifecycle of the PoolerController,
-// similar to how TabletManager controls TabletServer in Vitess.
+// Read-only vs read-write behavior is determined by the PoolerType (PRIMARY vs REPLICA),
+// not by the serving status. The MultiPoolerManager creates and controls the lifecycle
+// of the PoolerController, similar to how TabletManager controls TabletServer in Vitess.
 type PoolerController interface {
 	// SetServingType transitions the query service to the required serving state.
 	//
-	// Serving states:
-	//   - SERVING: Accept all queries (read and write)
-	//   - NOT_SERVING: Reject all queries
-	//   - SERVING_RDONLY: Accept only read queries
-	//   - DRAINED: Gracefully drain existing connections, reject new queries
+	// The poolerType determines query behavior:
+	//   - PRIMARY: Accept reads + writes
+	//   - REPLICA: Accept reads only
+	//   - DRAINED: Offline, no user queries
 	//
-	// Parameters:
-	//   - ctx: Context for the operation
-	//   - servingStatus: The target serving status
+	// The servingStatus determines whether queries are accepted at all:
+	//   - SERVING: Accept queries (constrained by poolerType)
+	//   - NOT_SERVING: Reject all queries
 	//
 	// Returns error if the transition fails.
-	SetServingType(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error
+	// TODO: FOld into OnStateChange
+	SetServingType(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
+
+	// OnStateChange transitions the query service to match the new serving state.
+	// This is called by ServingStateManager during state transitions.
+	OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
 
 	// IsServing returns true if the query service is currently serving requests.
-	// This returns true for both SERVING and SERVING_RDONLY states.
 	IsServing() bool
 
 	// IsHealthy returns nil if the controller is healthy and able to serve queries.

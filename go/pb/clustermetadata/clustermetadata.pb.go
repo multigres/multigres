@@ -110,10 +110,6 @@ const (
 	// RESTORE is the status a server uses when restoring a backup, at
 	// startup time.  No queries can be served in RESTORE mode.
 	PoolerServingStatus_RESTORE PoolerServingStatus = 3
-	// SERVING_RDONLY is the status of a server in read-only mode.
-	// This is used during demotion when the server transitions from PRIMARY to REPLICA,
-	// or for read-only replicas. The server accepts connections but only serves read queries.
-	PoolerServingStatus_SERVING_RDONLY PoolerServingStatus = 5
 )
 
 // Enum value maps for PoolerServingStatus.
@@ -123,14 +119,12 @@ var (
 		1: "NOT_SERVING",
 		2: "BACKUP",
 		3: "RESTORE",
-		5: "SERVING_RDONLY",
 	}
 	PoolerServingStatus_value = map[string]int32{
-		"SERVING":        0,
-		"NOT_SERVING":    1,
-		"BACKUP":         2,
-		"RESTORE":        3,
-		"SERVING_RDONLY": 5,
+		"SERVING":     0,
+		"NOT_SERVING": 1,
+		"BACKUP":      2,
+		"RESTORE":     3,
 	}
 )
 
@@ -1412,14 +1406,13 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
 	"\aREPLICA\x10\x02\x12\v\n" +
-	"\aDRAINED\x10\x03*f\n" +
+	"\aDRAINED\x10\x03*L\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
 	"\vNOT_SERVING\x10\x01\x12\n" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
-	"\aRESTORE\x10\x03\x12\x12\n" +
-	"\x0eSERVING_RDONLY\x10\x05\"\x04\b\x04\x10\x04*^\n" +
+	"\aRESTORE\x10\x03*^\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +

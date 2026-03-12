@@ -45,6 +45,7 @@ type QueryPoolerServer struct {
 	executor    *executor.Executor
 
 	mu            sync.Mutex
+	poolerType    clustermetadatapb.PoolerType
 	servingStatus clustermetadatapb.PoolerServingStatus
 }
 
@@ -66,20 +67,28 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 
 // SetServingType transitions the serving state.
 // Implements PoolerController interface.
-func (s *QueryPoolerServer) SetServingType(ctx context.Context, servingStatus clustermetadatapb.PoolerServingStatus) error {
+// TODO: Fold into OnStateChange.
+func (s *QueryPoolerServer) SetServingType(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.logger.InfoContext(ctx, "Transitioning serving type", "from", s.servingStatus, "to", servingStatus)
+	s.logger.InfoContext(ctx, "Transitioning serving type",
+		"pooler_type_from", s.poolerType, "pooler_type_to", poolerType,
+		"status_from", s.servingStatus, "status_to", servingStatus)
+	s.poolerType = poolerType
 	s.servingStatus = servingStatus
 
 	// TODO: Implement state-specific behavior:
-	// - SERVING: Accept all queries
-	// - SERVING_RDONLY: Accept only read queries
-	// - NOT_SERVING: Reject all queries
-	// - DRAINED: Gracefully drain existing connections, reject new queries
+	// - (PRIMARY, SERVING): Accept reads + writes
+	// - (REPLICA, SERVING): Accept reads only
+	// - (*, NOT_SERVING): Reject all queries
 
 	return nil
+}
+
+// OnStateChange transitions the query service to match the new serving state.
+func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	return s.SetServingType(ctx, poolerType, servingStatus)
 }
 
 // IsServing returns true if currently serving queries.
@@ -87,8 +96,7 @@ func (s *QueryPoolerServer) SetServingType(ctx context.Context, servingStatus cl
 func (s *QueryPoolerServer) IsServing() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING ||
-		s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
+	return s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING
 }
 
 // IsHealthy checks if the controller is healthy.
@@ -118,11 +126,11 @@ func (s *QueryPoolerServer) RegisterGRPCServices() {
 
 // StartServiceForTests is a convenience method for tests to initialize and start the pooler.
 // Following Vitess pattern: "StartService is only used for testing."
-// It sets the serving type to SERVING.
+// It sets the serving type to PRIMARY + SERVING.
 func (s *QueryPoolerServer) StartServiceForTests() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
-	return s.SetServingType(ctx, clustermetadatapb.PoolerServingStatus_SERVING)
+	return s.SetServingType(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Executor returns the executor instance for use by gRPC service handlers.
