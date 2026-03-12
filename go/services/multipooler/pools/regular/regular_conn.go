@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -131,7 +132,7 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 					b.WriteString("; ")
 				}
 				b.WriteString("RESET ")
-				b.WriteString(name)
+				b.WriteString(ast.QuoteQualifiedIdentifier(name))
 			}
 		}
 	}
