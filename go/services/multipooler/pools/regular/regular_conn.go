@@ -161,18 +161,21 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 
 // ResetAllSettings resets the connection to a clean state.
 //
-// Executes RESET ROLE and RESET ALL. RESET ROLE must come first because
-// PostgreSQL marks the "role" and "session_authorization" GUCs with
-// GUC_NO_RESET_ALL, meaning RESET ALL intentionally skips them.
-// Without the explicit RESET ROLE, a pooled connection that had SET ROLE
-// applied will retain the role after RESET ALL. If that role was
-// subsequently dropped (e.g. by test cleanup), the next query on the
-// connection fails with "role NNNNN was concurrently dropped".
+// Executes RESET ROLE, RESET SESSION AUTHORIZATION, then RESET ALL.
+// These explicit resets must come first because PostgreSQL marks
+// "role" and "session_authorization" with GUC_NO_RESET_ALL
+// (src/backend/utils/misc/guc_tables.c), meaning RESET ALL
+// intentionally skips them.
 //
-// See: src/backend/utils/misc/guc_tables.c — role has GUC_NO_RESET_ALL.
-// See: src/backend/commands/discard.c — DISCARD ALL resets session_authorization
-// explicitly for the same reason, but DISCARD ALL cannot be used inside
-// transactions, so we use RESET ROLE instead.
+// Without the explicit resets, a pooled connection that had SET ROLE
+// or SET SESSION AUTHORIZATION applied will retain those values after
+// RESET ALL. If that role was subsequently dropped (e.g. by test
+// cleanup), the next query on the connection fails with
+// "role NNNNN was concurrently dropped".
+//
+// This matches what DISCARD ALL does internally
+// (src/backend/commands/discard.c), but works inside transactions
+// where DISCARD ALL cannot be used.
 func (c *Conn) ResetAllSettings(ctx context.Context) error {
 	state := c.State()
 	if state == nil {
@@ -184,8 +187,8 @@ func (c *Conn) ResetAllSettings(ctx context.Context) error {
 		return nil
 	}
 
-	// RESET ROLE first (GUC_NO_RESET_ALL), then RESET ALL for everything else.
-	_, err := c.Query(ctx, "RESET ROLE; RESET ALL")
+	// RESET ROLE and SESSION AUTHORIZATION first (GUC_NO_RESET_ALL), then RESET ALL for everything else.
+	_, err := c.Query(ctx, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL")
 	if err != nil {
 		return fmt.Errorf("failed to reset settings: %w", err)
 	}

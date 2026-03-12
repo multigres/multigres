@@ -231,8 +231,8 @@ func TestSettingsQueries(t *testing.T) {
 	expected := "SELECT pg_catalog.set_config('search_path', 'public', false); SELECT pg_catalog.set_config('timezone', 'UTC', false)"
 	assert.Equal(t, expected, s.ApplyQuery())
 
-	// ResetQuery should return RESET ALL
-	assert.Equal(t, "RESET ROLE; RESET ALL", s.ResetQuery())
+	// ResetQuery should return RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL
+	assert.Equal(t, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL", s.ResetQuery())
 }
 
 func TestSettingsApplyQueryListGUC(t *testing.T) {
