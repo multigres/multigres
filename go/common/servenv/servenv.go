@@ -161,7 +161,7 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			Dynamic:  false,
 		}),
 		httpPprof: viperutil.Configure(reg, "pprof-http", viperutil.Options[bool]{
-			Default:  false,
+			Default:  true,
 			FlagName: "pprof-http",
 			Dynamic:  false,
 		}),
