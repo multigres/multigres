@@ -22,12 +22,9 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
-// DefaultInternalUser is the default PostgreSQL user for internal queries.
-// This can be overridden when creating an Executor instance.
-const DefaultInternalUser = "postgres"
-
 // InternalQueryService provides a simplified query interface for internal multipooler
-// components. It uses the connection pool with a configurable internal user.
+// components. It uses the admin connection pool, which authenticates as the configured
+// superuser (POSTGRES_USER / POSTGRES_PASSWORD).
 type InternalQueryService interface {
 	// Query executes a query and returns the result.
 	Query(ctx context.Context, query string) (*sqltypes.Result, error)
@@ -48,7 +45,7 @@ type InternalQueryService interface {
 var _ InternalQueryService = (*Executor)(nil)
 
 // Query implements InternalQueryService for simple internal queries.
-// It executes a query using the configured internal user and returns the first result.
+// It executes a query using the admin connection pool and returns the first result.
 // Internal queries include SQL text in trace spans since they use system functions.
 func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result, error) {
 	// Enable SQL text in trace spans for internal queries (safe - no user data)
@@ -56,7 +53,7 @@ func (e *Executor) Query(ctx context.Context, queryStr string) (*sqltypes.Result
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
+	conn, err := e.poolManager.GetAdminConn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +76,7 @@ func (e *Executor) QueryMultiStatement(ctx context.Context, queryStr string) err
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
+	conn, err := e.poolManager.GetAdminConn(ctx)
 	if err != nil {
 		return err
 	}
@@ -101,7 +98,7 @@ func (e *Executor) QueryArgs(ctx context.Context, sql string, args ...any) (*sql
 		IncludeQueryText: true,
 	})
 
-	conn, err := e.poolManager.GetRegularConn(ctx, e.poolManager.InternalUser())
+	conn, err := e.poolManager.GetAdminConn(ctx)
 	if err != nil {
 		return nil, err
 	}

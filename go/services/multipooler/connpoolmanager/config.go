@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -50,13 +51,12 @@ type ConnectionConfig struct {
 // With per-user connection pools, each user gets their own RegularPool and ReservedPool.
 // Connections authenticate directly as the user via trust/peer authentication.
 type Config struct {
-	// --- Admin credential settings ---
-	// Admin credentials (postgres superuser) - used by shared AdminPool for kill operations
-	adminUser     viperutil.Value[string]
-	adminPassword viperutil.Value[string]
-
-	// Internal user for multipooler system queries (heartbeat, replication tracking)
-	internalUser viperutil.Value[string]
+	// --- PostgreSQL superuser credentials ---
+	// Used by the admin pool for kill operations and internal system queries
+	// (heartbeat, replication tracking).
+	// Configured via POSTGRES_USER / POSTGRES_PASSWORD environment variables.
+	pgUser     viperutil.Value[string]
+	pgPassword viperutil.Value[string]
 
 	// --- Pool sizing configuration ---
 
@@ -151,21 +151,16 @@ func NewConfig(reg *viperutil.Registry) *Config {
 	)
 
 	return &Config{
-		// Admin credential settings
-		adminUser: viperutil.Configure(reg, "connpool.admin.user", viperutil.Options[string]{
-			Default:  "postgres",
-			FlagName: "connpool-admin-user",
-			EnvVars:  []string{"CONNPOOL_ADMIN_USER"},
+		// PostgreSQL superuser credentials (also used for internal system queries)
+		pgUser: viperutil.Configure(reg, "connpool.pg.user", viperutil.Options[string]{
+			Default:  constants.DefaultPostgresUser,
+			FlagName: "connpool-pg-user",
+			EnvVars:  []string{constants.PgUserEnvVar},
 		}),
-		adminPassword: viperutil.Configure(reg, "connpool.admin.password", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "connpool-admin-password",
-			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD"},
-		}),
-		internalUser: viperutil.Configure(reg, "connpool.internal.user", viperutil.Options[string]{
-			Default:  "postgres",
-			FlagName: "connpool-internal-user",
-			EnvVars:  []string{"CONNPOOL_INTERNAL_USER"},
+		pgPassword: viperutil.Configure(reg, "connpool.pg.password", viperutil.Options[string]{
+			Default: "",
+			EnvVars: []string{constants.PgPasswordEnvVar},
+			// No FlagName — passwords are set via environment variable only
 		}),
 
 		// Admin pool (shared across all users)
@@ -240,10 +235,8 @@ func NewConfig(reg *viperutil.Registry) *Config {
 
 // RegisterFlags registers all connection pool flags with the given FlagSet.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
-	// Admin credential flags
-	fs.String("connpool-admin-user", c.adminUser.Default(), "Admin pool user (PostgreSQL superuser for control operations)")
-	fs.String("connpool-admin-password", c.adminPassword.Default(), "Admin pool password (can also be set via CONNPOOL_ADMIN_PASSWORD env var)")
-	fs.String("connpool-internal-user", c.internalUser.Default(), "Internal user for multipooler system queries (heartbeat, replication tracking)")
+	// PostgreSQL superuser credentials (password is env-var only: POSTGRES_PASSWORD)
+	fs.String("connpool-pg-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (default: POSTGRES_USER env var)")
 
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
@@ -272,9 +265,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-dial-timeout", c.dialTimeout.Default(), "Timeout for establishing new PostgreSQL connections")
 
 	viperutil.BindFlags(fs,
-		c.adminUser,
-		c.adminPassword,
-		c.internalUser,
+		c.pgUser,
+		c.pgPassword,
 		c.adminCapacity,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
@@ -294,19 +286,16 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 
 // --- Getters for individual values ---
 
-// AdminUser returns the configured admin pool user.
-func (c *Config) AdminUser() string {
-	return c.adminUser.Get()
+// PgUser returns the configured PostgreSQL superuser name.
+// Defaults to POSTGRES_USER environment variable.
+func (c *Config) PgUser() string {
+	return c.pgUser.Get()
 }
 
-// AdminPassword returns the configured admin pool password.
-func (c *Config) AdminPassword() string {
-	return c.adminPassword.Get()
-}
-
-// InternalUser returns the configured internal user for system queries.
-func (c *Config) InternalUser() string {
-	return c.internalUser.Get()
+// PgPassword returns the configured PostgreSQL superuser password.
+// Set via POSTGRES_PASSWORD environment variable.
+func (c *Config) PgPassword() string {
+	return c.pgPassword.Get()
 }
 
 // AdminCapacity returns the configured admin pool capacity.
