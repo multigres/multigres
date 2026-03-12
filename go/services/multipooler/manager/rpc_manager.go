@@ -32,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -993,6 +994,8 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		return nil, err
 	}
 
+	pm.healthStreamer.UpdatePrimaryObservation(nil)
+
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
 		"consensus_term", consensusTerm,
@@ -1147,6 +1150,12 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to clear primary term")
 	}
 
+	// Report the new primary (source) so the gateway can use this observation.
+	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+		PrimaryID:   source.Id,
+		PrimaryTerm: consensusTerm,
+	})
+
 	// Update consensus term to match the correct primary's term after successful demotion
 	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
 		return nil, mterrors.Wrap(err, "failed to update consensus term")
@@ -1280,6 +1289,11 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	if err := pm.consensusState.SetPrimaryTerm(ctx, consensusTerm, force); err != nil {
 		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
+
+	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+		PrimaryID:   pm.serviceID,
+		PrimaryTerm: consensusTerm,
+	})
 
 	// Write leadership history record - this validates that sync replication is working.
 	// If this fails (typically due to timeout waiting for standby acknowledgment), we fail
