@@ -27,7 +27,7 @@ import (
 )
 
 func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
-	factory := &RecoveryActionFactory{}
+	factory := &RecoveryActionFactory{poolerStore: store.NewPoolerStore(nil, nil)}
 
 	t.Run("detects stale primary when this pooler has lower primary_term", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}
