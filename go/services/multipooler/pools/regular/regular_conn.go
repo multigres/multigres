@@ -187,8 +187,9 @@ func (c *Conn) ResetAllSettings(ctx context.Context) error {
 		return nil
 	}
 
-	// RESET ROLE and SESSION AUTHORIZATION first (GUC_NO_RESET_ALL), then RESET ALL for everything else.
-	_, err := c.Query(ctx, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL")
+	// Use the settings' ResetQuery which includes RESET ROLE and
+	// RESET SESSION AUTHORIZATION before RESET ALL (GUC_NO_RESET_ALL).
+	_, err := c.Query(ctx, settings.ResetQuery())
 	if err != nil {
 		return fmt.Errorf("failed to reset settings: %w", err)
 	}
