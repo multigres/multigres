@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -47,8 +48,8 @@ func TestConfig_DefaultValues(t *testing.T) {
 	config.RegisterFlags(cmd.Flags())
 
 	// Verify default values.
-	assert.Equal(t, "postgres", config.adminUser.Default())
-	assert.Equal(t, "", config.adminPassword.Default())
+	assert.Equal(t, constants.DefaultPostgresUser, config.pgUser.Default())
+	assert.Equal(t, "", config.pgPassword.Default())
 	assert.Equal(t, int64(5), config.adminCapacity.Default())
 
 	// Regular pool (capacity managed by rebalancer)
@@ -77,9 +78,13 @@ func TestConfig_RegisterFlags(t *testing.T) {
 	config.RegisterFlags(cmd.Flags())
 
 	// Verify flags are registered.
-	adminUserFlag := cmd.Flags().Lookup("connpool-admin-user")
-	require.NotNil(t, adminUserFlag)
-	assert.Equal(t, "postgres", adminUserFlag.DefValue)
+	pgUserFlag := cmd.Flags().Lookup("connpool-pg-user")
+	require.NotNil(t, pgUserFlag)
+	assert.Equal(t, constants.DefaultPostgresUser, pgUserFlag.DefValue)
+
+	// Password is env-var only — no flag registered
+	pgPasswordFlag := cmd.Flags().Lookup("connpool-pg-password")
+	assert.Nil(t, pgPasswordFlag, "pg password should not be registered as a CLI flag")
 
 	adminCapFlag := cmd.Flags().Lookup("connpool-admin-capacity")
 	require.NotNil(t, adminCapFlag)
@@ -106,8 +111,8 @@ func TestConfig_Getters_ReturnDefaults(t *testing.T) {
 
 	// Verify getters return the default values (viperutil.Value returns defaults
 	// when no flags are parsed and no env vars are set).
-	assert.Equal(t, "postgres", config.AdminUser())
-	assert.Equal(t, "", config.AdminPassword())
+	assert.Equal(t, constants.DefaultPostgresUser, config.PgUser())
+	assert.Equal(t, "", config.PgPassword())
 	assert.Equal(t, int64(5), config.AdminCapacity())
 
 	// Regular pool (capacity managed by rebalancer)
@@ -185,68 +190,28 @@ func TestUserPoolStats(t *testing.T) {
 	assert.Equal(t, "testuser", stats.Username)
 }
 
-// --- InternalUser tests ---
+// --- PgUser / PgPassword env-var tests ---
 
-func TestConfig_InternalUser_Default(t *testing.T) {
-	reg := viperutil.NewRegistry()
-	config := NewConfig(reg)
+func TestConfig_PgPassword_EnvVar(t *testing.T) {
+	t.Setenv(constants.PgPasswordEnvVar, "test-password")
 
-	// Default value should be "postgres"
-	assert.Equal(t, "postgres", config.InternalUser())
-}
-
-func TestConfig_InternalUser_CustomValue(t *testing.T) {
-	reg := viperutil.NewRegistry()
-	config := NewConfig(reg)
-
-	// Register flags
-	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	config.RegisterFlags(fs)
-
-	// Parse a custom value
-	err := fs.Parse([]string{"--connpool-internal-user", "custom-internal-user"})
-	require.NoError(t, err)
-
-	// Bind to viper
-	v := viper.New()
-	err = v.BindPFlags(fs)
-	require.NoError(t, err)
-
-	// The value should be available through viper
-	assert.Equal(t, "custom-internal-user", v.GetString("connpool-internal-user"))
-}
-
-func TestConfig_InternalUser_EnvVar(t *testing.T) {
-	// Set environment variable
-	t.Setenv("CONNPOOL_INTERNAL_USER", "env_internal_user")
-
-	reg := viperutil.NewRegistry()
-	config := NewConfig(reg)
-
-	// Register flags
-	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	config.RegisterFlags(fs)
-
-	// Bind to viper
-	v := viper.New()
-	v.AutomaticEnv()
-	err := v.BindPFlags(fs)
-	require.NoError(t, err)
-
-	// The environment variable should be picked up
-	assert.Equal(t, "env_internal_user", v.GetString("CONNPOOL_INTERNAL_USER"))
-}
-
-func TestConfig_InternalUserFlagRegistration(t *testing.T) {
 	reg := viperutil.NewRegistry()
 	config := NewConfig(reg)
 
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
 
-	// Verify the flag is registered
-	flag := fs.Lookup("connpool-internal-user")
-	require.NotNil(t, flag, "connpool-internal-user flag should be registered")
-	assert.Equal(t, "postgres", flag.DefValue, "default value should be postgres")
-	assert.Contains(t, flag.Usage, "Internal user for multipooler system queries")
+	assert.Equal(t, "test-password", config.PgPassword())
+}
+
+func TestConfig_PgUser_EnvVar(t *testing.T) {
+	t.Setenv(constants.PgUserEnvVar, "supabase_admin")
+
+	reg := viperutil.NewRegistry()
+	config := NewConfig(reg)
+
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+
+	assert.Equal(t, "supabase_admin", config.PgUser())
 }

@@ -109,7 +109,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.closed.Store(false)
 
 	// Build admin client config
-	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
+	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
 
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
@@ -146,7 +146,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.startRebalancer()
 
 	m.logger.InfoContext(ctx, "connection pool manager opened",
-		"admin_user", m.config.AdminUser(),
+		"pg_user", m.config.PgUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
 		"initial_user_capacity", initialUserPoolCapacity,
 		"settings_cache_size", m.config.SettingsCacheSize(),
@@ -308,11 +308,6 @@ func (m *Manager) Close() {
 	}
 
 	m.logger.Info("connection pool manager closed")
-}
-
-// InternalUser returns the configured internal user for system queries.
-func (m *Manager) InternalUser() string {
-	return m.config.InternalUser()
 }
 
 // --- Admin Pool Operations ---

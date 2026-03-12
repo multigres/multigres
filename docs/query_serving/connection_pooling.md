@@ -603,11 +603,20 @@ globalReservedCapacity = globalCapacity * reservedRatio
 
 ### Admin Pool Flags
 
-| Flag                        | Default    | Env Var                   | Description                            |
-| --------------------------- | ---------- | ------------------------- | -------------------------------------- |
-| `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`     | Admin pool user (PostgreSQL superuser) |
-| `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD` | Admin pool password                    |
-| `--connpool-admin-capacity` | 5          | -                         | Maximum admin connections              |
+| Flag                        | Default    | Env Var         | Description                                            |
+| --------------------------- | ---------- | --------------- | ------------------------------------------------------ |
+| `--connpool-pg-user`        | `postgres` | `POSTGRES_USER` | PostgreSQL superuser for admin and internal operations |
+| `--connpool-admin-capacity` | 5          | -               | Maximum admin connections                              |
+
+### Admin Pool Environment Variables
+
+| Variable            | Description                   |
+| ------------------- | ----------------------------- |
+| `POSTGRES_USER`     | PostgreSQL superuser username |
+| `POSTGRES_PASSWORD` | PostgreSQL superuser password |
+
+Flags take precedence over environment variables when both are set. `POSTGRES_PASSWORD`
+has no corresponding flag — it can only be set via environment variable.
 
 ### Per-User Pool Flags (Timeouts Only)
 
