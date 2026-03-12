@@ -31,6 +31,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
@@ -153,6 +154,11 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			return nil, mterrors.Wrap(err, "failed to set primary term")
 		}
 	}
+
+	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+		PrimaryID:   pm.serviceID,
+		PrimaryTerm: req.ConsensusTerm,
+	})
 
 	// Create initial backup for standby initialization
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
