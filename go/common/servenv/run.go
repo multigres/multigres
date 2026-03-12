@@ -32,19 +32,11 @@ import (
 // and blocks until it the process gets a signal.
 func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) error {
 	sv.PopulateListeningURL(int32(port))
-	if err := grpcServer.Create(); err != nil {
-		return fmt.Errorf("grpc server create: %w", err)
-	}
-	if err := sv.FireRunHooks(); err != nil {
-		return fmt.Errorf("run hooks: %w", err)
-	}
-	if err := grpcServer.Serve(sv); err != nil {
-		return fmt.Errorf("grpc server serve: %w", err)
-	}
-	if err := grpcServer.serveSocketFile(); err != nil {
-		return fmt.Errorf("grpc socket file: %w", err)
-	}
 
+	// Start the HTTP server early so liveness/startup probes respond
+	// before potentially-blocking run hooks (e.g., waiting for topology
+	// or manager readiness). This prevents a deadlock on K8s 1.33+ where
+	// native sidecar startup probes must pass before main containers start.
 	l, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 	if err != nil {
 		return fmt.Errorf("failed to listen on HTTP port %d: %w", port, err)
@@ -65,6 +57,19 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 			slog.Error("http serve returned unexpected error", "err", err)
 		}
 	}()
+
+	if err := grpcServer.Create(); err != nil {
+		return fmt.Errorf("grpc server create: %w", err)
+	}
+	if err := sv.FireRunHooks(); err != nil {
+		return fmt.Errorf("run hooks: %w", err)
+	}
+	if err := grpcServer.Serve(sv); err != nil {
+		return fmt.Errorf("grpc server serve: %w", err)
+	}
+	if err := grpcServer.serveSocketFile(); err != nil {
+		return fmt.Errorf("grpc socket file: %w", err)
+	}
 
 	signal.Notify(sv.exitChan, syscall.SIGTERM, syscall.SIGINT)
 	slog.Info("service successfully started", "port", port)
