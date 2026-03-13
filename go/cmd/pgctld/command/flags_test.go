@@ -19,7 +19,29 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
+
+func TestPgDatabaseEnvVar(t *testing.T) {
+	t.Run("defaults to postgres when POSTGRES_DB not set", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Equal(t, constants.DefaultPostgresDatabase, pc.pgDatabase.Get())
+	})
+
+	t.Run("POSTGRES_DB env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgDatabaseEnvVar, "mydb")
+		_, pc := GetRootCommand()
+		assert.Equal(t, "mydb", pc.pgDatabase.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_DB env var", func(t *testing.T) {
+		t.Setenv(constants.PgDatabaseEnvVar, "envdb")
+		_, pc := GetRootCommand()
+		pc.pgDatabase.Set("flagdb")
+		assert.Equal(t, "flagdb", pc.pgDatabase.Get())
+	})
+}
 
 func TestPgBackRestFlags(t *testing.T) {
 	// Test default values

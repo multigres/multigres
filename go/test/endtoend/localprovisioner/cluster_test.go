@@ -169,9 +169,15 @@ func cleanupTestProcesses(tempDir string) error {
 	return nil
 }
 
-// createTestConfigWithPorts creates a test configuration file with custom ports
-// The number of zones is determined by len(portConfig.Zones)
+// createTestConfigWithPorts creates a test configuration file with custom ports using "postgres"
+// as the database name. The number of zones is determined by len(portConfig.Zones).
 func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (string, error) {
+	return createTestConfigWithDatabase(tempDir, portConfig, "postgres")
+}
+
+// createTestConfigWithDatabase creates a test configuration file with custom ports and a specified
+// database name. The number of zones is determined by len(portConfig.Zones).
+func createTestConfigWithDatabase(tempDir string, portConfig *testPortConfig, dbName string) (string, error) {
 	numZones := len(portConfig.Zones)
 	if numZones == 0 {
 		return "", errors.New("portConfig must have at least one zone")
@@ -188,7 +194,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 
 	localConfig := &local.LocalProvisionerConfig{
 		RootWorkingDir: tempDir,
-		DefaultDbName:  "postgres",
+		DefaultDbName:  dbName,
 		Etcd: local.EtcdConfig{
 			Version:  "3.5.9",
 			DataDir:  filepath.Join(tempDir, "data", "etcd-data"),
@@ -224,7 +230,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			},
 			Multipooler: local.MultipoolerConfig{
 				Path:           "multipooler",
-				Database:       "postgres",
+				Database:       dbName,
 				TableGroup:     constants.DefaultTableGroup,
 				Shard:          constants.DefaultShard,
 				ServiceID:      serviceID,
@@ -241,7 +247,7 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 				GrpcPort:       zonePort.PgctldGRPCPort,
 				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("pgctld-%s.sock", zoneName)),
 				PgPort:         zonePort.PgctldPGPort,
-				PgDatabase:     "postgres",
+				PgDatabase:     dbName,
 				PgUser:         "postgres",
 				PgPassword:     "postgres",
 				Timeout:        60,
@@ -328,6 +334,15 @@ func checkCellExistsInTopology(etcdAddress, globalRootPath, cellName string) err
 	}
 
 	return nil
+}
+
+// getProcessArgs returns the full command-line of a running process as a single space-separated string.
+func getProcessArgs(pid int) (string, error) {
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
+	if err != nil {
+		return "", fmt.Errorf("ps -p %d failed: %w", pid, err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // checkMultipoolerTopoRegistration checks if multipooler is registered with correct database, tablegroup, and shard in topology
@@ -1259,43 +1274,84 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Log("Cluster lifecycle test completed successfully")
 	})
 
-	t.Run("multipooler requires database flag", func(t *testing.T) {
-		// This test verifies that multipooler binary requires --database flag
-		// We'll test this by trying to run the provisioned multipooler directly
-		// without the --database flag and expecting it to fail
-
-		tempDir, err := os.MkdirTemp("/tmp", "mlt")
-		require.NoError(t, err)
-		defer os.RemoveAll(tempDir)
+	t.Run("multipooler database flag defaults to postgres", func(t *testing.T) {
+		// This test verifies that multipooler's --database flag defaults to "postgres"
+		// when not explicitly provided (reads from POSTGRES_DB env var, falls back to "postgres").
 
 		projectRoot, err := getProjectRoot()
 		require.NoError(t, err)
 		require.NotEmpty(t, projectRoot, "projectRoot should not be empty")
 
-		// Try to run multipooler without --database flag (should fail)
-		t.Log("Testing multipooler without --database flag (should fail)...")
+		// Run multipooler without --database flag: it should not fail on database validation,
+		// instead defaulting to "postgres" and failing on the next required flag (table-group).
+		t.Log("Testing multipooler without --database flag (should default to postgres)...")
 		cmd := exec.Command("multipooler",
 			"--topo-global-server-addresses", "fake-address",
 			"--topo-global-root", "fake-root",
 		)
-		output, err := cmd.CombinedOutput()
-
-		// Should fail with database flag required error
-		require.Error(t, err, "multipooler should fail when --database flag is missing")
+		output, _ := cmd.CombinedOutput()
 		outputStr := string(output)
-		assert.Contains(t, outputStr, "database is required",
-			"Error message should mention database is required. Got: %s", outputStr)
 
-		// Try to run multipooler with --database flag (should succeed with setup)
-		t.Log("Testing multipooler with --database flag (should not show database error)...")
+		assert.NotContains(t, outputStr, "database is required",
+			"Should not show database required error when flag has a default. Got: %s", outputStr)
+		assert.Contains(t, outputStr, "database\":\"postgres\"",
+			"Should use postgres as default database. Got: %s", outputStr)
+
+		// Run with explicit --database flag to verify it is accepted.
+		t.Log("Testing multipooler with explicit --database flag...")
 		cmd = exec.Command("multipooler", "--cell", "testcell", "--database", "testdb", "--help")
 		output, err = cmd.CombinedOutput()
 		require.NoError(t, err)
 
-		// Should not fail due to database flag (may fail for other reasons like missing topo)
 		outputStr = string(output)
-		assert.NotContains(t, outputStr, "--database flag is required",
-			"Should not show database flag error when flag is provided. Got: %s", outputStr)
+		assert.NotContains(t, outputStr, "database is required",
+			"Should not show database error when flag is provided. Got: %s", outputStr)
+	})
+
+	// Verifies that the provisioner passes the configured database name as --database to
+	// multipooler and --pg-database to pgctld when a non-default database name is used.
+	t.Run("provisioner passes database name to child processes", func(t *testing.T) {
+		const customDB = "testdb"
+
+		tempDir, err := os.MkdirTemp("/tmp", "mlt")
+		require.NoError(t, err)
+		defer func() {
+			if cleanupErr := cleanupTestProcesses(tempDir); cleanupErr != nil {
+				t.Logf("Warning: cleanup failed: %v", cleanupErr)
+			}
+			os.RemoveAll(tempDir)
+		}()
+
+		testPorts := getTestPortConfig(t, 1)
+		_, err = createTestConfigWithDatabase(tempDir, testPorts, customDB)
+		require.NoError(t, err, "failed to create test config with database %q", customDB)
+
+		output, err := executeStartCommand(t, []string{"--config-path", tempDir}, tempDir)
+		require.NoError(t, err, "cluster start failed: %s", output)
+
+		serviceStates, err := getServiceStates(tempDir)
+		require.NoError(t, err, "failed to read service states")
+
+		// multipooler must have been launched with --database <customDB>
+		multipoolerState, exists := serviceStates[constants.ServiceMultipooler]
+		require.True(t, exists, "multipooler state file should exist")
+		multipoolerArgs, err := getProcessArgs(multipoolerState.PID)
+		require.NoError(t, err, "failed to read multipooler process args (PID %d)", multipoolerState.PID)
+		t.Logf("multipooler args: %s", multipoolerArgs)
+		assert.Contains(t, multipoolerArgs, "--database "+customDB,
+			"multipooler should have been launched with --database %s", customDB)
+
+		// pgctld must have been launched with --pg-database <customDB>
+		pgctldState, exists := serviceStates[constants.ServicePgctld]
+		require.True(t, exists, "pgctld state file should exist")
+		pgctldArgs, err := getProcessArgs(pgctldState.PID)
+		require.NoError(t, err, "failed to read pgctld process args (PID %d)", pgctldState.PID)
+		t.Logf("pgctld args: %s", pgctldArgs)
+		assert.Contains(t, pgctldArgs, "--pg-database "+customDB,
+			"pgctld should have been launched with --pg-database %s", customDB)
+
+		stopOutput, err := executeStopCommand(t, []string{"--config-path", tempDir})
+		require.NoError(t, err, "cluster stop failed: %s", stopOutput)
 	})
 
 	// Verifies that if a required service port is already in use by another process,
