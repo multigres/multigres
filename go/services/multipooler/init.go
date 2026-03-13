@@ -90,8 +90,9 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			EnvVars:  []string{"MT_CELL"},
 		}),
 		database: viperutil.Configure(reg, "database", viperutil.Options[string]{
-			Default:  "",
+			Default:  constants.DefaultPostgresDatabase,
 			FlagName: "database",
+			EnvVars:  []string{constants.PgDatabaseEnvVar},
 			Dynamic:  false,
 		}),
 		tableGroup: viperutil.Configure(reg, "table-group", viperutil.Options[string]{
@@ -173,7 +174,7 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgctld-addr", mp.pgctldAddr.Default(), "Address of pgctld gRPC service")
 	flags.String("cell", mp.cell.Default(), "cell to use")
-	flags.String("database", mp.database.Default(), "database name this multipooler serves (required)")
+	flags.String("database", mp.database.Default(), "database name this multipooler serves (overrides "+constants.PgDatabaseEnvVar+" env var)")
 	flags.String("table-group", mp.tableGroup.Default(), "table group this multipooler serves (required)")
 	flags.String("shard", mp.shard.Default(), "shard this multipooler serves (required)")
 	flags.String("service-id", mp.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
@@ -342,6 +343,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		mp.Shutdown()
 	})
 	return nil
+}
+
+// Database returns the configured database name.
+func (mp *MultiPooler) Database() string {
+	return mp.database.Get()
 }
 
 func (mp *MultiPooler) RunDefault() error {
