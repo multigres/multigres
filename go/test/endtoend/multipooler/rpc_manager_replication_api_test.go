@@ -1644,7 +1644,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 				},
 			},
 			{
-				name:    "ANY_2_MultipleStandbys",
+				name:    "AT_LEAST_2_MultipleStandbys",
 				method:  multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 				numSync: 2,
 				standbyIDs: []*clustermetadatapb.ID{
