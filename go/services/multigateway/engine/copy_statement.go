@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -119,10 +120,12 @@ func (c *CopyStatement) StreamExecute(
 			if err != nil {
 				return err
 			}
-			return fmt.Errorf("COPY failed: %s", errMsg)
+			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
+				"COPY failed: "+errMsg, "")
 
 		default:
-			return fmt.Errorf("unexpected message type during COPY: %c", msgType)
+			return mterrors.NewPgError("ERROR", mterrors.PgSSProtocolViolation,
+				fmt.Sprintf("unexpected message type during COPY: %c", msgType), "")
 		}
 	}
 }

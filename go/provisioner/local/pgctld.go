@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -190,6 +190,12 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		grpcPort = port
 	}
 
+	// Get HTTP port from config or use default
+	httpPort := ports.DefaultPgctldHTTP
+	if port, ok := pgctldConfig["http_port"].(int); ok && port > 0 {
+		httpPort = port
+	}
+
 	// Get PostgreSQL port from config or use default
 	pgPort := ports.DefaultLocalPostgresPort
 	if port, ok := pgctldConfig["pg_port"].(int); ok && port > 0 {
@@ -245,12 +251,13 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	// primary/standby replication across zones.
 
 	// Start pgctld server
-	fmt.Printf("▶️  - Starting pgctld server (gRPC:%d)...", grpcPort)
+	fmt.Printf("▶️  - Starting pgctld server (gRPC:%d, HTTP:%d)...", grpcPort, httpPort)
 
 	serverArgs := []string{
 		"server",
 		"--pooler-dir", poolerDir,
 		"--grpc-port", strconv.Itoa(grpcPort),
+		"--http-port", strconv.Itoa(httpPort),
 		"--pg-port", strconv.Itoa(pgPort),
 		"--pg-database", pgDatabase,
 		"--pg-user", pgUser,
@@ -276,43 +283,26 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 			"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
 			"--pgbackrest-cert-dir", p.certDir(),
 		)
-
-		// Add backup configuration based on config type
-		switch p.config.Backup.Type {
-		case "local":
-			if p.config.Backup.Local != nil && p.config.Backup.Local.Path != "" {
-				serverArgs = append(serverArgs,
-					"--backup-type", "filesystem",
-					"--backup-path", p.config.Backup.Local.Path,
-				)
-			}
-		case "s3":
-			if p.config.Backup.S3 != nil {
-				// Construct repo path (default to /multigres, or with key prefix)
-				repoPath := "/multigres"
-				if p.config.Backup.S3.KeyPrefix != "" {
-					repoPath = "/" + strings.TrimSuffix(p.config.Backup.S3.KeyPrefix, "/") + "/multigres"
-				}
-				serverArgs = append(serverArgs,
-					"--backup-type", "s3",
-					"--backup-bucket", p.config.Backup.S3.Bucket,
-					"--backup-region", p.config.Backup.S3.Region,
-					"--backup-path", repoPath,
-				)
-				if p.config.Backup.S3.Endpoint != "" {
-					serverArgs = append(serverArgs, "--backup-endpoint", p.config.Backup.S3.Endpoint)
-				}
-				if p.config.Backup.S3.KeyPrefix != "" {
-					serverArgs = append(serverArgs, "--backup-key-prefix", p.config.Backup.S3.KeyPrefix)
-				}
-				if p.config.Backup.S3.UseEnvCredentials {
-					serverArgs = append(serverArgs, "--backup-use-env-credentials")
-				}
-			}
-		}
 	}
 
 	pgctldCmd := exec.CommandContext(ctx, pgctldBinary, serverArgs...)
+
+	// Build environment: start from the current process environment,
+	// then layer on macOS locale fix and the PostgreSQL password.
+	pgctldCmd.Env = os.Environ()
+
+	// On macOS, ensure a valid locale is set for pgctld and its children (initdb, pg_ctl).
+	// Without LC_ALL or LANG, initdb fails with "invalid locale settings".
+	// Only inject when neither is set; an existing value in either variable is left untouched.
+	if runtime.GOOS == "darwin" && os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
+		pgctldCmd.Env = append(pgctldCmd.Env, "LC_ALL=C")
+	}
+
+	// Pass the PostgreSQL password so pgctld can use it during init (--pwfile)
+	// and pg_hba.conf setup.
+	if password, ok := pgctldConfig["password"].(string); ok && password != "" {
+		pgctldCmd.Env = append(pgctldCmd.Env, constants.PgPasswordEnvVar+"="+password)
+	}
 
 	if err := telemetry.StartCmd(ctx, pgctldCmd); err != nil {
 		return nil, fmt.Errorf("failed to start pgctld server: %w", err)
@@ -324,7 +314,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}
 
 	// Wait for pgctld to be ready
-	servicePorts := map[string]int{"grpc_port": grpcPort}
+	servicePorts := map[string]int{"grpc_port": grpcPort, "http_port": httpPort}
 	if err := p.waitForServiceReady(ctx, "pgctld", "localhost", servicePorts, 60*time.Second); err != nil {
 		logs := p.readServiceLogs(pgctldLogFile, 20)
 		return nil, fmt.Errorf("pgctld readiness check failed: %w\n\nLast 20 lines from pgctld logs:\n%s", err, logs)

@@ -79,6 +79,7 @@ type zonePortConfig struct {
 	MultipoolerGRPCPort  int
 	MultiorchHTTPPort    int
 	MultiorchGRPCPort    int
+	PgctldHTTPPort       int
 	PgctldGRPCPort       int
 	PgctldPGPort         int
 }
@@ -114,6 +115,7 @@ func getTestPortConfig(t *testing.T, numZones int) *testPortConfig {
 			MultipoolerGRPCPort:  utils.GetFreePort(t),
 			MultiorchHTTPPort:    utils.GetFreePort(t),
 			MultiorchGRPCPort:    utils.GetFreePort(t),
+			PgctldHTTPPort:       utils.GetFreePort(t),
 			PgctldGRPCPort:       utils.GetFreePort(t),
 			PgctldPGPort:         utils.GetFreePort(t),
 		}
@@ -235,15 +237,16 @@ func createTestConfigWithPorts(tempDir string, portConfig *testPortConfig) (stri
 			},
 			Pgctld: local.PgctldConfig{
 				Path:           "pgctld",
+				HttpPort:       zonePort.PgctldHTTPPort,
 				GrpcPort:       zonePort.PgctldGRPCPort,
 				GRPCSocketFile: filepath.Join(tempDir, "sockets", fmt.Sprintf("pgctld-%s.sock", zoneName)),
 				PgPort:         zonePort.PgctldPGPort,
 				PgDatabase:     "postgres",
 				PgUser:         "postgres",
+				PgPassword:     "postgres",
 				Timeout:        60,
 				LogLevel:       "info",
 				PoolerDir:      local.GeneratePoolerDir(tempDir, serviceID),
-				// PgPwfile not set - provisioner will create pgpassword.txt with default "postgres" password
 			},
 		}
 
@@ -816,18 +819,18 @@ func testPostgreSQLConnection(t *testing.T, tempDir string, port int, zone strin
 	t.Logf("Zone %s PostgreSQL (port %d) is responding correctly", zone, port)
 
 	// Also test TCP connection with password to validate password was set correctly
-	// The default password is "postgres" (set by the local provisioner at pgpassword.txt)
+	// The default password is "postgres" (set by PgPassword in local provisioner config)
 	testPostgreSQLTCPConnection(t, port, zone)
 }
 
 // testPostgreSQLTCPConnection tests TCP connection with password authentication.
-// This validates that the password file convention is working correctly.
+// This validates that the password configuration is working correctly.
 func testPostgreSQLTCPConnection(t *testing.T, port int, zone string) {
 	t.Helper()
 
 	t.Logf("Testing PostgreSQL TCP connection with password on port %d (Zone %s)...", port, zone)
 
-	// Connect via TCP using the default password "postgres" (from pgpassword.txt)
+	// Connect via TCP using the default password "postgres" (from PgPassword config)
 	cmd := exec.Command("psql", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres", "-c", fmt.Sprintf("SELECT 'Zone %s TCP auth works!' as status;", zone))
 	cmd.Env = append(os.Environ(), "PGPASSWORD=postgres")
 
@@ -1333,6 +1336,71 @@ func TestClusterLifecycle(t *testing.T) {
 		combined := err.Error() + "\n" + upOutput
 		assert.Contains(t, combined, "already in use", "error/output should mention port already in use. Got: %s", combined)
 		assert.Contains(t, combined, strconv.Itoa(conflictPort), "error/output should mention the conflicting port. Got: %s", combined)
+	})
+}
+
+// TestTCPPasswordAuthentication validates that PostgreSQL instances provisioned
+// by the local provisioner accept TCP connections with password authentication.
+// This is a focused test for the password auth code path that doesn't depend on
+// the skipped TestClusterLifecycle subtest.
+func TestTCPPasswordAuthentication(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping TCP password auth test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	_, err := exec.LookPath("etcd")
+	if err != nil {
+		t.Skip("etcd binary not found in PATH")
+	}
+
+	clusterSetup, cleanup := setupTestCluster(t)
+	defer cleanup()
+
+	pgPort := clusterSetup.PortConfig.Zones[0].PgctldPGPort
+
+	t.Run("correct password succeeds", func(t *testing.T) {
+		connStr := fmt.Sprintf(
+			"host=127.0.0.1 port=%d user=postgres password=postgres dbname=postgres sslmode=disable connect_timeout=5",
+			pgPort,
+		)
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		var result int
+		err = db.QueryRow("SELECT 1").Scan(&result)
+		require.NoError(t, err, "TCP connection with correct password should succeed")
+		assert.Equal(t, 1, result)
+	})
+
+	t.Run("wrong password fails", func(t *testing.T) {
+		connStr := fmt.Sprintf(
+			"host=127.0.0.1 port=%d user=postgres password=wrongpassword dbname=postgres sslmode=disable connect_timeout=5",
+			pgPort,
+		)
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		err = db.Ping()
+		require.Error(t, err, "TCP connection with wrong password should fail")
+		assert.Contains(t, err.Error(), "password authentication failed")
+	})
+
+	t.Run("no password fails", func(t *testing.T) {
+		connStr := fmt.Sprintf(
+			"host=127.0.0.1 port=%d user=postgres dbname=postgres sslmode=disable connect_timeout=5",
+			pgPort,
+		)
+		db, err := sql.Open("postgres", connStr)
+		require.NoError(t, err)
+		defer db.Close()
+
+		err = db.Ping()
+		require.Error(t, err, "TCP connection with no password should fail")
+		assert.Contains(t, err.Error(), "password authentication failed")
 	})
 }
 

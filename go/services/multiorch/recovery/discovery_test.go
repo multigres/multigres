@@ -337,6 +337,96 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	require.True(t, updatedInfo.IsLastCheckValid, "IsLastCheckValid should be preserved")
 }
 
+func TestDiscovery_ClosesStaleConnectionOnAddressChange(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	fakeClient := rpcclient.NewFakeClient()
+	engine := NewEngine(
+		ts,
+		slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
+		fakeClient,
+		newTestCoordinator(ts, fakeClient, "zone1"),
+	)
+
+	// Create pooler with initial hostname
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Hostname: "10.0.0.1",
+		PortMap:  map[string]int32{"grpc": 8080},
+	}))
+
+	engine.refreshClusterMetadata()
+	require.Equal(t, 1, engine.poolerStore.Len())
+
+	// Simulate the pooler restarting with a new IP in etcd
+	retrieved, err := ts.GetMultiPooler(ctx, &clustermetadata.ID{
+		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1",
+	})
+	require.NoError(t, err)
+	retrieved.MultiPooler.Hostname = "10.0.0.2"
+	require.NoError(t, ts.UpdateMultiPooler(ctx, retrieved))
+
+	fakeClient.ResetCallLog()
+	engine.refreshClusterMetadata()
+
+	// CloseTablet should have been called for the old address
+	callLog := fakeClient.GetCallLog()
+	require.Contains(t, callLog, "CloseTablet(multipooler-zone1-pooler1)", "stale connection should be closed on address change")
+
+	// The store should reflect the new address
+	updatedInfo, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
+	require.True(t, ok)
+	require.Equal(t, "10.0.0.2", updatedInfo.MultiPooler.Hostname)
+}
+
+func TestDiscovery_NoCloseOnUnchangedAddress(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	cfg := config.NewTestConfig(
+		config.WithCell("zone1"),
+		config.WithClusterMetadataRefreshTimeout(5*time.Second),
+	)
+
+	fakeClient := rpcclient.NewFakeClient()
+	engine := NewEngine(
+		ts,
+		slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		cfg,
+		[]config.WatchTarget{{Database: "mydb"}},
+		fakeClient,
+		newTestCoordinator(ts, fakeClient, "zone1"),
+	)
+
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		Database: "mydb", TableGroup: "tg1", Shard: "0",
+		Hostname: "10.0.0.1",
+		PortMap:  map[string]int32{"grpc": 8080},
+	}))
+
+	engine.refreshClusterMetadata()
+
+	fakeClient.ResetCallLog()
+	// Second refresh with no address change
+	engine.refreshClusterMetadata()
+
+	for _, call := range fakeClient.GetCallLog() {
+		require.NotContains(t, call, "CloseTablet", "CloseTablet should not be called when address is unchanged")
+	}
+}
+
 func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")

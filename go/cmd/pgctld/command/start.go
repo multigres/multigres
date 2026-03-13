@@ -21,7 +21,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -54,36 +53,6 @@ func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddr
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 	return config, nil
-}
-
-// resolvePassword handles password resolution from file or environment variable.
-// It checks for a password file at the conventional location (poolerDir/pgpassword.txt).
-// If the file exists, it reads the password from it. Otherwise, it falls back to PGPASSWORD env var.
-// Returns error if both password file and PGPASSWORD are set.
-func resolvePassword(poolerDir string) (string, error) {
-	envPassword := os.Getenv("PGPASSWORD")
-	var filePassword string
-	var fileExists bool
-
-	// Check for password file at conventional location
-	pwfile := filepath.Join(poolerDir, "pgpassword.txt")
-	if filePasswordBytes, readErr := os.ReadFile(pwfile); readErr == nil {
-		// Remove trailing newline if present
-		filePassword = strings.TrimRight(string(filePasswordBytes), "\n\r")
-		fileExists = true
-	}
-
-	// Check if both file and environment variable are set
-	if fileExists && envPassword != "" {
-		return "", fmt.Errorf("both password file (%s) and PGPASSWORD environment variable are set, please use only one", pwfile)
-	}
-
-	// Use file password if set, otherwise use environment variable
-	if fileExists {
-		return filePassword, nil
-	}
-
-	return envPassword, nil
 }
 
 // AddStartCommand adds the start subcommand to the root command
@@ -176,6 +145,11 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		logger.Info("Ensured Unix socket directory exists", "socket_dir", config.UnixSocketDirectories)
 	}
 
+	// Enforce PGDATA permission invariant before pg_ctl start
+	if err := ensurePGDATAPermissions(logger, config.PostgresDataDir); err != nil {
+		return nil, fmt.Errorf("PGDATA permission check failed: %w", err)
+	}
+
 	// Start PostgreSQL
 	logger.Info("Starting PostgreSQL server", "data_dir", config.PostgresDataDir)
 	if err := startPostgreSQLWithConfig(logger, config); err != nil {
@@ -209,6 +183,46 @@ func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	if result.Message != "" && !result.AlreadyRunning {
 		logger.Info(result.Message)
 	}
+
+	return nil
+}
+
+// ensurePGDATAPermissions ensures PGDATA is owned by the effective UID and set to 0700 before pg_ctl start.
+// initdb sets this on bootstrap, but restore, rewind, or volume remounts may change it.
+func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
+	info, err := os.Stat(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to stat PGDATA %s: %w", dataDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("PGDATA %s is not a directory", dataDir)
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("failed to get syscall stat for PGDATA %s", dataDir)
+	}
+
+	currentUID := uint32(os.Geteuid())
+	if stat.Uid != currentUID {
+		return fmt.Errorf("PGDATA %s owned by UID %d, expected %d, refusing to start (ownership mismatch is a configuration error)",
+			dataDir, stat.Uid, currentUID)
+	}
+
+	if info.Mode().Perm() == 0o700 && (info.Mode()&os.ModeSetgid) == 0 {
+		return nil
+	}
+
+	oldMode := fmt.Sprintf("%04o", stat.Mode&0o7777)
+	if err := os.Chmod(dataDir, 0o700); err != nil {
+		return fmt.Errorf("failed to chmod PGDATA %s to 0700: %w", dataDir, err)
+	}
+
+	logger.Debug("Normalized PGDATA permissions",
+		"path", dataDir,
+		"old_mode", oldMode,
+		"new_mode", "0700",
+	)
 
 	return nil
 }
@@ -248,17 +262,6 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	cmd := exec.Command("pg_ctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
-	// On macOS, ensure locale environment variables are set for PostgreSQL
-	// PostgreSQL 17+ requires valid locale settings to avoid multithreading errors during startup
-	// This is specific to macOS where LC_ALL may not be set by default
-	if runtime.GOOS == "darwin" {
-		cmd.Env = os.Environ()
-		if os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
-			// Set LC_ALL=C as a safe default if no locale is configured
-			cmd.Env = append(cmd.Env, "LC_ALL=C")
-		}
-	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to start PostgreSQL with pg_ctl: %w", err)

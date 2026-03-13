@@ -71,57 +71,23 @@ func (p *localProvisioner) Name() string {
 	return "local"
 }
 
-// createPoolerDirectoryWithPassword creates the pooler directory structure and password file
-// at the conventional location (poolerDir/pgpassword.txt).
-// If sourcePasswordFile is provided and exists, its content is copied; otherwise "postgres" is used.
-func createPoolerDirectoryWithPassword(poolerDir, sourcePasswordFile string) error {
-	// Create the pooler directory structure
-	if err := os.MkdirAll(poolerDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create pooler directory %s: %w", poolerDir, err)
-	}
-
-	// Conventional password file location
-	conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
-
-	// Determine password content
-	password := []byte("postgres")
-	if sourcePasswordFile != "" {
-		if content, err := os.ReadFile(sourcePasswordFile); err == nil {
-			password = content
-		}
-		// If source file doesn't exist, fall back to default "postgres"
-	}
-
-	// Create the password file at the conventional location
-	if err := os.WriteFile(conventionalPwfile, password, 0o600); err != nil {
-		return fmt.Errorf("failed to create password file %s: %w", conventionalPwfile, err)
-	}
-
-	return nil
-}
-
-// initializePgctldDirectories initializes all pgctld directories and password files based on the config
+// initializePgctldDirectories creates all pgctld pooler directories based on the config.
 func (p *localProvisioner) initializePgctldDirectories() error {
-	// Get the typed configuration
 	config := p.config
 
-	// Initialize directories for each cell's pgctld configuration
 	for cellName, cellConfig := range config.Cells {
 		fmt.Printf("Setting up pgctld directory for cell %s...\n", cellName)
 
 		poolerDir := cellConfig.Pgctld.PoolerDir
-
 		if poolerDir == "" {
 			return fmt.Errorf("pooler-dir not found in config for pgtctld in cell %s", cellName)
 		}
 
-		if err := createPoolerDirectoryWithPassword(poolerDir, cellConfig.Pgctld.PgPwfile); err != nil {
-			return fmt.Errorf("failed to initialize pgctld directory for cell %s: %w", cellName, err)
+		if err := os.MkdirAll(poolerDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create pooler directory %s for cell %s: %w", poolerDir, cellName, err)
 		}
 
-		conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
 		fmt.Printf("✓ Created pooler directory: %s\n", poolerDir)
-		fmt.Printf("✓ Created password file: %s\n", conventionalPwfile)
 	}
 
 	return nil

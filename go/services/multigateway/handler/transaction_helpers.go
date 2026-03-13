@@ -67,12 +67,16 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
 	execute := func(stmt ast.Stmt) error {
-		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt, callback)
+		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
+		defer cancel()
+		return h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt, callback)
 	}
 	// silentExecute runs a statement without sending results to the client.
 	// Used for synthetic BEGIN/COMMIT/ROLLBACK injected by implicit transaction handling.
 	silentExecute := func(stmt ast.Stmt) error {
-		return h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
+		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
+		defer cancel()
+		return h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
 			func(context.Context, *sqltypes.Result) error { return nil })
 	}
 
@@ -120,12 +124,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 					if isImplicitTx {
 						_ = silentExecute(ast.NewRollbackStmt())
 					}
-					return &mterrors.PgDiagnostic{
-						MessageType: 'E',
-						Severity:    "ERROR",
-						Code:        "25001",
-						Message:     "SET TRANSACTION ISOLATION LEVEL must be called before any query",
-					}
+					return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
+						"SET TRANSACTION ISOLATION LEVEL must be called before any query", "")
 				}
 			}
 			if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
@@ -158,7 +158,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		// CommandComplete message — that waits for the commit outcome.
 		var execErr error
 		if i == len(stmts)-1 && isImplicitTx {
-			execErr = h.executor.StreamExecute(ctx, conn, state, stmt.SqlString(), stmt,
+			stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
+			execErr = h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
 				func(ctx context.Context, result *sqltypes.Result) error {
 					if result.CommandTag != "" {
 						// Hold the CommandTag — we'll send it after a successful commit,
@@ -181,6 +182,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 					return callback(ctx, result)
 				},
 			)
+			cancel()
 		} else {
 			execErr = execute(stmt)
 		}

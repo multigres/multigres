@@ -475,3 +475,76 @@ func TestPgBackRestCredentials(t *testing.T) {
 		})
 	}
 }
+
+func TestPgBackRestConfig_S3KeyType_IRSADetection(t *testing.T) {
+	tests := []struct {
+		name            string
+		location        *clustermetadatapb.BackupLocation
+		irsaEnvVars     map[string]string
+		expectedKeyType string
+	}{
+		{
+			name:     "IRSA env vars present - should use web-id",
+			location: utils.S3BackupLocation("test-bucket", "us-east-1"),
+			irsaEnvVars: map[string]string{
+				"AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+				"AWS_ROLE_ARN":                "arn:aws:iam::123456789012:role/my-role",
+			},
+			expectedKeyType: "web-id",
+		},
+		{
+			name:            "IRSA env vars absent - should use auto",
+			location:        utils.S3BackupLocation("test-bucket", "us-east-1"),
+			irsaEnvVars:     map[string]string{},
+			expectedKeyType: "auto",
+		},
+		{
+			name:     "Only AWS_WEB_IDENTITY_TOKEN_FILE set - should use auto",
+			location: utils.S3BackupLocation("test-bucket", "us-east-1"),
+			irsaEnvVars: map[string]string{
+				"AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+			},
+			expectedKeyType: "auto",
+		},
+		{
+			name:     "Only AWS_ROLE_ARN set - should use auto",
+			location: utils.S3BackupLocation("test-bucket", "us-east-1"),
+			irsaEnvVars: map[string]string{
+				"AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/my-role",
+			},
+			expectedKeyType: "auto",
+		},
+		{
+			name:     "UseEnvCredentials true - should use shared regardless of IRSA",
+			location: utils.S3BackupLocation("test-bucket", "us-east-1", utils.WithS3EnvCredentials()),
+			irsaEnvVars: map[string]string{
+				"AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+				"AWS_ROLE_ARN":                "arn:aws:iam::123456789012:role/my-role",
+			},
+			expectedKeyType: "shared",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear IRSA env vars
+			os.Unsetenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+			os.Unsetenv("AWS_ROLE_ARN")
+
+			// Set test env vars
+			for k, v := range tt.irsaEnvVars {
+				os.Setenv(k, v)
+				defer os.Unsetenv(k)
+			}
+
+			cfg, err := backup.NewConfig(tt.location)
+			require.NoError(t, err)
+
+			result, err := cfg.PgBackRestConfig("test-stanza")
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectedKeyType, result["repo1-s3-key-type"],
+				"Expected repo1-s3-key-type to be %q", tt.expectedKeyType)
+		})
+	}
+}

@@ -17,11 +17,10 @@ package handler
 import (
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
-	"github.com/multigres/multigres/go/common/queryservice"
-	"github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -59,25 +58,21 @@ type MultiGatewayConnectionState struct {
 	// with deferred execution. This is consumed when creating the first reserved
 	// connection so the multipooler can use the exact statement instead of plain "BEGIN".
 	PendingBeginQuery string
+
+	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
+	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
+	// The default is initialized from startup params (if present) or the --statement-timeout flag.
+	// Parsed at SET time to avoid repeated parsing on every query.
+	statementTimeout GatewayManagedVariable[time.Duration]
 }
 
 type ShardState struct {
 	// Target stores the information about the shard
 	Target *query.Target
 
-	// PoolerID is the pooler ID we are going to be running the queries against.
-	// This is particularly useful to ensure that we detect the case of a reparent when we are
-	// holding a reserved connection and the primary pooler changes.
-	PoolerID *clustermetadata.ID
-
-	// ReservedConnectionId is the connection ID of the reserved connection being held.
-	ReservedConnectionId int64
-
-	// ReservationReasons is a bitmask of protoutil.Reason* constants tracking why
-	// this connection is reserved. A connection can be reserved for multiple reasons
-	// simultaneously (e.g., transaction AND temp table). The connection should only
-	// be fully released when all reasons are cleared.
-	ReservationReasons uint32
+	// ReservedState holds the authoritative reservation state from the multipooler,
+	// including the pooler ID, reserved connection ID, and reservation reasons bitmask.
+	ReservedState *query.ReservedState
 }
 
 // NewMultiGatewayConnectionState creates a new MultiGatewayConnectionState.
@@ -128,25 +123,20 @@ func (m *MultiGatewayConnectionState) GetMatchingShardState(target *query.Target
 	return nil
 }
 
-// StoreReservedConnection stores a new reserved connection that has been created.
-// The reasons parameter is a bitmask of protoutil.Reason* constants indicating why the
-// connection is reserved. If a shard state already exists for this target, the reasons
-// are OR'd together (added) and the connection ID is updated.
-func (m *MultiGatewayConnectionState) StoreReservedConnection(target *query.Target, rs queryservice.ReservedState, reasons uint32) {
+// SetReservedConnection stores the authoritative reservation state from the multipooler.
+// The reasons in rs.ReservationReasons are set exactly as provided (not OR'd).
+// Creates a new entry if none exists for the target.
+func (m *MultiGatewayConnectionState) SetReservedConnection(target *query.Target, rs *query.ReservedState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ss := range m.ShardStates {
 		if protoutil.TargetEquals(ss.Target, target) {
-			ss.PoolerID = rs.PoolerID
-			ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
-			ss.ReservationReasons |= reasons
+			ss.ReservedState = rs
 			return
 		}
 	}
 	ss := NewShardState(target)
-	ss.PoolerID = rs.PoolerID
-	ss.ReservedConnectionId = int64(rs.ReservedConnectionId)
-	ss.ReservationReasons = reasons
+	ss.ReservedState = rs
 	m.ShardStates = append(m.ShardStates, ss)
 }
 
@@ -163,40 +153,6 @@ func (m *MultiGatewayConnectionState) ClearReservedConnection(target *query.Targ
 				m.ShardStates[i] = m.ShardStates[lastIdx]
 			}
 			m.ShardStates = m.ShardStates[:lastIdx]
-			return
-		}
-	}
-}
-
-// RemoveReservationReason removes a reason from a shard's reservation bitmask.
-// If no reasons remain after removal, the shard state entry is cleared entirely.
-func (m *MultiGatewayConnectionState) RemoveReservationReason(target *query.Target, reason uint32) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i, ss := range m.ShardStates {
-		if protoutil.TargetEquals(ss.Target, target) {
-			ss.ReservationReasons &^= reason
-			if ss.ReservationReasons == 0 {
-				// No reasons left — remove the entry
-				lastIdx := len(m.ShardStates) - 1
-				if i != lastIdx {
-					m.ShardStates[i] = m.ShardStates[lastIdx]
-				}
-				m.ShardStates = m.ShardStates[:lastIdx]
-			}
-			return
-		}
-	}
-}
-
-// UpdateReservationReasons sets the reservation reasons for a given target.
-// Used after ConcludeTransaction to update the bitmask without removing the entry.
-func (m *MultiGatewayConnectionState) UpdateReservationReasons(target *query.Target, reasons uint32) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, ss := range m.ShardStates {
-		if protoutil.TargetEquals(ss.Target, target) {
-			ss.ReservationReasons = reasons
 			return
 		}
 	}
@@ -225,16 +181,54 @@ func (m *MultiGatewayConnectionState) SetSessionVariable(name, value string) {
 func (m *MultiGatewayConnectionState) ResetSessionVariable(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.SessionSettings != nil {
-		delete(m.SessionSettings, name)
-	}
+	delete(m.SessionSettings, name)
 }
 
 // ResetAllSessionVariables clears all session variables (from RESET ALL command).
 func (m *MultiGatewayConnectionState) ResetAllSessionVariables() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.SessionSettings = make(map[string]string)
+	m.SessionSettings = nil
+}
+
+// SetStatementTimeout sets the session-level statement timeout override.
+func (m *MultiGatewayConnectionState) SetStatementTimeout(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.Set(d)
+}
+
+// ResetStatementTimeout clears the session-level statement timeout,
+// reverting to the default (from startup params or flag).
+func (m *MultiGatewayConnectionState) ResetStatementTimeout() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout.Reset()
+}
+
+// GetStatementTimeout returns the effective statement timeout:
+// the session override if set, otherwise the default.
+func (m *MultiGatewayConnectionState) GetStatementTimeout() time.Duration {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.statementTimeout.GetEffective()
+}
+
+// ShowStatementTimeout returns the effective statement timeout formatted
+// using PostgreSQL's GUC_UNIT_MS display convention for SHOW output.
+func (m *MultiGatewayConnectionState) ShowStatementTimeout() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return formatDurationPg(m.statementTimeout.GetEffective())
+}
+
+// InitStatementTimeout sets the default for the statement timeout variable.
+// Called once during connection initialization with the value from startup params
+// (if present) or the --statement-timeout flag.
+func (m *MultiGatewayConnectionState) InitStatementTimeout(defaultValue time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statementTimeout = NewGatewayManagedVariable(defaultValue)
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.
@@ -260,9 +254,6 @@ func (m *MultiGatewayConnectionState) GetSessionSettings() map[string]string {
 func (m *MultiGatewayConnectionState) GetSessionVariable(name string) (string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.SessionSettings == nil {
-		return "", false
-	}
 	value, exists := m.SessionSettings[name]
 	return value, exists
 }
@@ -278,18 +269,4 @@ func (m *MultiGatewayConnectionState) GetStartupParams() map[string]string {
 	params := make(map[string]string, len(m.StartupParams))
 	maps.Copy(params, m.StartupParams)
 	return params
-}
-
-// RestoreSessionSettings replaces the current session settings with a new map.
-// Used for rolling back RESET ALL failures.
-func (m *MultiGatewayConnectionState) RestoreSessionSettings(settings map[string]string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if settings == nil {
-		m.SessionSettings = nil
-	} else {
-		// Make a copy to prevent external mutation
-		m.SessionSettings = make(map[string]string, len(settings))
-		maps.Copy(m.SessionSettings, settings)
-	}
 }

@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -100,7 +101,7 @@ func (a *DemoteStalePrimaryAction) GracePeriod() *types.GracePeriodConfig {
 // 1. We use the correct primary's term (not a new term), avoiding term inconsistency
 // 2. The stale primary accepts term >= its current term and demotes
 // 3. Both primaries end up with the same term (no term inconsistency)
-func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
 	poolerIDStr := topoclient.MultiPoolerIDString(problem.PoolerID)
 
 	a.logger.InfoContext(ctx, "executing demote stale primary action",
@@ -132,6 +133,15 @@ func (a *DemoteStalePrimaryAction) Execute(ctx context.Context, problem types.Pr
 		"stale_primary", poolerIDStr,
 		"correct_primary", correctPrimary.MultiPooler.Id.Name,
 		"correct_primary_term", correctPrimaryTerm)
+
+	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: poolerIDStr, Reason: "stale"})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.PrimaryDemotion{NodeName: poolerIDStr, Reason: "stale"})
+		} else {
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.PrimaryDemotion{NodeName: poolerIDStr, Reason: "stale"}, "error", retErr)
+		}
+	}()
 
 	// Call DemoteStalePrimary RPC - this will:
 	// 1. Stop postgres

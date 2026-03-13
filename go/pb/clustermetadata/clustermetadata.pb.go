@@ -891,7 +891,10 @@ type MultiGateway struct {
 	// Fully qualified domain name of the host.
 	Hostname string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	// Map of named ports. Normally this should include postgres and grpc.
-	PortMap       map[string]int32 `protobuf:"bytes,3,rep,name=port_map,json=portMap,proto3" json:"port_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	PortMap map[string]int32 `protobuf:"bytes,3,rep,name=port_map,json=portMap,proto3" json:"port_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// pid_prefix is the 12-bit prefix encoded into PIDs sent to clients.
+	// Used for cross-gateway cancel request routing. Assigned at registration time.
+	PidPrefix     uint32 `protobuf:"varint,4,opt,name=pid_prefix,json=pidPrefix,proto3" json:"pid_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -945,6 +948,13 @@ func (x *MultiGateway) GetPortMap() map[string]int32 {
 		return x.PortMap
 	}
 	return nil
+}
+
+func (x *MultiGateway) GetPidPrefix() uint32 {
+	if x != nil {
+		return x.PidPrefix
+	}
+	return 0
 }
 
 // MultiOrch represents information about a running instance of multiorch.
@@ -1350,11 +1360,13 @@ const file_clustermetadata_proto_rawDesc = "" +
 	" \x01(\tR\tpoolerDir\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xd2\x01\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +
 	"\fMultiGateway\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12E\n" +
-	"\bport_map\x18\x03 \x03(\v2*.clustermetadata.MultiGateway.PortMapEntryR\aportMap\x1a:\n" +
+	"\bport_map\x18\x03 \x03(\v2*.clustermetadata.MultiGateway.PortMapEntryR\aportMap\x12\x1d\n" +
+	"\n" +
+	"pid_prefix\x18\x04 \x01(\rR\tpidPrefix\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xcc\x01\n" +

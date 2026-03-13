@@ -228,7 +228,7 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 		} else {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET primary_conninfo = 'host=modified_host'", 0)
 		}
-		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		ReloadConfig(ctx, t, client.Pooler, name)
 		client.Close()
 		t.Logf("%s GUCs modified", name)
 	}
@@ -266,8 +266,7 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 
 	// Connect to multigateway for writes (realistic client path)
 	require.NotNil(t, setup.Multigateway, "multigateway should be available in shared setup")
-	gatewayConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, TestPostgresPassword)
+	gatewayConnStr := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	gatewayDB, err := sql.Open("postgres", gatewayConnStr)
 	require.NoError(t, err)
 	defer gatewayDB.Close()

@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -40,6 +42,11 @@ const (
 	// defaultFlushDelay is the default delay before auto-flushing buffered writes.
 	defaultFlushDelay = 100 * time.Millisecond
 )
+
+// errQueryCanceled is the sentinel used as the cancel cause for CancelRequest.
+// Must be a single instance: CancelQuery sets it via context.WithCancelCause,
+// and queryContextError checks it with errors.Is (pointer equality).
+var errQueryCanceled = mterrors.NewQueryCanceled()
 
 // Conn represents the server side connection with a PostgreSQL client.
 // It handles the wire protocol encoding/decoding and connection state management.
@@ -69,6 +76,19 @@ type Conn struct {
 	// When set and AllowTrustAuth() returns true, password auth is skipped.
 	trustAuthProvider TrustAuthProvider
 
+	// tlsConfig holds the TLS configuration for SSL connections.
+	// When set, the server accepts SSLRequest and upgrades to TLS.
+	// When nil, SSLRequest is declined with 'N'.
+	tlsConfig *tls.Config
+
+	// sslDone indicates that an SSLRequest has already been handled
+	// (accepted or declined) for this connection. Prevents double negotiation.
+	sslDone bool
+
+	// gssDone indicates that a GSSENCRequest has already been handled
+	// for this connection. Prevents double negotiation.
+	gssDone bool
+
 	// logger for connection-specific logging.
 	logger *slog.Logger
 
@@ -93,6 +113,12 @@ type Conn struct {
 	// Handlers can store their own state here by calling SetConnectionState.
 	// This allows different handler implementations to maintain their own state.
 	state any
+
+	// queryCancelMu protects queryCancelFunc.
+	queryCancelMu sync.Mutex
+	// queryCancelFunc cancels the current in-flight query context.
+	// Set by BeginQueryCancel, cleared by EndQueryCancel.
+	queryCancelFunc context.CancelCauseFunc
 
 	// closed indicates whether the connection has been closed.
 	closed atomic.Bool
@@ -232,6 +258,69 @@ func (c *Conn) SetConnectionState(state any) {
 	c.state = state
 }
 
+// BackendKeyData returns the secret key for this connection.
+func (c *Conn) BackendKeyData() uint32 {
+	return c.backendKeyData
+}
+
+// BeginQueryCancel creates a child context for the current query that can be
+// independently canceled. Returns the query context that should be passed to
+// handler methods. Must be paired with EndQueryCancel.
+func (c *Conn) BeginQueryCancel() context.Context {
+	c.queryCancelMu.Lock()
+	defer c.queryCancelMu.Unlock()
+
+	queryCtx, cancel := context.WithCancelCause(c.ctx)
+	c.queryCancelFunc = cancel
+	return queryCtx
+}
+
+// EndQueryCancel clears the query cancel function, signaling that no query
+// is in flight. Calls the cancel function with nil to release context resources.
+func (c *Conn) EndQueryCancel() {
+	c.queryCancelMu.Lock()
+	defer c.queryCancelMu.Unlock()
+
+	if c.queryCancelFunc != nil {
+		c.queryCancelFunc(nil)
+		c.queryCancelFunc = nil
+	}
+}
+
+// CancelQuery cancels the in-flight query on this connection.
+// Returns true if a query was in flight and was canceled.
+func (c *Conn) CancelQuery() bool {
+	c.queryCancelMu.Lock()
+	defer c.queryCancelMu.Unlock()
+
+	if c.queryCancelFunc != nil {
+		c.queryCancelFunc(errQueryCanceled)
+		c.queryCancelFunc = nil
+		return true
+	}
+	return false
+}
+
+// queryContextError maps context-related errors to the appropriate PostgreSQL
+// protocol error. Cancel requests take priority since they indicate explicit
+// user action. If no context-related error is detected, the original error is
+// returned unchanged.
+func queryContextError(queryCtx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	// CancelRequest sets errQueryCanceled as the cause on the query context.
+	if errors.Is(context.Cause(queryCtx), errQueryCanceled) {
+		return errQueryCanceled
+	}
+	// Statement timeout: the handler applies context.WithTimeout for statement
+	// timeouts, and DeadlineExceeded propagates up through the error chain.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return mterrors.NewStatementTimeout()
+	}
+	return err
+}
+
 // returnReader returns the buffered reader to the pool.
 func (c *Conn) returnReader() {
 	c.bufMu.Lock()
@@ -317,11 +406,23 @@ func generateBackendKey() uint32 {
 // serve is the main command processing loop for the connection.
 // It reads messages from the client and processes them until the connection is closed.
 func (c *Conn) serve() error {
+	// TODO: Add startup phase timeout (equivalent to PostgreSQL's authentication_timeout).
+	// Set c.conn.SetDeadline() here and clear it after handleStartup() returns.
+	// Without this, a client can hold a goroutine indefinitely by stalling during
+	// SSL handshake, startup packet reading, or SCRAM authentication exchange.
+
 	// First, handle the startup phase.
 	if err := c.handleStartup(); err != nil {
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
-		_ = c.writeSimpleErrorWithDetail("FATAL", "08P01", "connection startup failed", err.Error(), "")
+		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
+		// with native SQLSTATE), send it directly. Otherwise, wrap with MTE01.
+		var diag *mterrors.PgDiagnostic
+		if errors.As(err, &diag) {
+			_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+		} else {
+			_ = c.writeError(mterrors.MTE01.NewWithDetail(err.Error()))
+		}
 		_ = c.flush()
 		return err
 	}
@@ -349,7 +450,7 @@ func (c *Conn) serve() error {
 		if err := c.handleMessage(msgType); err != nil {
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
-			_ = c.writeSimpleErrorWithDetail("ERROR", "XX000", "internal error", err.Error(), "")
+			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))
 			_ = c.writeReadyForQuery()
 			_ = c.flush()
 			// For now, close connection on any error.
@@ -413,6 +514,10 @@ func (c *Conn) handleQuery() error {
 
 	c.logger.Debug("received query", "query", queryStr)
 
+	// Create a cancelable query context so cancel requests can interrupt this query.
+	queryCtx := c.BeginQueryCancel()
+	defer c.EndQueryCancel()
+
 	// Track state for current result set.
 	// This is reset when we complete a result set (when CommandTag is set).
 	sentRowDescription := false
@@ -421,7 +526,7 @@ func (c *Conn) handleQuery() error {
 	// The callback will be invoked multiple times for:
 	// 1. Large result sets (streamed in chunks)
 	// 2. Multiple statements in a single query (each potentially with large result sets)
-	err = c.handler.HandleQuery(c.ctx, c, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
+	err = c.handler.HandleQuery(queryCtx, c, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
 		// Handle empty query (nil result signals empty query).
 		if result == nil {
 			return c.writeEmptyQueryResponse()
@@ -464,6 +569,7 @@ func (c *Conn) handleQuery() error {
 		return nil
 	})
 	if err != nil {
+		err = queryContextError(queryCtx, err)
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
@@ -533,7 +639,7 @@ func (c *Conn) handleParse() error {
 	// Call the handler to validate and prepare the statement.
 	// The handler is responsible for storing any state it needs.
 	if err := c.handler.HandleParse(c.ctx, c, stmtName, queryStr, paramTypes); err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "parse failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD04.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -627,7 +733,7 @@ func (c *Conn) handleBind() error {
 
 	// Call the handler to create and bind the portal with parameters.
 	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "bind failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD05.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		if writeErr := c.writeReadyForQuery(); writeErr != nil {
@@ -680,12 +786,16 @@ func (c *Conn) handleExecute() error {
 
 	c.logger.Debug("execute", "portal", portalName, "max_rows", maxRows)
 
+	// Create a cancelable query context so cancel requests can interrupt this execution.
+	queryCtx := c.BeginQueryCancel()
+	defer c.EndQueryCancel()
+
 	// Track state for streaming results.
 	sentRowDescription := false
 
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
-	err = c.handler.HandleExecute(c.ctx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
+	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, func(ctx context.Context, result *sqltypes.Result) error {
 		// Send notices immediately (zero-buffering delivery).
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {
@@ -718,6 +828,7 @@ func (c *Conn) handleExecute() error {
 		return nil
 	})
 	if err != nil {
+		err = queryContextError(queryCtx, err)
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
 		}
@@ -763,7 +874,7 @@ func (c *Conn) handleDescribe() error {
 	// Call the handler.
 	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
 	if err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "describe failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD06.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -826,7 +937,7 @@ func (c *Conn) handleClose() error {
 
 	// Call the handler.
 	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42P03", "close failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD07.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 		return c.flush()
@@ -857,7 +968,7 @@ func (c *Conn) handleSync() error {
 	// Call the handler.
 	if err := c.handler.HandleSync(c.ctx, c); err != nil {
 		// Even if handler returns error, we still send ReadyForQuery after Sync.
-		if writeErr := c.writeSimpleErrorWithDetail("ERROR", "42000", "sync failed", err.Error(), ""); writeErr != nil {
+		if writeErr := c.writeError(mterrors.MTD08.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
 	}

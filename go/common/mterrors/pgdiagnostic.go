@@ -179,6 +179,16 @@ func (d *PgDiagnostic) Validate() error {
 	return nil
 }
 
+// NewFeatureNotSupported returns a PgDiagnostic error with SQLSTATE 0A000 (feature_not_supported).
+func NewFeatureNotSupported(message string) *PgDiagnostic {
+	return &PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "ERROR",
+		Code:        "0A000",
+		Message:     message,
+	}
+}
+
 // PgDiagnosticToProto converts mterrors PgDiagnostic to proto format for gRPC serialization.
 func PgDiagnosticToProto(d *PgDiagnostic) *query.PgDiagnostic {
 	if d == nil {

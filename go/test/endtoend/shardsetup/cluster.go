@@ -35,6 +35,12 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
+const (
+	// DefaultTestUser is the PostgreSQL user that tests use when connecting to
+	// multigateway or multipooler as a regular client.
+	DefaultTestUser = "postgres"
+)
+
 // MultipoolerInstance represents a multipooler instance, which is a pair of pgctld + multipooler processes.
 // In multigres, a multipooler always has both: pgctld manages PostgreSQL, multipooler handles pooling.
 type MultipoolerInstance struct {
@@ -69,6 +75,10 @@ type ShardSetup struct {
 
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
+
+	// MultigatewayTLSCertPaths stores the paths to multigateway TLS certificates.
+	// Set when WithMultigatewayTLS() is used.
+	MultigatewayTLSCertPaths *MultigatewayTLSCertPaths
 
 	// BackupLocation stores backup configuration from topology
 	BackupLocation *clustermetadatapb.BackupLocation
@@ -199,9 +209,12 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// Allocate a port for pgBackRest server (one per multipooler)
 	pgbackrestPort := utils.GetFreePort(t)
 
+	// Allocate an HTTP port for pgctld health endpoints
+	pgctldHttpPort := utils.GetFreePort(t)
+
 	// Create pgctld instance
 	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
-	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
+	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgctldHttpPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
@@ -221,7 +234,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, httpPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -236,12 +249,13 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		DataDir:           dataDir,
 		LogFile:           logFile,
 		GrpcPort:          grpcPort,
+		HttpPort:          httpPort,
 		PgPort:            pgPort,
 		Binary:            "pgctld",
 		PgBackRestPort:    pgbackrestPort,
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword),
 	}
 }
 
@@ -344,6 +358,12 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 		Environment: os.Environ(),
 	}
 
+	// Add TLS cert paths if multigateway TLS is enabled
+	if s.MultigatewayTLSCertPaths != nil {
+		inst.TLSCertFile = s.MultigatewayTLSCertPaths.ServerCertFile
+		inst.TLSKeyFile = s.MultigatewayTLSCertPaths.ServerKeyFile
+	}
+
 	s.Multigateway = inst
 	s.MultigatewayPgPort = pgPort
 
@@ -361,8 +381,7 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
-		s.MultigatewayPgPort, TestPostgresPassword)
+	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, "sslmode=disable", "connect_timeout=2")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -380,13 +399,16 @@ func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 				continue
 			}
 
-			var result int
+			// Verify both read and write paths work. SELECT 1 may succeed
+			// via a REPLICA before multigateway learns about the PRIMARY.
+			// CREATE TABLE forces routing to PRIMARY, confirming that
+			// multigateway has discovered the primary pooler.
 			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			err = db.QueryRowContext(queryCtx, "SELECT 1").Scan(&result)
+			_, err = db.ExecContext(queryCtx, "CREATE TABLE IF NOT EXISTS _mgw_ready_check (x int); DROP TABLE IF EXISTS _mgw_ready_check")
 			cancel()
 			db.Close()
 
-			if err == nil && result == 1 {
+			if err == nil {
 				elapsed := time.Since(startTime)
 				t.Logf("Multigateway can execute queries (ready after %v)", elapsed)
 				return

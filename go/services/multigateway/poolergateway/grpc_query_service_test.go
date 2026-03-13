@@ -128,7 +128,7 @@ func (m *mockMultiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *mul
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[query.QueryResultPayload], error) {
+func (m *mockMultiPoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamExecuteResponse], error) {
 	return nil, nil
 }
 
@@ -162,6 +162,10 @@ func (m *mockMultiPoolerServiceClient) ReleaseReservedConnection(ctx context.Con
 	return &multipoolerservice.ReleaseReservedConnectionResponse{}, nil
 }
 
+func (m *mockMultiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *multipoolerservice.StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamPoolerHealthResponse], error) {
+	return nil, nil
+}
+
 // Ensure mockMultiPoolerServiceClient implements the interface
 var _ multipoolerservice.MultiPoolerServiceClient = (*mockMultiPoolerServiceClient)(nil)
 
@@ -189,6 +193,7 @@ func TestCopyReady_CopyBidiExecuteError(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -214,6 +219,7 @@ func TestCopyReady_SendInitiateError(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -242,6 +248,7 @@ func TestCopyReady_RecvReadyError(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -274,6 +281,7 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -304,6 +312,7 @@ func TestCopyReady_UnexpectedPhaseResponse(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.Error(t, err)
@@ -319,10 +328,12 @@ func TestCopyReady_UnexpectedPhaseResponse(t *testing.T) {
 func TestCopyReady_Success(t *testing.T) {
 	mockStream := &mockBidiStream{
 		recvResponse: &multipoolerservice.CopyBidiExecuteResponse{
-			Phase:                multipoolerservice.CopyBidiExecuteResponse_READY,
-			ReservedConnectionId: 12345,
-			Format:               0,
-			ColumnFormats:        []int32{0, 0, 0},
+			Phase: multipoolerservice.CopyBidiExecuteResponse_READY,
+			ReservedState: &query.ReservedState{
+				ReservedConnectionId: 12345,
+			},
+			Format:        0,
+			ColumnFormats: []int32{0, 0, 0},
 		},
 	}
 	mockClient := &mockMultiPoolerServiceClient{
@@ -336,12 +347,13 @@ func TestCopyReady_Success(t *testing.T) {
 		&query.Target{TableGroup: "test"},
 		"COPY t FROM STDIN",
 		&query.ExecuteOptions{},
+		nil,
 	)
 
 	require.NoError(t, err)
 	require.Equal(t, int16(0), format)
 	require.Equal(t, []int16{0, 0, 0}, columnFormats)
-	require.Equal(t, uint64(12345), reservedState.ReservedConnectionId)
+	require.Equal(t, uint64(12345), reservedState.GetReservedConnectionId())
 
 	// Verify cleanup was NOT called (success path)
 	require.False(t, mockStream.closeSendCalled.Load(), "CloseSend should NOT be called on success")
@@ -360,9 +372,11 @@ func TestReserveStreamExecute_Success(t *testing.T) {
 		reserveStream: &mockReserveStream{
 			responses: []*multipoolerservice.ReserveStreamExecuteResponse{
 				{
-					Result:               (&sqltypes.Result{CommandTag: "SELECT 1"}).ToProto(),
-					ReservedConnectionId: 42,
-					PoolerId:             poolerID,
+					Result: (&sqltypes.Result{CommandTag: "SELECT 1"}).ToProto(),
+					ReservedState: &query.ReservedState{
+						ReservedConnectionId: 42,
+						PoolerId:             poolerID,
+					},
 				},
 			},
 		},
@@ -384,8 +398,8 @@ func TestReserveStreamExecute_Success(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	require.Equal(t, uint64(42), reservedState.ReservedConnectionId)
-	require.Equal(t, poolerID.Cell, reservedState.PoolerID.Cell)
+	require.Equal(t, uint64(42), reservedState.GetReservedConnectionId())
+	require.Equal(t, poolerID.GetCell(), reservedState.GetPoolerId().GetCell())
 	require.Len(t, callbackResults, 1)
 	require.Equal(t, "SELECT 1", callbackResults[0].CommandTag)
 }
@@ -437,14 +451,13 @@ func TestReserveStreamExecute_RecvError(t *testing.T) {
 func TestConcludeTransaction_Commit(t *testing.T) {
 	mockClient := &mockMultiPoolerServiceClient{
 		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
-			Result:           (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
-			RemainingReasons: 0,
+			Result: (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
 		},
 	}
 
 	svc := newTestGRPCQueryService(mockClient)
 
-	result, remainingReasons, err := svc.ConcludeTransaction(
+	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
@@ -453,20 +466,19 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "COMMIT", result.CommandTag)
-	require.Equal(t, uint32(0), remainingReasons)
+	require.Equal(t, uint32(0), reservedState.GetReservationReasons())
 }
 
 func TestConcludeTransaction_Rollback(t *testing.T) {
 	mockClient := &mockMultiPoolerServiceClient{
 		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
-			Result:           (&sqltypes.Result{CommandTag: "ROLLBACK"}).ToProto(),
-			RemainingReasons: 0,
+			Result: (&sqltypes.Result{CommandTag: "ROLLBACK"}).ToProto(),
 		},
 	}
 
 	svc := newTestGRPCQueryService(mockClient)
 
-	result, remainingReasons, err := svc.ConcludeTransaction(
+	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
@@ -475,20 +487,25 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "ROLLBACK", result.CommandTag)
-	require.Equal(t, uint32(0), remainingReasons)
+	require.Equal(t, uint32(0), reservedState.GetReservationReasons())
 }
 
 func TestConcludeTransaction_StillReserved(t *testing.T) {
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
 	mockClient := &mockMultiPoolerServiceClient{
 		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
-			Result:           (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
-			RemainingReasons: protoutil.ReasonPortal,
+			Result: (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
+			ReservedState: &query.ReservedState{
+				ReservationReasons:   protoutil.ReasonPortal,
+				ReservedConnectionId: 42,
+				PoolerId:             poolerID,
+			},
 		},
 	}
 
 	svc := newTestGRPCQueryService(mockClient)
 
-	result, remainingReasons, err := svc.ConcludeTransaction(
+	result, reservedState, err := svc.ConcludeTransaction(
 		context.Background(),
 		&query.Target{TableGroup: "test"},
 		&query.ExecuteOptions{ReservedConnectionId: 42},
@@ -497,7 +514,8 @@ func TestConcludeTransaction_StillReserved(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "COMMIT", result.CommandTag)
-	require.NotEqual(t, uint32(0), remainingReasons, "connection should still be reserved")
+	require.NotEqual(t, uint64(0), reservedState.GetReservedConnectionId(), "connection should still be reserved")
+	require.Equal(t, protoutil.ReasonPortal, reservedState.GetReservationReasons())
 }
 
 func TestConcludeTransaction_Error(t *testing.T) {

@@ -15,6 +15,7 @@
 package pgctld
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -30,8 +31,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
 )
@@ -56,6 +60,12 @@ func setupTestEnv(cmd *exec.Cmd) {
 		// Required to avoid "postmaster became multithreaded during startup" on macOS
 		cmd.Env = append(cmd.Env, "LC_ALL=en_US.UTF-8")
 	}
+}
+
+// setupTestEnvWithPassword sets up environment variables for PostgreSQL tests, including the password.
+func setupTestEnvWithPassword(cmd *exec.Cmd, password string) {
+	setupTestEnv(cmd)
+	cmd.Env = append(cmd.Env, "POSTGRES_PASSWORD="+password)
 }
 
 // TestEndToEndWithRealPostgreSQL tests pgctld with real PostgreSQL binaries
@@ -175,15 +185,18 @@ timeout: 30
 			"--pooler-dir", dataDir,
 			"--grpc-port", strconv.Itoa(grpcPort),
 			"--pg-port", strconv.Itoa(pgPort),
-			"--config-file", pgctldConfigFile,
-			"--backup-type", "filesystem",
-			"--backup-path", filepath.Join(tempDir, "backups"))
+			"--config-file", pgctldConfigFile)
 
 		// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 		serverCmd.Env = append(os.Environ(),
 			"MULTIGRES_TESTDATA_DIR="+tempDir,
 			"PGCONNECT_TIMEOUT=5",
 		)
+
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		if runtime.GOOS == "darwin" {
+			serverCmd.Env = append(serverCmd.Env, "LC_ALL=en_US.UTF-8")
+		}
 
 		err := serverCmd.Start()
 		require.NoError(t, err)
@@ -484,7 +497,7 @@ timeout: 30
 	require.NoError(t, err)
 }
 
-// TestPostgreSQLAuthentication tests PostgreSQL authentication with PGPASSWORD
+// TestPostgreSQLAuthentication tests PostgreSQL authentication with POSTGRES_PASSWORD
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping authentication tests in short mode")
@@ -512,25 +525,36 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Test password
 		testPassword := "secure_test_password_123"
 
-		// Initialize with PGPASSWORD
-		t.Logf("Initializing PostgreSQL with PGPASSWORD")
+		// Initialize with POSTGRES_PASSWORD
+		t.Logf("Initializing PostgreSQL with POSTGRES_PASSWORD")
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
 
 		initCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
+			"POSTGRES_PASSWORD="+testPassword,
 		)
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		if runtime.GOOS == "darwin" {
+			initCmd.Env = append(initCmd.Env, "LC_ALL=en_US.UTF-8")
+		}
+
 		output, err := initCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"PGPASSWORD environment variable\"", "Should use PGPASSWORD")
+		assert.Contains(t, string(output), "\"password_source\":\"POSTGRES_PASSWORD environment variable\"", "Should use POSTGRES_PASSWORD")
 
 		// Start the PostgreSQL server
 		t.Logf("Starting PostgreSQL server")
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
 		startCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD="+testPassword,
+			"POSTGRES_PASSWORD="+testPassword,
 		)
+
+		// Required to avoid "postmaster became multithreaded during startup" on macOS
+		if runtime.GOOS == "darwin" {
+			startCmd.Env = append(startCmd.Env, "LC_ALL=en_US.UTF-8")
+		}
+
 		output, err = startCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
 
@@ -634,98 +658,6 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")
-	})
-
-	t.Run("password_file_authentication", func(t *testing.T) {
-		// Set up temporary directory
-		baseDir, cleanup := testutil.TempDir(t, "pgctld_pwfile_test")
-		defer cleanup()
-
-		// Use cached pgctld binary for testing
-
-		// Get available port for PostgreSQL
-		port := utils.GetFreePort(t)
-		t.Logf("Password file test using port: %d", port)
-
-		// Test password
-		testPassword := "file_password_secure_456"
-
-		// Create password file at conventional location (poolerDir/pgpassword.txt)
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte(testPassword), 0o600)
-		require.NoError(t, err, "Should create password file")
-
-		// Build environment without PGPASSWORD to avoid conflicts with password file
-		cleanEnv := make([]string, 0, len(os.Environ()))
-		for _, env := range os.Environ() {
-			if !strings.HasPrefix(env, "PGPASSWORD=") {
-				cleanEnv = append(cleanEnv, env)
-			}
-		}
-		cleanEnv = append(cleanEnv, "PGCONNECT_TIMEOUT=5")
-
-		// Initialize - pgctld will find password file at conventional location
-		t.Logf("Initializing PostgreSQL with password file at conventional location")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		initCmd.Env = cleanEnv
-		output, err := initCmd.CombinedOutput()
-		require.NoError(t, err, "pgctld init should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "\"password_source\":\"password file\"", "Should use password file")
-
-		// Start the PostgreSQL server
-		t.Logf("Starting PostgreSQL server")
-		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
-		startCmd.Env = cleanEnv
-		output, err = startCmd.CombinedOutput()
-		require.NoError(t, err, "pgctld start should succeed, output: %s", string(output))
-
-		// Give the server a moment to be fully ready
-		time.Sleep(2 * time.Second)
-
-		// Test TCP connection with password from file
-		t.Logf("Testing TCP connection with password from file")
-		tcpCmd := exec.Command("psql",
-			"-h", "localhost",
-			"-p", strconv.Itoa(port),
-			"-U", "postgres",
-			"-d", "postgres",
-			"-c", "SELECT 'Password file authentication works!' as result;",
-		)
-		tcpCmd.Env = append(os.Environ(), "PGPASSWORD="+testPassword)
-		output, err = tcpCmd.CombinedOutput()
-		require.NoError(t, err, "TCP connection with password from file should succeed, output: %s", string(output))
-		assert.Contains(t, string(output), "Password file authentication works!", "Should connect successfully")
-
-		// Clean shutdown
-		t.Logf("Shutting down PostgreSQL")
-		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
-		stopCmd.Env = cleanEnv
-		err = stopCmd.Run()
-		require.NoError(t, err, "pgctld stop should succeed")
-	})
-
-	t.Run("password_source_conflict", func(t *testing.T) {
-		// Set up temporary directory
-		baseDir, cleanup := testutil.TempDir(t, "pgctld_conflict_test")
-		defer cleanup()
-
-		// Use cached pgctld binary for testing
-
-		// Create password file at conventional location
-		pwfile := filepath.Join(baseDir, "pgpassword.txt")
-		err := os.WriteFile(pwfile, []byte("file_password"), 0o600)
-		require.NoError(t, err, "Should create password file")
-
-		// Try to initialize with both PGPASSWORD and password file at conventional location (should fail)
-		t.Logf("Testing conflict between PGPASSWORD and password file")
-		initCmd := exec.Command("pgctld", "init", "--pooler-dir", baseDir)
-		initCmd.Env = append(os.Environ(),
-			"PGCONNECT_TIMEOUT=5",
-			"PGPASSWORD=env_password",
-		)
-		output, err := initCmd.CombinedOutput()
-		assert.Error(t, err, "pgctld init should fail with both password sources")
-		assert.Contains(t, string(output), "both password file", "Should show conflict error")
 	})
 }
 
@@ -1122,9 +1054,7 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 		"--pooler-dir", dataDir,
 		"--grpc-port", strconv.Itoa(grpcPort),
 		"--pg-port", strconv.Itoa(pgPort),
-		"--config-file", pgctldConfigFile,
-		"--backup-type", "filesystem",
-		"--backup-path", filepath.Join(tempDir, "backups"))
+		"--config-file", pgctldConfigFile)
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	// Add endtoend directory to PATH so run_command_if_parent_dies.sh can be found
@@ -1134,6 +1064,12 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 		"MULTIGRES_TESTDATA_DIR="+dataDir,
 		"PGCONNECT_TIMEOUT=5",
 		"PATH="+endtoendDir+":"+os.Getenv("PATH"))
+
+	// Required to avoid "postmaster became multithreaded during startup" on macOS
+	if runtime.GOOS == "darwin" {
+		serverCmd.Env = append(serverCmd.Env, "LC_ALL=en_US.UTF-8")
+	}
+
 	require.NoError(t, serverCmd.Start())
 
 	// Wait for gRPC server to be ready
@@ -1204,4 +1140,188 @@ func readPostmasterPID(dataDir string) (int, error) {
 	}
 
 	return pid, nil
+}
+
+// TestPgRewind_AfterCrash tests that PgRewind RPC automatically handles crash recovery
+// when PostgreSQL was killed ungracefully (SIGKILL) and left in "in production" state
+func TestPgRewind_AfterCrash(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+
+	if !utils.HasPostgreSQLBinaries() {
+		t.Skip("PostgreSQL binaries not found, skipping test")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_pgrewind_crash_test")
+	defer cleanup()
+
+	// Set up two PostgreSQL instances via pgctld:
+	// - Primary: source server for pg_rewind
+	// - Standby: the server we'll crash and then rewind
+
+	// ===== PRIMARY SETUP =====
+	primaryDir := filepath.Join(tempDir, "primary")
+	primaryConfigFile := filepath.Join(tempDir, "primary.pgctld.yaml")
+	err := os.WriteFile(primaryConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
+	require.NoError(t, err)
+
+	testPassword := "test_pg_rewind_password_123" //nolint:gosec // Test password, not a real credential
+	err = os.MkdirAll(primaryDir, 0o755)
+	require.NoError(t, err)
+
+	primaryGrpcPort := utils.GetFreePort(t)
+	primaryPgPort := utils.GetFreePort(t)
+	t.Logf("Primary ports - gRPC: %d, PostgreSQL: %d", primaryGrpcPort, primaryPgPort)
+
+	// Start primary pgctld server
+	primaryServerCmd := exec.Command("pgctld", "server",
+		"--pooler-dir", primaryDir,
+		"--grpc-port", strconv.Itoa(primaryGrpcPort),
+		"--pg-port", strconv.Itoa(primaryPgPort),
+		"--config-file", primaryConfigFile)
+	setupTestEnvWithPassword(primaryServerCmd, testPassword)
+	require.NoError(t, primaryServerCmd.Start())
+	defer func() {
+		if primaryServerCmd.Process != nil {
+			_ = primaryServerCmd.Process.Kill()
+			_ = primaryServerCmd.Wait()
+		}
+	}()
+
+	// Wait for primary gRPC server to be ready
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", primaryGrpcPort), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond, "Primary gRPC server should be ready")
+
+	// Initialize and start primary PostgreSQL
+	primaryGrpcAddr := fmt.Sprintf("localhost:%d", primaryGrpcPort)
+	err = InitAndStartPostgreSQL(t, primaryGrpcAddr)
+	require.NoError(t, err)
+	t.Log("Primary PostgreSQL started successfully")
+
+	// ===== STANDBY SETUP =====
+	standbyDir := filepath.Join(tempDir, "standby")
+	standbyConfigFile := filepath.Join(tempDir, "standby.pgctld.yaml")
+	err = os.WriteFile(standbyConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
+	require.NoError(t, err)
+
+	err = os.MkdirAll(standbyDir, 0o755)
+	require.NoError(t, err)
+
+	standbyGrpcPort := utils.GetFreePort(t)
+	standbyPgPort := utils.GetFreePort(t)
+	t.Logf("Standby ports - gRPC: %d, PostgreSQL: %d", standbyGrpcPort, standbyPgPort)
+
+	// Start standby pgctld server
+	standbyServerCmd := exec.Command("pgctld", "server",
+		"--pooler-dir", standbyDir,
+		"--grpc-port", strconv.Itoa(standbyGrpcPort),
+		"--pg-port", strconv.Itoa(standbyPgPort),
+		"--config-file", standbyConfigFile)
+	setupTestEnvWithPassword(standbyServerCmd, testPassword)
+	require.NoError(t, standbyServerCmd.Start())
+	defer func() {
+		if standbyServerCmd.Process != nil {
+			_ = standbyServerCmd.Process.Kill()
+			_ = standbyServerCmd.Wait()
+		}
+	}()
+
+	// Wait for standby gRPC server to be ready
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", standbyGrpcPort), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return true
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond, "Standby gRPC server should be ready")
+
+	// Initialize and start standby PostgreSQL
+	standbyGrpcAddr := fmt.Sprintf("localhost:%d", standbyGrpcPort)
+	err = InitAndStartPostgreSQL(t, standbyGrpcAddr)
+	require.NoError(t, err)
+	t.Log("Standby PostgreSQL started successfully")
+
+	// ===== CRASH STANDBY =====
+	// Get standby PostgreSQL PID
+	standbyPgDataDir := filepath.Join(standbyDir, "pg_data")
+	standbyPgPID, err := readPostmasterPID(standbyPgDataDir)
+	require.NoError(t, err)
+	t.Logf("Standby PostgreSQL PID: %d", standbyPgPID)
+
+	// Kill standby PostgreSQL with SIGKILL to simulate crash
+	standbyPgProcess, err := os.FindProcess(standbyPgPID)
+	require.NoError(t, err)
+	t.Log("Killing standby PostgreSQL with SIGKILL to simulate crash")
+	require.NoError(t, standbyPgProcess.Signal(syscall.SIGKILL))
+
+	// Wait for process to terminate (poll instead of sleep)
+	require.Eventually(t, func() bool {
+		// Signal 0 checks if process exists without actually sending a signal
+		err := standbyPgProcess.Signal(syscall.Signal(0))
+		// On macOS/Linux, if the process is gone, we get "no such process" error
+		return err != nil
+	}, 5*time.Second, 100*time.Millisecond, "Standby postgres should terminate after SIGKILL")
+
+	// Verify standby is in "in production" state (not cleanly stopped)
+	t.Log("Verifying standby is in 'in production' state after crash")
+	controldataCmd := exec.Command("pg_controldata", standbyPgDataDir)
+	output, err := controldataCmd.CombinedOutput()
+	require.NoError(t, err)
+	outputStr := string(output)
+	assert.Contains(t, outputStr, "Database cluster state:", "Should show cluster state")
+	assert.Contains(t, outputStr, "in production", "Should be 'in production' after SIGKILL")
+	t.Log("Confirmed: standby is in 'in production' state")
+
+	// ===== CALL PGREWIND RPC =====
+	// Connect to standby gRPC and call PgRewind with dry_run=true
+	// This should automatically run crash recovery before attempting pg_rewind
+	standbyConn, err := grpc.NewClient(
+		standbyGrpcAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	defer standbyConn.Close()
+
+	standbyClient := pb.NewPgCtldClient(standbyConn)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	t.Log("Calling PgRewind RPC with dry_run=true (should trigger automatic crash recovery)")
+	rewindResp, err := standbyClient.PgRewind(ctx, &pb.PgRewindRequest{
+		SourceHost: "localhost",
+		SourcePort: int32(primaryPgPort),
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Logf("PgRewind RPC returned error: %v", err)
+		// Even if pg_rewind failed (e.g., connection issues), crash recovery should have run
+		// We'll verify this by checking the database state below
+	} else {
+		t.Logf("PgRewind RPC succeeded: %s", rewindResp.Message)
+		t.Logf("PgRewind output: %s", rewindResp.Output)
+	}
+
+	// ===== VERIFY CRASH RECOVERY SUCCEEDED =====
+	// After PgRewind RPC, crash recovery should have run automatically,
+	// leaving the database in "shut down" or "shut down in recovery" state
+	t.Log("Verifying standby is now cleanly stopped after crash recovery")
+	controldataCmd = exec.Command("pg_controldata", standbyPgDataDir)
+	output, err = controldataCmd.CombinedOutput()
+	require.NoError(t, err)
+	outputStr = string(output)
+
+	assert.Contains(t, outputStr, "Database cluster state:", "Should show cluster state")
+	// After crash recovery, should be cleanly stopped
+	isCleanlyStoppedState := strings.Contains(outputStr, "shut down") || strings.Contains(outputStr, "shut down in recovery")
+	assert.True(t, isCleanlyStoppedState,
+		"Database should be in 'shut down' or 'shut down in recovery' state after crash recovery, got:\n%s", outputStr)
+	t.Log("Success: standby is now cleanly stopped, proving crash recovery succeeded")
 }

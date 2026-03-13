@@ -95,8 +95,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	disableMonitoringOnAllNodes(t, setup)
 
 	// Connect to multigateway for continuous writes (automatically routes to current primary)
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	gatewayDB, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer gatewayDB.Close()

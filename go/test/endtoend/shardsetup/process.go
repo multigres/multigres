@@ -56,12 +56,16 @@ type ProcessInstance struct {
 	Environment []string
 
 	// Multiorch-specific fields
-	HttpPort                            int      // HTTP port (used by multiorch for /ready endpoint)
+	HttpPort                            int      // HTTP port (used by pgctld and multiorch for health endpoints)
 	Cell                                string   // Cell name (used by multipooler and multiorch)
 	WatchTargets                        []string // Database/tablegroup/shard targets to watch (multiorch)
 	ServiceID                           string   // Service ID (used by multipooler and multiorch)
 	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (e.g., "0s", "10s")
 	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (e.g., "0s", "5s")
+
+	// Multigateway TLS fields
+	TLSCertFile string // TLS certificate file (multigateway)
+	TLSKeyFile  string // TLS private key file (multigateway)
 
 	// PgBackRest-specific fields (used by multipooler and pgctld)
 	PgBackRestCertPaths *local.PgBackRestCertPaths // pgBackRest TLS certificate paths (multipooler)
@@ -108,41 +112,17 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 		"--log-output", p.LogFile,
 	}
 
+	// Add HTTP port if configured
+	if p.HttpPort > 0 {
+		args = append(args, "--http-port", strconv.Itoa(p.HttpPort))
+	}
+
 	// Add pgBackRest configuration if provided
 	if p.PgBackRestPort > 0 {
 		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
 	}
 	if p.PgBackRestCertDir != "" {
 		args = append(args, "--pgbackrest-cert-dir", p.PgBackRestCertDir)
-	}
-
-	// Add backup configuration from topology
-	if p.BackupLocation != nil {
-		// This mirrors code in the local provisioner, because this function takes a
-		// proto, and the other doesn't.
-		if s3 := p.BackupLocation.GetS3(); s3 != nil {
-			args = append(args, "--backup-type", "s3")
-			args = append(args, "--backup-bucket", s3.Bucket)
-			args = append(args, "--backup-region", s3.Region)
-			// Repo path for S3 (default to /multigres, or with key prefix)
-			repoPath := "/multigres"
-			if s3.KeyPrefix != "" {
-				repoPath = "/" + strings.TrimSuffix(s3.KeyPrefix, "/") + "/multigres"
-			}
-			args = append(args, "--backup-path", repoPath)
-			if s3.Endpoint != "" {
-				args = append(args, "--backup-endpoint", s3.Endpoint)
-			}
-			if s3.KeyPrefix != "" {
-				args = append(args, "--backup-key-prefix", s3.KeyPrefix)
-			}
-			if s3.UseEnvCredentials {
-				args = append(args, "--backup-use-env-credentials")
-			}
-		} else if filesystem := p.BackupLocation.GetFilesystem(); filesystem != nil {
-			args = append(args, "--backup-type", "filesystem")
-			args = append(args, "--backup-path", filesystem.Path)
-		}
 	}
 
 	p.Process = exec.Command(p.Binary, args...)
@@ -244,6 +224,12 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		args = append(args, "--primary-failover-grace-period-max-jitter", p.PrimaryFailoverGracePeriodMaxJitter)
 	}
 
+	// Coverage builds are slower — WAL receiver can take 3-10s to connect.
+	// So, we Increase the verify-replication timeout to compensate.
+	if os.Getenv("GOCOVERDIR") != "" {
+		args = append(args, "--verify-replication-timeout", "15s")
+	}
+
 	p.Process = exec.Command(p.Binary, args...)
 	if p.DataDir != "" {
 		p.Process.Dir = p.DataDir
@@ -290,6 +276,14 @@ func (p *ProcessInstance) startMultigateway(ctx context.Context, t *testing.T) e
 		"--http-port", strconv.Itoa(p.HttpPort),
 		"--hostname", "localhost",
 		"--log-level", "debug",
+	}
+
+	// Add TLS certificate flags if configured
+	if p.TLSCertFile != "" && p.TLSKeyFile != "" {
+		args = append(args,
+			"--pg-tls-cert-file", p.TLSCertFile,
+			"--pg-tls-key-file", p.TLSKeyFile,
+		)
 	}
 
 	p.Process = exec.Command(p.Binary, args...)

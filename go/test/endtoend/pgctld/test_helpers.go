@@ -32,10 +32,10 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	"github.com/multigres/multigres/go/common/backup"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
@@ -44,7 +44,6 @@ type TestSetup struct {
 	TempDir        string
 	DataDir        string
 	CertDir        string
-	BackupConfig   *backup.Config
 	PgPort         int
 	PgBackRestPort int
 	BinDir         string
@@ -61,7 +60,6 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 
 	dataDir := filepath.Join(tempDir, "data")
 	certDir := filepath.Join(tempDir, "certs")
-	backupDir := filepath.Join(tempDir, "backup")
 
 	// Setup mock PostgreSQL binaries
 	binDir := filepath.Join(tempDir, "bin")
@@ -83,18 +81,6 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 	require.FileExists(t, certPaths.ServerCertFile)
 	require.FileExists(t, certPaths.ServerKeyFile)
 
-	// Create backup config (filesystem-based for simplicity)
-	backupLoc := &clustermetadatapb.BackupLocation{
-		Location: &clustermetadatapb.BackupLocation_Filesystem{
-			Filesystem: &clustermetadatapb.FilesystemBackup{
-				Path: backupDir,
-			},
-		},
-	}
-
-	backupConfig, err := backup.NewConfig(backupLoc)
-	require.NoError(t, err, "Failed to create backup config")
-
 	// Allocate dynamic ports (port 0 = let OS choose)
 	pgPort := 15432 // PostgreSQL needs a specific port for mock binaries
 
@@ -108,7 +94,6 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 		TempDir:        tempDir,
 		DataDir:        dataDir,
 		CertDir:        certDir,
-		BackupConfig:   backupConfig,
 		PgPort:         pgPort,
 		PgBackRestPort: pgbackrestPort,
 		BinDir:         binDir,
@@ -229,14 +214,14 @@ func createTestGRPCServerWithPgBackRest(t *testing.T, setup *TestSetup) (net.Lis
 	service, err := command.NewPgCtldService(
 		slog.Default(),
 		setup.PgPort,
-		"postgres",
-		"postgres",
+		constants.DefaultPostgresUser,
+		constants.DefaultPostgresDatabase,
+		shardsetup.TestPostgresPassword,
 		30,
 		setup.DataDir,
 		"localhost",
 		setup.PgBackRestPort,
 		setup.CertDir,
-		setup.BackupConfig,
 	)
 	require.NoError(t, err)
 

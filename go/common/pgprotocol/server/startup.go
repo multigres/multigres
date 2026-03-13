@@ -15,11 +15,13 @@
 package server
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"maps"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
@@ -31,39 +33,47 @@ type StartupMessage struct {
 }
 
 // handleStartup handles the initial connection startup phase.
-// This includes SSL negotiation and processing the startup message.
+// This includes SSL/GSSAPI encryption negotiation and processing the startup message.
 // Returns an error if the startup fails.
 func (c *Conn) handleStartup() error {
-	// Read the first startup packet (could be SSL request, startup message, etc.)
+	return c.readAndDispatchStartup()
+}
+
+// readAndDispatchStartup reads a startup packet and dispatches based on protocol code.
+// This method is called both for the initial startup and after encryption negotiation
+// (SSL or GSSAPI) to handle the fallback ordering defined in the PostgreSQL protocol:
+// a client may try GSSENCRequest after SSLRequest is declined, or vice versa.
+// See: https://www.postgresql.org/docs/17/protocol-flow.html
+func (c *Conn) readAndDispatchStartup() error {
 	buf, err := c.readStartupPacket()
 	if err != nil {
 		return fmt.Errorf("failed to read startup packet: %w", err)
 	}
 	defer c.returnReadBuffer(buf)
 
-	// Parse the protocol version/code from the packet.
 	reader := NewMessageReader(buf)
 	protocolCode, err := reader.ReadUint32()
 	if err != nil {
 		return fmt.Errorf("failed to read protocol code: %w", err)
 	}
 
-	// Handle special protocol codes.
 	switch protocolCode {
 	case protocol.SSLRequestCode:
-		// Client is requesting SSL. We don't support SSL yet, so decline.
+		if c.sslDone {
+			return mterrors.NewPgError("FATAL", "0A000", "duplicate SSLRequest: SSL negotiation already completed", "")
+		}
 		return c.handleSSLRequest()
 
 	case protocol.GSSENCRequestCode:
-		// Client is requesting GSSAPI encryption. We don't support it, so decline.
+		if c.gssDone {
+			return mterrors.NewPgError("FATAL", "0A000", "duplicate GSSENCRequest: GSSAPI encryption negotiation already completed", "")
+		}
 		return c.handleGSSENCRequest()
 
 	case protocol.CancelRequestCode:
-		// This is a cancel request, not a regular connection startup.
 		return c.handleCancelRequest(reader)
 
 	case protocol.ProtocolVersionNumber:
-		// This is a normal startup message with protocol version 3.0.
 		return c.handleStartupMessage(protocolCode, reader)
 
 	default:
@@ -71,82 +81,89 @@ func (c *Conn) handleStartup() error {
 	}
 }
 
-// handleSSLRequest handles an SSL negotiation request.
-// We currently don't support SSL, so we send 'N' (no SSL) and then
-// wait for the client to send the actual startup message.
+// handleSSLRequest handles an SSL negotiation request from the client.
+// If TLS is configured, accepts with 'S' and upgrades the connection to TLS.
+// If TLS is not configured, declines with 'N'.
+// After responding, reads the next startup packet which may be a StartupMessage
+// or a GSSENCRequest (per PostgreSQL protocol fallback ordering).
 func (c *Conn) handleSSLRequest() error {
-	c.logger.Debug("client requested SSL, declining")
+	c.sslDone = true
 
-	// Send 'N' to decline SSL.
-	writer := c.getWriter()
-	if err := c.writeByte(writer, 'N'); err != nil {
-		return fmt.Errorf("failed to send SSL response: %w", err)
+	if c.tlsConfig == nil {
+		// No TLS configured, decline SSL.
+		c.logger.Debug("client requested SSL, declining (no TLS config)")
+		writer := c.getWriter()
+		if err := c.writeByte(writer, 'N'); err != nil {
+			return fmt.Errorf("failed to send SSL response: %w", err)
+		}
+		if err := c.flush(); err != nil {
+			return fmt.Errorf("failed to flush SSL response: %w", err)
+		}
+		// Read next packet — could be StartupMessage or GSSENCRequest (fallback).
+		return c.readAndDispatchStartup()
 	}
 
-	// Flush the response immediately.
+	// Accept SSL and upgrade to TLS.
+	c.logger.Debug("client requested SSL, accepting")
+	writer := c.getWriter()
+	if err := c.writeByte(writer, 'S'); err != nil {
+		return fmt.Errorf("failed to send SSL response: %w", err)
+	}
 	if err := c.flush(); err != nil {
 		return fmt.Errorf("failed to flush SSL response: %w", err)
 	}
 
-	// Now read the actual startup message.
-	buf, err := c.readStartupPacket()
-	if err != nil {
-		return fmt.Errorf("failed to read startup message after SSL: %w", err)
-	}
-	defer c.returnReadBuffer(buf)
-
-	reader := NewMessageReader(buf)
-	protocolCode, err := reader.ReadUint32()
-	if err != nil {
-		return fmt.Errorf("failed to read protocol code: %w", err)
+	// Buffer-stuffing attack prevention (CVE-2021-23222):
+	// If there is buffered data after we sent 'S' but before the TLS handshake,
+	// a MITM may have injected unencrypted data.
+	if c.bufferedReader.Buffered() > 0 {
+		return fmt.Errorf("received unencrypted data after SSL request: possible man-in-the-middle attack (buffered %d bytes)", c.bufferedReader.Buffered())
 	}
 
-	if protocolCode != protocol.ProtocolVersionNumber {
-		return fmt.Errorf("expected protocol version %d, got %d", protocol.ProtocolVersionNumber, protocolCode)
+	// Perform TLS handshake.
+	tlsConn := tls.Server(c.conn, c.tlsConfig)
+	if err := tlsConn.Handshake(); err != nil {
+		return fmt.Errorf("TLS handshake failed: %w", err)
 	}
 
-	return c.handleStartupMessage(protocolCode, reader)
+	// Replace the underlying connection and reset the buffered reader
+	// to read from the TLS connection. The buffered writer is nil during
+	// startup (lazy init via startWriterBuffering), so getWriter() falls
+	// back to c.conn directly — after this swap, writes go through TLS.
+	c.conn = tlsConn
+	c.bufferedReader.Reset(tlsConn)
+
+	c.logger.Info("TLS connection established",
+		"version", tlsConn.ConnectionState().Version,
+		"cipher_suite", tls.CipherSuiteName(tlsConn.ConnectionState().CipherSuite))
+
+	// Read the actual startup message over the encrypted connection.
+	return c.readAndDispatchStartup()
 }
 
 // handleGSSENCRequest handles a GSSAPI encryption request.
-// We don't support GSSAPI encryption, so we send 'N' (no GSSENC) and then
-// wait for the client to send the actual startup message.
+// We don't support GSSAPI encryption, so we always decline with 'N'.
+// After declining, reads the next startup packet which may be a StartupMessage
+// or an SSLRequest (per PostgreSQL protocol fallback ordering).
 func (c *Conn) handleGSSENCRequest() error {
-	c.logger.Debug("client requested GSSAPI encryption, declining")
+	c.gssDone = true
 
-	// Send 'N' to decline GSSENC.
+	c.logger.Debug("client requested GSSAPI encryption, declining")
 	writer := c.getWriter()
 	if err := c.writeByte(writer, 'N'); err != nil {
 		return fmt.Errorf("failed to send GSSENC response: %w", err)
 	}
-
-	// Flush the response immediately.
 	if err := c.flush(); err != nil {
 		return fmt.Errorf("failed to flush GSSENC response: %w", err)
 	}
 
-	// Now read the actual startup message.
-	buf, err := c.readStartupPacket()
-	if err != nil {
-		return fmt.Errorf("failed to read startup message after GSSENC: %w", err)
-	}
-	defer c.returnReadBuffer(buf)
-
-	reader := NewMessageReader(buf)
-	protocolCode, err := reader.ReadUint32()
-	if err != nil {
-		return fmt.Errorf("failed to read protocol code: %w", err)
-	}
-
-	if protocolCode != protocol.ProtocolVersionNumber {
-		return fmt.Errorf("expected protocol version %d, got %d", protocol.ProtocolVersionNumber, protocolCode)
-	}
-
-	return c.handleStartupMessage(protocolCode, reader)
+	// Read next packet — could be StartupMessage or SSLRequest (fallback).
+	return c.readAndDispatchStartup()
 }
 
 // handleCancelRequest handles a query cancellation request.
 // This is sent by clients to cancel a running query on another connection.
+// Per PostgreSQL protocol, the cancel connection is always closed after processing.
 func (c *Conn) handleCancelRequest(reader *MessageReader) error {
 	// Read the process ID (connection ID).
 	processID, err := reader.ReadUint32()
@@ -160,11 +177,16 @@ func (c *Conn) handleCancelRequest(reader *MessageReader) error {
 		return fmt.Errorf("failed to read secret key: %w", err)
 	}
 
-	c.logger.Info("received cancel request", "process_id", processID, "secret_key", secretKey)
+	c.logger.Info("received cancel request", "process_id", processID)
 
-	// TODO(GuptaManan100): Implement query cancellation.
-	// For now, we just close the connection as per protocol spec.
-	// The client should not expect a response to a cancel request.
+	if c.listener.cancelHandler != nil {
+		// Delegate to the cancel handler which may forward to a remote gateway.
+		c.listener.cancelHandler.HandleCancelRequest(c.ctx, processID, secretKey)
+	} else {
+		// No cross-gateway handler (e.g., tests); try to cancel locally.
+		c.listener.CancelLocalConnection(processID, secretKey)
+	}
+
 	return c.Close()
 }
 
@@ -334,6 +356,9 @@ func (c *Conn) authenticateTrust() error {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
 
+	// Register connection for cancel request lookup now that the client knows the PID.
+	c.listener.RegisterConn(c)
+
 	// Send initial ParameterStatus messages.
 	if err := c.sendParameterStatuses(); err != nil {
 		return fmt.Errorf("failed to send ParameterStatus messages: %w", err)
@@ -420,6 +445,9 @@ func (c *Conn) authenticateSCRAM() error {
 	if err := c.sendBackendKeyData(); err != nil {
 		return fmt.Errorf("failed to send BackendKeyData: %w", err)
 	}
+
+	// Register connection for cancel request lookup now that the client knows the PID.
+	c.listener.RegisterConn(c)
 
 	// Send initial ParameterStatus messages.
 	if err := c.sendParameterStatuses(); err != nil {
@@ -545,7 +573,7 @@ func (c *Conn) readSASLResponse() (string, error) {
 
 // sendAuthError sends an authentication error to the client.
 func (c *Conn) sendAuthError(message string) error {
-	if err := c.writeSimpleErrorWithDetail("FATAL", "28P01", message, "", ""); err != nil {
+	if err := c.writeError(mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed, message, "")); err != nil {
 		return err
 	}
 	return c.flush()

@@ -56,10 +56,11 @@ func (r *Route) StreamExecute(
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// Execute the query through the execution interface
-	// This will call ScatterConn in Phase 2+, or a stub/mock in testing
+	// Execute the query through the execution interface.
+	// We pass ctx (not conn.Context()) so that deadlines set by executeWithTimeout
+	// propagate through gRPC to the multipooler for statement timeout enforcement.
 	return exec.StreamExecute(
-		conn.Context(),
+		ctx,
 		conn,
 		r.TableGroup,
 		r.Shard,

@@ -102,10 +102,20 @@ func FromGRPC(err error) error {
 		// Do not wrap io.EOF because we compare against it for finished streams.
 		return err
 	}
-
 	st, ok := status.FromError(err)
 	if !ok {
 		return New(mtrpcpb.Code_UNKNOWN, err.Error())
+	}
+
+	// Map gRPC context errors to PostgreSQL query_canceled errors.
+	// gRPC converts context.DeadlineExceeded / context.Canceled into status
+	// errors that don't wrap the original sentinels, so we return the proper
+	// PgDiagnostic directly.
+	switch st.Code() {
+	case codes.DeadlineExceeded:
+		return NewStatementTimeout()
+	case codes.Canceled:
+		return NewQueryCanceled()
 	}
 
 	// Check for RPCError in status details

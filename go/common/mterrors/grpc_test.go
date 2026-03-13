@@ -274,3 +274,16 @@ func TestToGRPCPgErrorMessageTruncation(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, codes.Unknown, st.Code())
 }
+
+func TestNewFeatureNotSupported(t *testing.T) {
+	msg := "SET kind 99 is not supported"
+	diag := NewFeatureNotSupported(msg)
+
+	assert.Equal(t, byte('E'), diag.MessageType)
+	assert.Equal(t, "ERROR", diag.Severity)
+	assert.Equal(t, "0A000", diag.Code)
+	assert.Equal(t, msg, diag.Message)
+	assert.True(t, diag.IsError())
+	assert.Equal(t, "0A", diag.SQLSTATEClass())
+	assert.Contains(t, diag.Error(), msg)
+}

@@ -29,8 +29,9 @@ import (
 	"time"
 )
 
-// generateCA generates a self-signed CA certificate and private key for pgBackRest TLS.
-func generateCA(certPath, keyPath string) error {
+// GenerateCA generates a self-signed CA certificate and private key.
+// The certificate is valid for 10 years with RSA 4096-bit key.
+func GenerateCA(certPath, keyPath string) error {
 	// Generate RSA private key (4096 bits to match k8s setup)
 	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
@@ -94,11 +95,12 @@ func generateCA(certPath, keyPath string) error {
 	return nil
 }
 
-// generateCert generates a certificate signed by the CA.
-// The nodeName is used as the certificate's Common Name for identification.
-func generateCert(caCertPath, caKeyPath, certPath, keyPath, cn string, sans []string) error {
+// GenerateCert generates a certificate signed by the CA.
+// The cn is used as the certificate's Common Name for identification.
+// SANs are added as DNS Subject Alternative Names. IP SANs for 127.0.0.1 and ::1 are always included.
+func GenerateCert(caCertPath, caKeyPath, certPath, keyPath, cn string, sans []string) error {
 	// Load CA certificate and key
-	caCert, caKey, err := loadCA(caCertPath, caKeyPath)
+	caCert, caKey, err := LoadCA(caCertPath, caKeyPath)
 	if err != nil {
 		return fmt.Errorf("failed to load CA: %w", err)
 	}
@@ -167,8 +169,8 @@ func generateCert(caCertPath, caKeyPath, certPath, keyPath, cn string, sans []st
 	return nil
 }
 
-// loadCA loads a CA certificate and private key from disk.
-func loadCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {
+// LoadCA loads a CA certificate and private key from disk.
+func LoadCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {
 	// Load CA certificate
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
