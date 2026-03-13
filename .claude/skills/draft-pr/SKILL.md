@@ -1,16 +1,17 @@
 ---
-name: "pr-description"
+name: "draft-pr"
 description: "Generate a PR title and description from the current branch diff against main"
+disable-model-invocation: true
 ---
 
 # PR Description Generator
 
-Generates a PR title and description based on the diff between the current branch and `upstream/main`, and writes it to `pr-description.md` in the repo root.
+Generates a PR title and description based on the diff between the current branch and `upstream/main`, and creates a draft PR.
 
 ## Usage
 
 ```text
-/pr-description
+/draft-pr
 ```
 
 ## Instructions
@@ -34,15 +35,15 @@ git diff upstream/main...HEAD
 
 If the diff is large, also run `git diff --stat upstream/main...HEAD` first for an overview, then read specific files as needed.
 
-### 2. Write the PR description
+### 2. Generate the PR title and body
 
-Create a file called `pr-description.md` in the repo root with this structure:
+Compose the title and body following this structure:
 
-```markdown
-**Title:** <type>(<scope>): <short description>
+**Title:** `<type>(<scope>): <short description>`
 
 **Body:**
 
+```markdown
 ## Summary
 
 <2-4 bullet points describing what changed and why>
@@ -72,7 +73,30 @@ Then choose the appropriate detail sections based on the nature of the PR:
 
 If the summary already says everything, you can omit the extra section entirely.
 
-### 3. Guidelines
+### 3. Create a draft PR
+
+Push the branch to the remote if not already pushed, then create a draft PR:
+
+```bash
+# Push the branch (set upstream if needed)
+git push -u origin HEAD
+
+# Create draft PR using the generated title and body
+gh pr create --draft --title "<title>" --body "<body>"
+```
+
+Use a HEREDOC for the body to preserve formatting:
+
+```bash
+gh pr create --draft --title "<title>" --body "$(cat <<'EOF'
+<body content here>
+EOF
+)"
+```
+
+Print the PR URL when done so the user can review it.
+
+### 4. Guidelines
 
 - **Title** must follow [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `build`, `ci`, `perf`. Keep it under 72 characters.
 - **Summary** should be concise — focus on _what_ and _why_, not implementation minutiae.
