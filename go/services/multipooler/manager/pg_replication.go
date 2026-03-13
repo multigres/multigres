@@ -964,8 +964,6 @@ func standbyUpdateOperationName(op multipoolermanagerdatapb.StandbyUpdateOperati
 		return "add"
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
 		return "remove"
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		return "replace"
 	default:
 		return "unknown"
 	}
@@ -1002,11 +1000,6 @@ func applyRemoveOperation(currentStandbys []*clustermetadatapb.ID, standbysToRem
 		}
 	}
 	return updatedStandbys
-}
-
-// applyReplaceOperation replaces the entire standby list
-func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
-	return newStandbys
 }
 
 // ----------------------------------------------------------------------------

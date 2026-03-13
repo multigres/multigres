@@ -645,41 +645,6 @@ func TestApplyRemoveOperation(t *testing.T) {
 	}
 }
 
-func TestApplyReplaceOperation(t *testing.T) {
-	standby1 := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-1"}
-	standby2 := &clustermetadatapb.ID{Cell: "zone2", Name: "replica-2"}
-	standby3 := &clustermetadatapb.ID{Cell: "zone3", Name: "replica-3"}
-
-	tests := []struct {
-		name        string
-		newStandbys []*clustermetadatapb.ID
-		expected    []*clustermetadatapb.ID
-	}{
-		{
-			name:        "replace with single standby",
-			newStandbys: []*clustermetadatapb.ID{standby1},
-			expected:    []*clustermetadatapb.ID{standby1},
-		},
-		{
-			name:        "replace with multiple standbys",
-			newStandbys: []*clustermetadatapb.ID{standby1, standby2, standby3},
-			expected:    []*clustermetadatapb.ID{standby1, standby2, standby3},
-		},
-		{
-			name:        "replace with empty list",
-			newStandbys: []*clustermetadatapb.ID{},
-			expected:    []*clustermetadatapb.ID{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := applyReplaceOperation(tt.newStandbys)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestIsInRecovery(t *testing.T) {
 	tests := []struct {
 		name         string
