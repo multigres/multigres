@@ -81,10 +81,10 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 	coord := newTestCoordinator(ts, nil, logger)
 
-	action := NewBootstrapShardAction(nil, nil, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, ps.Health(), ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -144,7 +144,7 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Add a pooler to the store so we get past the "no poolers found" check
 	poolerID := &clustermetadatapb.ID{
@@ -152,7 +152,7 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "pooler1",
 	}
-	poolerStore.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         poolerID,
 			Database:   "testdb",
@@ -175,7 +175,7 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 
 	// Now try to execute recovery - should fail to acquire lock
 	coord := newTestCoordinator(ts, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, ps.Health(), ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -232,7 +232,7 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Create mock RPC client with custom callback to track ConfigureSynchronousReplication calls
 	mockClient := &testRPCClient{
@@ -283,9 +283,9 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 		},
 	}
 
-	poolerStore.Set("multipooler-cell1-pooler1", primary)
-	poolerStore.Set("multipooler-cell1-pooler2", standby1)
-	poolerStore.Set("multipooler-cell1-pooler3", standby2)
+	ps.Set("multipooler-cell1-pooler1", primary)
+	ps.Set("multipooler-cell1-pooler2", standby1)
+	ps.Set("multipooler-cell1-pooler3", standby2)
 
 	// Configure mock responses for all RPCs that bootstrap needs
 	poolerID := "multipooler-cell1-pooler1"
@@ -342,7 +342,7 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 
 	// Execute bootstrap action
 	coord := newTestCoordinator(ts, mockClient, logger)
-	action := NewBootstrapShardAction(nil, mockClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, mockClient, ps.Health(), ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -414,7 +414,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	defer ts.Close()
 
 	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Setup database with ANY_2 policy (requires 2 nodes)
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
@@ -441,7 +441,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 		Name:      "pooler2",
 	}
 
-	poolerStore.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         poolerID1,
 			Database:   "testdb",
@@ -451,7 +451,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 			PortMap:    map[string]int32{"postgres": 5432},
 		},
 	})
-	poolerStore.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         poolerID2,
 			Database:   "testdb",
@@ -463,7 +463,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -490,7 +490,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Setup database with ANY_2 policy (requires 2 nodes)
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
@@ -535,7 +535,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 		Name:      "pooler2",
 	}
 
-	poolerStore.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         poolerID1,
 			Database:   "testdb",
@@ -545,7 +545,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 			PortMap:    map[string]int32{"postgres": 5432},
 		},
 	})
-	poolerStore.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         poolerID2,
 			Database:   "testdb",
@@ -557,7 +557,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -587,7 +587,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Setup database with ANY_2 policy
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
@@ -617,7 +617,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 			Cell:      "cell1",
 			Name:      name,
 		}
-		poolerStore.Set("multipooler-cell1-"+name, &multiorchdatapb.PoolerHealthState{
+		ps.Set("multipooler-cell1-"+name, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id:         poolerID,
 				Database:   "testdb",
@@ -630,7 +630,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	}
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -675,7 +675,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Setup database with ANY_2 policy
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
@@ -706,7 +706,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 		Name:      "pooler2",
 	}
 
-	poolerStore.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         poolerID1,
 			Database:   "testdb",
@@ -716,7 +716,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 			PortMap:    map[string]int32{"postgres": 5432},
 		},
 	})
-	poolerStore.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         poolerID2,
 			Database:   "testdb",
@@ -728,7 +728,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, poolerStore, ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,

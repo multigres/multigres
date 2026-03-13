@@ -31,8 +31,7 @@ import (
 )
 
 func TestAnalysisGenerator_GenerateAnalyses_EmptyStore(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
-	generator := NewAnalysisGenerator(poolerStore)
+	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, nil).Health())
 
 	analyses := generator.GenerateAnalyses()
 
@@ -40,7 +39,7 @@ func TestAnalysisGenerator_GenerateAnalyses_EmptyStore(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Add a single primary pooler
 	primaryID := &clustermetadatapb.ID{
@@ -66,9 +65,9 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 			Ready: true,
 		},
 	}
-	poolerStore.Set("multipooler-cell1-primary-1", primary)
+	ps.Set("multipooler-cell1-primary-1", primary)
 
-	generator := NewAnalysisGenerator(poolerStore)
+	generator := NewAnalysisGenerator(ps.Health())
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 1, "should generate one analysis")
@@ -84,7 +83,7 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -124,7 +123,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 			ConnectedFollowers: []*clustermetadatapb.ID{replica1ID, replica2ID},
 		},
 	}
-	poolerStore.Set("multipooler-cell1-primary-1", primary)
+	ps.Set("multipooler-cell1-primary-1", primary)
 
 	// Add replica 1 (replicating)
 	replica1 := &multiorchdatapb.PoolerHealthState{
@@ -144,7 +143,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 			Lag:               durationpb.New(100 * time.Millisecond), // 100ms lag
 		},
 	}
-	poolerStore.Set("multipooler-cell1-replica-1", replica1)
+	ps.Set("multipooler-cell1-replica-1", replica1)
 
 	// Add replica 2 (lagging)
 	replica2 := &multiorchdatapb.PoolerHealthState{
@@ -164,9 +163,9 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 			Lag:               durationpb.New(15 * time.Second), // 15s lag (> 10s threshold)
 		},
 	}
-	poolerStore.Set("multipooler-cell1-replica-2", replica2)
+	ps.Set("multipooler-cell1-replica-2", replica2)
 
-	generator := NewAnalysisGenerator(poolerStore)
+	generator := NewAnalysisGenerator(ps.Health())
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 3, "should generate three analyses")
@@ -188,7 +187,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -217,7 +216,7 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 		LastSeen:          timestamppb.Now(),
 		PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
 	}
-	poolerStore.Set("multipooler-cell1-primary-1", primary)
+	ps.Set("multipooler-cell1-primary-1", primary)
 
 	// Add replica
 	replica := &multiorchdatapb.PoolerHealthState{
@@ -238,9 +237,9 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 			LastReplayLsn:     "0/1234567",
 		},
 	}
-	poolerStore.Set("multipooler-cell1-replica-1", replica)
+	ps.Set("multipooler-cell1-replica-1", replica)
 
-	generator := NewAnalysisGenerator(poolerStore)
+	generator := NewAnalysisGenerator(ps.Health())
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 2, "should generate two analyses")
@@ -264,7 +263,7 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Add poolers from two different table groups
 	tg1Primary := &multiorchdatapb.PoolerHealthState{
@@ -284,7 +283,7 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 		LastSeen:         timestamppb.Now(),
 		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
 	}
-	poolerStore.Set("multipooler-cell1-tg1-primary", tg1Primary)
+	ps.Set("multipooler-cell1-tg1-primary", tg1Primary)
 
 	tg2Primary := &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
@@ -303,9 +302,9 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 		LastSeen:         timestamppb.Now(),
 		PoolerType:       clustermetadatapb.PoolerType_PRIMARY,
 	}
-	poolerStore.Set("multipooler-cell1-tg2-primary", tg2Primary)
+	ps.Set("multipooler-cell1-tg2-primary", tg2Primary)
 
-	generator := NewAnalysisGenerator(poolerStore)
+	generator := NewAnalysisGenerator(ps.Health())
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 2, "should generate two analyses")
@@ -322,13 +321,13 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 
 func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
 	// Create a store with primary and replica on same host but different ports
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	primaryID := "multipooler-cell1-node1"
 	replicaID := "multipooler-cell1-node2"
 
 	// Primary on host1:5432
-	poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+	ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -347,7 +346,7 @@ func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
 	})
 
 	// Replica pointing to host1:5433 (wrong port - different primary)
-	poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+	ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -370,7 +369,7 @@ func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(poolerStore)
+	gen := NewAnalysisGenerator(ps.Health())
 	analysis, err := gen.GenerateAnalysisForPooler(primaryID)
 	require.NoError(t, err)
 
@@ -380,13 +379,13 @@ func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
 
 // Task 6: Test for skipping nil entries
 func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	// Add a nil entry
-	poolerStore.Set("nil-pooler", nil)
+	ps.Set("nil-pooler", nil)
 
 	// Add a valid pooler
-	poolerStore.Set("valid-pooler", &multiorchdatapb.PoolerHealthState{
+	ps.Set("valid-pooler", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -401,7 +400,7 @@ func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
 		IsLastCheckValid: true,
 	})
 
-	gen := NewAnalysisGenerator(poolerStore)
+	gen := NewAnalysisGenerator(ps.Health())
 	analyses := gen.GenerateAnalyses()
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
@@ -411,10 +410,10 @@ func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
 
 // Task 7: Test for no primary in shard
 func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	replicaID := "multipooler-cell1-replica"
-	poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+	ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -432,7 +431,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(poolerStore)
+	gen := NewAnalysisGenerator(ps.Health())
 	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 	require.NoError(t, err)
 
@@ -443,13 +442,13 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 
 // Task 7: Test for primary with postgres down
 func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	primaryID := "multipooler-cell1-primary"
 	replicaID := "multipooler-cell1-replica"
 
 	// Primary with IsPostgresRunning: false (postgres is down)
-	poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+	ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -466,7 +465,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 		PrimaryStatus:     &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/1234"},
 	})
 
-	poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+	ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -484,7 +483,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(poolerStore)
+	gen := NewAnalysisGenerator(ps.Health())
 	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 	require.NoError(t, err)
 
@@ -495,7 +494,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 }
 
 func TestIsInStandbyList(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -590,7 +589,7 @@ func TestIsInStandbyList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set up pooler store with primary
-			poolerStore.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
+			ps.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
 				MultiPooler: &clustermetadatapb.MultiPooler{
 					Id:         primaryID,
 					Database:   "testdb",
@@ -606,9 +605,9 @@ func TestIsInStandbyList(t *testing.T) {
 				PrimaryStatus:     tt.primaryStatus,
 			})
 
-			generator := NewAnalysisGenerator(poolerStore)
+			generator := NewAnalysisGenerator(ps.Health())
 
-			primary, _ := poolerStore.Get("multipooler-cell1-primary-1")
+			primary, _ := ps.Health().Get("multipooler-cell1-primary-1")
 			result := generator.isInStandbyList(tt.replicaID, primary)
 
 			assert.Equal(t, tt.expected, result)
@@ -618,13 +617,13 @@ func TestIsInStandbyList(t *testing.T) {
 
 func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresRunning correctly", func(t *testing.T) {
-		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+		ps := store.NewPoolerStore(nil, nil)
 
 		primaryID := "multipooler-cell1-primary"
 		replicaID := "multipooler-cell1-replica"
 
 		// Primary with pooler reachable and postgres running
-		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -642,7 +641,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsPostgresRunning: true,
 		})
 
-		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -657,7 +656,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsLastCheckValid: true,
 		})
 
-		gen := NewAnalysisGenerator(poolerStore)
+		gen := NewAnalysisGenerator(ps.Health())
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -667,13 +666,13 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	})
 
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
-		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+		ps := store.NewPoolerStore(nil, nil)
 
 		primaryID := "multipooler-cell1-primary"
 		replicaID := "multipooler-cell1-replica"
 
 		// Primary with pooler unreachable
-		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -691,7 +690,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsPostgresRunning: false,
 		})
 
-		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -706,7 +705,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsLastCheckValid: true,
 		})
 
-		gen := NewAnalysisGenerator(poolerStore)
+		gen := NewAnalysisGenerator(ps.Health())
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -718,13 +717,13 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 
 func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	t.Run("returns true when all replicas connected", func(t *testing.T) {
-		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+		ps := store.NewPoolerStore(nil, nil)
 
 		primaryID := "multipooler-cell1-primary"
 		replica1ID := "multipooler-cell1-replica1"
 		replica2ID := "multipooler-cell1-replica2"
 
-		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -743,7 +742,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		// Replica 1 - connected to primary
-		poolerStore.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -766,7 +765,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		// Replica 2 - also connected to primary
-		poolerStore.Set(replica2ID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replica2ID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -788,7 +787,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(poolerStore)
+		gen := NewAnalysisGenerator(ps.Health())
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -796,13 +795,13 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
-		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+		ps := store.NewPoolerStore(nil, nil)
 
 		primaryID := "multipooler-cell1-primary"
 		replica1ID := "multipooler-cell1-replica1"
 		replica2ID := "multipooler-cell1-replica2"
 
-		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -821,7 +820,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		// Replica 1 - connected
-		poolerStore.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -844,7 +843,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		// Replica 2 - disconnected (no PrimaryConnInfo)
-		poolerStore.Set(replica2ID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replica2ID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -862,7 +861,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(poolerStore)
+		gen := NewAnalysisGenerator(ps.Health())
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -870,12 +869,12 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
-		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+		ps := store.NewPoolerStore(nil, nil)
 
 		primaryID := "multipooler-cell1-primary"
 		replica1ID := "multipooler-cell1-replica1"
 
-		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -894,7 +893,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		// Replica is unreachable
-		poolerStore.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replica1ID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -909,7 +908,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			IsLastCheckValid: false, // Replica unreachable
 		})
 
-		gen := NewAnalysisGenerator(poolerStore)
+		gen := NewAnalysisGenerator(ps.Health())
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -917,12 +916,12 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
-		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+		ps := store.NewPoolerStore(nil, nil)
 
 		primaryID := "multipooler-cell1-primary"
 
 		// Only primary, no replicas
-		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -940,7 +939,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			IsPostgresRunning: true,
 		})
 
-		gen := NewAnalysisGenerator(poolerStore)
+		gen := NewAnalysisGenerator(ps.Health())
 		analysis, err := gen.GenerateAnalysisForPooler(primaryID)
 		require.NoError(t, err)
 
@@ -950,12 +949,12 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
-		poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+		ps := store.NewPoolerStore(nil, nil)
 
 		primaryID := "multipooler-cell1-primary"
 		replicaID := "multipooler-cell1-replica"
 
-		poolerStore.Set(primaryID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(primaryID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -974,7 +973,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 		})
 
 		// Replica pointing to different host
-		poolerStore.Set(replicaID, &multiorchdatapb.PoolerHealthState{
+		ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
 			MultiPooler: &clustermetadatapb.MultiPooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -996,7 +995,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(poolerStore)
+		gen := NewAnalysisGenerator(ps.Health())
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -1005,7 +1004,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 }
 
 func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	ps := store.NewPoolerStore(nil, nil)
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1026,7 +1025,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	}
 
 	// Add primary with replica1 in standby list
-	poolerStore.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-primary-1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         primaryID,
 			Database:   "testdb",
@@ -1049,7 +1048,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	})
 
 	// Add replica1 (in standby list)
-	poolerStore.Set("multipooler-cell1-replica-1", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell1-replica-1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replica1ID,
 			Database:   "testdb",
@@ -1068,7 +1067,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	})
 
 	// Add replica2 (not in standby list)
-	poolerStore.Set("multipooler-cell2-replica-2", &multiorchdatapb.PoolerHealthState{
+	ps.Set("multipooler-cell2-replica-2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replica2ID,
 			Database:   "testdb",
@@ -1086,7 +1085,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		},
 	})
 
-	generator := NewAnalysisGenerator(poolerStore)
+	generator := NewAnalysisGenerator(ps.Health())
 
 	t.Run("replica in standby list", func(t *testing.T) {
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-replica-1")
@@ -1294,7 +1293,7 @@ func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store
 }
 
 func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []primaryConfigWithReachability) *store.PoolerHealthStore {
-	poolerStore := store.NewPoolerHealthStore()
+	ps := store.NewPoolerStore(nil, nil)
 
 	for _, p := range primaries {
 		poolerID := "multipooler-cell1-" + p.id
@@ -1322,8 +1321,8 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 				PrimaryTerm: p.primaryTerm,
 			},
 		}
-		poolerStore.Set(poolerID, poolerState)
+		ps.Set(poolerID, poolerState)
 	}
 
-	return poolerStore
+	return ps.Health()
 }

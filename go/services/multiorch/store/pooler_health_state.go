@@ -18,14 +18,47 @@ import (
 	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// PoolerHealthStore is a type alias for the store that holds pooler health state.
-// This provides a shorter, more readable type name for the commonly used
-// ProtoStore[string, *multiorchdata.PoolerHealthState].
-type PoolerHealthStore = ProtoStore[string, *multiorchdata.PoolerHealthState]
+// PoolerHealthStore is a thread-safe store for pooler health state.
+// It provides clone-on-read/write semantics so callers always work with
+// isolated copies, preventing concurrent mutation of shared state.
+type PoolerHealthStore struct {
+	proto *ProtoStore[string, *multiorchdata.PoolerHealthState]
+}
 
 // NewPoolerHealthStore creates a new store for pooler health state.
 func NewPoolerHealthStore() *PoolerHealthStore {
-	return NewProtoStore[string, *multiorchdata.PoolerHealthState]()
+	return &PoolerHealthStore{
+		proto: NewProtoStore[string, *multiorchdata.PoolerHealthState](),
+	}
+}
+
+// Get retrieves a pooler's health state by its ID string.
+// Returns a deep clone safe to mutate, and false if the key does not exist.
+func (s *PoolerHealthStore) Get(poolerID string) (*multiorchdata.PoolerHealthState, bool) {
+	return s.proto.Get(poolerID)
+}
+
+// set stores a deep clone of the pooler health state.
+// Unexported: mutations must go through PoolerStore to keep health and op-state in sync.
+func (s *PoolerHealthStore) set(poolerID string, state *multiorchdata.PoolerHealthState) {
+	s.proto.Set(poolerID, state)
+}
+
+// delete removes a pooler from the store. Returns true if the pooler existed.
+// Unexported: mutations must go through PoolerStore to keep health and op-state in sync.
+func (s *PoolerHealthStore) delete(poolerID string) bool {
+	return s.proto.Delete(poolerID)
+}
+
+// Len returns the number of poolers in the store.
+func (s *PoolerHealthStore) Len() int {
+	return s.proto.Len()
+}
+
+// Range iterates over all poolers. Each value passed to the callback is a deep
+// clone safe to mutate. Iteration stops early if the callback returns false.
+func (s *PoolerHealthStore) Range(fn func(key string, value *multiorchdata.PoolerHealthState) bool) {
+	s.proto.Range(fn)
 }
 
 // IsInitialized returns true if the pooler has been initialized.

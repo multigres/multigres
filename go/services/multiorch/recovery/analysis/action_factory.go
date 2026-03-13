@@ -29,7 +29,7 @@ import (
 // RecoveryActionFactory creates recovery actions with all necessary dependencies.
 type RecoveryActionFactory struct {
 	config      *config.Config
-	poolerStore *store.PoolerHealthStore
+	poolerStore *store.PoolerStore
 	rpcClient   rpcclient.MultiPoolerClient
 	topoStore   topoclient.Store
 	coordinator *consensus.Coordinator
@@ -39,7 +39,7 @@ type RecoveryActionFactory struct {
 // NewRecoveryActionFactory creates a factory for recovery actions.
 func NewRecoveryActionFactory(
 	cfg *config.Config,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	rpcClient rpcclient.MultiPoolerClient,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
@@ -60,23 +60,22 @@ func NewRecoveryActionFactory(
 
 // NewBootstrapShardAction creates a bootstrap shard action.
 func (f *RecoveryActionFactory) NewBootstrapShardAction() types.RecoveryAction {
-	return actions.NewBootstrapShardAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.coordinator, f.logger)
+	return actions.NewBootstrapShardAction(f.config, f.rpcClient, f.poolerStore.Health(), f.topoStore, f.coordinator, f.logger)
 }
 
 // NewAppointLeaderAction creates an appoint leader action.
 func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
-	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.poolerStore.Health(), f.topoStore, f.logger)
 }
 
 // NewFixReplicationAction creates a fix replication action.
 func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
-	poolerStore := store.NewPoolerStore(f.poolerStore, f.rpcClient, f.logger)
-	return actions.NewFixReplicationAction(f.config, f.rpcClient, poolerStore, f.topoStore, f.logger)
+	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
 // NewDemoteStalePrimaryAction creates an action to demote a stale primary.
 func (f *RecoveryActionFactory) NewDemoteStalePrimaryAction() types.RecoveryAction {
-	return actions.NewDemoteStalePrimaryAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewDemoteStalePrimaryAction(f.config, f.rpcClient, f.poolerStore.Health(), f.topoStore, f.logger)
 }
 
 // Logger returns the factory's logger for use by analyzers.
