@@ -23,6 +23,7 @@ import (
 
 func TestNewPostgresServerConfig(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv("PGDATA", tempDir+"/pg_data")
 
 	tests := []struct {
 		name          string
@@ -73,24 +74,27 @@ func TestNewPostgresServerConfig(t *testing.T) {
 
 func TestPostgresBaseDir(t *testing.T) {
 	tempDir := t.TempDir()
-
 	expected := tempDir + "/pg_data"
-	result := PostgresDataDir(tempDir)
+	t.Setenv("PGDATA", expected)
+
+	result := PostgresDataDir()
 
 	assert.Equal(t, expected, result, "PostgresDataDir should return expected path")
 }
 
 func TestPostgresConfigFile(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv("PGDATA", tempDir+"/pg_data")
 
 	expected := tempDir + "/pg_data/postgresql.conf"
-	result := PostgresConfigFile(tempDir)
+	result := PostgresConfigFile()
 
 	assert.Equal(t, expected, result, "PostgresConfigFile should return expected path")
 }
 
 func TestMakePostgresConf(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv("PGDATA", tempDir+"/pg_data")
 
 	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")

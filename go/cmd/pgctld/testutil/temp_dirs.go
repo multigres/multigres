@@ -46,12 +46,13 @@ func TempDir(t *testing.T, prefix string) (string, func()) {
 	return dir, cleanup
 }
 
-// CreateDataDir creates a PostgreSQL-like data directory structure for testing
+// CreateDataDir creates a PostgreSQL-like data directory structure for testing.
+// It sets the PGDATA environment variable to baseDir/pg_data for the duration of the test.
 func CreateDataDir(t *testing.T, baseDir string, initialized bool) string {
 	t.Helper()
 
-	// This is the base location where multigres expects postgres data
-	dataDir := pgctld.PostgresDataDir(baseDir)
+	dataDir := filepath.Join(baseDir, "pg_data")
+	t.Setenv("PGDATA", dataDir)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("Failed to create data dir: %v", err)
 	}

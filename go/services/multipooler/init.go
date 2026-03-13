@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -271,6 +272,10 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return errors.New("shard is required")
 	}
 
+	if os.Getenv("PGDATA") == "" {
+		return errors.New("PGDATA environment variable is required")
+	}
+
 	// Create multipooler record with all fields now that servenv.Init() has set them up
 	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname(), mp.tableGroup.Get())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
@@ -282,6 +287,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.Shard = mp.shard.Get()
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 	multipooler.PoolerDir = mp.poolerDir.Get()
+	multipooler.PgDataDir = os.Getenv("PGDATA")
 	// For now, all poolers start as REPLICA
 	multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 

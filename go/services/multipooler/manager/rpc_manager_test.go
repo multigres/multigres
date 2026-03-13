@@ -43,14 +43,15 @@ import (
 )
 
 // setTermForTest writes the consensus term file directly for testing.
-func setTermForTest(t *testing.T, poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) {
+// PGDATA must be set before calling this function.
+func setTermForTest(t *testing.T, term *multipoolermanagerdatapb.ConsensusTerm) {
 	t.Helper()
 	data, err := protojson.Marshal(term)
 	require.NoError(t, err, "failed to marshal term")
-	// Write to the correct path: {poolerDir}/pg_data/consensus/consensus_term.json
-	consensusDir := filepath.Join(poolerDir, "pg_data", "consensus")
-	require.NoError(t, os.MkdirAll(consensusDir, 0o755), "failed to create consensus dir")
-	termPath := filepath.Join(consensusDir, "consensus_term.json")
+	// Write to $PGDATA/multigres/consensus_term.json
+	multigresDir := filepath.Join(os.Getenv("PGDATA"), "multigres")
+	require.NoError(t, os.MkdirAll(multigresDir, 0o755), "failed to create multigres dir")
+	termPath := filepath.Join(multigresDir, "consensus_term.json")
 	require.NoError(t, os.WriteFile(termPath, data, 0o644), "failed to write term file")
 }
 
@@ -392,6 +393,7 @@ func createPgDataDir(t *testing.T, poolerDir string) {
 	pgDataDir := filepath.Join(poolerDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	t.Setenv("PGDATA", pgDataDir)
 }
 
 // setupPromoteTestManager creates a manager configured as a REPLICA for promotion tests.
@@ -434,6 +436,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	pgDataDir := filepath.Join(tmpDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	t.Setenv("PGDATA", pgDataDir)
 
 	multipooler.PoolerDir = tmpDir
 
@@ -461,11 +464,11 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 
 	// Set consensus term to expected value (10) for testing via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
-	setTermForTest(t, tmpDir, term)
+	setTermForTest(t, term)
 
 	// Initialize consensus state so the manager can read the term
 	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.consensusState = NewConsensusState(serviceID)
 	pm.mu.Unlock()
 
 	// Load the term from file
@@ -773,11 +776,11 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	expectStartupQueries(mockQueryService)
 
-	pm, tmpDir := setupPromoteTestManager(t, mockQueryService)
+	pm, _ := setupPromoteTestManager(t, mockQueryService)
 
 	// Explicitly set the term to 10 to ensure we have the expected value via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
-	setTermForTest(t, tmpDir, term)
+	setTermForTest(t, term)
 
 	// Call Promote with wrong term (current term is 10, passing 5)
 	_, err := pm.Promote(ctx, 5, "0/1234567", nil, false /* force */, "", "", nil, nil)
@@ -1133,6 +1136,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	pgDataDir := filepath.Join(tmpDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	t.Setenv("PGDATA", pgDataDir)
 	multipooler.PoolerDir = tmpDir
 
 	config := &Config{
@@ -1156,10 +1160,10 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
 
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10}
-	setTermForTest(t, tmpDir, term)
+	setTermForTest(t, term)
 
 	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.consensusState = NewConsensusState(serviceID)
 	pm.mu.Unlock()
 
 	_, err = pm.consensusState.Load()
@@ -1205,12 +1209,12 @@ func TestSetPrimaryTerm_InvariantValidation(t *testing.T) {
 	}
 
 	// Create consensus state and set initial term to 5
-	consensusState := NewConsensusState(tmpDir, serviceID)
+	consensusState := NewConsensusState(serviceID)
 	initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 		TermNumber:  5,
 		PrimaryTerm: 0,
 	}
-	setTermForTest(t, tmpDir, initialTerm)
+	setTermForTest(t, initialTerm)
 	_, err := consensusState.Load()
 	require.NoError(t, err)
 
@@ -1315,7 +1319,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 
 	// Initialize consensus state
 	pm.mu.Lock()
-	pm.consensusState = NewConsensusState(tmpDir, serviceID)
+	pm.consensusState = NewConsensusState(serviceID)
 	pm.mu.Unlock()
 
 	// Set up mock query service for isInRecovery check during startup
@@ -1338,7 +1342,7 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 
 	// Set consensus term first (required for SetPrimaryConnInfo) via direct file write
 	term := &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 1}
-	setTermForTest(t, tmpDir, term)
+	setTermForTest(t, term)
 	// Reload consensus state to pick up the term from file
 	_, err = pm.consensusState.Load()
 	require.NoError(t, err, "Failed to load consensus state")
@@ -2239,7 +2243,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 	multipooler.PoolerDir = poolerDir
 
 	// Set consensus term
-	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
+	setTermForTest(t, &multipoolermanagerdatapb.ConsensusTerm{
 		PrimaryTerm: 1,
 	})
 
@@ -2252,7 +2256,7 @@ func TestConfigureSynchronousReplication_HistoryFailurePreventGUCUpdates(t *test
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
-	manager.consensusState = NewConsensusState(poolerDir, serviceID)
+	manager.consensusState = NewConsensusState(serviceID)
 	manager.mu.Unlock()
 
 	// Load the term from file
@@ -2351,7 +2355,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 	multipooler.PoolerDir = poolerDir
 
 	// Set consensus term
-	setTermForTest(t, poolerDir, &multipoolermanagerdatapb.ConsensusTerm{
+	setTermForTest(t, &multipoolermanagerdatapb.ConsensusTerm{
 		PrimaryTerm: 5,
 	})
 
@@ -2364,7 +2368,7 @@ func TestUpdateSynchronousStandbyList_HistoryFailurePreventsGUCUpdate(t *testing
 
 	// Initialize consensus state so the manager can read the term
 	manager.mu.Lock()
-	manager.consensusState = NewConsensusState(poolerDir, serviceID)
+	manager.consensusState = NewConsensusState(serviceID)
 	manager.mu.Unlock()
 
 	// Load the term from file

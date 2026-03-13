@@ -324,7 +324,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.Equal(t, clustermetadatapb.PoolerType_PRIMARY, resp.Status.PoolerType, "Final leader should have PRIMARY pooler type")
 
 		// Verify we can connect and query
-		socketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
+		socketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
 		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
@@ -340,7 +340,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
 		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
 
-		socketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
+		socketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
 		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
@@ -361,7 +361,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		finalPrimaryInst := setup.GetMultipoolerInstance(finalPrimaryName)
 		require.NotNil(t, finalPrimaryInst, "final primary instance should exist")
 
-		socketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
+		socketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
 		db := connectToPostgres(t, socketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer db.Close()
 
@@ -469,7 +469,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NotNil(t, finalPrimaryInst)
 
 		// Connect to primary and get row count and checksum
-		primarySocketDir := filepath.Join(finalPrimaryInst.Pgctld.DataDir, "pg_sockets")
+		primarySocketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
 		primaryDB := connectToPostgres(t, primarySocketDir, finalPrimaryInst.Pgctld.PgPort)
 		defer primaryDB.Close()
 
@@ -500,7 +500,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 // verifyStandbyDataConsistency checks that a standby has the same data as the primary.
 func verifyStandbyDataConsistency(t *testing.T, name string, inst *shardsetup.MultipoolerInstance, countQuery, checksumQuery string, expectedRowCount int, expectedChecksum string) {
 	t.Helper()
-	standbySocketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
+	standbySocketDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_sockets")
 	standbyDB := connectToPostgres(t, standbySocketDir, inst.Pgctld.PgPort)
 	defer standbyDB.Close()
 
@@ -793,7 +793,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 
 	// Verify we can still query postgres on the primary directly (it's still running)
 	t.Run("verify primary postgres is still running", func(t *testing.T) {
-		socketDir := filepath.Join(primary.Pgctld.DataDir, "pg_sockets")
+		socketDir := filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets")
 		db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort)
 		defer db.Close()
 
@@ -819,7 +819,7 @@ func TestPoolerDownNoFailover(t *testing.T) {
 // verifyStandbyIsQueryable checks that a standby postgres is queryable.
 func verifyStandbyIsQueryable(t *testing.T, name string, inst *shardsetup.MultipoolerInstance) {
 	t.Helper()
-	socketDir := filepath.Join(inst.Pgctld.DataDir, "pg_sockets")
+	socketDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_sockets")
 	db := connectToPostgres(t, socketDir, inst.Pgctld.PgPort)
 	defer db.Close()
 

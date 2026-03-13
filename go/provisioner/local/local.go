@@ -804,6 +804,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
 
+	// Set PGDATA so multipooler knows where the PostgreSQL data directory is.
+	multipoolerCmd.Env = append(os.Environ(), "PGDATA="+filepath.Join(poolerDir, "pg_data"))
+
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
 	if err := telemetry.StartCmd(ctx, multipoolerCmd); err != nil {

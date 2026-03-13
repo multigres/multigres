@@ -65,11 +65,10 @@ func NewPostgresCtlConfig(port int, user string, database string, timeout int, p
 	}, nil
 }
 
-// IsDataDirInitialized checks if a PostgreSQL data directory has been initialized
-func IsDataDirInitialized(poolerDir string) bool {
+// IsDataDirInitialized checks if the PostgreSQL data directory (PGDATA) has been initialized
+func IsDataDirInitialized() bool {
 	// Check if PG_VERSION file exists (indicates initialized data directory)
-	dataDir := PostgresDataDir(poolerDir)
-	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+	pgVersionFile := filepath.Join(PostgresDataDir(), "PG_VERSION")
 	_, err := os.Stat(pgVersionFile)
 	return err == nil
 }

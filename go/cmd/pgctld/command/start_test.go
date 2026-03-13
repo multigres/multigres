@@ -131,7 +131,9 @@ func TestIsDataDirInitialized(t *testing.T) {
 		{
 			name: "non-existent directory",
 			setupDir: func(baseDir string) string {
-				return filepath.Join(baseDir, "nonexistent")
+				nonExistent := filepath.Join(baseDir, "nonexistent")
+				t.Setenv("PGDATA", nonExistent)
+				return nonExistent
 			},
 			initialized: false,
 		},
@@ -143,7 +145,7 @@ func TestIsDataDirInitialized(t *testing.T) {
 			defer cleanup()
 
 			tt.setupDir(baseDir)
-			result := pgctld.IsDataDirInitialized(baseDir)
+			result := pgctld.IsDataDirInitialized()
 			assert.Equal(t, tt.initialized, result)
 		})
 	}
@@ -199,6 +201,7 @@ func TestInitializeDataDir(t *testing.T) {
 
 		// baseDir serves as poolerDir; dataDir will be poolerDir/pg_data
 		poolerDir := baseDir
+		t.Setenv("PGDATA", filepath.Join(poolerDir, "pg_data"))
 
 		// Setup mock initdb binary
 		binDir := filepath.Join(baseDir, "bin")
@@ -316,8 +319,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			constants.DefaultPostgresUser,
 			constants.DefaultPostgresDatabase,
 			30, // timeout
-			pgctld.PostgresDataDir(baseDir),
-			pgctld.PostgresConfigFile(baseDir),
+			pgctld.PostgresDataDir(),
+			pgctld.PostgresConfigFile(),
 			baseDir,
 			"localhost",
 			pgctld.PostgresSocketDir(baseDir),
@@ -351,8 +354,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			"postgres",
 			"postgres",
 			1, // 1 second timeout
-			pgctld.PostgresDataDir(baseDir),
-			pgctld.PostgresConfigFile(baseDir),
+			pgctld.PostgresDataDir(),
+			pgctld.PostgresConfigFile(),
 			baseDir,
 			"localhost",
 			pgctld.PostgresSocketDir(baseDir),
@@ -391,8 +394,8 @@ func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
 			"postgres",
 			"postgres",
 			5, // 5 second timeout
-			pgctld.PostgresDataDir(baseDir),
-			pgctld.PostgresConfigFile(baseDir),
+			pgctld.PostgresDataDir(),
+			pgctld.PostgresConfigFile(),
 			baseDir,
 			"localhost",
 			pgctld.PostgresSocketDir(baseDir),

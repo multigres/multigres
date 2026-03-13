@@ -24,28 +24,31 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// postgresDataDir returns the PostgreSQL data directory path
-func postgresDataDir(poolerDir string) string {
-	return filepath.Join(poolerDir, "pg_data")
+// postgresDataDir returns the PostgreSQL data directory path from PGDATA env var
+func postgresDataDir() string {
+	return os.Getenv("PGDATA")
+}
+
+// multigresDataDir returns the multigres-specific subdirectory within PGDATA
+func multigresDataDir() string {
+	return filepath.Join(postgresDataDir(), "multigres")
 }
 
 // isDataDirInitialized checks if the PostgreSQL data directory is initialized
-func isDataDirInitialized(poolerDir string) bool {
-	dataDir := postgresDataDir(poolerDir)
-	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
+func isDataDirInitialized() bool {
+	pgVersionFile := filepath.Join(postgresDataDir(), "PG_VERSION")
 	_, err := os.Stat(pgVersionFile)
 	return err == nil
 }
 
 // consensusTermPath returns the path to the consensus term file
-func consensusTermPath(poolerDir string) string {
-	dataDir := postgresDataDir(poolerDir)
-	return filepath.Join(dataDir, "consensus", "consensus_term.json")
+func consensusTermPath() string {
+	return filepath.Join(multigresDataDir(), "consensus_term.json")
 }
 
 // getConsensusTerm retrieves the current consensus term information from disk
-func getConsensusTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm, error) {
-	termPath := consensusTermPath(poolerDir)
+func getConsensusTerm() (*multipoolermanagerdatapb.ConsensusTerm, error) {
+	termPath := consensusTermPath()
 
 	// Check if consensus term file exists
 	if _, err := os.Stat(termPath); os.IsNotExist(err) {
@@ -69,20 +72,18 @@ func getConsensusTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm
 }
 
 // setConsensusTerm saves the consensus term information to disk
-func setConsensusTerm(poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) error {
+func setConsensusTerm(term *multipoolermanagerdatapb.ConsensusTerm) error {
 	// Check if data directory is initialized
-	if !isDataDirInitialized(poolerDir) {
-		dataDir := postgresDataDir(poolerDir)
+	if !isDataDirInitialized() {
+		dataDir := postgresDataDir()
 		return fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
 	}
 
-	termPath := consensusTermPath(poolerDir)
-	consensusDir := filepath.Dir(termPath)
+	termPath := consensusTermPath()
 
-	// Ensure consensus directory exists (data directory should already exist since we checked above)
-	// Note: This will only create the consensus subdirectory, not the pg_data parent
-	if err := os.MkdirAll(consensusDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create consensus directory: %w", err)
+	// Ensure multigres directory exists (data directory should already exist since we checked above)
+	if err := os.MkdirAll(multigresDataDir(), 0o755); err != nil {
+		return fmt.Errorf("failed to create multigres directory: %w", err)
 	}
 
 	// Marshal protobuf to JSON

@@ -42,7 +42,7 @@ import (
 // TestSetup holds all configuration for pgBackRest server tests
 type TestSetup struct {
 	TempDir        string
-	DataDir        string
+	PoolerDir      string
 	CertDir        string
 	PgPort         int
 	PgBackRestPort int
@@ -92,7 +92,7 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 
 	return &TestSetup{
 		TempDir:        tempDir,
-		DataDir:        dataDir,
+		PoolerDir:      dataDir,
 		CertDir:        certDir,
 		PgPort:         pgPort,
 		PgBackRestPort: pgbackrestPort,
@@ -218,7 +218,7 @@ func createTestGRPCServerWithPgBackRest(t *testing.T, setup *TestSetup) (net.Lis
 		constants.DefaultPostgresDatabase,
 		shardsetup.TestPostgresPassword,
 		30,
-		setup.DataDir,
+		setup.PoolerDir,
 		"localhost",
 		setup.PgBackRestPort,
 		setup.CertDir,
