@@ -210,7 +210,6 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 		"--http-port", strconv.Itoa(p.HttpPort),
 		"--hostname", "localhost",
 		"--bookkeeping-interval", "2s",
-		"--cluster-metadata-refresh-interval", "500ms",
 		"--pooler-health-check-interval", "500ms",
 		"--recovery-cycle-interval", "500ms",
 		"--log-level", "debug",
