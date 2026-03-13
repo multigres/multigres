@@ -31,6 +31,9 @@ const (
 	// PgPasswordEnvVar is the environment variable for the PostgreSQL password.
 	PgPasswordEnvVar = "POSTGRES_PASSWORD" //nolint:gosec // This is an env var name, not a credential
 
+	// PgDatabaseEnvVar is the environment variable for the PostgreSQL database name.
+	PgDatabaseEnvVar = "POSTGRES_DB"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"
