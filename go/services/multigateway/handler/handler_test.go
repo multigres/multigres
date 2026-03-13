@@ -40,12 +40,12 @@ type mockExecutor struct {
 	releaseAllCalled bool
 }
 
-func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	if m.streamExecuteErr != nil {
-		return m.streamExecuteErr
+		return nil, m.streamExecuteErr
 	}
 	// Return a simple test result
-	return callback(ctx, &sqltypes.Result{
+	err := callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
 			{Name: "column1", Type: "int4"},
 		},
@@ -55,11 +55,12 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, sta
 		CommandTag:   "SELECT 1",
 		RowsAffected: 1,
 	})
+	return &ExecuteResult{}, err
 }
 
-func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	// Return a simple test result
-	return callback(ctx, &sqltypes.Result{
+	err := callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
 			{Name: "column1", Type: "int4"},
 		},
@@ -69,6 +70,7 @@ func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Con
 		CommandTag:   "SELECT 1",
 		RowsAffected: 1,
 	})
+	return &ExecuteResult{}, err
 }
 
 func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {

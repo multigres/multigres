@@ -40,6 +40,7 @@ type HandlerMetrics struct {
 	queryDuration QueryDuration
 	queryErrors   QueryErrors
 	rowsReturned  RowsReturned
+	tableQueries  TableQueries
 }
 
 // QueryDuration wraps a Float64Histogram for recording query durations.
@@ -108,6 +109,26 @@ func (m RowsReturned) Record(
 		))
 }
 
+// TableQueries wraps an Int64Counter for counting queries per table.
+type TableQueries struct {
+	metric.Int64Counter
+}
+
+// Add increments the per-table query counter with proper OTel attributes.
+func (m TableQueries) Add(
+	ctx context.Context,
+	dbNamespace string,
+	tableName string,
+	operationName string,
+) {
+	m.Int64Counter.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String("db.namespace", dbNamespace),
+			attribute.String("db.collection.name", tableName),
+			attribute.String("db.operation.name", operationName),
+		))
+}
+
 // NewHandlerMetrics initialises OTel metrics for the handler.
 // Individual metrics that fail to initialise use noop implementations
 // and are included in the returned error.
@@ -152,6 +173,18 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		m.rowsReturned = RowsReturned{noop.Float64Histogram{}}
 	} else {
 		m.rowsReturned = RowsReturned{rows}
+	}
+
+	tq, err := meter.Int64Counter(
+		"mg.gateway.query.table_queries",
+		metric.WithDescription("Query count per table"),
+		metric.WithUnit("{query}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.table_queries counter: %w", err))
+		m.tableQueries = TableQueries{noop.Int64Counter{}}
+	} else {
+		m.tableQueries = TableQueries{tq}
 	}
 
 	if len(errs) > 0 {

@@ -36,6 +36,8 @@ import (
 // If already in a transaction, it continues without injecting BEGIN but still
 // handles mid-batch COMMIT/ROLLBACK that may start new implicit segments.
 //
+// Returns the aggregated list of tables used across all statements in the batch.
+//
 // # CommandComplete deferral for the last statement
 //
 // When PostgreSQL executes a multi-statement simple query like "S1; S2; S3;",
@@ -65,19 +67,37 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	queryStr string,
 	stmts []ast.Stmt,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
-) error {
+) ([]string, error) {
+	// collectTables aggregates TablesUsed from each ExecuteResult, deduplicating.
+	seen := make(map[string]struct{})
+	var allTables []string
+	collectTables := func(result *ExecuteResult) {
+		if result == nil {
+			return
+		}
+		for _, t := range result.TablesUsed {
+			if _, exists := seen[t]; !exists {
+				seen[t] = struct{}{}
+				allTables = append(allTables, t)
+			}
+		}
+	}
+
 	execute := func(stmt ast.Stmt) error {
 		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
 		defer cancel()
-		return h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt, callback)
+		result, err := h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt, callback)
+		collectTables(result)
+		return err
 	}
 	// silentExecute runs a statement without sending results to the client.
 	// Used for synthetic BEGIN/COMMIT/ROLLBACK injected by implicit transaction handling.
 	silentExecute := func(stmt ast.Stmt) error {
 		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
 		defer cancel()
-		return h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
+		_, err := h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
 			func(context.Context, *sqltypes.Result) error { return nil })
+		return err
 	}
 
 	// If already in a transaction, don't inject BEGIN at start
@@ -95,7 +115,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		// Inject BEGIN if needed (start of batch or after COMMIT/ROLLBACK)
 		if needsBegin {
 			if err := silentExecute(ast.NewBeginStmt()); err != nil {
-				return err
+				return allTables, err
 			}
 			needsBegin = false
 			isImplicitTx = true
@@ -124,12 +144,12 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 					if isImplicitTx {
 						_ = silentExecute(ast.NewRollbackStmt())
 					}
-					return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
+					return allTables, mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
 						"SET TRANSACTION ISOLATION LEVEL must be called before any query", "")
 				}
 			}
 			if err := callback(ctx, &sqltypes.Result{CommandTag: "BEGIN"}); err != nil {
-				return err
+				return allTables, err
 			}
 			continue
 		}
@@ -137,7 +157,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		// User's COMMIT/ROLLBACK - execute and prepare for next segment
 		if ast.IsCommitStatement(stmt) || ast.IsRollbackStatement(stmt) {
 			if err := execute(stmt); err != nil {
-				return err
+				return allTables, err
 			}
 			needsBegin = true
 			isImplicitTx = false
@@ -159,7 +179,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		var execErr error
 		if i == len(stmts)-1 && isImplicitTx {
 			stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
-			execErr = h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
+			var result *ExecuteResult
+			result, execErr = h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
 				func(ctx context.Context, result *sqltypes.Result) error {
 					if result.CommandTag != "" {
 						// Hold the CommandTag — we'll send it after a successful commit,
@@ -182,6 +203,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 					return callback(ctx, result)
 				},
 			)
+			collectTables(result)
 			cancel()
 		} else {
 			execErr = execute(stmt)
@@ -195,7 +217,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 				// The client must issue ROLLBACK to recover.
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
-			return execErr
+			return allTables, execErr
 		}
 	}
 
@@ -214,17 +236,17 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			// Commit failed — rollback to clean up. The held CommandComplete is
 			// discarded; the caller will send an ErrorResponse instead.
 			_ = silentExecute(ast.NewRollbackStmt())
-			return err
+			return allTables, err
 		}
 		// Commit succeeded — now send the deferred CommandComplete for the last
 		// statement. The client sees the full expected response sequence:
 		// DataRow... → CommandComplete → ReadyForQuery.
 		if heldCommandTag != "" {
 			if err := callback(ctx, &sqltypes.Result{CommandTag: heldCommandTag}); err != nil {
-				return err
+				return allTables, err
 			}
 		}
 	}
 
-	return nil
+	return allTables, nil
 }
