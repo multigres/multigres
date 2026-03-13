@@ -154,7 +154,6 @@ const (
 	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED StandbyUpdateOperation = 0
 	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD         StandbyUpdateOperation = 1
 	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE      StandbyUpdateOperation = 2
-	StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE     StandbyUpdateOperation = 3
 )
 
 // Enum value maps for StandbyUpdateOperation.
@@ -163,13 +162,11 @@ var (
 		0: "STANDBY_UPDATE_OPERATION_UNSPECIFIED",
 		1: "STANDBY_UPDATE_OPERATION_ADD",
 		2: "STANDBY_UPDATE_OPERATION_REMOVE",
-		3: "STANDBY_UPDATE_OPERATION_REPLACE",
 	}
 	StandbyUpdateOperation_value = map[string]int32{
 		"STANDBY_UPDATE_OPERATION_UNSPECIFIED": 0,
 		"STANDBY_UPDATE_OPERATION_ADD":         1,
 		"STANDBY_UPDATE_OPERATION_REMOVE":      2,
-		"STANDBY_UPDATE_OPERATION_REPLACE":     3,
 	}
 )
 
@@ -4318,12 +4315,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x11SynchronousMethod\x12\"\n" +
 	"\x1eSYNCHRONOUS_METHOD_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_METHOD_FIRST\x10\x01\x12\x1a\n" +
-	"\x16SYNCHRONOUS_METHOD_ANY\x10\x02*\xaf\x01\n" +
+	"\x16SYNCHRONOUS_METHOD_ANY\x10\x02*\xb1\x01\n" +
 	"\x16StandbyUpdateOperation\x12(\n" +
 	"$STANDBY_UPDATE_OPERATION_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cSTANDBY_UPDATE_OPERATION_ADD\x10\x01\x12#\n" +
-	"\x1fSTANDBY_UPDATE_OPERATION_REMOVE\x10\x02\x12$\n" +
-	" STANDBY_UPDATE_OPERATION_REPLACE\x10\x03*\xb7\x01\n" +
+	"\x1fSTANDBY_UPDATE_OPERATION_REMOVE\x10\x02\"\x04\b\x03\x10\x03* STANDBY_UPDATE_OPERATION_REPLACE*\xb7\x01\n" +
 	"\x16SynchronousCommitLevel\x12\x1a\n" +
 	"\x16SYNCHRONOUS_COMMIT_OFF\x10\x00\x12\x1c\n" +
 	"\x18SYNCHRONOUS_COMMIT_LOCAL\x10\x01\x12#\n" +
