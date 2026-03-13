@@ -131,7 +131,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify standby.signal exists after demotion and replication config
 		t.Log("Verifying standby.signal exists after demotion...")
-		primaryStandbySignalPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "standby.signal")
+		primaryStandbySignalPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data", "standby.signal")
 		_, statErr := os.Stat(primaryStandbySignalPath)
 		assert.NoError(t, statErr, "standby.signal should exist after demotion")
 
@@ -170,8 +170,8 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify signal files are removed after promotion
 		t.Log("Verifying signal files removed from newly promoted primary...")
-		standbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
-		recoverySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "recovery.signal")
+		standbySignalPath := filepath.Join(setup.StandbyPgctld.PoolerDir, "pg_data", "standby.signal")
+		recoverySignalPath := filepath.Join(setup.StandbyPgctld.PoolerDir, "pg_data", "recovery.signal")
 
 		_, standbyStatErr := os.Stat(standbySignalPath)
 		assert.True(t, os.IsNotExist(standbyStatErr), "standby.signal should not exist after promotion")
@@ -204,7 +204,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify standby.signal exists after second demotion
 		t.Log("Verifying standby.signal exists after second demotion...")
-		standbyStandbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
+		standbyStandbySignalPath := filepath.Join(setup.StandbyPgctld.PoolerDir, "pg_data", "standby.signal")
 		_, statErr2 := os.Stat(standbyStandbySignalPath)
 		assert.NoError(t, statErr2, "standby.signal should exist after demotion")
 
@@ -233,8 +233,8 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify signal files are removed after restoring original primary
 		t.Log("Verifying signal files removed from restored primary...")
-		primaryStandbySignalPath = filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "standby.signal")
-		primaryRecoverySignalPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "recovery.signal")
+		primaryStandbySignalPath = filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data", "standby.signal")
+		primaryRecoverySignalPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data", "recovery.signal")
 
 		_, primaryStandbyStatErr := os.Stat(primaryStandbySignalPath)
 		assert.True(t, os.IsNotExist(primaryStandbyStatErr), "standby.signal should not exist after promotion")

@@ -219,7 +219,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
 	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
-		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, s.CellName,
+		"localhost:"+strconv.Itoa(grpcPort), pgctld.PoolerDir, pgPort, s.EtcdClientAddr, s.CellName,
 		s.PgBackRestCertPaths, pgbackrestPort)
 
 	inst := &MultipoolerInstance{
@@ -246,7 +246,7 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 
 	return &ProcessInstance{
 		Name:              name,
-		DataDir:           dataDir,
+		PoolerDir:         dataDir,
 		LogFile:           logFile,
 		GrpcPort:          grpcPort,
 		HttpPort:          httpPort,
@@ -276,7 +276,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
 		PgctldAddr:  pgctldAddr,
-		DataDir:     pgctldDataDir,
+		PoolerDir:   pgctldDataDir,
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
 		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
@@ -311,7 +311,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTar
 
 	instance := &ProcessInstance{
 		Name:                                name,
-		DataDir:                             orchDataDir,
+		PoolerDir:                           orchDataDir,
 		LogFile:                             logFile,
 		GrpcPort:                            grpcPort,
 		HttpPort:                            httpPort,

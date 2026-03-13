@@ -242,7 +242,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	}
 
 	// Consensus state is always available; it will be loaded when needed.
-	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
+	pm.consensusState = NewConsensusState(pm.serviceID)
 
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm)
@@ -726,7 +726,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			PoolerDir:     pm.multipooler.PoolerDir,
 			Pg1Port:       pgPort,
 			Pg1SocketPath: socketDir,
-			Pg1Path:       filepath.Join(pm.multipooler.PoolerDir, "pg_data"),
+			Pg1Path:       postgresDataDir(),
 		}, backupConfig)
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
@@ -932,7 +932,7 @@ func (pm *MultiPoolerManager) loadConsensusTermFromDisk() {
 		// Initialize consensus state if not already done
 		pm.mu.Lock()
 		if pm.consensusState == nil {
-			pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
+			pm.consensusState = NewConsensusState(pm.serviceID)
 		}
 		cs := pm.consensusState
 		pm.mu.Unlock()

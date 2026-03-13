@@ -84,6 +84,7 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			poolerDir := t.TempDir()
+			t.Setenv("PGDATA", filepath.Join(poolerDir, "pg_data"))
 
 			// Create test config with topology store that has backup location
 			database := "postgres"
@@ -118,7 +119,7 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			pm := NewTestMultiPoolerManager(t, multiPooler, config)
 
 			// Initialize consensus state
-			pm.consensusState = NewConsensusState(poolerDir, serviceID)
+			pm.consensusState = NewConsensusState(serviceID)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
@@ -167,6 +168,9 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 func TestHelperMethods(t *testing.T) {
 	t.Run("hasDataDirectory", func(t *testing.T) {
 		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		t.Setenv("PGDATA", dataDir)
+
 		multiPooler := &clustermetadatapb.MultiPooler{PoolerDir: poolerDir}
 		pm := &MultiPoolerManager{config: &Config{}, multipooler: multiPooler}
 
@@ -174,7 +178,6 @@ func TestHelperMethods(t *testing.T) {
 		assert.False(t, pm.hasDataDirectory())
 
 		// Create data directory with PG_VERSION file (simulating initialized postgres)
-		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
 		pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
 		require.NoError(t, os.WriteFile(pgVersionFile, []byte("16"), 0o644))
@@ -212,6 +215,7 @@ func TestHelperMethods(t *testing.T) {
 		// Create data directory
 		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		t.Setenv("PGDATA", dataDir)
 
 		// Should succeed with valid directory
 		err := pm.removeDataDirectory()
@@ -229,6 +233,7 @@ func TestHelperMethods(t *testing.T) {
 func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
+	t.Setenv("PGDATA", filepath.Join(poolerDir, "pg_data"))
 
 	database := "postgres"
 	backupLocation := t.TempDir()
@@ -254,7 +259,7 @@ func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
 	require.NoError(t, err)
 
 	serviceID := multiPooler.Id
-	pm.consensusState = NewConsensusState(poolerDir, serviceID)
+	pm.consensusState = NewConsensusState(serviceID)
 	_, err = pm.consensusState.Load()
 	require.NoError(t, err)
 

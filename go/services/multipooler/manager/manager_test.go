@@ -320,7 +320,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			poolerDir := t.TempDir()
 
 			// Create a minimal data directory structure to satisfy IsDataDirInitialized check
-			dataDir := postgresDataDir(poolerDir)
+			dataDir := filepath.Join(poolerDir, "pg_data")
+			t.Setenv("PGDATA", dataDir)
 			require.NoError(t, os.MkdirAll(dataDir, 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("15\n"), 0o644))
 
@@ -329,7 +330,7 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 					TermNumber: tt.currentTerm,
 				}
-				require.NoError(t, setConsensusTerm(poolerDir, initialTerm))
+				require.NoError(t, setConsensusTerm(initialTerm))
 			}
 
 			// Create the database in topology with backup location
