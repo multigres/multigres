@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -121,6 +122,9 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 	var b strings.Builder
 
 	// RESET variables present in current but absent from desired.
+	// Note: "role" and "session_authorization" have GUC_NO_RESET_ALL in
+	// PostgreSQL, so they MUST be reset individually — RESET ALL won't
+	// touch them. We handle them here with explicit RESET commands.
 	if current != nil {
 		for name := range current.Vars {
 			if _, ok := desired.Vars[name]; !ok {
@@ -128,7 +132,7 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 					b.WriteString("; ")
 				}
 				b.WriteString("RESET ")
-				b.WriteString(name)
+				b.WriteString(ast.QuoteQualifiedIdentifier(name))
 			}
 		}
 	}
@@ -157,7 +161,22 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 }
 
 // ResetAllSettings resets the connection to a clean state.
-// This executes RESET ALL to clear all session variables.
+//
+// Executes RESET ROLE, RESET SESSION AUTHORIZATION, then RESET ALL.
+// These explicit resets must come first because PostgreSQL marks
+// "role" and "session_authorization" with GUC_NO_RESET_ALL
+// (src/backend/utils/misc/guc_tables.c), meaning RESET ALL
+// intentionally skips them.
+//
+// Without the explicit resets, a pooled connection that had SET ROLE
+// or SET SESSION AUTHORIZATION applied will retain those values after
+// RESET ALL. If that role was subsequently dropped (e.g. by test
+// cleanup), the next query on the connection fails with
+// "role NNNNN was concurrently dropped".
+//
+// This matches what DISCARD ALL does internally
+// (src/backend/commands/discard.c), but works inside transactions
+// where DISCARD ALL cannot be used.
 func (c *Conn) ResetAllSettings(ctx context.Context) error {
 	state := c.State()
 	if state == nil {
@@ -169,8 +188,9 @@ func (c *Conn) ResetAllSettings(ctx context.Context) error {
 		return nil
 	}
 
-	// Execute RESET ALL.
-	_, err := c.Query(ctx, "RESET ALL")
+	// Use the settings' ResetQuery which includes RESET ROLE and
+	// RESET SESSION AUTHORIZATION before RESET ALL (GUC_NO_RESET_ALL).
+	_, err := c.Query(ctx, settings.ResetQuery())
 	if err != nil {
 		return fmt.Errorf("failed to reset settings: %w", err)
 	}
