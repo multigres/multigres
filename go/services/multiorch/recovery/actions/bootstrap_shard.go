@@ -213,7 +213,7 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 		ConsensusTerm:        1,
 		DurabilityPolicyName: policyName,
 		DurabilityQuorumRule: quorumRule,
-		CoordinatorId:        topoclient.ClusterIDString(a.coordinator.GetCoordinatorID()),
+		CoordinatorId:        a.coordinator.GetCoordinatorID(),
 	}
 	var resp *multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
 	if err := telemetry.WithSpan(ctx, "bootstrap/initialize-primary", func(ctx context.Context) error {

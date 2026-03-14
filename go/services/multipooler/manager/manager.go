@@ -188,6 +188,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if multiPooler.Id == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
 	}
+	if _, err := generateApplicationName(multiPooler.Id); err != nil {
+		return nil, mterrors.Wrap(err, "invalid MultiPooler.Id")
+	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
 	if err := constants.ValidateMVPTableGroupAndShard(multiPooler.TableGroup, multiPooler.Shard); err != nil {
