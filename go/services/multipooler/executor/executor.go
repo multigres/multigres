@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -183,6 +184,18 @@ func (e *Executor) StreamExecute(
 			// Query failed but connection still exists — return current state
 			return e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
+
+		// Auto-detect transaction state from PG backend. If a BEGIN was sent
+		// inline (e.g., prepended for session-pinned connections), the reserved
+		// connection won't have ReasonTransaction set. Sync it from PG's
+		// ReadyForQuery transaction indicator.
+		if reservedConn.Conn().TxnStatus() == protocol.TxnStatusInBlock && !reservedConn.IsInTransaction() {
+			reservedConn.AddReservationReason(protoutil.ReasonTransaction)
+		} else if reservedConn.Conn().TxnStatus() == protocol.TxnStatusIdle && reservedConn.IsInTransaction() {
+			// Transaction ended via inline COMMIT/ROLLBACK — remove the reason.
+			reservedConn.RemoveReservationReason(protoutil.ReasonTransaction)
+		}
+
 		return e.buildReservedState(reservedConn), nil
 	}
 
@@ -954,7 +967,17 @@ func (e *Executor) ReleaseReservedConnection(
 		}
 	}
 
-	// Step 3: Release all portals (in-memory only, always succeeds).
+	// Step 3: If there are temp tables, discard them so the backend is clean
+	// when returned to the pool.
+	if !cleanupFailed && protoutil.HasTempTableReason(reservedConn.RemainingReasons()) {
+		if _, err := reservedConn.Conn().Query(ctx, "DISCARD TEMP"); err != nil {
+			e.logger.ErrorContext(ctx, "DISCARD TEMP failed during release",
+				"reserved_conn_id", options.ReservedConnectionId, "error", err)
+			cleanupFailed = true
+		}
+	}
+
+	// Step 4: Release all portals (in-memory only, always succeeds).
 	reservedConn.ReleaseAllPortals()
 
 	// Step 4: Release or close the connection.
