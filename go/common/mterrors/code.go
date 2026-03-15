@@ -18,6 +18,7 @@ package mterrors
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
@@ -34,6 +35,7 @@ const (
 	PgSSUndefinedObject       = "42704" // undefined_object
 	PgSSQueryCanceled         = "57014" // query_canceled
 	PgSSInternalError         = "XX000" // internal_error
+	PgSSReadOnlyTransaction   = "25006" // read_only_sql_transaction
 )
 
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
@@ -144,6 +146,33 @@ var (
 		Format:      "connection startup failed",
 		Description: "Invalid startup message.",
 	}
+
+	MTB01 = &MTError{
+		ID: "MTB01", Severity: "ERROR",
+		Format:      "failover buffer full",
+		Description: "The request was evicted because the failover buffer is at capacity. Retry the query.",
+	}
+
+	MTB02 = &MTError{
+		ID: "MTB02", Severity: "ERROR",
+		Format:      "failover buffer timeout",
+		Description: "The request was evicted because the failover did not complete within the buffer window. Retry the query.",
+	}
+
+	MTB03 = &MTError{
+		ID: "MTB03", Severity: "ERROR",
+		Format:      "failover buffer shutting down",
+		Description: "The request was evicted because the gateway is shutting down.",
+	}
+
+	// MTF01 is returned by multipooler when a planned failover is in progress
+	// (servingStatus == SERVING_RDONLY). The gateway's classifyError uses this
+	// code to trigger failover buffering for PRIMARY queries.
+	MTF01 = &MTError{
+		ID: "MTF01", Severity: "ERROR",
+		Format:      "planned failover in progress",
+		Description: "The pooler is transitioning during a planned failover. The query will be retried automatically.",
+	}
 )
 
 // NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.
@@ -167,16 +196,15 @@ func NewUnrecognizedParameter(name string) *PgDiagnostic {
 		fmt.Sprintf("unrecognized configuration parameter %q", name), "")
 }
 
-// IsError checks whether err (or a wrapped cause) is an MT error matching code.
-// For *PgDiagnostic errors it compares the SQLSTATE Code field directly;
-// otherwise it falls back to substring matching on the error string.
-func IsError(err error, code string) bool {
+// IsErrorCode checks whether err (or a wrapped cause) is a *PgDiagnostic
+// whose SQLSTATE Code matches any of the provided codes.
+func IsErrorCode(err error, codes ...string) bool {
 	if err == nil {
 		return false
 	}
 	var diag *PgDiagnostic
 	if errors.As(err, &diag) {
-		return diag.Code == code
+		return slices.Contains(codes, diag.Code)
 	}
 	return false
 }

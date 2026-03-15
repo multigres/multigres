@@ -36,8 +36,8 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
-	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
+	"github.com/multigres/multigres/go/services/multigateway/buffer"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
@@ -73,6 +73,10 @@ type MultiGateway struct {
 	scatterConn *scatterconn.ScatterConn
 	// executor handles query execution and routing
 	executor *executor.Executor
+	// buffer holds requests during PRIMARY failovers
+	buffer *buffer.Buffer
+	// bufferConfig holds buffer configuration
+	bufferConfig *buffer.Config
 	// statementTimeout is the default statement execution timeout
 	statementTimeout viperutil.Value[time.Duration]
 	// senv is the serving environment
@@ -133,9 +137,10 @@ func NewMultiGateway() *MultiGateway {
 			Dynamic:  false,
 			EnvVars:  []string{"MT_PG_TLS_KEY_FILE"},
 		}),
-		grpcServer: servenv.NewGrpcServer(reg),
-		senv:       servenv.NewServEnv(reg),
-		topoConfig: topoclient.NewTopoConfig(reg),
+		bufferConfig: buffer.NewConfig(reg),
+		grpcServer:   servenv.NewGrpcServer(reg),
+		senv:         servenv.NewServEnv(reg),
+		topoConfig:   topoclient.NewTopoConfig(reg),
 		serverStatus: Status{
 			Title: "Multigateway",
 			Links: []Link{
@@ -177,6 +182,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.pgTLSCertFile,
 		mg.pgTLSKeyFile,
 	)
+	mg.bufferConfig.RegisterFlags(fs)
 	mg.senv.RegisterFlags(fs)
 	mg.grpcServer.RegisterFlags(fs)
 	mg.topoConfig.RegisterFlags(fs)
@@ -225,8 +231,18 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
 	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")
 
+	// Create failover buffer if enabled.
+	if err := mg.bufferConfig.Validate(); err != nil {
+		return fmt.Errorf("buffer config: %w", err)
+	}
+	if mg.bufferConfig.Enabled.Get() {
+		mg.buffer = buffer.New(context.TODO(), mg.bufferConfig, logger)
+		mg.poolerDiscovery.RegisterListener(buffer.NewBufferListener(mg.buffer))
+		logger.Info("Failover buffering enabled")
+	}
+
 	// Initialize PoolerGateway for managing pooler connections
-	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, logger)
+	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, logger)
 
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
@@ -236,7 +252,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger)
 
 	// Create hash provider for SCRAM authentication using the pooler gateway
-	hashProvider := auth.NewPoolerHashProvider(&poolerSystemDiscovererAdapter{pg: mg.poolerGateway})
+	hashProvider := auth.NewPoolerHashProvider(mg.poolerGateway)
 
 	// Build TLS config if cert and key files are provided.
 	certFile := mg.pgTLSCertFile.Get()
@@ -382,6 +398,11 @@ func (mg *MultiGateway) Shutdown() {
 		mg.cancelManager.Close()
 	}
 
+	// Stop failover buffer
+	if mg.buffer != nil {
+		mg.buffer.Shutdown()
+	}
+
 	// Close pooler gateway connections
 	if mg.poolerGateway != nil {
 		if err := mg.poolerGateway.Close(); err != nil {
@@ -478,27 +499,4 @@ func buildPGTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 		NextProtos:   []string{protocol.ALPNProtocol}, // PG 17 ALPN forward compatibility
 	}, nil
-}
-
-// poolerSystemDiscovererAdapter adapts PoolerGateway to implement auth.PoolerSystemDiscoverer.
-type poolerSystemDiscovererAdapter struct {
-	pg *poolergateway.PoolerGateway
-}
-
-func (a *poolerSystemDiscovererAdapter) GetSystemClient(ctx context.Context, database string) (auth.PoolerSystemClient, error) {
-	client, err := a.pg.SystemClientFunc()(ctx, database)
-	if err != nil {
-		return nil, err
-	}
-	return &poolerSystemClientWrapper{client: client}, nil
-}
-
-// poolerSystemClientWrapper wraps the generated gRPC client to match auth.PoolerSystemClient interface.
-// The gRPC client has ...grpc.CallOption, but auth.PoolerSystemClient doesn't.
-type poolerSystemClientWrapper struct {
-	client multipoolerpb.MultiPoolerServiceClient
-}
-
-func (w *poolerSystemClientWrapper) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
-	return w.client.GetAuthCredentials(ctx, req)
 }

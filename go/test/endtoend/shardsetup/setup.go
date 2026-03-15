@@ -58,13 +58,14 @@ type SetupConfig struct {
 	TableGroup                          string
 	Shard                               string
 	CellName                            string
-	DurabilityPolicy                    string // Durability policy (e.g., "ANY_2")
-	SkipInitialization                  bool   // Start processes but don't initialize postgres (for bootstrap tests)
-	PrimaryFailoverGracePeriodBase      string // Grace period base before primary failover (default: "0s" for tests)
-	PrimaryFailoverGracePeriodMaxJitter string // Max jitter for grace period (default: "0s" for tests)
-	S3BackupBucket                      string // S3 bucket name (empty = use filesystem)
-	S3BackupRegion                      string // S3 region
-	S3BackupEndpoint                    string // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	DurabilityPolicy                    string   // Durability policy (e.g., "ANY_2")
+	SkipInitialization                  bool     // Start processes but don't initialize postgres (for bootstrap tests)
+	PrimaryFailoverGracePeriodBase      string   // Grace period base before primary failover (default: "0s" for tests)
+	PrimaryFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
+	S3BackupBucket                      string   // S3 bucket name (empty = use filesystem)
+	S3BackupRegion                      string   // S3 region
+	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -154,6 +155,23 @@ func WithS3Backup(bucket, region, endpoint string) SetupOption {
 		c.S3BackupBucket = bucket
 		c.S3BackupRegion = region
 		c.S3BackupEndpoint = endpoint
+	}
+}
+
+// WithMultigatewayBuffering enables failover buffering on the multigateway.
+// Implies WithMultigateway(). Configures buffer flags for fast test execution:
+// short window, small buffer, low drain concurrency, no min-time-between-failovers guard.
+func WithMultigatewayBuffering() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs,
+			"--buffer-enabled",
+			"--buffer-window", "10s",
+			"--buffer-size", "1000",
+			"--buffer-max-failover-duration", "20s",
+			"--buffer-min-time-between-failovers", "0s",
+			"--buffer-drain-concurrency", "5",
+		)
 	}
 }
 
@@ -411,6 +429,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 		// Create multigateway instance (doesn't start it)
 		mgw := setup.CreateMultigatewayInstance(t, "multigateway", pgPort, httpPort, grpcPort)
+		mgw.ExtraArgs = config.MultigatewayExtraArgs
 		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
 
 		// Start multigateway (waits for Status RPC ready)

@@ -1027,13 +1027,18 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 		return mterrors.Wrap(err, "failed to transition to SERVING_RDONLY")
 	}
 
+	// Transition query service to reject queries during failover.
+	if pm.qsc != nil {
+		if err := pm.qsc.SetServingType(ctx, clustermetadatapb.PoolerServingStatus_SERVING_RDONLY); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to set query serving state", "error", err)
+		}
+	}
+
 	// Stop heartbeat writer
 	if pm.replTracker != nil {
 		pm.logger.InfoContext(ctx, "Stopping heartbeat writer")
 		pm.replTracker.MakeNonPrimary()
 	}
-
-	// TODO: Configure QueryService to reject writes
 
 	pm.logger.InfoContext(ctx, "Transitioned to SERVING_RDONLY successfully")
 	return nil
