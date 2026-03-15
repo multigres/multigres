@@ -159,8 +159,29 @@ func (sc *ScatterConn) StreamExecute(
 			return err
 		}
 
+		// For pinned sessions with deferred BEGIN: prepend the BEGIN to the
+		// SQL so PG enters a transaction block on this reserved connection.
+		beganTransaction := false
+		if state.PendingBeginQuery != "" && state.SessionPinned {
+			sc.logger.DebugContext(ctx, "prepending deferred BEGIN to pinned query",
+				"pending_begin", state.PendingBeginQuery)
+			sql = state.PendingBeginQuery + "; " + sql
+			state.PendingBeginQuery = ""
+			beganTransaction = true
+		}
+
 		reservedState, err := qs.StreamExecute(ctx, target, sql, eo, callback)
 		sc.applyReservedState(conn, state, target, reservedState)
+
+		// After prepending BEGIN or when gateway knows we're in a transaction,
+		// ensure the shard state has ReasonTransaction so ConcludeTransaction
+		// can send COMMIT/ROLLBACK to the multipooler.
+		if (beganTransaction || (conn.IsInTransaction() && state.SessionPinned)) && err == nil {
+			updatedSS := state.GetMatchingShardState(target)
+			if updatedSS != nil && updatedSS.ReservedState != nil {
+				updatedSS.ReservedState.ReservationReasons |= protoutil.ReasonTransaction
+			}
+		}
 		if err != nil {
 			return fmt.Errorf("query execution failed: %w", err)
 		}
@@ -193,6 +214,20 @@ func (sc *ScatterConn) StreamExecute(
 
 		sc.logger.DebugContext(ctx, "reserved connection created",
 			"reserved_conn_id", reservedState.GetReservedConnectionId())
+		return nil
+	}
+
+	// Case 2b: Session pinned (temp tables) but no reserved connection yet - create one
+	if state.SessionPinned {
+		sc.logger.DebugContext(ctx, "creating reserved connection for session pin (temp tables)")
+
+		reservationOpts := protoutil.NewTempTableReservationOptions()
+		reservedState, err := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
+		if err != nil {
+			return fmt.Errorf("reserve stream execute failed: %w", err)
+		}
+
+		sc.applyReservedState(conn, state, target, reservedState)
 		return nil
 	}
 

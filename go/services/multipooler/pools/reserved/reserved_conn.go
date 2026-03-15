@@ -107,10 +107,9 @@ func (c *Conn) BeginWithQuery(ctx context.Context, beginQuery string) error {
 
 // Commit commits the current transaction.
 func (c *Conn) Commit(ctx context.Context) error {
-	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
-	}
-
+	// Always send COMMIT to PG — the transaction may have been started
+	// inline (e.g., BEGIN prepended to a query for session-pinned connections)
+	// without going through BeginWithQuery, so ReasonTransaction may not be set.
 	_, err := c.pooled.Conn.Query(ctx, "COMMIT")
 	if err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)

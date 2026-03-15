@@ -176,19 +176,29 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 	execStart := time.Now()
 
+	// Check all statements for temp table creation.
+	for _, a := range asts {
+		checkAndPinForTempTable(a, st)
+	}
+
 	// For multi-statement batches, use implicit transaction handling.
-	// This handles cases where transactions start/end mid-batch and ensures
-	// proper auto-rollback for implicit transaction segments on failure.
+	// Exception: pinned sessions bypass implicit wrapping — the PG backend
+	// handles auto-commit natively on the reserved connection.
 	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
 	// For multi-statement batches, per-table metrics, span attributes, and query log
 	// enrichment are handled per-statement inside executeWithImplicitTransaction.
 	// The batch-level recordQueryCompletion gets nil result (no plan type for a batch).
 	var result *ExecuteResult
 	if len(asts) > 1 {
-		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
-			"statement_count", len(asts),
-			"already_in_transaction", conn.IsInTransaction())
-		err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
+		if st.SessionPinned {
+			h.logger.DebugContext(ctx, "executing multi-statement batch on pinned session (no implicit txn)")
+			_, err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], countingCallback)
+		} else {
+			h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
+				"statement_count", len(asts),
+				"already_in_transaction", conn.IsInTransaction())
+			err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
+		}
 	} else {
 		// Single statement - execute with timeout enforcement
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
