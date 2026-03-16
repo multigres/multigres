@@ -45,8 +45,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, err
 	}
 
+	// Pre-compute the leader's application name before acquiring the lock.
+	leaderID, err := generateApplicationName(pm.serviceID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Acquire action lock
-	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
@@ -184,17 +189,15 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 
 	// Write leadership history record for bootstrap
-	leaderID := generateApplicationName(pm.serviceID)
-	coordinatorID := req.CoordinatorId
 	reason := "ShardNeedsBootstrap"
-	cohortMembers := []string{leaderID} // Only the initial primary during bootstrap
-	acceptedMembers := []string{leaderID}
+	cohortMembers := []applicationName{leaderID} // Only the initial primary during bootstrap
+	acceptedMembers := []applicationName{leaderID}
 
 	if err := pm.insertHistoryRecord(ctx,
 		req.ConsensusTerm,
 		"promotion",
 		leaderID,
-		coordinatorID,
+		req.CoordinatorId,
 		finalLSN,
 		"bootstrap", // operation
 		reason,
