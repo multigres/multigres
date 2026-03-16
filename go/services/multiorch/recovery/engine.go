@@ -218,7 +218,7 @@ type Engine struct {
 	rpcClient rpcclient.MultiPoolerClient
 
 	// In-memory state store
-	poolerStore *store.PoolerHealthStore
+	poolerStore *store.PoolerStore
 
 	// Health check queue for concurrent pooler polling
 	healthCheckQueue *Queue
@@ -274,7 +274,7 @@ func NewEngine(
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.TODO())
 
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(rpcClient, logger)
 
 	engine := &Engine{
 		ts:                     ts,

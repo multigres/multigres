@@ -39,7 +39,7 @@ func (re *Engine) performRecoveryCycle() {
 	defer span.End()
 
 	// Create generator - this builds the poolersByTG map once
-	generator := analysis.NewAnalysisGenerator(re.poolerStore)
+	generator := analysis.NewAnalysisGenerator(re.poolerStore.Health())
 	analyses := generator.GenerateAnalyses()
 
 	// Run all analyzers to detect problems
@@ -329,7 +329,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (bo
 
 	// Re-generate analysis for this specific pooler using updated store data.
 	// A new generator is created to capture the updated store state from the re-poll above.
-	generator := analysis.NewAnalysisGenerator(re.poolerStore)
+	generator := analysis.NewAnalysisGenerator(re.poolerStore.Health())
 	poolerAnalysis, err := generator.GenerateAnalysisForPooler(poolerIDStr)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate analysis after re-poll: %w", err)

@@ -31,11 +31,10 @@ import (
 )
 
 func TestPoolerStore_FindPoolersInShard(t *testing.T) {
-	protoStore := NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
-	poolerStore := NewPoolerStore(protoStore, nil, slog.Default())
+	poolerStore := NewPoolerStore(nil, slog.Default())
 
 	// Add poolers to different shards
-	protoStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 			Database:   "db1",
@@ -43,7 +42,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 			Shard:      "0",
 		},
 	})
-	protoStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         &clustermetadatapb.ID{Cell: "cell1", Name: "pooler2"},
 			Database:   "db1",
@@ -51,7 +50,7 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 			Shard:      "0",
 		},
 	})
-	protoStore.Set("pooler3", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("pooler3", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         &clustermetadatapb.ID{Cell: "cell2", Name: "pooler3"},
 			Database:   "db1",
@@ -78,8 +77,8 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 	})
 
 	t.Run("skips nil entries", func(t *testing.T) {
-		protoStore.Set("nil-pooler", nil)
-		protoStore.Set("nil-multipooler", &multiorchdatapb.PoolerHealthState{MultiPooler: nil})
+		poolerStore.Set("nil-pooler", nil)
+		poolerStore.Set("nil-multipooler", &multiorchdatapb.PoolerHealthState{MultiPooler: nil})
 
 		shardKey := commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
 		poolers := poolerStore.FindPoolersInShard(shardKey)
@@ -90,15 +89,14 @@ func TestPoolerStore_FindPoolersInShard(t *testing.T) {
 }
 
 func TestPoolerStore_FindPoolerByID(t *testing.T) {
-	protoStore := NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
-	poolerStore := NewPoolerStore(protoStore, nil, slog.Default())
+	poolerStore := NewPoolerStore(nil, slog.Default())
 
-	protoStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		},
 	})
-	protoStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{Cell: "cell2", Name: "pooler2"},
 		},
@@ -134,7 +132,6 @@ func TestPoolerStore_FindPoolerByID(t *testing.T) {
 
 func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 	ctx := context.Background()
-	protoStore := NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 
 	t.Run("finds healthy primary", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
@@ -148,7 +145,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				},
 			},
 		}
-		poolerStore := NewPoolerStore(protoStore, fakeClient, slog.Default())
+		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
 			{
@@ -172,8 +169,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 	})
 
 	t.Run("returns error when no primary exists", func(t *testing.T) {
-		fakeClient := &rpcclient.FakeClient{}
-		poolerStore := NewPoolerStore(protoStore, fakeClient, slog.Default())
+		poolerStore := NewPoolerStore(&rpcclient.FakeClient{}, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
 			{
@@ -209,7 +205,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				},
 			},
 		}
-		poolerStore := NewPoolerStore(protoStore, fakeClient, slog.Default())
+		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
 			{
@@ -239,7 +235,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				},
 			},
 		}
-		poolerStore := NewPoolerStore(protoStore, fakeClient, slog.Default())
+		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
 			{
@@ -281,7 +277,7 @@ func TestPoolerStore_FindHealthyPrimary(t *testing.T) {
 				},
 			},
 		}
-		poolerStore := NewPoolerStore(protoStore, fakeClient, slog.Default())
+		poolerStore := NewPoolerStore(fakeClient, slog.Default())
 
 		poolers := []*multiorchdatapb.PoolerHealthState{
 			{
