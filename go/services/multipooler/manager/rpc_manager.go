@@ -518,9 +518,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
 		updatedStandbys = applyRemoveOperation(syncConfig.StandbyIds, standbyIDs)
 
-	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		updatedStandbys = applyReplaceOperation(standbyIDs)
-
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported operation: "+operation.String())
@@ -529,7 +526,8 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// Validate that the final list is not empty
 	if len(updatedStandbys) == 0 {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-			"resulting standby list cannot be empty after operation")
+			"resulting standby list cannot be empty: use ConfigureSynchronousReplication "+
+				"to explicitly disable synchronous replication when scaling to zero standbys")
 	}
 
 	// === Build and Apply New Configuration ===
@@ -560,33 +558,59 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		coordinatorIDStr = generateApplicationName(coordinatorID)
 	}
 
-	// Insert history before applying GUCs
-	// Rationale: we want to ensure that a new cohort is advertised
-	// before this primary can accept ACKs from it.
-	// This is for safe replica joining of the cluster.
-	// It will ensure multiorch can discover the new cohort during a failure.
-	if err := pm.insertHistoryRecord(ctx,
-		consensusTerm,
-		"replication_config",
-		leaderID,
-		coordinatorIDStr,
-		"", // walPosition (not applicable for replication config changes)
-		operationName,
-		"UpdateSynchronousStandbyList: "+operationName,
-		standbyNames, // This is what we care in this update
-		nil,          // acceptedMembers
-		force); err != nil {
-		return mterrors.Wrap(err, "failed to record replication config history")
+	insertHistoryRecord := func() error {
+		return pm.insertHistoryRecord(ctx,
+			consensusTerm,
+			"replication_config",
+			leaderID,
+			coordinatorIDStr,
+			"", // walPosition (not applicable for replication config changes)
+			operationName,
+			"UpdateSynchronousStandbyList: "+operationName,
+			standbyNames,
+			nil, // acceptedMembers
+			force)
+	}
+	applyGUC := func() error {
+		return pm.applySynchronousStandbyNames(ctx, newValue)
+	}
+	maybeReload := func() error {
+		if reloadConfig {
+			return pm.reloadPostgresConfig(ctx)
+		}
+		return nil
 	}
 
-	// Apply the setting
-	if err = pm.applySynchronousStandbyNames(ctx, newValue); err != nil {
-		return err
-	}
-
-	// Reload configuration if requested
-	if reloadConfig {
-		if err := pm.reloadPostgresConfig(ctx); err != nil {
+	// Ordering of GUC update vs. leadership history write differs by operation.
+	// By consensus rules, the WAL record should reach quorum under both the old
+	// and new rules. In practice synchronous_standby_names isn't flexible enough
+	// to represent that. We can use a trick: we can always apply a more restrictive
+	// durability policy than our agreements say, risking only write availability.
+	// For ADD/REMOVE, we write the leader history record while applying the more
+	// restrictive of the before/after quorum rules for the change.
+	//
+	// TODO(eventual-consistency): there is a brief window after REMOVE where the GUC is live
+	// but the WAL record has not been written yet. A long-term fix would track the term at
+	// which each GUC update was last applied and have the postgres monitor poll
+	// leadership_history periodically to re-apply any GUC updates it missed.
+	if operation == multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE {
+		if err = applyGUC(); err != nil {
+			return err
+		}
+		if err = maybeReload(); err != nil {
+			return err
+		}
+		if err = insertHistoryRecord(); err != nil {
+			return mterrors.Wrap(err, "failed to record replication config history")
+		}
+	} else {
+		if err = insertHistoryRecord(); err != nil {
+			return mterrors.Wrap(err, "failed to record replication config history")
+		}
+		if err = applyGUC(); err != nil {
+			return err
+		}
+		if err = maybeReload(); err != nil {
 			return err
 		}
 	}
