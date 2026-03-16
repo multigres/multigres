@@ -24,7 +24,18 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
+// AssertEqual asserts that two proto messages are equal using proto.Equal semantics.
+// The test continues even if the assertion fails.
+func AssertEqual(t *testing.T, expected, actual proto.Message, msgAndArgs ...any) {
+	t.Helper()
+	if !proto.Equal(expected, actual) {
+		diff := cmp.Diff(expected, actual, protocmp.Transform())
+		t.Errorf("proto messages not equal%s\ndiff (-want +got):\n%s", formatMsg(msgAndArgs), diff)
+	}
+}
+
 // RequireEqual asserts that two proto messages are equal using proto.Equal semantics.
+// The test stops immediately if the assertion fails.
 func RequireEqual(t *testing.T, expected, actual proto.Message, msgAndArgs ...any) {
 	t.Helper()
 	if !proto.Equal(expected, actual) {
