@@ -31,7 +31,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 
 	t.Run("success - exact count", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Any 2 nodes",
 		}
@@ -53,7 +53,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 
 	t.Run("success - more than required", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Any 2 nodes",
 		}
@@ -72,7 +72,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 
 	t.Run("error - insufficient nodes", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 3,
 			Description:   "Any 3 nodes",
 		}
@@ -96,7 +96,7 @@ func TestValidateAnyNQuorum(t *testing.T) {
 
 	t.Run("success - single node quorum", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 1,
 			Description:   "Any 1 node",
 		}
@@ -118,7 +118,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 
 	t.Run("success - exactly required cells", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "At least 1 node from 2 cells",
 		}
@@ -134,7 +134,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 
 	t.Run("success - more than required cells", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "At least 1 node from 2 cells",
 		}
@@ -151,7 +151,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 
 	t.Run("success - multiple nodes from same cell", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "At least 1 node from 2 cells",
 		}
@@ -168,7 +168,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 
 	t.Run("error - insufficient cells", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 3,
 			Description:   "At least 1 node from 3 cells",
 		}
@@ -186,7 +186,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 
 	t.Run("error - all nodes from same cell", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "At least 1 node from 2 cells",
 		}
@@ -205,7 +205,7 @@ func TestValidateMultiCellQuorum(t *testing.T) {
 
 	t.Run("success - single cell requirement", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 1,
 			Description:   "At least 1 node from 1 cell",
 		}
@@ -225,7 +225,7 @@ func TestValidateQuorum(t *testing.T) {
 
 	t.Run("ANY_N - delegates to validateAnyNQuorum", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Any 2 nodes",
 		}
@@ -243,7 +243,7 @@ func TestValidateQuorum(t *testing.T) {
 
 	t.Run("MULTI_CELL_ANY_N - delegates to validateMultiCellQuorum", func(t *testing.T) {
 		rule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "At least 1 node from 2 cells",
 		}

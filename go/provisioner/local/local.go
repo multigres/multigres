@@ -1591,8 +1591,8 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
 			BackupLocation:   backupLocation,
-			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
-			Cells:            cellNames, // Register with all cells
+			DurabilityPolicy: "AT_LEAST_2", // Default durability policy for bootstrap
+			Cells:            cellNames,    // Register with all cells
 		}
 
 		if err := ts.CreateDatabase(ctx, databaseName, databaseConfig); err != nil {
