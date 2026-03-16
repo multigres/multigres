@@ -211,6 +211,14 @@ type Store interface {
 	// See shard_lock.go for full documentation.
 	TryLockShard(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
 
+	// TryLockBackup attempts to acquire a backup lock on the specified shard without blocking.
+	// See backup_lock.go for full documentation.
+	TryLockBackup(ctx context.Context, shardKey types.ShardKey, action string) (context.Context, func(*error), error)
+
+	// ForceUnlockBackup forcefully removes the backup lock for the specified shard.
+	// See backup_lock.go for full documentation.
+	ForceUnlockBackup(ctx context.Context, shardKey types.ShardKey) error
+
 	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
 	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
 	GetRemoteOperationTimeout() time.Duration

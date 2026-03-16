@@ -38,6 +38,7 @@ func convertError(err error, nodePath string) error {
 type memoryTopoLockDescriptor struct {
 	c       *conn
 	dirPath string
+	lockCh  chan struct{} // the lock channel at the time of acquisition
 }
 
 // TryLock is part of the topoclient.Conn interface.
@@ -119,6 +120,28 @@ func (c *conn) LockNameWithTTL(ctx context.Context, dirPath, contents string, tt
 	return c.lockWithTTL(ctx, dirPath, contents, true, ttl)
 }
 
+// TryLockEphemeral is part of the topoclient.Conn interface.
+func (c *conn) TryLockEphemeral(ctx context.Context, key, contents string, ttl time.Duration) (topoclient.LockDescriptor, error) {
+	return c.TryLockNameWithTTL(ctx, key, contents, ttl)
+}
+
+// TryLockNameWithTTL is part of the topoclient.Conn interface.
+func (c *conn) TryLockNameWithTTL(ctx context.Context, dirPath, contents string, ttl time.Duration) (topoclient.LockDescriptor, error) {
+	c.factory.mu.Lock()
+	err := c.factory.getOperationError(TryLock, dirPath)
+	c.factory.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if lock exists, using named=true so the path is created if needed
+	if err := c.checkLockExistence(ctx, dirPath, true); err != nil {
+		return nil, err
+	}
+
+	return c.lockWithTTL(ctx, dirPath, contents, true, ttl)
+}
+
 // TryLockName is part of the topoclient.Conn interface.
 func (c *conn) TryLockName(ctx context.Context, dirPath, contents string) (topoclient.LockDescriptor, error) {
 	c.factory.mu.Lock()
@@ -190,10 +213,7 @@ func (c *conn) lockWithTTL(ctx context.Context, dirPath, contents string, named 
 				defer c.factory.mu.Unlock()
 				// Only expire if the lock is still held (not already unlocked)
 				if n.lock != nil {
-					close(n.lock)
-					n.lock = nil
-					n.lockContents = ""
-					n.lockTTLTimer = nil
+					clearLock(n)
 				}
 			})
 		}
@@ -208,19 +228,52 @@ func (c *conn) lockWithTTL(ctx context.Context, dirPath, contents string, named 
 		return &memoryTopoLockDescriptor{
 			c:       c,
 			dirPath: dirPath,
+			lockCh:  n.lock,
 		}, nil
 	}
 }
 
 // Check is part of the topoclient.LockDescriptor interface.
-// We can never lose a lock in this implementation.
+// Returns an error if the lock has been force-unlocked or stolen by another holder.
 func (ld *memoryTopoLockDescriptor) Check(ctx context.Context) error {
+	ld.c.factory.mu.Lock()
+	defer ld.c.factory.mu.Unlock()
+
+	n := ld.c.factory.nodeByPath(ld.c.cell, ld.dirPath)
+	if n == nil || n.lock != ld.lockCh {
+		return fmt.Errorf("lock lost for %v", ld.dirPath)
+	}
 	return nil
 }
 
 // Unlock is part of the topoclient.LockDescriptor interface.
 func (ld *memoryTopoLockDescriptor) Unlock(ctx context.Context) error {
 	return ld.c.unlock(ctx, ld.dirPath)
+}
+
+// RevokeLockEphemeral is part of the topoclient.Conn interface.
+func (c *conn) RevokeLockEphemeral(ctx context.Context, key string) error {
+	return c.forceUnlock(ctx, key)
+}
+
+// forceUnlock forcefully removes the lock at the given path regardless of who holds it.
+func (c *conn) forceUnlock(ctx context.Context, dirPath string) error {
+	if c.closed.Load() {
+		return ErrConnectionClosed
+	}
+
+	c.factory.mu.Lock()
+	defer c.factory.mu.Unlock()
+
+	n := c.factory.nodeByPath(c.cell, dirPath)
+	if n == nil {
+		return nil // No node, no lock to remove
+	}
+	if n.lock == nil {
+		return nil // No lock held
+	}
+	clearLock(n)
+	return nil
 }
 
 func (c *conn) unlock(ctx context.Context, dirPath string) error {
@@ -238,7 +291,13 @@ func (c *conn) unlock(ctx context.Context, dirPath string) error {
 	if n.lock == nil {
 		return fmt.Errorf("node %v is not locked", dirPath)
 	}
-	// Stop the TTL timer if one exists
+	clearLock(n)
+	return nil
+}
+
+// clearLock stops any TTL timer, closes the lock channel, and clears
+// lock-related fields. Must be called with factory.mu held.
+func clearLock(n *node) {
 	if n.lockTTLTimer != nil {
 		n.lockTTLTimer.Stop()
 		n.lockTTLTimer = nil
@@ -246,5 +305,4 @@ func (c *conn) unlock(ctx context.Context, dirPath string) error {
 	close(n.lock)
 	n.lock = nil
 	n.lockContents = ""
-	return nil
 }

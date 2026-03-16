@@ -143,6 +143,12 @@ type ConnLock interface {
 	// instead of waiting. Unlike TryLock, it does not require the path to exist.
 	TryLockName(ctx context.Context, dirPath, contents string) (LockDescriptor, error)
 
+	// TryLockEphemeral atomically creates a lease-backed key at the given
+	// key path. If the key already exists (another holder), it returns NodeExists
+	// immediately. The key is automatically deleted when the lease expires or is
+	// revoked. If ttl is 0, it defaults to NamedLockTTL (24 hours).
+	TryLockEphemeral(ctx context.Context, key, contents string, ttl time.Duration) (LockDescriptor, error)
+
 	// TryLock takes lock on the given directory with a fail-fast approach.
 	// It is similar to `Lock` but the difference is it attempts to acquire the lock
 	// if it is likely to succeed. If there is already a lock on given path, then unlike `Lock`
@@ -154,6 +160,12 @@ type ConnLock interface {
 	// client call times out (just like standard `Lock' implementation). In short the lock checking
 	// and acquiring is not under the same mutex in current implementation of `TryLock`.
 	TryLock(ctx context.Context, dirPath, contents string) (LockDescriptor, error)
+
+	// RevokeLockEphemeral forcefully removes the ephemeral lock at the given
+	// key by revoking its lease. This causes the holder's KeepAlive channel to
+	// close. Used by the backup lease steal protocol to revoke an existing
+	// holder's lock. Returns nil if no lock exists at the key.
+	RevokeLockEphemeral(ctx context.Context, key string) error
 }
 
 type ConnWatch interface {

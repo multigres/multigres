@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/backuplease"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -142,7 +143,7 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
-	// Initialize pgbackrest stanza (must be done after PostgreSQL is running)
+	// Initialize pgbackrest stanza (must be done after PostgreSQL is running).
 	pm.logger.InfoContext(ctx, "Initializing pgbackrest stanza", "shard", pm.getShardID())
 	if err := pm.initializePgBackRestStanza(ctx); err != nil {
 		return nil, mterrors.Wrap(err, "failed to initialize pgbackrest stanza")
@@ -202,9 +203,15 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 			"error", err)
 	}
 
-	// Create initial backup for standby initialization
+	// Create initial backup for standby initialization.
+	// Acquire a backup lease for the backup operation.
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupID, err := pm.backupLocked(ctx, true, "full", "", nil)
+	backupCtx, backupLease, err := backuplease.Acquire(ctx, pm.topoClient, pm.shardKey(), pm.multipooler.Id.Name, "initial-backup", pm.logger)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to acquire backup lease for initial backup")
+	}
+	defer backupLease.Release(backupCtx)
+	backupID, err := pm.backupLocked(backupCtx, backupLease, true, "full", "", nil)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
@@ -529,15 +536,22 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	return nil
 }
 
-// initializePgBackRestStanza initializes the pgbackrest stanza
-// This must be called after PostgreSQL is initialized and running
+// stanzaCreateWithLease acquires a distributed backup lease and then runs
+// pgbackrest stanza-create. The lease ensures no other pooler is writing to
+// the same shard's backup repository concurrently.
+// Must be called after PostgreSQL is initialized and running.
 func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
+	ctx, lease, err := backuplease.Acquire(ctx, pm.topoClient, pm.shardKey(), pm.multipooler.Id.Name, "stanza-create", pm.logger)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to acquire backup lease for stanza-create")
+	}
+	defer lease.Release(ctx)
+
 	configPath, err := pm.pgBackRestConfig()
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
 
-	// Execute pgbackrest stanza-create command
 	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
