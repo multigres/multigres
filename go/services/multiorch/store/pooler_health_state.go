@@ -54,7 +54,7 @@ func (s *poolerHealthStore) len() int {
 
 // range iterates over all poolers. Each value passed to the callback is a deep
 // clone safe to mutate. Iteration stops early if the callback returns false.
-func (s *poolerHealthStore) rangeAll(fn func(key string, value *multiorchdata.PoolerHealthState) bool) {
+func (s *poolerHealthStore) rangeHealth(fn func(key string, value *multiorchdata.PoolerHealthState) bool) {
 	s.proto.Range(fn)
 }
 

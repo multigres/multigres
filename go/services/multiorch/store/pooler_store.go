@@ -70,14 +70,14 @@ func (s *PoolerStore) Len() int {
 // Range iterates over all poolers. Each value passed to the callback is a deep
 // clone safe to mutate. Iteration stops early if the callback returns false.
 func (s *PoolerStore) Range(fn func(key string, value *multiorchdatapb.PoolerHealthState) bool) {
-	s.health.rangeAll(fn)
+	s.health.rangeHealth(fn)
 }
 
 // FindPoolersInShard returns all poolers belonging to the given shard.
 func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
 
-	s.health.rangeAll(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}
@@ -98,7 +98,7 @@ func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multi
 func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb.PoolerHealthState, error) {
 	var found *multiorchdatapb.PoolerHealthState
 
-	s.health.rangeAll(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}
