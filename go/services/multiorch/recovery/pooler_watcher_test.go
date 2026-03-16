@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -37,7 +36,7 @@ func newTestPoolerWatcher(
 	ctx context.Context,
 	ts topoclient.Store,
 	targets []config.WatchTarget,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	queue *Queue,
 	logger *slog.Logger,
 ) *PoolerWatcher {
@@ -89,7 +88,7 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(nil, logger)
 	cfg := config.NewTestConfig()
 	queue := NewQueue(logger, cfg)
 
@@ -120,7 +119,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(nil, logger)
 	cfg := config.NewTestConfig()
 	queue := NewQueue(logger, cfg)
 
@@ -170,7 +169,7 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(nil, logger)
 	cfg := config.NewTestConfig()
 	queue := NewQueue(logger, cfg)
 
@@ -248,7 +247,7 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(nil, logger)
 	cfg := config.NewTestConfig()
 	queue := NewQueue(logger, cfg)
 
@@ -282,7 +281,7 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(nil, logger)
 	cfg := config.NewTestConfig()
 	queue := NewQueue(logger, cfg)
 
@@ -340,7 +339,7 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	}))
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(nil, logger)
 	cfg := config.NewTestConfig()
 	queue := NewQueue(logger, cfg)
 
