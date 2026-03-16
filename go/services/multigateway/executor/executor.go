@@ -157,7 +157,7 @@ func (e *Executor) Describe(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO: We will need to plan the query to find wether it can
+	// TODO: We will need to plan the query to find whether it can
 	// be served by a single shard or not. For now, since we only
 	// support unsharded, we don't have to do much.
 	// We just send the query to the default table group.

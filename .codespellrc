@@ -1,0 +1,3 @@
+[codespell]
+skip = go/common/parser
+ignore-words-list = copys,usera,anull

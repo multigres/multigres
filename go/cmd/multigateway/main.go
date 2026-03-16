@@ -33,8 +33,8 @@ func CreateMultiGatewayCommand() (*cobra.Command, *multigateway.MultiGateway) {
 
 	cmd := &cobra.Command{
 		Use:   constants.ServiceMultigateway,
-		Short: "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
-		Long:  "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgresSQL Protocol and a gRPC protocol.",
+		Short: "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgreSQL Protocol and a gRPC protocol.",
+		Long:  "Multigateway is a stateless proxy responsible for accepting requests from applications and routing them to the appropriate multipooler server(s) for query execution. It speaks both the PostgreSQL Protocol and a gRPC protocol.",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return mg.CobraPreRunE(cmd)
