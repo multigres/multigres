@@ -759,7 +759,7 @@ outer:
 	}
 
 	// put out names of tokens
-	ftable.WriteRune('\n')
+	_, _ = ftable.WriteRune('\n')
 	fmt.Fprintf(ftable, "var %sToknames = [...]string{\n", prefix)
 	for i := 1; i <= ntokens; i++ {
 		fmt.Fprintf(ftable, "\t%q,\n", tokset[i].name)
@@ -769,14 +769,14 @@ outer:
 	// put out names of states.
 	// commented out to avoid a huge table just for debugging.
 	// re-enable to have the names in the binary.
-	ftable.WriteRune('\n')
+	_, _ = ftable.WriteRune('\n')
 	fmt.Fprintf(ftable, "var %sStatenames = [...]string{\n", prefix)
 	//	for i:=TOKSTART; i<=ntokens; i++ {
 	//		fmt.Fprintf(ftable, "\t%q,\n", tokset[i].name);
 	//	}
 	fmt.Fprintf(ftable, "}\n")
 
-	ftable.WriteRune('\n')
+	_, _ = ftable.WriteRune('\n')
 	fmt.Fprintf(ftable, "const %sEofCode = 1\n", prefix)
 	fmt.Fprintf(ftable, "const %sErrCode = 2\n", prefix)
 	fmt.Fprintf(ftable, "const %sInitialStackSize = %v\n", prefix, initialstacksize)
@@ -793,7 +793,7 @@ outer:
 			if c == EOF {
 				break
 			}
-			ftable.WriteRune(c)
+			_, _ = ftable.WriteRune(c)
 		}
 	}
 }
@@ -917,11 +917,13 @@ func gettok() int {
 
 	case '<':
 		// get, and look up, a type name (union member name)
+		var tb strings.Builder
 		c = getrune(finput)
 		for c != '>' && c != EOF && c != '\n' {
-			tokname += string(c)
+			tb.WriteRune(c)
 			c = getrune(finput)
 		}
+		tokname = tb.String()
 
 		if c != '>' {
 			errorf("unterminated < ... > clause")
@@ -1052,11 +1054,12 @@ func gettok() int {
 }
 
 func getword(c rune) {
-	tokname = ""
+	var tb strings.Builder
 	for isword(c) || isdigit(c) || c == '.' || c == '$' {
-		tokname += string(c)
+		tb.WriteRune(c)
 		c = getrune(finput)
 	}
+	tokname = tb.String()
 	ungetrune(finput, c)
 }
 
@@ -1123,7 +1126,7 @@ func typeinfo() {
 			break
 		}
 	}
-	ftable.Write(ftypes.Bytes())
+	_, _ = ftable.Write(ftypes.Bytes())
 	fmt.Fprintf(ftable, "\n\tyys int")
 	fmt.Fprintf(ftable, "\n}\n\n")
 
@@ -1373,7 +1376,7 @@ func lines(code []rune) [][]rune {
 // writes code to ftable
 func writecode(code []rune) {
 	for _, r := range code {
-		ftable.WriteRune(r)
+		_, _ = ftable.WriteRune(r)
 	}
 }
 
@@ -1722,7 +1725,7 @@ func symnam(i int) string {
 
 // set elements 0 through n-1 to c
 func aryfil(v []int, n, c int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		v[i] = c
 	}
 }
@@ -2084,7 +2087,7 @@ func closure(i int) {
 
 		nexts:
 			// initially fill the sets
-			for s := 0; s < n; s++ {
+			for s := range n {
 				prd := curres[s]
 
 				//
@@ -2255,7 +2258,9 @@ func writem(pp Pitem) string {
 	var i int
 
 	p := pp.prod
-	q := chcopy(nontrst[prdptr[pp.prodno][0]-NTBASE].name) + ": "
+	var q strings.Builder
+	q.WriteString(chcopy(nontrst[prdptr[pp.prodno][0]-NTBASE].name))
+	q.WriteString(": ")
 	npi := pp.off
 
 	pi := aryeq(p, prdptr[pp.prodno])
@@ -2265,23 +2270,23 @@ func writem(pp Pitem) string {
 		if pi == npi {
 			c = '.'
 		}
-		q += string(c)
+		q.WriteRune(c)
 
 		i = p[pi]
 		pi++
 		if i <= 0 {
 			break
 		}
-		q += chcopy(symnam(i))
+		q.WriteString(chcopy(symnam(i)))
 	}
 
 	// an item calling for a reduction
 	i = p[npi]
 	if i < 0 {
-		q += fmt.Sprintf("    (%v)", -i)
+		fmt.Fprintf(&q, "    (%v)", -i)
 	}
 
-	return q
+	return q.String()
 }
 
 // pack state i from temp1 into amem
@@ -2433,7 +2438,7 @@ func output() {
 	}
 
 	fmt.Fprintf(ftable, "}\n")
-	ftable.WriteRune('\n')
+	_, _ = ftable.WriteRune('\n')
 	fmt.Fprintf(ftable, "const %sPrivate = %v\n", prefix, PRIVATE)
 }
 
@@ -2852,10 +2857,10 @@ func callopt() {
 	if adb > 2 {
 		for p = 0; p <= maxa; p += 10 {
 			fmt.Fprintf(ftable, "%v  ", p)
-			for i = 0; i < 10; i++ {
+			for i := range 10 {
 				fmt.Fprintf(ftable, "%v  ", amem[p+i])
 			}
-			ftable.WriteRune('\n')
+			_, _ = ftable.WriteRune('\n')
 		}
 	}
 
@@ -2896,7 +2901,7 @@ func gin(i int) {
 
 	// now, find amem place for it
 nextgp:
-	for p := 0; p < ACTSIZE; p++ {
+	for p := range ACTSIZE {
 		if amem[p] != 0 {
 			continue
 		}
@@ -3001,7 +3006,7 @@ nextn:
 // this version is for limbo
 // write out the optimized parser
 func aoutput() {
-	ftable.WriteRune('\n')
+	_, _ = ftable.WriteRune('\n')
 	fmt.Fprintf(ftable, "const %sLast = %v\n", prefix, maxa+1)
 	arout("Act", amem, maxa+1)
 	arout("Pact", indgo, nstate)
@@ -3082,7 +3087,7 @@ func others() {
 	arout("Tok2", temp1, c+1)
 
 	// table 3 has everything else
-	ftable.WriteRune('\n')
+	_, _ = ftable.WriteRune('\n')
 	fmt.Fprintf(ftable, "var %sTok3 = [...]int{\n\t", prefix)
 	c = 0
 	for i = 1; i <= ntokens; i++ {
@@ -3095,7 +3100,7 @@ func others() {
 		}
 
 		if c%5 != 0 {
-			ftable.WriteRune(' ')
+			_, _ = ftable.WriteRune(' ')
 		}
 		fmt.Fprintf(ftable, "%d, %d,", j, i)
 		c++
@@ -3104,7 +3109,7 @@ func others() {
 		}
 	}
 	if c%5 != 0 {
-		ftable.WriteRune(' ')
+		_, _ = ftable.WriteRune(' ')
 	}
 	fmt.Fprintf(ftable, "%d,\n}\n", 0)
 
@@ -3125,7 +3130,7 @@ func others() {
 	// copy parser text
 	ch := getrune(finput)
 	for ch != EOF {
-		ftable.WriteRune(ch)
+		_, _ = ftable.WriteRune(ch)
 		ch = getrune(finput)
 	}
 
@@ -3141,7 +3146,7 @@ func others() {
 
 	parts := strings.SplitN(yaccpar, prefix+"run()", 2)
 	fmt.Fprintf(ftable, "%v", parts[0])
-	ftable.Write(fcode.Bytes())
+	_, _ = ftable.Write(fcode.Bytes())
 	fmt.Fprintf(ftable, "%v", parts[1])
 }
 
@@ -3200,13 +3205,13 @@ Loop:
 
 func arout(s string, v []int, n int) {
 	s = prefix + s
-	ftable.WriteRune('\n')
+	_, _ = ftable.WriteRune('\n')
 	fmt.Fprintf(ftable, "var %v = [...]int{", s)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i%10 == 0 {
 			fmt.Fprintf(ftable, "\n\t")
 		} else {
-			ftable.WriteRune(' ')
+			_, _ = ftable.WriteRune(' ')
 		}
 		fmt.Fprintf(ftable, "%d,", v[i])
 	}
@@ -3260,16 +3265,17 @@ func osummary() {
 
 // copies and protects "'s in q
 func chcopy(q string) string {
-	s := ""
-	i := 0
+	var s strings.Builder
 	j := 0
-	for i = 0; i < len(q); i++ {
+	for i := range len(q) {
 		if q[i] == '"' {
-			s += q[j:i] + "\\"
+			s.WriteString(q[j:i])
+			s.WriteByte('\\')
 			j = i
 		}
 	}
-	return s + q[j:i]
+	s.WriteString(q[j:])
+	return s.String()
 }
 
 func usage() {
@@ -3328,7 +3334,7 @@ func aryeq(a []int, b []int) int {
 	if len(b) != n {
 		return 0
 	}
-	for ll := 0; ll < n; ll++ {
+	for ll := range n {
 		if a[ll] != b[ll] {
 			return 0
 		}
@@ -3415,7 +3421,7 @@ func exit(status int) {
 		stderr.Flush()
 		stderr = nil
 	}
-	os.Exit(status)
+	os.Exit(status) //nolint:forbidigo
 }
 
 const fastAppendHelperText = `
