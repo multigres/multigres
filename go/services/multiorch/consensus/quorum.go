@@ -24,10 +24,12 @@ import (
 // ValidateQuorum checks if the recruited nodes satisfy the quorum rule
 func (c *Coordinator) ValidateQuorum(rule *clustermetadatapb.QuorumRule, cohort []*multiorchdatapb.PoolerHealthState, recruited []*multiorchdatapb.PoolerHealthState) error {
 	switch rule.QuorumType {
-	case clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N:
+	case clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+		clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N: //nolint:staticcheck // deprecated
 		return c.validateAnyNQuorum(rule, cohort, recruited)
 
-	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N:
+	case clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+		clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N: //nolint:staticcheck // deprecated
 		return c.validateMultiCellQuorum(rule, recruited)
 
 	default:

@@ -741,7 +741,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 		// Generate analyses from the store
-		generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+		generator := analysis.NewAnalysisGenerator(engine.poolerStore.Health())
 		analyses := generator.GenerateAnalyses()
 
 		// Run analyzers to detect problems
@@ -815,7 +815,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 		// Generate analyses from the store
-		generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+		generator := analysis.NewAnalysisGenerator(engine.poolerStore.Health())
 		analyses := generator.GenerateAnalyses()
 
 		// Run analyzers to detect problems
@@ -921,7 +921,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 	// Generate initial analysis - problem should be detected
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+	generator := analysis.NewAnalysisGenerator(engine.poolerStore.Health())
 	analyses := generator.GenerateAnalyses()
 
 	var problems []types.Problem
@@ -1110,7 +1110,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
 
 	// Generate analysis and detect problem
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+	generator := analysis.NewAnalysisGenerator(engine.poolerStore.Health())
 	analyses := generator.GenerateAnalyses()
 
 	var problems []types.Problem
@@ -1482,7 +1482,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
 
 	// Generate problems
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore)
+	generator := analysis.NewAnalysisGenerator(engine.poolerStore.Health())
 	analyses := generator.GenerateAnalyses()
 
 	var problems []types.Problem
@@ -1538,8 +1538,6 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(1*time.Minute),
-		config.WithClusterMetadataRefreshInterval(15*time.Second),
-		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
 	// Create coordinator (required by NewRecoveryActionFactory)

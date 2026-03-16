@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 
 	"google.golang.org/grpc"
@@ -145,6 +146,10 @@ type MultiPoolerManager struct {
 
 	// metrics holds OTel gauges for pgBackRest server health.
 	metrics *Metrics
+
+	// healthStreamer streams health state to subscribers.
+	// Owns all health-related state and provides typed update methods.
+	healthStreamer *healthStreamer
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -182,6 +187,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	}
 	if multiPooler.Id == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
+	}
+	if _, err := generateApplicationName(multiPooler.Id); err != nil {
+		return nil, mterrors.Wrap(err, "invalid MultiPooler.Id")
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
@@ -229,6 +237,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		connPoolMgr:            connPoolMgr,
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
+		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -239,7 +248,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 
 	// Create the query service controller with the pool manager
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm)
 
 	// Register pgBackRest health metrics.
 	var metricsErr error
@@ -321,6 +330,10 @@ func (pm *MultiPoolerManager) Open() {
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
+
+	// Start health heartbeat goroutine and mark pooler as serving
+	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
+	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Pause temporarily closes the manager for maintenance operations that require
@@ -633,6 +646,17 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 		default:
 			close(pm.readyChan)
 		}
+
+		// Set initial primary observation from loaded consensus state.
+		// Use GetInconsistentTerm (safe without action lock) to read the term.
+		if pm.consensusState != nil {
+			if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
+				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+					PrimaryID:   pm.serviceID,
+					PrimaryTerm: term.GetPrimaryTerm(),
+				})
+			}
+		}
 	}
 }
 
@@ -718,6 +742,9 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.pgBackRestConfigPath = configPath
 		pm.topoLoaded = true
 		pm.mu.Unlock()
+
+		// Update health streamer with newly loaded multipooler type
+		pm.healthStreamer.UpdatePoolerType(pm.multipooler.Type)
 
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
@@ -993,6 +1020,9 @@ func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *dem
 	pm.queryServingState = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
+
+	// Update health streamer with serving status change
+	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
 
 	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
@@ -1341,6 +1371,9 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
 		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
 	}
+
+	// Update health streamer with pooler type change
+	pm.healthStreamer.UpdatePoolerType(clustermetadatapb.PoolerType_PRIMARY)
 
 	// Update heartbeat tracker to primary mode
 	if pm.replTracker != nil {
@@ -1755,7 +1788,9 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"backup_id", latestBackup.BackupId)
 
 	// Perform the restore
-	if err := pm.restoreFromBackupLocked(ctx, latestBackup.BackupId); err != nil {
+	if err := telemetry.WithSpan(ctx, "monitor-postgres-restore", func(ctx context.Context) error {
+		return pm.restoreFromBackupLocked(ctx, latestBackup.BackupId)
+	}); err != nil {
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 

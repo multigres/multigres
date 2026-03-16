@@ -150,16 +150,24 @@ func (re *Engine) pollPooler(ctx context.Context, poolerID *clustermetadata.ID, 
 			PoolerPollStatusFailure,
 		)
 
-		// Mark as failed check
-		// Note: pooler is already a clone from store.Get(), safe to mutate directly
-		pooler.IsUpToDate = true // We tried, don't retry immediately
-		pooler.IsLastCheckValid = false
-		re.poolerStore.Set(poolerIDStr, pooler)
+		// Re-read from store to pick up any topology updates (e.g. type change from
+		// PRIMARY→REPLICA or vice versa) that the PoolerWatcher may have written
+		// concurrently while the RPC was in-flight.
+		if fresh, ok := re.poolerStore.Get(poolerIDStr); ok {
+			fresh.LastCheckAttempted = pooler.LastCheckAttempted
+			fresh.IsUpToDate = true // We tried, don't retry immediately
+			fresh.IsLastCheckValid = false
+			re.poolerStore.Set(poolerIDStr, fresh)
+		}
 		return
 	}
 
-	// Success! Extract health metrics from status response and update store
-	// Note: pooler is already a clone from store.Get(), safe to mutate directly
+	// Success! Extract health metrics from status response and update store.
+	// Re-read from store to pick up any topology updates (e.g. type change) that
+	// the PoolerWatcher may have written concurrently while the RPC was in-flight.
+	if fresh, ok := re.poolerStore.Get(poolerIDStr); ok {
+		pooler.MultiPooler = fresh.MultiPooler
+	}
 	successTime := time.Now()
 	pooler.LastCheckSuccessful = timestamppb.New(successTime)
 	pooler.LastSeen = timestamppb.New(successTime)

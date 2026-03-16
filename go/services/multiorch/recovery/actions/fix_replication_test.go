@@ -64,9 +64,8 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
 	action := NewFixReplicationAction(nil, fakeClient, poolerStore, ts, slog.Default())
 
@@ -95,9 +94,8 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
 	// Add only replicas, no primary
 	replicaID := &clustermetadatapb.ID{
@@ -105,7 +103,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replicaID,
 			Database:   "testdb",
@@ -138,7 +136,6 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
@@ -158,7 +155,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			},
 		},
 	}
-	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -166,7 +163,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replicaID,
 			Database:   "testdb",
@@ -175,7 +172,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			Type:       clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
-	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -214,7 +211,6 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
@@ -244,7 +240,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			"multipooler-cell1-primary": {},
 		},
 	}
-	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -252,7 +248,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replicaID,
 			Database:   "testdb",
@@ -261,7 +257,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			Type:       clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
-	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -305,7 +301,6 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	fakeClient := &rpcclient.FakeClient{
 		StatusResponses: map[string]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
 			"multipooler-cell1-primary": {
@@ -330,7 +325,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			},
 		},
 	}
-	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -338,7 +333,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id:         replicaID,
 			Database:   "testdb",
@@ -347,7 +342,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			Type:       clustermetadatapb.PoolerType_REPLICA,
 		},
 	})
-	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: &clustermetadatapb.MultiPooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -478,8 +473,6 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	protoStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
-
 	baseFakeClient := rpcclient.NewFakeClient()
 	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
 		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
@@ -513,7 +506,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	}
 
 	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient, walReceiverStatus: "stopping"}
-	poolerStore := store.NewPoolerStore(protoStore, fakeClient, slog.Default())
+	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -546,10 +539,10 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
 	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
 
-	protoStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: replica,
 	})
-	protoStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
+	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
 		MultiPooler: primary,
 	})
 

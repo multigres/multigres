@@ -45,8 +45,8 @@ type PoolManager interface {
 	// Close shuts down all connection pools.
 	Close()
 
-	// InternalUser returns the configured internal user for system queries.
-	InternalUser() string
+	// PgUser returns the configured PostgreSQL user for system queries.
+	PgUser() string
 
 	// --- Admin Pool Operations ---
 

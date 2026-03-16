@@ -15,6 +15,7 @@
 package analysis
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +28,7 @@ import (
 )
 
 func TestStalePrimaryAnalyzer_Analyze(t *testing.T) {
-	factory := &RecoveryActionFactory{}
+	factory := &RecoveryActionFactory{poolerStore: store.NewPoolerStore(nil, slog.Default())}
 
 	t.Run("detects stale primary when this pooler has lower primary_term", func(t *testing.T) {
 		analyzer := &StalePrimaryAnalyzer{factory: factory}

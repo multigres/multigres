@@ -544,8 +544,7 @@ func TestReplicationAPIs(t *testing.T) {
 		setupPoolerTest(t, setup, WithDropTables("test_receiver_only"), WithResetGuc("synchronous_commit"))
 		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
 		require.NoError(t, err, "Failed to set synchronous_commit to local")
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_reload_conf()", 0)
-		require.NoError(t, err, "Failed to reload config")
+		shardsetup.ReloadConfig(context.Background(), t, primaryPoolerClient, "primary")
 
 		// Verify replication is working by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is streaming...")
@@ -724,8 +723,7 @@ func TestReplicationAPIs(t *testing.T) {
 		setupPoolerTest(t, setup, WithDropTables("test_replay_and_receiver"), WithResetGuc("synchronous_commit"))
 		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
 		require.NoError(t, err, "Failed to set synchronous_commit to local")
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_reload_conf()", 0)
-		require.NoError(t, err, "Failed to reload config")
+		shardsetup.ReloadConfig(context.Background(), t, primaryPoolerClient, "primary")
 		// Verify replication is working
 		t.Log("Verifying replication is streaming...")
 		require.Eventually(t, func() bool {
@@ -898,8 +896,7 @@ func TestReplicationAPIs(t *testing.T) {
 		setupPoolerTest(t, setup, WithDropTables("test_reset_replication"), WithResetGuc("synchronous_commit"))
 		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
 		require.NoError(t, err, "Failed to set synchronous_commit to local")
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "SELECT pg_reload_conf()", 0)
-		require.NoError(t, err, "Failed to reload config")
+		shardsetup.ReloadConfig(context.Background(), t, primaryPoolerClient, "primary")
 
 		// This test verifies that ResetReplication successfully disconnects the standby from the primary
 		// and that data inserted after reset does not replicate until replication is re-enabled
@@ -1647,7 +1644,7 @@ func TestConfigureSynchronousReplication(t *testing.T) {
 				},
 			},
 			{
-				name:    "ANY_2_MultipleStandbys",
+				name:    "AT_LEAST_2_MultipleStandbys",
 				method:  multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 				numSync: 2,
 				standbyIDs: []*clustermetadatapb.ID{

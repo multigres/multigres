@@ -19,6 +19,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,9 +35,10 @@ import (
 
 func TestGenerateApplicationName(t *testing.T) {
 	tests := []struct {
-		name     string
-		id       *clustermetadatapb.ID
-		expected string
+		name        string
+		id          *clustermetadatapb.ID
+		expected    applicationName
+		expectError bool
 	}{
 		{
 			name: "standard ID",
@@ -44,7 +46,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "us-west",
 				Name: "replica-1",
 			},
-			expected: "us-west_replica-1",
+			expected: applicationName("us-west_replica-1"),
 		},
 		{
 			name: "single character values",
@@ -52,7 +54,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "a",
 				Name: "b",
 			},
-			expected: "a_b",
+			expected: applicationName("a_b"),
 		},
 		{
 			name: "hyphenated names",
@@ -60,7 +62,7 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "us-east-1a",
 				Name: "primary-db-001",
 			},
-			expected: "us-east-1a_primary-db-001",
+			expected: applicationName("us-east-1a_primary-db-001"),
 		},
 		{
 			name: "numeric values",
@@ -68,59 +70,71 @@ func TestGenerateApplicationName(t *testing.T) {
 				Cell: "zone1",
 				Name: "pooler-001",
 			},
-			expected: "zone1_pooler-001",
+			expected: applicationName("zone1_pooler-001"),
+		},
+		{
+			name: "exactly 63 characters",
+			id: &clustermetadatapb.ID{
+				Cell: "us-east-1a",
+				Name: strings.Repeat("x", 52), // "us-east-1a_" (11) + 52 = 63
+			},
+			expected: applicationName("us-east-1a_" + strings.Repeat("x", 52)),
+		},
+		{
+			name: "exceeds 63 characters",
+			id: &clustermetadatapb.ID{
+				Cell: "us-east-1a",
+				Name: strings.Repeat("x", 53), // "us-east-1a_" (11) + 53 = 64
+			},
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateApplicationName(tt.id)
-			assert.Equal(t, tt.expected, result)
+			result, err := generateApplicationName(tt.id)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
 		})
 	}
 }
 
 func TestFormatStandbyList(t *testing.T) {
 	tests := []struct {
-		name       string
-		standbyIDs []*clustermetadatapb.ID
-		expected   string
+		name     string
+		names    []applicationName
+		expected string
 	}{
 		{
-			name:       "empty list",
-			standbyIDs: []*clustermetadatapb.ID{},
-			expected:   "",
+			name:     "empty list",
+			names:    []applicationName{},
+			expected: "",
 		},
 		{
-			name: "single standby",
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "zone1", Name: "replica-1"},
-			},
+			name:     "single standby",
+			names:    []applicationName{"zone1_replica-1"},
 			expected: `"zone1_replica-1"`,
 		},
 		{
-			name: "multiple standbys",
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "zone1", Name: "replica-1"},
-				{Cell: "zone2", Name: "replica-2"},
-				{Cell: "zone3", Name: "replica-3"},
-			},
+			name:     "multiple standbys",
+			names:    []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
 			expected: `"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"`,
 		},
 		{
-			name: "two standbys",
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "east", Name: "standby-a"},
-				{Cell: "west", Name: "standby-b"},
-			},
+			name:     "two standbys",
+			names:    []applicationName{"east_standby-a", "west_standby-b"},
 			expected: `"east_standby-a", "west_standby-b"`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatStandbyList(tt.standbyIDs)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, formatStandbyList(tt.names))
 		})
 	}
 }
@@ -130,7 +144,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 		name        string
 		method      multipoolermanagerdatapb.SynchronousMethod
 		numSync     int32
-		standbyIDs  []*clustermetadatapb.ID
+		names       []applicationName
 		expected    string
 		expectError bool
 		errorMsg    string
@@ -139,62 +153,47 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 			name:        "empty standby list returns empty string",
 			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:     1,
-			standbyIDs:  []*clustermetadatapb.ID{},
+			names:       []applicationName{},
 			expected:    "",
 			expectError: false,
 		},
 		{
-			name:    "FIRST method with single standby",
-			method:  multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-			numSync: 1,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "zone1", Name: "replica-1"},
-			},
+			name:        "FIRST method with single standby",
+			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			numSync:     1,
+			names:       []applicationName{"zone1_replica-1"},
 			expected:    `FIRST 1 ("zone1_replica-1")`,
 			expectError: false,
 		},
 		{
-			name:    "FIRST method with multiple standbys",
-			method:  multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
-			numSync: 2,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "zone1", Name: "replica-1"},
-				{Cell: "zone2", Name: "replica-2"},
-				{Cell: "zone3", Name: "replica-3"},
-			},
+			name:        "FIRST method with multiple standbys",
+			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
+			numSync:     2,
+			names:       []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
 			expected:    `FIRST 2 ("zone1_replica-1", "zone2_replica-2", "zone3_replica-3")`,
 			expectError: false,
 		},
 		{
-			name:    "ANY method with multiple standbys",
-			method:  multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
-			numSync: 1,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "zone1", Name: "replica-1"},
-				{Cell: "zone2", Name: "replica-2"},
-			},
+			name:        "ANY method with multiple standbys",
+			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			numSync:     1,
+			names:       []applicationName{"zone1_replica-1", "zone2_replica-2"},
 			expected:    `ANY 1 ("zone1_replica-1", "zone2_replica-2")`,
 			expectError: false,
 		},
 		{
-			name:    "ANY method with three standbys and numSync=2",
-			method:  multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
-			numSync: 2,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "a", Name: "1"},
-				{Cell: "b", Name: "2"},
-				{Cell: "c", Name: "3"},
-			},
+			name:        "ANY method with three standbys and numSync=2",
+			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
+			numSync:     2,
+			names:       []applicationName{"a_1", "b_2", "c_3"},
 			expected:    `ANY 2 ("a_1", "b_2", "c_3")`,
 			expectError: false,
 		},
 		{
-			name:    "invalid method returns error",
-			method:  multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
-			numSync: 1,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "zone1", Name: "replica-1"},
-			},
+			name:        "invalid method returns error",
+			method:      multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_UNSPECIFIED,
+			numSync:     1,
+			names:       []applicationName{"zone1_replica-1"},
 			expected:    "",
 			expectError: true,
 			errorMsg:    "invalid synchronous method",
@@ -203,7 +202,7 @@ func TestBuildSynchronousStandbyNamesValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := buildSynchronousStandbyNamesValue(tt.method, tt.numSync, tt.standbyIDs)
+			result, err := buildSynchronousStandbyNamesValue(tt.method, tt.numSync, tt.names)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -258,7 +257,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1] is nil",
+			errorMsg:    "standby_ids[1]: nil",
 		},
 		{
 			name: "empty cell returns error",
@@ -266,7 +265,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "", Name: "replica-1"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0] has empty cell",
+			errorMsg:    "standby_ids[0]: empty cell",
 		},
 		{
 			name: "empty name returns error",
@@ -274,7 +273,7 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone1", Name: ""},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0] has empty name",
+			errorMsg:    "standby_ids[0]: empty name",
 		},
 		{
 			name: "underscore in cell returns error",
@@ -315,19 +314,28 @@ func TestValidateStandbyIDs(t *testing.T) {
 				{Cell: "zone2", Name: "replica_2"},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1] name contains underscore",
+			errorMsg:    "standby_ids[1]: name contains underscore",
+		},
+		{
+			name: "exceeds 63 character limit",
+			standbyIDs: []*clustermetadatapb.ID{
+				{Cell: "us-east-1a", Name: strings.Repeat("x", 53)}, // "us-east-1a_" (11) + 53 = 64
+			},
+			expectError: true,
+			errorMsg:    "standby_ids[0]: application name",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateStandbyIDs(tt.standbyIDs)
+			names, err := validateStandbyIDs(tt.standbyIDs)
 
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errorMsg)
 			} else {
 				require.NoError(t, err)
+				assert.Len(t, names, len(tt.standbyIDs))
 			}
 		})
 	}
@@ -504,177 +512,151 @@ func TestSyncReplicationConfigMatches(t *testing.T) {
 }
 
 func TestApplyAddOperation(t *testing.T) {
-	standby1 := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-1"}
-	standby2 := &clustermetadatapb.ID{Cell: "zone2", Name: "replica-2"}
-	standby3 := &clustermetadatapb.ID{Cell: "zone3", Name: "replica-3"}
+	s1 := applicationName("zone1_replica-1")
+	s2 := applicationName("zone2_replica-2")
+	s3 := applicationName("zone3_replica-3")
 
 	tests := []struct {
-		name            string
-		currentStandbys []*clustermetadatapb.ID
-		newStandbys     []*clustermetadatapb.ID
-		expected        []*clustermetadatapb.ID
+		name     string
+		current  []applicationName
+		incoming []applicationName
+		expected []applicationName
 	}{
 		{
-			name:            "add to empty list",
-			currentStandbys: []*clustermetadatapb.ID{},
-			newStandbys:     []*clustermetadatapb.ID{standby1},
-			expected:        []*clustermetadatapb.ID{standby1},
+			name:     "add to empty list",
+			current:  []applicationName{},
+			incoming: []applicationName{s1},
+			expected: []applicationName{s1},
 		},
 		{
-			name:            "add new standby to existing list",
-			currentStandbys: []*clustermetadatapb.ID{standby1},
-			newStandbys:     []*clustermetadatapb.ID{standby2},
-			expected:        []*clustermetadatapb.ID{standby1, standby2},
+			name:     "add new standby to existing list",
+			current:  []applicationName{s1},
+			incoming: []applicationName{s2},
+			expected: []applicationName{s1, s2},
 		},
 		{
-			name:            "add multiple new standbys",
-			currentStandbys: []*clustermetadatapb.ID{standby1},
-			newStandbys:     []*clustermetadatapb.ID{standby2, standby3},
-			expected:        []*clustermetadatapb.ID{standby1, standby2, standby3},
+			name:     "add multiple new standbys",
+			current:  []applicationName{s1},
+			incoming: []applicationName{s2, s3},
+			expected: []applicationName{s1, s2, s3},
 		},
 		{
-			name:            "idempotent - add existing standby",
-			currentStandbys: []*clustermetadatapb.ID{standby1, standby2},
-			newStandbys:     []*clustermetadatapb.ID{standby1},
-			expected:        []*clustermetadatapb.ID{standby1, standby2},
+			name:     "idempotent - add existing standby",
+			current:  []applicationName{s1, s2},
+			incoming: []applicationName{s1},
+			expected: []applicationName{s1, s2},
 		},
 		{
-			name:            "idempotent - add mix of existing and new",
-			currentStandbys: []*clustermetadatapb.ID{standby1, standby2},
-			newStandbys:     []*clustermetadatapb.ID{standby2, standby3},
-			expected:        []*clustermetadatapb.ID{standby1, standby2, standby3},
+			name:     "idempotent - add mix of existing and new",
+			current:  []applicationName{s1, s2},
+			incoming: []applicationName{s2, s3},
+			expected: []applicationName{s1, s2, s3},
 		},
 		{
-			name:            "add empty list does nothing",
-			currentStandbys: []*clustermetadatapb.ID{standby1},
-			newStandbys:     []*clustermetadatapb.ID{},
-			expected:        []*clustermetadatapb.ID{standby1},
+			name:     "add empty list does nothing",
+			current:  []applicationName{s1},
+			incoming: []applicationName{},
+			expected: []applicationName{s1},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := applyAddOperation(tt.currentStandbys, tt.newStandbys)
-			assert.Equal(t, len(tt.expected), len(result), "length should match")
-
-			// Convert to maps for order-independent comparison
-			expectedMap := make(map[string]bool)
-			for _, id := range tt.expected {
-				expectedMap[generateApplicationName(id)] = true
-			}
-			resultMap := make(map[string]bool)
-			for _, id := range result {
-				resultMap[generateApplicationName(id)] = true
-			}
-			assert.Equal(t, expectedMap, resultMap)
+			result := applyAddOperation(tt.current, tt.incoming)
+			assert.ElementsMatch(t, tt.expected, result)
 		})
 	}
 }
 
 func TestApplyRemoveOperation(t *testing.T) {
-	standby1 := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-1"}
-	standby2 := &clustermetadatapb.ID{Cell: "zone2", Name: "replica-2"}
-	standby3 := &clustermetadatapb.ID{Cell: "zone3", Name: "replica-3"}
+	s1 := applicationName("zone1_replica-1")
+	s2 := applicationName("zone2_replica-2")
+	s3 := applicationName("zone3_replica-3")
 
 	tests := []struct {
-		name             string
-		currentStandbys  []*clustermetadatapb.ID
-		standbysToRemove []*clustermetadatapb.ID
-		expected         []*clustermetadatapb.ID
+		name     string
+		current  []applicationName
+		remove   []applicationName
+		expected []applicationName
 	}{
 		{
-			name:             "remove from single item list",
-			currentStandbys:  []*clustermetadatapb.ID{standby1},
-			standbysToRemove: []*clustermetadatapb.ID{standby1},
-			expected:         []*clustermetadatapb.ID{},
+			name:     "remove from single item list",
+			current:  []applicationName{s1},
+			remove:   []applicationName{s1},
+			expected: []applicationName{},
 		},
 		{
-			name:             "remove one from multiple",
-			currentStandbys:  []*clustermetadatapb.ID{standby1, standby2, standby3},
-			standbysToRemove: []*clustermetadatapb.ID{standby2},
-			expected:         []*clustermetadatapb.ID{standby1, standby3},
+			name:     "remove one from multiple",
+			current:  []applicationName{s1, s2, s3},
+			remove:   []applicationName{s2},
+			expected: []applicationName{s1, s3},
 		},
 		{
-			name:             "remove multiple standbys",
-			currentStandbys:  []*clustermetadatapb.ID{standby1, standby2, standby3},
-			standbysToRemove: []*clustermetadatapb.ID{standby1, standby3},
-			expected:         []*clustermetadatapb.ID{standby2},
+			name:     "remove multiple standbys",
+			current:  []applicationName{s1, s2, s3},
+			remove:   []applicationName{s1, s3},
+			expected: []applicationName{s2},
 		},
 		{
-			name:             "idempotent - remove non-existent standby",
-			currentStandbys:  []*clustermetadatapb.ID{standby1, standby2},
-			standbysToRemove: []*clustermetadatapb.ID{standby3},
-			expected:         []*clustermetadatapb.ID{standby1, standby2},
+			name:     "idempotent - remove non-existent standby",
+			current:  []applicationName{s1, s2},
+			remove:   []applicationName{s3},
+			expected: []applicationName{s1, s2},
 		},
 		{
-			name:             "idempotent - remove mix of existing and non-existent",
-			currentStandbys:  []*clustermetadatapb.ID{standby1, standby2},
-			standbysToRemove: []*clustermetadatapb.ID{standby2, standby3},
-			expected:         []*clustermetadatapb.ID{standby1},
+			name:     "idempotent - remove mix of existing and non-existent",
+			current:  []applicationName{s1, s2},
+			remove:   []applicationName{s2, s3},
+			expected: []applicationName{s1},
 		},
 		{
-			name:             "remove empty list does nothing",
-			currentStandbys:  []*clustermetadatapb.ID{standby1, standby2},
-			standbysToRemove: []*clustermetadatapb.ID{},
-			expected:         []*clustermetadatapb.ID{standby1, standby2},
+			name:     "remove empty list does nothing",
+			current:  []applicationName{s1, s2},
+			remove:   []applicationName{},
+			expected: []applicationName{s1, s2},
 		},
 		{
-			name:             "remove from empty list",
-			currentStandbys:  []*clustermetadatapb.ID{},
-			standbysToRemove: []*clustermetadatapb.ID{standby1},
-			expected:         []*clustermetadatapb.ID{},
+			name:     "remove from empty list",
+			current:  []applicationName{},
+			remove:   []applicationName{s1},
+			expected: []applicationName{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := applyRemoveOperation(tt.currentStandbys, tt.standbysToRemove)
-			assert.Equal(t, len(tt.expected), len(result), "length should match")
-
-			// Convert to maps for order-independent comparison
-			expectedMap := make(map[string]bool)
-			for _, id := range tt.expected {
-				expectedMap[generateApplicationName(id)] = true
-			}
-			resultMap := make(map[string]bool)
-			for _, id := range result {
-				resultMap[generateApplicationName(id)] = true
-			}
-			assert.Equal(t, expectedMap, resultMap)
+			result := applyRemoveOperation(tt.current, tt.remove)
+			assert.ElementsMatch(t, tt.expected, result)
 		})
 	}
 }
 
 func TestApplyReplaceOperation(t *testing.T) {
-	standby1 := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-1"}
-	standby2 := &clustermetadatapb.ID{Cell: "zone2", Name: "replica-2"}
-	standby3 := &clustermetadatapb.ID{Cell: "zone3", Name: "replica-3"}
-
 	tests := []struct {
-		name        string
-		newStandbys []*clustermetadatapb.ID
-		expected    []*clustermetadatapb.ID
+		name     string
+		names    []applicationName
+		expected []applicationName
 	}{
 		{
-			name:        "replace with single standby",
-			newStandbys: []*clustermetadatapb.ID{standby1},
-			expected:    []*clustermetadatapb.ID{standby1},
+			name:     "replace with single standby",
+			names:    []applicationName{"zone1_replica-1"},
+			expected: []applicationName{"zone1_replica-1"},
 		},
 		{
-			name:        "replace with multiple standbys",
-			newStandbys: []*clustermetadatapb.ID{standby1, standby2, standby3},
-			expected:    []*clustermetadatapb.ID{standby1, standby2, standby3},
+			name:     "replace with multiple standbys",
+			names:    []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
+			expected: []applicationName{"zone1_replica-1", "zone2_replica-2", "zone3_replica-3"},
 		},
 		{
-			name:        "replace with empty list",
-			newStandbys: []*clustermetadatapb.ID{},
-			expected:    []*clustermetadatapb.ID{},
+			name:     "replace with empty list",
+			names:    []applicationName{},
+			expected: []applicationName{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := applyReplaceOperation(tt.newStandbys)
+			result := applyReplaceOperation(tt.names)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -966,7 +948,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 		name              string
 		synchronousMethod multipoolermanagerdatapb.SynchronousMethod
 		numSync           int32
-		standbyIDs        []*clustermetadatapb.ID
+		names             []applicationName
 		setupMock         func(*mock.QueryService)
 		expectError       bool
 	}{
@@ -974,10 +956,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "FIRST method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "cell1", Name: "pooler1"},
-				{Cell: "cell1", Name: "pooler2"},
-			},
+			names:             []applicationName{"cell1_pooler1", "cell1_pooler2"},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -987,11 +966,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "ANY method with multiple standbys",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
 			numSync:           2,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "cell1", Name: "pooler1"},
-				{Cell: "cell2", Name: "pooler2"},
-				{Cell: "cell2", Name: "pooler3"},
-			},
+			names:             []applicationName{"cell1_pooler1", "cell2_pooler2", "cell2_pooler3"},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 			},
@@ -1001,9 +976,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			name:              "db exec error",
 			synchronousMethod: multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_FIRST,
 			numSync:           1,
-			standbyIDs: []*clustermetadatapb.ID{
-				{Cell: "cell1", Name: "pooler1"},
-			},
+			names:             []applicationName{"cell1_pooler1"},
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names", errors.New("exec error"))
 			},
@@ -1018,7 +991,7 @@ func TestSetSynchronousStandbyNames(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			err := pm.setSynchronousStandbyNames(ctx, tt.synchronousMethod, tt.numSync, tt.standbyIDs)
+			err := pm.setSynchronousStandbyNames(ctx, tt.synchronousMethod, tt.numSync, tt.names)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -1194,7 +1167,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				nil,
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[1] is nil",
+			errorMsg:    "standby_ids[1]: nil",
 		},
 		{
 			name:    "Invalid empty cell",
@@ -1207,7 +1180,7 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0] has empty cell",
+			errorMsg:    "standby_ids[0]: empty cell",
 		},
 		{
 			name:    "Invalid empty name",
@@ -1220,13 +1193,13 @@ func TestValidateSyncReplicationParams(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "standby_ids[0] has empty name",
+			errorMsg:    "standby_ids[0]: empty name",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateSyncReplicationParams(tt.numSync, tt.standbyIDs)
+			_, err := validateSyncReplicationParams(tt.numSync, tt.standbyIDs)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1518,7 +1491,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 		{
 			name: "successful clear synchronous replication",
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
@@ -1526,7 +1499,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 		{
 			name: "ALTER SYSTEM fails",
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnceWithError("ALTER SYSTEM SET synchronous_standby_names = ''", errors.New("permission denied"))
+				m.AddQueryPatternOnceWithError("ALTER SYSTEM RESET synchronous_standby_names", errors.New("permission denied"))
 			},
 			expectError:   true,
 			errorContains: "failed to clear synchronous_standby_names for demotion",
@@ -1534,7 +1507,7 @@ func TestClearSyncReplicationForDemotion(t *testing.T) {
 		{
 			name: "pg_reload_conf fails",
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("SELECT pg_reload_conf", errors.New("reload failed"))
 			},
 			expectError:   true,

@@ -32,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 )
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -146,6 +147,11 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
 
+	appName, err := generateApplicationName(pm.serviceID)
+	if err != nil {
+		return err
+	}
+
 	// Optionally stop replication before making changes
 	if stopReplicationBefore {
 		_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, false)
@@ -160,11 +166,8 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	pm.mu.Lock()
 	database := pm.multipooler.Database
 	pm.mu.Unlock()
-
-	// Generate application name using the shared helper
-	appName := generateApplicationName(pm.serviceID)
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, database, appName)
+		host, port, database, string(appName))
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
@@ -382,7 +385,8 @@ func (pm *MultiPoolerManager) ConfigureSynchronousReplication(ctx context.Contex
 // The caller MUST already hold the action lock.
 func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.Context, synchronousCommit multipoolermanagerdatapb.SynchronousCommitLevel, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID, reloadConfig bool, force bool) error {
 	// Validate input parameters
-	if err := validateSyncReplicationParams(numSync, standbyIDs); err != nil {
+	standbyNames, err := validateSyncReplicationParams(numSync, standbyIDs)
+	if err != nil {
 		return err
 	}
 
@@ -406,15 +410,10 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get consensus term")
 	}
-	// Convert standby IDs to application names for history
-	standbyNames := make([]string, len(standbyIDs))
-	for i, id := range standbyIDs {
-		standbyNames[i] = generateApplicationName(id)
-	}
 	if err := pm.insertHistoryRecord(ctx,
 		term.GetPrimaryTerm(),
 		"replication_config",
-		"", "", "", // leaderID, coordinatorID, walPosition
+		"", nil, "", // leaderID, coordinatorID, walPosition
 		"configure",
 		"ConfigureSynchronousReplication called",
 		standbyNames,
@@ -429,7 +428,7 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	}
 
 	// Build and set synchronous_standby_names
-	if err := pm.setSynchronousStandbyNames(ctx, synchronousMethod, numSync, standbyIDs); err != nil {
+	if err := pm.setSynchronousStandbyNames(ctx, synchronousMethod, numSync, standbyNames); err != nil {
 		return err
 	}
 
@@ -458,7 +457,24 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		return err
 	}
 
-	ctx, err := pm.actionLock.Acquire(ctx, "UpdateSynchronousStandbyList")
+	// Validate operation
+	if operation == multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
+	}
+
+	// Validate standby IDs using the shared validation function
+	requestedApplicationNames, err := validateStandbyIDs(standbyIDs)
+	if err != nil {
+		return err
+	}
+
+	// Pre-compute history fields before acquiring the lock.
+	leaderID, err := generateApplicationName(pm.serviceID)
+	if err != nil {
+		return err
+	}
+
+	ctx, err = pm.actionLock.Acquire(ctx, "UpdateSynchronousStandbyList")
 	if err != nil {
 		return err
 	}
@@ -469,16 +485,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	// We should check if the request is a valid term.
 	// If it's a newer term and probably we need to demote
 	// ourself. But details yet to be implemented
-
-	// Validate operation
-	if operation == multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_UNSPECIFIED {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
-	}
-
-	// Validate standby IDs using the shared validation function
-	if err = validateStandbyIDs(standbyIDs); err != nil {
-		return err
-	}
 
 	// Check PRIMARY guardrails (pooler type and non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
@@ -500,25 +506,31 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 			"synchronous replication is not configured - use ConfigureSynchronousReplication first")
 	}
 
+	// Convert current config IDs to application names for set operations.
+	// These IDs were previously validated and written by us, so this cannot fail in practice.
+	currentApplicationNames, err := standbyIDsToAppNames(syncConfig.StandbyIds)
+	if err != nil {
+		return err
+	}
+
 	// Build the current value string for comparison
-	currentValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, syncConfig.StandbyIds)
+	currentValue, err := buildSynchronousStandbyNamesValue(syncConfig.SynchronousMethod, syncConfig.NumSync, currentApplicationNames)
 	if err != nil {
 		return err
 	}
 
 	// === Apply Operation ===
 
-	// Apply the requested operation using the current standby list
-	var updatedStandbys []*clustermetadatapb.ID
+	var updatedStandbys []applicationName
 	switch operation {
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
-		updatedStandbys = applyAddOperation(syncConfig.StandbyIds, standbyIDs)
+		updatedStandbys = applyAddOperation(currentApplicationNames, requestedApplicationNames)
 
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REMOVE:
-		updatedStandbys = applyRemoveOperation(syncConfig.StandbyIds, standbyIDs)
+		updatedStandbys = applyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_REPLACE:
-		updatedStandbys = applyReplaceOperation(standbyIDs)
+		updatedStandbys = applyReplaceOperation(requestedApplicationNames)
 
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -546,19 +558,6 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	operationName := standbyUpdateOperationName(operation)
 
-	// Convert standby IDs to application names for history
-	standbyNames := make([]string, len(updatedStandbys))
-	for i, id := range updatedStandbys {
-		standbyNames[i] = generateApplicationName(id)
-	}
-
-	// Get leader ID and coordinator ID for history
-	leaderID := generateApplicationName(pm.serviceID)
-	var coordinatorIDStr string
-	if coordinatorID != nil {
-		coordinatorIDStr = generateApplicationName(coordinatorID)
-	}
-
 	// Insert history before applying GUCs
 	// Rationale: we want to ensure that a new cohort is advertised
 	// before this primary can accept ACKs from it.
@@ -568,12 +567,12 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 		consensusTerm,
 		"replication_config",
 		leaderID,
-		coordinatorIDStr,
+		coordinatorID,
 		"", // walPosition (not applicable for replication config changes)
 		operationName,
 		"UpdateSynchronousStandbyList: "+operationName,
-		standbyNames, // This is what we care in this update
-		nil,          // acceptedMembers
+		updatedStandbys, // This is what we care in this update
+		nil,             // acceptedMembers
 		force); err != nil {
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
@@ -736,6 +735,9 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 		return mterrors.Wrap(err, "failed to update pooler type in topology")
 	}
 
+	// Update health streamer with pooler type change
+	pm.healthStreamer.UpdatePoolerType(poolerType)
+
 	// Update heartbeat tracker based on new type
 	if pm.replTracker != nil {
 		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
@@ -827,15 +829,20 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	// Build the response with all configured standbys
 	followers := make([]*multipoolermanagerdatapb.FollowerInfo, 0, len(syncConfig.StandbyIds))
 	for _, standbyID := range syncConfig.StandbyIds {
-		appName := generateApplicationName(standbyID)
+		appName, err := generateApplicationName(standbyID)
+		if err != nil {
+			// We're in a suspicious state since this follower can't be represented in Postgres,
+			// but it seems better to return a blank ApplicationName than to fail this entire request.
+			pm.logger.WarnContext(ctx, "Could not generate application name for follower", "follower_id", standbyID, "error", err)
+		}
 
 		followerInfo := &multipoolermanagerdatapb.FollowerInfo{
 			FollowerId:      standbyID,
-			ApplicationName: appName,
+			ApplicationName: string(appName),
 		}
 
 		// Check if this standby is currently connected
-		if stats, connected := connectedMap[appName]; connected {
+		if stats, connected := connectedMap[string(appName)]; connected {
 			followerInfo.IsConnected = true
 			followerInfo.ReplicationStats = stats
 		} else {
@@ -989,6 +996,8 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	if err := pm.stopPostgresForEmergencyDemote(ctx, state); err != nil {
 		return nil, err
 	}
+
+	pm.healthStreamer.UpdatePrimaryObservation(nil)
 
 	pm.logger.InfoContext(ctx, "Demote completed successfully",
 		"final_lsn", finalLSN,
@@ -1144,6 +1153,12 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to clear primary term")
 	}
 
+	// Report the new primary (source) so the gateway can use this observation.
+	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+		PrimaryID:   source.Id,
+		PrimaryTerm: consensusTerm,
+	})
+
 	// Update consensus term to match the correct primary's term after successful demotion
 	if err := pm.updateTermIfNewer(ctx, consensusTerm); err != nil {
 		return nil, mterrors.Wrap(err, "failed to update consensus term")
@@ -1176,13 +1191,27 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 // transition a standby to primary and reconfigure replication.
 // This operation is fully idempotent - it checks what steps are already complete
 // and only executes the missing steps.
-func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool, reason string, coordinatorID string, cohortMembers []string, acceptedMembers []string) (*multipoolermanagerdatapb.PromoteResponse, error) {
+func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, expectedLSN string, syncReplicationConfig *multipoolermanagerdatapb.ConfigureSynchronousReplicationRequest, force bool, reason string, coordinatorID *clustermetadatapb.ID, cohortMemberIDs, acceptedMemberIDs []*clustermetadatapb.ID) (*multipoolermanagerdatapb.PromoteResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
 
+	// Pre-compute names before acquiring the lock, so we fail fast on bad arguments.
+	leaderID, err := generateApplicationName(pm.serviceID)
+	if err != nil {
+		return nil, err
+	}
+	cohortMembers, err := standbyIDsToAppNames(cohortMemberIDs)
+	if err != nil {
+		return nil, err
+	}
+	acceptedMembers, err := standbyIDsToAppNames(acceptedMemberIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "Promote")
+	ctx, err = pm.actionLock.Acquire(ctx, "Promote")
 	if err != nil {
 		return nil, err
 	}
@@ -1278,15 +1307,16 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, mterrors.Wrap(err, "failed to set primary term")
 	}
 
+	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+		PrimaryID:   pm.serviceID,
+		PrimaryTerm: consensusTerm,
+	})
+
 	// Write leadership history record - this validates that sync replication is working.
 	// If this fails (typically due to timeout waiting for standby acknowledgment), we fail
 	// the promotion. It's better to have no primary than one that can't satisfy durability.
-	leaderID := generateApplicationName(pm.serviceID)
 	if reason == "" {
 		reason = "unknown"
-	}
-	if coordinatorID == "" {
-		coordinatorID = "unknown"
 	}
 	if err := pm.insertHistoryRecord(ctx,
 		consensusTerm,
@@ -1601,7 +1631,10 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	}
 
 	// Generate application name for replication connection
-	appName := generateApplicationName(pm.serviceID)
+	appName, err := generateApplicationName(pm.serviceID)
+	if err != nil {
+		return false, err
+	}
 
 	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run (may do crash recovery)",
 		"source_host", sourceHost, "source_port", sourcePort)
@@ -1611,7 +1644,7 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		SourceHost:      sourceHost,
 		SourcePort:      sourcePort,
 		DryRun:          true,
-		ApplicationName: appName,
+		ApplicationName: string(appName),
 	}
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
 	if err != nil {
@@ -1629,7 +1662,7 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			SourceHost:      sourceHost,
 			SourcePort:      sourcePort,
 			DryRun:          false,
-			ApplicationName: appName,
+			ApplicationName: string(appName),
 			ExtraArgs:       []string{"-R"},
 		}
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)

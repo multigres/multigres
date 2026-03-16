@@ -62,6 +62,7 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		pgDatabase: viperutil.Configure(reg, "pg-database", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresDatabase,
 			FlagName: "pg-database",
+			EnvVars:  []string{constants.PgDatabaseEnvVar},
 			Dynamic:  false,
 		}),
 		pgUser: viperutil.Configure(reg, "pg-user", viperutil.Options[string]{
@@ -147,7 +148,7 @@ management for PostgreSQL servers.`,
 		},
 	}
 
-	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name")
+	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name (overrides "+constants.PgDatabaseEnvVar+" env var)")
 	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username (overrides "+constants.PgUserEnvVar+" env var)")
 	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
 	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")

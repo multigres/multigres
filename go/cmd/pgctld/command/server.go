@@ -161,6 +161,7 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	s.senv.OnRun(func() {
 		logger.Info("pgctld server starting up",
 			"grpc_port", s.grpcServer.Port(),
+			"http_port", s.senv.GetHTTPPort(),
 		)
 
 		// Start pgBackRest management
@@ -170,7 +171,6 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		if s.grpcServer.CheckServiceMap(constants.ServicePgctld, s.senv) {
 			pb.RegisterPgCtldServer(s.grpcServer.Server, pgctldService)
 		}
-		// TODO(sougou): Add http server
 	})
 
 	s.senv.OnClose(func() {
@@ -651,7 +651,7 @@ func (s *PgCtldService) InitDataDir(ctx context.Context, req *pb.InitDataDirRequ
 	s.logger.InfoContext(ctx, "gRPC InitDataDir request")
 
 	// Use the shared init function with detailed result
-	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, s.pgPassword)
+	result, err := InitDataDirWithResult(s.logger, s.poolerDir, s.pgPort, s.pgUser, s.pgPassword, s.pgDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
@@ -684,8 +684,8 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 
 	// Construct source server connection string (without password - will use PGPASSWORD env var)
 	// Include application_name if provided (used for replication identification)
-	sourceServer := fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres",
-		req.GetSourceHost(), req.GetSourcePort())
+	sourceServer := fmt.Sprintf("host=%s port=%d user=%s dbname=postgres",
+		req.GetSourceHost(), req.GetSourcePort(), s.pgUser)
 	if req.GetApplicationName() != "" {
 		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())
 	}

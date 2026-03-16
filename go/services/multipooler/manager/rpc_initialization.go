@@ -31,6 +31,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
@@ -44,8 +45,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		return nil, err
 	}
 
+	// Pre-compute the leader's application name before acquiring the lock.
+	leaderID, err := generateApplicationName(pm.serviceID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Acquire action lock
-	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "InitializeEmptyPrimary")
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
@@ -154,6 +160,11 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 		}
 	}
 
+	pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+		PrimaryID:   pm.serviceID,
+		PrimaryTerm: req.ConsensusTerm,
+	})
+
 	// Create durability policy if requested
 	if req.DurabilityPolicyName != "" && req.DurabilityQuorumRule != nil {
 		if err := pm.createDurabilityPolicyLocked(ctx, req.DurabilityPolicyName, req.DurabilityQuorumRule); err != nil {
@@ -170,17 +181,15 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 
 	// Write leadership history record for bootstrap
-	leaderID := generateApplicationName(pm.serviceID)
-	coordinatorID := req.CoordinatorId
 	reason := "ShardNeedsBootstrap"
-	cohortMembers := []string{leaderID} // Only the initial primary during bootstrap
-	acceptedMembers := []string{leaderID}
+	cohortMembers := []applicationName{leaderID} // Only the initial primary during bootstrap
+	acceptedMembers := []applicationName{leaderID}
 
 	if err := pm.insertHistoryRecord(ctx,
 		req.ConsensusTerm,
 		"promotion",
 		leaderID,
-		coordinatorID,
+		req.CoordinatorId,
 		finalLSN,
 		"bootstrap", // operation
 		reason,

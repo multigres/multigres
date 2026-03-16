@@ -79,7 +79,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 				PolicyName:    "primary-policy",
 				PolicyVersion: 100,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 2,
 					Description:   "Primary policy",
 				},
@@ -92,7 +92,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 				PolicyName:    "replica1-policy",
 				PolicyVersion: 50,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 					Description:   "Replica1 policy",
 				},
@@ -104,7 +104,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 				PolicyName:    "replica2-policy",
 				PolicyVersion: 60,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 					Description:   "Replica2 policy",
 				},
@@ -171,7 +171,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 				PolicyName:    "replica1-policy",
 				PolicyVersion: 50,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 2,
 					Description:   "Replica1 policy",
 				},
@@ -183,7 +183,7 @@ func TestLoadQuorumRule_PrimaryPreference(t *testing.T) {
 				PolicyName:    "replica2-policy",
 				PolicyVersion: 60,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 2,
 					Description:   "Replica2 policy",
 				},
@@ -250,7 +250,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 				PolicyName:    "replica1-policy",
 				PolicyVersion: 50,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 					Description:   "Replica1 policy v50",
 				},
@@ -262,7 +262,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 				PolicyName:    "replica2-policy",
 				PolicyVersion: 100,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 2,
 					Description:   "Replica2 policy v100",
 				},
@@ -274,7 +274,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 				PolicyName:    "replica3-policy",
 				PolicyVersion: 75,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 					Description:   "Replica3 policy v75",
 				},
@@ -327,7 +327,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 				PolicyName:    "old-policy",
 				PolicyVersion: 50,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 					Description:   "Old policy v50",
 				},
@@ -339,7 +339,7 @@ func TestLoadQuorumRule_ParallelReplicaLoading(t *testing.T) {
 				PolicyName:    "new-policy",
 				PolicyVersion: 200,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 3,
 					Description:   "New policy v200",
 				},
@@ -389,7 +389,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 					PolicyName:    fmt.Sprintf("policy-%d", i),
 					PolicyVersion: int64(i * 10),
 					QuorumRule: &clustermetadatapb.QuorumRule{
-						QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+						QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 						RequiredCount: int32(i),
 						Description:   fmt.Sprintf("Policy v%d", i*10),
 					},
@@ -456,7 +456,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 				PolicyName:    "policy-2",
 				PolicyVersion: 100,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 2,
 					Description:   "Policy v100",
 				},
@@ -468,7 +468,7 @@ func TestLoadQuorumRule_ResponseWaiting(t *testing.T) {
 				PolicyName:    "policy-3",
 				PolicyVersion: 90,
 				QuorumRule: &clustermetadatapb.QuorumRule{
-					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 2,
 					Description:   "Policy v90",
 				},
@@ -530,8 +530,8 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, rule)
 
-		// Default policy should be ANY_N with majority
-		require.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, rule.QuorumType)
+		// Default policy should be AT_LEAST_N with majority
+		require.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N, rule.QuorumType)
 		require.Equal(t, int32(2), rule.RequiredCount) // Majority of 2 is 2
 	})
 
@@ -564,8 +564,8 @@ func TestLoadQuorumRule_FallbackBehaviors(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, rule)
 
-		// Default policy should be ANY_N with majority
-		require.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, rule.QuorumType)
+		// Default policy should be AT_LEAST_N with majority
+		require.Equal(t, clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N, rule.QuorumType)
 		require.Equal(t, int32(1), rule.RequiredCount) // Majority of 1 is 1
 	})
 

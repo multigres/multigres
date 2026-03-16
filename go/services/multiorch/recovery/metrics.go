@@ -42,14 +42,13 @@ const (
 // This pattern is inspired by:
 // https://github.com/open-telemetry/opentelemetry-go/blob/v1.38.0/semconv/v1.37.0/dbconv/metric.go
 type Metrics struct {
-	meter                          metric.Meter
-	poolerStoreSize                PoolerStoreSize
-	clusterMetadataRefreshDuration ClusterMetadataRefreshDuration
-	poolerPollDuration             PoolerPollDuration
-	healthCheckCycleDuration       HealthCheckCycleDuration
-	recoveryActionDuration         RecoveryActionDuration
-	errorsTotal                    ErrorsTotal
-	detectedProblems               DetectedProblems
+	meter                    metric.Meter
+	poolerStoreSize          PoolerStoreSize
+	poolerPollDuration       PoolerPollDuration
+	healthCheckCycleDuration HealthCheckCycleDuration
+	recoveryActionDuration   RecoveryActionDuration
+	errorsTotal              ErrorsTotal
+	detectedProblems         DetectedProblems
 }
 
 // PoolerStoreSize wraps an Int64ObservableGauge for observing pooler store size.
@@ -97,25 +96,6 @@ func (m PoolerPollDuration) Record(
 				attribute.String("status", string(status)),
 			)...,
 		))
-}
-
-// ClusterMetadataRefreshDuration wraps a Float64Histogram for recording cluster metadata refresh durations.
-type ClusterMetadataRefreshDuration struct {
-	metric.Float64Histogram
-}
-
-// Record records a cluster metadata refresh duration.
-//
-// Parameters:
-//   - ctx: Context for the metric recording
-//   - val: How long the refresh took (in seconds)
-//   - attrs: Optional additional attributes to include in the metric
-func (m ClusterMetadataRefreshDuration) Record(ctx context.Context, val float64, attrs ...attribute.KeyValue) {
-	if len(attrs) == 0 {
-		m.Float64Histogram.Record(ctx, val)
-		return
-	}
-	m.Float64Histogram.Record(ctx, val, metric.WithAttributes(attrs...))
 }
 
 // HealthCheckCycleDuration wraps a Float64Histogram for recording health check cycle durations.
@@ -237,19 +217,6 @@ func NewMetrics() (*Metrics, error) {
 		m.poolerStoreSize = PoolerStoreSize{noop.Int64ObservableGauge{}}
 	} else {
 		m.poolerStoreSize = PoolerStoreSize{poolerStoreSizeGauge}
-	}
-
-	// Histogram for cluster metadata refresh duration
-	refreshDurationHistogram, err := m.meter.Float64Histogram(
-		"multiorch.recovery.cluster_metadata.refresh.duration",
-		metric.WithDescription("Duration of cluster metadata refresh operations"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("multiorch.recovery.cluster_metadata.refresh.duration histogram: %w", err))
-		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{noop.Float64Histogram{}}
-	} else {
-		m.clusterMetadataRefreshDuration = ClusterMetadataRefreshDuration{refreshDurationHistogram}
 	}
 
 	// Histogram for individual poll duration

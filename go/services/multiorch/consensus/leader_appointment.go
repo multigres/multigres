@@ -24,7 +24,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
-	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -388,18 +387,18 @@ func (c *Coordinator) EstablishLeadership(
 		}
 	}
 
-	// Build lists of cohort member names and accepted member names
-	cohortMembers := make([]string, 0, len(cohort))
+	// Build lists of cohort member IDs and accepted member IDs
+	cohortMembers := make([]*clustermetadatapb.ID, 0, len(cohort))
 	for _, pooler := range cohort {
 		if pooler.MultiPooler != nil && pooler.MultiPooler.Id != nil {
-			cohortMembers = append(cohortMembers, pooler.MultiPooler.Id.Name)
+			cohortMembers = append(cohortMembers, pooler.MultiPooler.Id)
 		}
 	}
 
-	acceptedMembers := make([]string, 0, len(recruited))
+	acceptedMembers := make([]*clustermetadatapb.ID, 0, len(recruited))
 	for _, pooler := range recruited {
 		if pooler.MultiPooler != nil && pooler.MultiPooler.Id != nil {
-			acceptedMembers = append(acceptedMembers, pooler.MultiPooler.Id.Name)
+			acceptedMembers = append(acceptedMembers, pooler.MultiPooler.Id)
 		}
 	}
 
@@ -450,9 +449,6 @@ func (c *Coordinator) EstablishLeadership(
 		c.logger.WarnContext(ctx, "Standby configuration failed", "error", err)
 	}
 
-	// Get coordinator ID as a string
-	coordinatorIDStr := topoclient.ClusterIDString(c.GetCoordinatorID())
-
 	// Build synchronous replication configuration based on quorum policy
 	syncConfig, err := BuildSyncReplicationConfig(c.logger, quorumRule, cohort, candidate)
 	if err != nil {
@@ -465,7 +461,7 @@ func (c *Coordinator) EstablishLeadership(
 		SyncReplicationConfig: syncConfig,
 		Force:                 false,
 		Reason:                reason,
-		CoordinatorId:         coordinatorIDStr,
+		CoordinatorId:         c.GetCoordinatorID(),
 		CohortMembers:         cohortMembers,
 		AcceptedMembers:       acceptedMembers,
 	}
