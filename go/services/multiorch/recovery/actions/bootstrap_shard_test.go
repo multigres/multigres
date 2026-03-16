@@ -81,7 +81,7 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, logger)
 	coord := newTestCoordinator(ts, nil, logger)
 
 	action := NewBootstrapShardAction(nil, nil, ps.Health(), ts, coord, logger)
@@ -144,7 +144,7 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, logger)
 
 	// Add a pooler to the store so we get past the "no poolers found" check
 	poolerID := &clustermetadatapb.ID{
@@ -232,7 +232,7 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, logger)
 
 	// Create mock RPC client with custom callback to track ConfigureSynchronousReplication calls
 	mockClient := &testRPCClient{
@@ -414,7 +414,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	defer ts.Close()
 
 	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with ANY_2 policy (requires 2 nodes)
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
@@ -490,7 +490,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with ANY_2 policy (requires 2 nodes)
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
@@ -587,7 +587,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with ANY_2 policy
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")
@@ -675,7 +675,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	defer ts.Close()
 
 	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, logger)
 
 	// Setup database with ANY_2 policy
 	setupTestDatabase(ctx, t, ts, "testdb", "ANY_2")

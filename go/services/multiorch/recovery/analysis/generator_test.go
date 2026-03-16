@@ -15,6 +15,7 @@
 package analysis
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ import (
 )
 
 func TestAnalysisGenerator_GenerateAnalyses_EmptyStore(t *testing.T) {
-	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, nil).Health())
+	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, slog.Default()).Health())
 
 	analyses := generator.GenerateAnalyses()
 
@@ -39,7 +40,7 @@ func TestAnalysisGenerator_GenerateAnalyses_EmptyStore(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	// Add a single primary pooler
 	primaryID := &clustermetadatapb.ID{
@@ -83,7 +84,7 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -187,7 +188,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -263,7 +264,7 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 }
 
 func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	// Add poolers from two different table groups
 	tg1Primary := &multiorchdatapb.PoolerHealthState{
@@ -321,7 +322,7 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 
 func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
 	// Create a store with primary and replica on same host but different ports
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	primaryID := "multipooler-cell1-node1"
 	replicaID := "multipooler-cell1-node2"
@@ -379,7 +380,7 @@ func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
 
 // Task 6: Test for skipping nil entries
 func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	// Add a nil entry
 	ps.Set("nil-pooler", nil)
@@ -410,7 +411,7 @@ func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
 
 // Task 7: Test for no primary in shard
 func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	replicaID := "multipooler-cell1-replica"
 	ps.Set(replicaID, &multiorchdatapb.PoolerHealthState{
@@ -442,7 +443,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 
 // Task 7: Test for primary with postgres down
 func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	primaryID := "multipooler-cell1-primary"
 	replicaID := "multipooler-cell1-replica"
@@ -494,7 +495,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 }
 
 func TestIsInStandbyList(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -617,7 +618,7 @@ func TestIsInStandbyList(t *testing.T) {
 
 func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresRunning correctly", func(t *testing.T) {
-		ps := store.NewPoolerStore(nil, nil)
+		ps := store.NewPoolerStore(nil, slog.Default())
 
 		primaryID := "multipooler-cell1-primary"
 		replicaID := "multipooler-cell1-replica"
@@ -666,7 +667,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 	})
 
 	t.Run("sets PrimaryPoolerReachable false when pooler unreachable", func(t *testing.T) {
-		ps := store.NewPoolerStore(nil, nil)
+		ps := store.NewPoolerStore(nil, slog.Default())
 
 		primaryID := "multipooler-cell1-primary"
 		replicaID := "multipooler-cell1-replica"
@@ -717,7 +718,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 
 func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	t.Run("returns true when all replicas connected", func(t *testing.T) {
-		ps := store.NewPoolerStore(nil, nil)
+		ps := store.NewPoolerStore(nil, slog.Default())
 
 		primaryID := "multipooler-cell1-primary"
 		replica1ID := "multipooler-cell1-replica1"
@@ -795,7 +796,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when one replica disconnected", func(t *testing.T) {
-		ps := store.NewPoolerStore(nil, nil)
+		ps := store.NewPoolerStore(nil, slog.Default())
 
 		primaryID := "multipooler-cell1-primary"
 		replica1ID := "multipooler-cell1-replica1"
@@ -869,7 +870,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when replica unreachable", func(t *testing.T) {
-		ps := store.NewPoolerStore(nil, nil)
+		ps := store.NewPoolerStore(nil, slog.Default())
 
 		primaryID := "multipooler-cell1-primary"
 		replica1ID := "multipooler-cell1-replica1"
@@ -916,7 +917,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when no replicas exist", func(t *testing.T) {
-		ps := store.NewPoolerStore(nil, nil)
+		ps := store.NewPoolerStore(nil, slog.Default())
 
 		primaryID := "multipooler-cell1-primary"
 
@@ -949,7 +950,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 	})
 
 	t.Run("returns false when replica pointing to wrong primary", func(t *testing.T) {
-		ps := store.NewPoolerStore(nil, nil)
+		ps := store.NewPoolerStore(nil, slog.Default())
 
 		primaryID := "multipooler-cell1-primary"
 		replicaID := "multipooler-cell1-replica"
@@ -1004,7 +1005,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 }
 
 func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	primaryID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1293,7 +1294,7 @@ func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store
 }
 
 func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []primaryConfigWithReachability) *store.PoolerHealthStore {
-	ps := store.NewPoolerStore(nil, nil)
+	ps := store.NewPoolerStore(nil, slog.Default())
 
 	for _, p := range primaries {
 		poolerID := "multipooler-cell1-" + p.id
