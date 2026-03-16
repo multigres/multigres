@@ -30,6 +30,7 @@ import (
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/prototest"
 )
 
 // createMockNode creates a mock node for testing using FakeClient
@@ -914,9 +915,14 @@ func TestPropagate(t *testing.T) {
 
 		// Verify election metadata fields
 		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
-		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match cell_name format")
-		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers, "CohortMembers should match")
-		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.AcceptedMembers, "AcceptedMembers should match")
+		prototest.RequireEqual(t, coordID, promoteReq.CoordinatorId, "CoordinatorId should match coordinator ID")
+		allCohortIDs := []*clustermetadatapb.ID{
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+		}
+		prototest.RequireElementsMatch(t, allCohortIDs, promoteReq.CohortMembers, "CohortMembers should match")
+		prototest.RequireElementsMatch(t, allCohortIDs, promoteReq.AcceptedMembers, "AcceptedMembers should match")
 		require.Equal(t, int64(6), promoteReq.ConsensusTerm, "ConsensusTerm should match")
 	})
 
@@ -967,9 +973,14 @@ func TestPropagate(t *testing.T) {
 
 		// Verify election metadata fields
 		require.Equal(t, "test_election", promoteReq.Reason, "Reason should match")
-		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId, "CoordinatorId should match cell_name format")
-		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
-		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
+		require.Equal(t, coordID, promoteReq.CoordinatorId, "CoordinatorId should match coordinator ID")
+		allCohortIDs := []*clustermetadatapb.ID{
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+		}
+		require.ElementsMatch(t, allCohortIDs, promoteReq.CohortMembers, "CohortMembers should include all cohort members")
+		require.ElementsMatch(t, allCohortIDs, promoteReq.AcceptedMembers, "AcceptedMembers should include all recruited members")
 	})
 }
 
@@ -1021,15 +1032,22 @@ func TestAppointLeader(t *testing.T) {
 
 		// CohortMembers must include ALL nodes in the original cohort,
 		// including mp3 which rejected the term
-		require.ElementsMatch(t, []string{"mp1", "mp2", "mp3"}, promoteReq.CohortMembers,
+		prototest.RequireElementsMatch(t, []*clustermetadatapb.ID{
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
+		}, promoteReq.CohortMembers,
 			"CohortMembers should include all nodes in the cohort, even those that rejected the term")
 
 		// AcceptedMembers should only include nodes that accepted the term
-		require.ElementsMatch(t, []string{"mp1", "mp2"}, promoteReq.AcceptedMembers,
+		prototest.RequireElementsMatch(t, []*clustermetadatapb.ID{
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"},
+			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"},
+		}, promoteReq.AcceptedMembers,
 			"AcceptedMembers should only include nodes that accepted the term")
 
 		require.Equal(t, "test_primary_lost", promoteReq.Reason)
-		require.Equal(t, "test-cell_test-coordinator", promoteReq.CoordinatorId)
+		prototest.RequireEqual(t, coordID, promoteReq.CoordinatorId)
 		require.Equal(t, int64(6), promoteReq.ConsensusTerm)
 
 		// Verify syncConfig includes the full cohort in the standby list,
