@@ -399,27 +399,42 @@ func (a *BootstrapShardAction) getDurabilityPolicyName(ctx context.Context, data
 
 	// Validate that the policy name is supported
 	switch db.DurabilityPolicy {
-	case "ANY_2", "MULTI_CELL_ANY_2":
+	case "AT_LEAST_2", "MULTI_CELL_AT_LEAST_2",
+		"ANY_2", "MULTI_CELL_ANY_2": // deprecated: use AT_LEAST_2 / MULTI_CELL_AT_LEAST_2
 		return db.DurabilityPolicy, nil
 	default:
 		return "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"unsupported durability policy: %s (must be ANY_2 or MULTI_CELL_ANY_2)", db.DurabilityPolicy)
+			"unsupported durability policy: %s (must be AT_LEAST_2 or MULTI_CELL_AT_LEAST_2)", db.DurabilityPolicy)
 	}
 }
 
 // parsePolicy converts a policy name into a QuorumRule
 func (a *BootstrapShardAction) parsePolicy(policyName string) (*clustermetadatapb.QuorumRule, error) {
 	switch policyName {
-	case "ANY_2":
+	case "AT_LEAST_2":
 		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 2,
+			Description:   "At least 2 nodes must acknowledge",
+		}, nil
+
+	case "MULTI_CELL_AT_LEAST_2":
+		return &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+			RequiredCount: 2,
+			Description:   "At least 2 nodes from different cells must acknowledge",
+		}, nil
+
+	case "ANY_2": // deprecated: use AT_LEAST_2
+		return &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, //nolint:staticcheck // deprecated
 			RequiredCount: 2,
 			Description:   "Any 2 nodes must acknowledge",
 		}, nil
 
-	case "MULTI_CELL_ANY_2":
+	case "MULTI_CELL_ANY_2": // deprecated: use MULTI_CELL_AT_LEAST_2
 		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N, //nolint:staticcheck // deprecated
 			RequiredCount: 2,
 			Description:   "Any 2 nodes from different cells must acknowledge",
 		}, nil

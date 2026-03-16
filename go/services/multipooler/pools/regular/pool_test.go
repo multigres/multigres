@@ -281,7 +281,7 @@ func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	defer server.Close()
 
 	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
-	server.AddQueryPattern(`RESET ALL`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -300,8 +300,8 @@ func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	err = pooled.Conn.ApplySettings(ctx, nil)
 	require.NoError(t, err)
 
-	// Verify RESET ALL was called.
-	assert.Greater(t, server.GetPatternCalledNum(`RESET ALL`), 0, "RESET ALL should have been called")
+	// Verify RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL was called.
+	assert.Greater(t, server.GetPatternCalledNum(`RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL`), 0, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL should have been called")
 
 	// Tracked state should be nil.
 	assert.Nil(t, pooled.Conn.Settings())
@@ -328,6 +328,43 @@ func TestConn_ApplySettings_NilDesiredNoopWhenClean(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Nil(t, pooled.Conn.Settings())
+
+	pooled.Recycle()
+}
+
+func TestConn_ApplySettings_QuotesRemovedVariableNames(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Accept SET and RESET with quoted custom GUC name.
+	// QuoteQualifiedIdentifier("custom.My-Setting") → custom."My-Setting"
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET custom\."My-Setting"; SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	initial := connstate.NewSettings(map[string]string{
+		"custom.My-Setting": "on",
+		"work_mem":          "256MB",
+	}, 0)
+
+	// Get connection with settings including a custom GUC that needs quoting.
+	pooled, err := pool.GetWithSettings(ctx, initial)
+	require.NoError(t, err)
+
+	// Apply desired state that removes the custom GUC.
+	desired := connstate.NewSettings(map[string]string{
+		"work_mem": "256MB",
+	}, 0)
+	err = pooled.Conn.ApplySettings(ctx, desired)
+	require.NoError(t, err)
+
+	// Verify the RESET used a properly quoted identifier.
+	assert.Greater(t, server.GetPatternCalledNum(`RESET custom\."My-Setting"; SELECT pg_catalog\.set_config\(.+\)`), 0,
+		"RESET should quote the custom GUC name")
 
 	pooled.Recycle()
 }

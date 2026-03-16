@@ -19,7 +19,9 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 
 	"github.com/spf13/cobra"
@@ -77,8 +79,10 @@ Examples:
 	return cmd
 }
 
-// InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information
-func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPassword string) (*InitResult, error) {
+// InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information.
+// When pgDatabase differs from the default "postgres" database, it starts PostgreSQL transiently
+// and creates the target database — mirroring docker-library/postgres's docker_setup_db behaviour.
+func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPassword string, pgDatabase string) (*InitResult, error) {
 	result := &InitResult{}
 	dataDir := pgctld.PostgresDataDir(poolerDir)
 
@@ -100,6 +104,14 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
 
+	// If the target database is not the default "postgres" (always created by initdb),
+	// start PostgreSQL transiently and create it — same as docker-library/postgres does.
+	if pgDatabase != constants.DefaultPostgresDatabase {
+		if err := setupDatabase(logger, poolerDir, pgPort, pgUser, pgDatabase); err != nil {
+			return nil, fmt.Errorf("failed to create database %q: %w", pgDatabase, err)
+		}
+	}
+
 	result.AlreadyInitialized = false
 	result.Message = "Data directory initialized successfully"
 	logger.Info("PostgreSQL data directory initialized successfully")
@@ -108,7 +120,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
-	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgCtlCmd.pgPassword.Get())
+	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgCtlCmd.pgPassword.Get(), i.pgCtlCmd.pgDatabase.Get())
 	if err != nil {
 		return err
 	}
@@ -120,6 +132,49 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Data directory initialized successfully: %s\n", pgctld.PostgresDataDir(poolerDir))
 	}
 
+	return nil
+}
+
+// setupDatabase starts a transient pgInstance and creates pgDatabase if it does
+// not already exist, then stops the instance.  This mirrors what the official
+// docker-library/postgres image does in its docker_setup_db() entrypoint function.
+func setupDatabase(logger *slog.Logger, poolerDir string, pgPort int, pgUser, pgDatabase string) error {
+	dataDir := pgctld.PostgresDataDir(poolerDir)
+	configFile := pgctld.PostgresConfigFile(poolerDir)
+
+	logger.Info("Starting PostgreSQL transiently to create database", "database", pgDatabase)
+	pg, err := newPgInstance(logger, dataDir, configFile, pgPort, pgUser)
+	if err != nil {
+		return err
+	}
+	defer pg.stop()
+
+	// Check whether the target database already exists.
+	// Use Go string formatting to build the SQL — the database name comes from
+	// operator config, not untrusted user input, so simple quoting is safe.
+	// Single quotes in the name are escaped as '' per the SQL standard.
+	checkOut, err := pg.psql(constants.DefaultPostgresDatabase,
+		"-Atc", fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = '%s'",
+			strings.ReplaceAll(pgDatabase, "'", "''")),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to query pg_database for %q: %w\nOutput: %s", pgDatabase, err, checkOut)
+	}
+	if strings.TrimSpace(string(checkOut)) == "1" {
+		logger.Info("Database already exists, skipping creation", "database", pgDatabase)
+		return nil
+	}
+
+	// CREATE DATABASE with a double-quoted identifier; double quotes in the name
+	// are escaped as "" per the SQL standard.
+	logger.Info("Creating database", "database", pgDatabase)
+	if out, err := pg.psql(constants.DefaultPostgresDatabase,
+		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(pgDatabase, `"`, `""`)),
+	); err != nil {
+		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", pgDatabase, err, out)
+	}
+
+	logger.Info("Database created successfully", "database", pgDatabase)
 	return nil
 }
 

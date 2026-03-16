@@ -609,7 +609,7 @@ func TestBeginTerm(t *testing.T) {
 
 		// Create default ANY_N quorum rule (majority: 2 of 3)
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test majority quorum",
 		}
@@ -671,7 +671,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
 		}
@@ -722,7 +722,7 @@ func TestBeginTerm(t *testing.T) {
 
 		// Create ANY_N quorum rule requiring 2 nodes
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum requiring 2 nodes",
 		}
@@ -764,7 +764,7 @@ func TestBeginTerm(t *testing.T) {
 		}
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 3,
 			Description:   "Test quorum",
 		}
@@ -807,7 +807,7 @@ func TestBeginTerm(t *testing.T) {
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp1ID)] = errors.New("term accepted but revoke action failed")
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
 		}
@@ -853,7 +853,7 @@ func TestBeginTerm(t *testing.T) {
 		fakeClient.Errors[topoclient.MultiPoolerIDString(mp2ID)] = errors.New("term accepted but revoke action failed")
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum requiring 2 nodes",
 		}
@@ -892,7 +892,7 @@ func TestPropagate(t *testing.T) {
 		}
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
 		}
@@ -944,7 +944,7 @@ func TestPropagate(t *testing.T) {
 		}
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 			Description:   "Test quorum",
 		}

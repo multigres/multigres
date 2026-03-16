@@ -19,7 +19,33 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
+
+// TestDatabaseEnvVar verifies that the --database flag reads from POSTGRES_DB
+// and that an explicit flag value overrides the env var.
+func TestDatabaseEnvVar(t *testing.T) {
+	t.Run("defaults to postgres when POSTGRES_DB not set", func(t *testing.T) {
+		_, mp := CreateMultiPoolerCommand()
+		assert.Equal(t, constants.DefaultPostgresDatabase, mp.Database())
+	})
+
+	t.Run("POSTGRES_DB env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgDatabaseEnvVar, "mydb")
+		_, mp := CreateMultiPoolerCommand()
+		assert.Equal(t, "mydb", mp.Database())
+	})
+
+	t.Run("flag overrides POSTGRES_DB env var", func(t *testing.T) {
+		t.Setenv(constants.PgDatabaseEnvVar, "envdb")
+		cmd, mp := CreateMultiPoolerCommand()
+		cmd.SetArgs([]string{"--database", "flagdb"})
+		// Parse flags without executing to avoid topo validation
+		require.NoError(t, cmd.ParseFlags([]string{"--database", "flagdb"}))
+		assert.Equal(t, "flagdb", mp.Database())
+	})
+}
 
 // TestInit_TopoMissingAddresses verifies that Init() returns an error when
 // topo-global-server-addresses is not configured.

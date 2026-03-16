@@ -279,7 +279,7 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		DataDir:     pgctldDataDir,
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword),
 	}
 
 	// Store pgBackRest cert paths struct and port for later use when starting multipooler

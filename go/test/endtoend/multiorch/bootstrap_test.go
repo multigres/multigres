@@ -52,7 +52,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithoutInitialization(),
-		shardsetup.WithDurabilityPolicy("ANY_2"),
+		shardsetup.WithDurabilityPolicy("AT_LEAST_2"),
 	)
 	defer cleanup()
 
@@ -174,9 +174,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		resp, err = primaryClient.Pooler.ExecuteQuery(ctx, `
 			SELECT policy_name, policy_version, quorum_rule::text, is_active
 			FROM multigres.durability_policy
-			WHERE policy_name = 'ANY_2'
+			WHERE policy_name = 'AT_LEAST_2'
 		`, 4)
-		require.NoError(t, err, "Should find ANY_2 policy")
+		require.NoError(t, err, "Should find AT_LEAST_2 policy")
 		require.Len(t, resp.Rows, 1)
 
 		policyName := string(resp.Rows[0].Values[0])
@@ -185,7 +185,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		isActive := string(resp.Rows[0].Values[3])
 
 		// Verify policy fields
-		assert.Equal(t, "ANY_2", policyName)
+		assert.Equal(t, "AT_LEAST_2", policyName)
 		assert.Equal(t, "1", policyVersion)
 		assert.Equal(t, "t", isActive)
 
@@ -197,7 +197,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify QuorumType (protojson uses camelCase field names)
 		quorumType, ok := quorumRule["quorumType"].(float64)
 		require.True(t, ok, "quorumType should be a number")
-		assert.Equal(t, float64(clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N), quorumType)
+		assert.Equal(t, float64(clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N), quorumType)
 
 		// Verify RequiredCount
 		requiredCount, ok := quorumRule["requiredCount"].(float64)
@@ -207,9 +207,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify Description
 		description, ok := quorumRule["description"].(string)
 		require.True(t, ok, "description should be a string")
-		assert.Equal(t, "Any 2 nodes must acknowledge", description)
+		assert.Equal(t, "At least 2 nodes must acknowledge", description)
 
-		t.Logf("Verified durability policy: policy_name=%s, quorum_type=ANY_N, required_count=%d",
+		t.Logf("Verified durability policy: policy_name=%s, quorum_type=AT_LEAST_N, required_count=%d",
 			policyName, int(requiredCount))
 	})
 
@@ -363,12 +363,12 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NoError(t, err, "should query synchronous_standby_names")
 
 		assert.NotEmpty(t, syncStandbyNames,
-			"synchronous_standby_names should be configured for ANY_2 policy")
+			"synchronous_standby_names should be configured for AT_LEAST_2 policy")
 		t.Logf("synchronous_standby_names = %s", syncStandbyNames)
 
-		// Verify it contains ANY keyword (for ANY_2 policy)
+		// Verify it contains ANY keyword (postgres sync replication method for AT_LEAST_2 policy)
 		assert.Contains(t, strings.ToUpper(syncStandbyNames), "ANY",
-			"should use ANY method for ANY_2 policy")
+			"should use ANY method for AT_LEAST_2 policy")
 
 		// Verify synchronous_commit is set to 'on'
 		syncCommit, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_commit")

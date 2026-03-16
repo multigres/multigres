@@ -1538,8 +1538,6 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 	cfg := config.NewTestConfig(
 		config.WithCell("zone1"),
 		config.WithBookkeepingInterval(1*time.Minute),
-		config.WithClusterMetadataRefreshInterval(15*time.Second),
-		config.WithClusterMetadataRefreshTimeout(30*time.Second),
 	)
 
 	// Create coordinator (required by NewRecoveryActionFactory)

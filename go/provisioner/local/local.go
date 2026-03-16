@@ -771,7 +771,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pooler-dir", poolerDir,
 		"--pg-port", strconv.Itoa(pgPort),
 		"--hostname", "localhost",
-		"--connpool-admin-password", "postgres", // Password created in initializePgctldDirectories
 		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
 	}
 
@@ -803,6 +802,14 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
+
+	// Pass POSTGRES_PASSWORD so multipooler can authenticate to the admin pool.
+	// Read from the password file written by initializePgctldDirectories; fall back to "postgres".
+	pgPassword := "postgres"
+	if content, err := os.ReadFile(filepath.Join(poolerDir, "pgpassword.txt")); err == nil {
+		pgPassword = strings.TrimSpace(string(content))
+	}
+	multipoolerCmd.Env = append(os.Environ(), "POSTGRES_PASSWORD="+pgPassword)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
@@ -948,9 +955,6 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Add optional interval configs if specified
-	if interval, ok := multiorchConfig["cluster_metadata_refresh_interval"].(string); ok && interval != "" {
-		args = append(args, "--cluster-metadata-refresh-interval", interval)
-	}
 	if interval, ok := multiorchConfig["pooler_health_check_interval"].(string); ok && interval != "" {
 		args = append(args, "--pooler-health-check-interval", interval)
 	}
@@ -1587,8 +1591,8 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
 			BackupLocation:   backupLocation,
-			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
-			Cells:            cellNames, // Register with all cells
+			DurabilityPolicy: "AT_LEAST_2", // Default durability policy for bootstrap
+			Cells:            cellNames,    // Register with all cells
 		}
 
 		if err := ts.CreateDatabase(ctx, databaseName, databaseConfig); err != nil {
