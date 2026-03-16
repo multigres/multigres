@@ -55,7 +55,7 @@ const DefaultStatusRPCTimeout = 5 * time.Second
 type BootstrapShardAction struct {
 	config           *config.Config
 	rpcClient        rpcclient.MultiPoolerClient
-	poolerStore      *store.PoolerHealthStore
+	poolerStore      *store.PoolerStore
 	topoStore        topoclient.Store
 	logger           *slog.Logger
 	statusRPCTimeout time.Duration
@@ -66,7 +66,7 @@ type BootstrapShardAction struct {
 func NewBootstrapShardAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
 	logger *slog.Logger,

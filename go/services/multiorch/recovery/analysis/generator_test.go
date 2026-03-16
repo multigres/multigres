@@ -32,7 +32,7 @@ import (
 )
 
 func TestAnalysisGenerator_GenerateAnalyses_EmptyStore(t *testing.T) {
-	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, slog.Default()).Health())
+	generator := NewAnalysisGenerator(store.NewPoolerStore(nil, slog.Default()))
 
 	analyses := generator.GenerateAnalyses()
 
@@ -68,7 +68,7 @@ func TestAnalysisGenerator_GenerateAnalyses_SinglePrimary(t *testing.T) {
 	}
 	ps.Set("multipooler-cell1-primary-1", primary)
 
-	generator := NewAnalysisGenerator(ps.Health())
+	generator := NewAnalysisGenerator(ps)
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 1, "should generate one analysis")
@@ -166,7 +166,7 @@ func TestAnalysisGenerator_GenerateAnalyses_PrimaryWithReplicas(t *testing.T) {
 	}
 	ps.Set("multipooler-cell1-replica-2", replica2)
 
-	generator := NewAnalysisGenerator(ps.Health())
+	generator := NewAnalysisGenerator(ps)
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 3, "should generate three analyses")
@@ -240,7 +240,7 @@ func TestAnalysisGenerator_GenerateAnalyses_Replica(t *testing.T) {
 	}
 	ps.Set("multipooler-cell1-replica-1", replica)
 
-	generator := NewAnalysisGenerator(ps.Health())
+	generator := NewAnalysisGenerator(ps)
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 2, "should generate two analyses")
@@ -305,7 +305,7 @@ func TestAnalysisGenerator_GenerateAnalyses_MultipleTableGroups(t *testing.T) {
 	}
 	ps.Set("multipooler-cell1-tg2-primary", tg2Primary)
 
-	generator := NewAnalysisGenerator(ps.Health())
+	generator := NewAnalysisGenerator(ps)
 	analyses := generator.GenerateAnalyses()
 
 	require.Len(t, analyses, 2, "should generate two analyses")
@@ -370,7 +370,7 @@ func TestAggregateReplicaStats_MatchesByHostAndPort(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(ps.Health())
+	gen := NewAnalysisGenerator(ps)
 	analysis, err := gen.GenerateAnalysisForPooler(primaryID)
 	require.NoError(t, err)
 
@@ -401,7 +401,7 @@ func TestGenerateAnalyses_SkipsNilEntries(t *testing.T) {
 		IsLastCheckValid: true,
 	})
 
-	gen := NewAnalysisGenerator(ps.Health())
+	gen := NewAnalysisGenerator(ps)
 	analyses := gen.GenerateAnalyses()
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
@@ -432,7 +432,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(ps.Health())
+	gen := NewAnalysisGenerator(ps)
 	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 	require.NoError(t, err)
 
@@ -484,7 +484,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 		},
 	})
 
-	gen := NewAnalysisGenerator(ps.Health())
+	gen := NewAnalysisGenerator(ps)
 	analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 	require.NoError(t, err)
 
@@ -606,9 +606,9 @@ func TestIsInStandbyList(t *testing.T) {
 				PrimaryStatus:     tt.primaryStatus,
 			})
 
-			generator := NewAnalysisGenerator(ps.Health())
+			generator := NewAnalysisGenerator(ps)
 
-			primary, _ := ps.Health().Get("multipooler-cell1-primary-1")
+			primary, _ := ps.Get("multipooler-cell1-primary-1")
 			result := generator.isInStandbyList(tt.replicaID, primary)
 
 			assert.Equal(t, tt.expected, result)
@@ -657,7 +657,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsLastCheckValid: true,
 		})
 
-		gen := NewAnalysisGenerator(ps.Health())
+		gen := NewAnalysisGenerator(ps)
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -706,7 +706,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 			IsLastCheckValid: true,
 		})
 
-		gen := NewAnalysisGenerator(ps.Health())
+		gen := NewAnalysisGenerator(ps)
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -788,7 +788,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(ps.Health())
+		gen := NewAnalysisGenerator(ps)
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -862,7 +862,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(ps.Health())
+		gen := NewAnalysisGenerator(ps)
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -909,7 +909,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			IsLastCheckValid: false, // Replica unreachable
 		})
 
-		gen := NewAnalysisGenerator(ps.Health())
+		gen := NewAnalysisGenerator(ps)
 		analysis, err := gen.GenerateAnalysisForPooler(replica1ID)
 		require.NoError(t, err)
 
@@ -940,7 +940,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			IsPostgresRunning: true,
 		})
 
-		gen := NewAnalysisGenerator(ps.Health())
+		gen := NewAnalysisGenerator(ps)
 		analysis, err := gen.GenerateAnalysisForPooler(primaryID)
 		require.NoError(t, err)
 
@@ -996,7 +996,7 @@ func TestAllReplicasConnectedToPrimary(t *testing.T) {
 			},
 		})
 
-		gen := NewAnalysisGenerator(ps.Health())
+		gen := NewAnalysisGenerator(ps)
 		analysis, err := gen.GenerateAnalysisForPooler(replicaID)
 		require.NoError(t, err)
 
@@ -1086,7 +1086,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 		},
 	})
 
-	generator := NewAnalysisGenerator(ps.Health())
+	generator := NewAnalysisGenerator(ps)
 
 	t.Run("replica in standby list", func(t *testing.T) {
 		analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-replica-1")
@@ -1282,7 +1282,7 @@ type primaryConfigWithReachability struct {
 	reachable bool
 }
 
-func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store.PoolerHealthStore {
+func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store.PoolerStore {
 	configs := make([]primaryConfigWithReachability, len(primaries))
 	for i, p := range primaries {
 		configs[i] = primaryConfigWithReachability{
@@ -1293,7 +1293,7 @@ func setupMultiplePrimariesStore(t *testing.T, primaries []primaryConfig) *store
 	return setupMultiplePrimariesStoreWithReachability(t, configs)
 }
 
-func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []primaryConfigWithReachability) *store.PoolerHealthStore {
+func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []primaryConfigWithReachability) *store.PoolerStore {
 	ps := store.NewPoolerStore(nil, slog.Default())
 
 	for _, p := range primaries {
@@ -1325,5 +1325,5 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 		ps.Set(poolerID, poolerState)
 	}
 
-	return ps.Health()
+	return ps
 }

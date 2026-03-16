@@ -28,11 +28,9 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// PoolerStore extends PoolerHealthStore with RPC-based domain queries.
-// It is used where both health state and live RPC calls are needed.
-// For components that only need health state, prefer passing .Health() directly.
+// PoolerStore manages pooler health state and provides RPC-based domain queries.
 type PoolerStore struct {
-	health    *PoolerHealthStore
+	health    *poolerHealthStore
 	rpcClient rpcclient.MultiPoolerClient
 	logger    *slog.Logger
 }
@@ -42,22 +40,16 @@ type PoolerStore struct {
 // that do not exercise that method.
 func NewPoolerStore(rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *PoolerStore {
 	return &PoolerStore{
-		health:    NewPoolerHealthStore(),
+		health:    newPoolerHealthStore(),
 		rpcClient: rpcClient,
 		logger:    logger,
 	}
 }
 
-// Health returns the underlying PoolerHealthStore for passing to components
-// that only need health state (generators, most recovery actions).
-func (s *PoolerStore) Health() *PoolerHealthStore {
-	return s.health
-}
-
 // Get retrieves a pooler's health state by its ID string.
 // Returns a deep clone safe to mutate, and false if the key does not exist.
 func (s *PoolerStore) Get(poolerID string) (*multiorchdatapb.PoolerHealthState, bool) {
-	return s.health.Get(poolerID)
+	return s.health.get(poolerID)
 }
 
 // Set stores a deep clone of the pooler health state.
@@ -72,20 +64,20 @@ func (s *PoolerStore) Delete(poolerID string) bool {
 
 // Len returns the number of poolers in the store.
 func (s *PoolerStore) Len() int {
-	return s.health.Len()
+	return s.health.len()
 }
 
 // Range iterates over all poolers. Each value passed to the callback is a deep
 // clone safe to mutate. Iteration stops early if the callback returns false.
 func (s *PoolerStore) Range(fn func(key string, value *multiorchdatapb.PoolerHealthState) bool) {
-	s.health.Range(fn)
+	s.health.rangeAll(fn)
 }
 
 // FindPoolersInShard returns all poolers belonging to the given shard.
 func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
 
-	s.health.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeAll(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}
@@ -106,7 +98,7 @@ func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multi
 func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb.PoolerHealthState, error) {
 	var found *multiorchdatapb.PoolerHealthState
 
-	s.health.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeAll(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}

@@ -18,46 +18,43 @@ import (
 	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// PoolerHealthStore is a thread-safe store for pooler health state.
+// poolerHealthStore is a thread-safe store for pooler health state.
 // It provides clone-on-read/write semantics so callers always work with
 // isolated copies, preventing concurrent mutation of shared state.
-type PoolerHealthStore struct {
+type poolerHealthStore struct {
 	proto *ProtoStore[string, *multiorchdata.PoolerHealthState]
 }
 
-// NewPoolerHealthStore creates a new store for pooler health state.
-func NewPoolerHealthStore() *PoolerHealthStore {
-	return &PoolerHealthStore{
+// newPoolerHealthStore creates a new store for pooler health state.
+func newPoolerHealthStore() *poolerHealthStore {
+	return &poolerHealthStore{
 		proto: NewProtoStore[string, *multiorchdata.PoolerHealthState](),
 	}
 }
 
-// Get retrieves a pooler's health state by its ID string.
-// Returns a deep clone safe to mutate, and false if the key does not exist.
-func (s *PoolerHealthStore) Get(poolerID string) (*multiorchdata.PoolerHealthState, bool) {
+// get retrieves a pooler's health state by its ID string.
+func (s *poolerHealthStore) get(poolerID string) (*multiorchdata.PoolerHealthState, bool) {
 	return s.proto.Get(poolerID)
 }
 
 // set stores a deep clone of the pooler health state.
-// Unexported: mutations must go through PoolerStore to keep health and op-state in sync.
-func (s *PoolerHealthStore) set(poolerID string, state *multiorchdata.PoolerHealthState) {
+func (s *poolerHealthStore) set(poolerID string, state *multiorchdata.PoolerHealthState) {
 	s.proto.Set(poolerID, state)
 }
 
 // delete removes a pooler from the store. Returns true if the pooler existed.
-// Unexported: mutations must go through PoolerStore to keep health and op-state in sync.
-func (s *PoolerHealthStore) delete(poolerID string) bool {
+func (s *poolerHealthStore) delete(poolerID string) bool {
 	return s.proto.Delete(poolerID)
 }
 
-// Len returns the number of poolers in the store.
-func (s *PoolerHealthStore) Len() int {
+// len returns the number of poolers in the store.
+func (s *poolerHealthStore) len() int {
 	return s.proto.Len()
 }
 
-// Range iterates over all poolers. Each value passed to the callback is a deep
+// range iterates over all poolers. Each value passed to the callback is a deep
 // clone safe to mutate. Iteration stops early if the callback returns false.
-func (s *PoolerHealthStore) Range(fn func(key string, value *multiorchdata.PoolerHealthState) bool) {
+func (s *poolerHealthStore) rangeAll(fn func(key string, value *multiorchdata.PoolerHealthState) bool) {
 	s.proto.Range(fn)
 }
 
