@@ -90,13 +90,28 @@ func Acquire(
 	operation string,
 	logger *slog.Logger,
 ) (context.Context, *Lease, error) {
+	attrs := trace.WithAttributes(
+		attribute.String("shard", shardKey.String()),
+		attribute.String("holder", holderID),
+		attribute.String("operation", operation),
+	)
+
+	// Start a span covering the full lease lifetime (acquire → release/revocation).
+	ctx, span := telemetry.Tracer().Start(ctx, "backup-lease", attrs)
+
 	logger.InfoContext(ctx, "Acquiring backup lease",
 		"shard", shardKey.String(),
 		"holder", holderID,
 		"operation", operation)
 
-	lockCtx, unlock, err := store.TryLockBackup(ctx, shardKey, operation+" by "+holderID)
-	if err != nil {
+	var lockCtx context.Context
+	var unlock func(*error)
+	if err := telemetry.WithSpan(ctx, "backup-lease/acquire", func(ctx context.Context) error {
+		var err error
+		lockCtx, unlock, err = store.TryLockBackup(ctx, shardKey, operation+" by "+holderID)
+		return err
+	}); err != nil {
+		span.End()
 		logger.InfoContext(ctx, "Failed to acquire backup lease",
 			"shard", shardKey.String(),
 			"holder", holderID,
@@ -108,14 +123,6 @@ func Acquire(
 		"shard", shardKey.String(),
 		"holder", holderID,
 		"operation", operation)
-
-	// Start a span covering the full lease lifetime (acquire → release/revocation).
-	lockCtx, span := telemetry.Tracer().Start(lockCtx, "backup-lease/held",
-		trace.WithAttributes(
-			attribute.String("shard", shardKey.String()),
-			attribute.String("holder", holderID),
-			attribute.String("operation", operation),
-		))
 
 	monitorCtx, cancel := context.WithCancel(lockCtx)
 	lease := &Lease{
