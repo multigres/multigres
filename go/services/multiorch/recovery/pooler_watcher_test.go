@@ -323,7 +323,9 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 }
 
 // TestPoolerWatcher_PoolerDeletedFromTopology verifies that deleting a pooler from topology
-// immediately removes it from the store.
+// does NOT immediately remove it from the store. Removal is deferred to bookkeeping so
+// that health-check state is preserved across transient topology blips (e.g. rolling
+// restarts). The store entry will be cleaned up by forgetLongUnseenInstances.
 func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	ctx := t.Context()
 
@@ -358,7 +360,8 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1",
 	}))
 
-	// The pooler should be removed from the store immediately on the deletion event.
+	// The pooler should remain in the store after the deletion event is processed;
+	// bookkeeping (forgetLongUnseenInstances) is responsible for eventual removal.
 	require.NoError(t, watcher.Sync(ctx))
-	assert.Equal(t, 0, poolerStore.Len(), "deleted pooler should be removed from store")
+	assert.Equal(t, 1, poolerStore.Len(), "deleted pooler should remain in store until bookkeeping removes it")
 }

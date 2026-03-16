@@ -364,20 +364,10 @@ func (cw *cellPoolerWatcher) sync(ctx context.Context) error {
 // handlePoolerEvent processes a single watch event for a pooler file.
 func (cw *cellPoolerWatcher) handlePoolerEvent(wd *topoclient.WatchDataRecursive) {
 	if wd.Err != nil {
-		// A deletion arrives as a NoNode error on the specific path.
-		if errors.Is(wd.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
-			if strings.HasSuffix(wd.Path, "/"+topoclient.PoolerFile) {
-				poolerID := cw.extractPoolerID(wd.Path)
-				if poolerID == "" {
-					return
-				}
-				if cw.store.Delete(poolerID) {
-					cw.logger.Info("pooler removed from topology, deleted from store", "pooler_id", poolerID)
-				} else {
-					cw.logger.Debug("pooler removed from topology, not in store (filtered or unknown)", "pooler_id", poolerID)
-				}
-			}
-		} else {
+		// Deletions (NoNode) are intentionally ignored here: the pooler store
+		// entry is left in place so that ongoing health checks can continue until
+		// bookkeeping removes it after the configured unseen threshold.
+		if !errors.Is(wd.Err, &topoclient.TopoError{Code: topoclient.NoNode}) {
 			cw.logger.Warn("watch error on pooler path", "error", wd.Err, "path", wd.Path)
 		}
 		return
@@ -438,19 +428,4 @@ func (cw *cellPoolerWatcher) matchesAnyTarget(pooler *clustermetadatapb.MultiPoo
 		}
 	}
 	return false
-}
-
-// extractPoolerID extracts the pooler ID string from a watch path.
-// The path format is: "...poolers/{pooler_name}/Pooler"
-func (cw *cellPoolerWatcher) extractPoolerID(watchPath string) string {
-	_, after, found := strings.Cut(watchPath, topoclient.PoolersPath+"/")
-	if !found {
-		return ""
-	}
-	// Drop the trailing "/Pooler"
-	name := strings.TrimSuffix(after, "/"+topoclient.PoolerFile)
-	if name == after {
-		return "" // suffix was not present
-	}
-	return name
 }
