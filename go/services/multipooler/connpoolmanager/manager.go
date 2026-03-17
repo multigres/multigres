@@ -109,13 +109,15 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.closed.Store(false)
 
 	// Build admin client config
-	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
+	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
 
 	// Build admin pool config
+	connectTimeout := 2 * m.config.DialTimeout()
 	adminPoolConfig := &connpool.Config{
-		Name:     "admin",
-		Capacity: m.config.AdminCapacity(),
-		Logger:   m.logger,
+		Name:           "admin",
+		Capacity:       m.config.AdminCapacity(),
+		ConnectTimeout: connectTimeout,
+		Logger:         m.logger,
 	}
 
 	// Create shared admin pool (used by all user pools for kill operations)
@@ -144,7 +146,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.startRebalancer()
 
 	m.logger.InfoContext(ctx, "connection pool manager opened",
-		"admin_user", m.config.AdminUser(),
+		"pg_user", m.config.PgUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
 		"initial_user_capacity", initialUserPoolCapacity,
 		"settings_cache_size", m.config.SettingsCacheSize(),
@@ -159,12 +161,13 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // buildClientConfig creates a client.Config with the specified user and password.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
-		SocketFile: m.connConfig.SocketFile,
-		Host:       m.connConfig.Host,
-		Port:       m.connConfig.Port,
-		Database:   m.connConfig.Database,
-		User:       user,
-		Password:   password,
+		SocketFile:  m.connConfig.SocketFile,
+		Host:        m.connConfig.Host,
+		Port:        m.connConfig.Port,
+		Database:    m.connConfig.Database,
+		User:        user,
+		Password:    password,
+		DialTimeout: m.config.DialTimeout(),
 	}
 }
 
@@ -228,6 +231,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
 	// Create new user pool with initial capacity. The rebalancer will adjust
 	// the capacity based on demand within a few seconds.
+	userConnectTimeout := 2 * m.config.DialTimeout()
 	pool, err := NewUserPool(ctx, &UserPoolConfig{
 		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
 		AdminPool:    m.adminPool,
@@ -236,6 +240,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 			Capacity:        initialRegularCap,
 			IdleTimeout:     m.config.UserRegularIdleTimeout(),
 			MaxLifetime:     m.config.UserRegularMaxLifetime(),
+			ConnectTimeout:  userConnectTimeout,
 			ConnectionCount: m.metrics.RegularConnCount(),
 			Logger:          m.logger,
 		},
@@ -244,6 +249,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 			Capacity:        initialReservedCap,
 			IdleTimeout:     m.config.UserReservedIdleTimeout(),
 			MaxLifetime:     m.config.UserReservedMaxLifetime(),
+			ConnectTimeout:  userConnectTimeout,
 			ConnectionCount: m.metrics.ReservedConnCount(),
 			Logger:          m.logger,
 		},
@@ -304,9 +310,9 @@ func (m *Manager) Close() {
 	m.logger.Info("connection pool manager closed")
 }
 
-// InternalUser returns the configured internal user for system queries.
-func (m *Manager) InternalUser() string {
-	return m.config.InternalUser()
+// PgUser returns the configured PostgreSQL user for system queries.
+func (m *Manager) PgUser() string {
+	return m.config.PgUser()
 }
 
 // --- Admin Pool Operations ---
@@ -315,7 +321,20 @@ func (m *Manager) InternalUser() string {
 // Admin connections are used for control plane operations like killing queries.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
-	return m.adminPool.Get(ctx)
+	// Read adminPool under createMu to avoid a nil-pointer panic if Close() is
+	// racing with this call. Close() sets m.adminPool = nil while holding
+	// createMu, so a snapshot taken here is either the valid pool or nil.
+	//
+	// We do not use the defer pattern used in other methods because that would
+	// mean that we hold the mutex while calling Get() below. If the Get() call
+	// block waiting for I/O, no other action will be able to get a connection.
+	m.createMu.Lock()
+	adminPool := m.adminPool
+	m.createMu.Unlock()
+	if adminPool == nil {
+		return nil, errors.New("admin pool is closed")
+	}
+	return adminPool.Get(ctx)
 }
 
 // --- Regular Pool Operations ---

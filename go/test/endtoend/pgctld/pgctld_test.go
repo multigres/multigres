@@ -661,6 +661,100 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 	})
 }
 
+// TestCustomDatabaseCreation verifies that pgctld init creates a non-default database
+// when POSTGRES_DB (or --pg-database) names a database other than "postgres".
+// This mirrors the behaviour of the docker-library/postgres entrypoint's docker_setup_db().
+func TestCustomDatabaseCreation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping custom database creation tests in short mode")
+	}
+
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, skipping custom database creation test")
+	}
+
+	// runDatabaseCreationTest is shared by both sub-tests below.
+	// It initialises pgctld with the given extra env vars / CLI args, starts PostgreSQL,
+	// then verifies that targetDB exists and is connectable.
+	runDatabaseCreationTest := func(t *testing.T, targetDB string, extraEnv []string, extraInitArgs []string) {
+		t.Helper()
+
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_customdb_test")
+		defer cleanup()
+
+		port := utils.GetFreePort(t)
+		socketDir := filepath.Join(baseDir, "pg_sockets")
+
+		baseEnv := append(os.Environ(), "PGCONNECT_TIMEOUT=5")
+		if runtime.GOOS == "darwin" {
+			baseEnv = append(baseEnv, "LC_ALL=en_US.UTF-8")
+		}
+
+		// -- init --
+		initArgs := []string{"init", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port)}
+		initArgs = append(initArgs, extraInitArgs...)
+		initCmd := exec.Command("pgctld", initArgs...)
+		initCmd.Env = append(baseEnv, extraEnv...)
+		out, err := initCmd.CombinedOutput()
+		require.NoError(t, err, "pgctld init should succeed, output: %s", string(out))
+
+		// -- start --
+		startCmd := exec.Command("pgctld", "start", "--pooler-dir", baseDir, "--pg-port", strconv.Itoa(port))
+		startCmd.Env = append(baseEnv, extraEnv...)
+		out, err = startCmd.CombinedOutput()
+		require.NoError(t, err, "pgctld start should succeed, output: %s", string(out))
+
+		defer func() {
+			stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
+			stopCmd.Env = baseEnv
+			_ = stopCmd.Run()
+		}()
+
+		// -- verify: targetDB exists in pg_database --
+		dbCheckCmd := exec.Command("psql",
+			"-h", socketDir,
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-Atc", fmt.Sprintf("SELECT datname FROM pg_database WHERE datname = '%s'",
+				strings.ReplaceAll(targetDB, "'", "''")),
+		)
+		out, err = dbCheckCmd.CombinedOutput()
+		require.NoError(t, err, "pg_database query should succeed, output: %s", string(out))
+		assert.Contains(t, strings.TrimSpace(string(out)), targetDB,
+			"database %q should appear in pg_database after init", targetDB)
+
+		// -- verify: we can connect directly to targetDB --
+		connCheckCmd := exec.Command("psql",
+			"-h", socketDir,
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", targetDB,
+			"-Atc", "SELECT current_database();",
+		)
+		out, err = connCheckCmd.CombinedOutput()
+		require.NoError(t, err, "connecting to %q should succeed, output: %s", targetDB, string(out))
+		assert.Contains(t, strings.TrimSpace(string(out)), targetDB,
+			"current_database() should return %q when connected to it", targetDB)
+	}
+
+	t.Run("via_cli_flag", func(t *testing.T) {
+		// --pg-database flag explicitly names the custom database.
+		runDatabaseCreationTest(t, "mydb", nil, []string{"--pg-database", "mydb"})
+	})
+
+	t.Run("via_postgres_db_env_var", func(t *testing.T) {
+		// POSTGRES_DB env var — the standard Docker postgres convention.
+		runDatabaseCreationTest(t, "mydb", []string{"POSTGRES_DB=mydb"}, nil)
+	})
+
+	t.Run("default_database_unchanged", func(t *testing.T) {
+		// When the target database is the default "postgres", no transient start
+		// should occur and the standard postgres database must still be accessible.
+		runDatabaseCreationTest(t, "postgres", nil, nil)
+	})
+}
+
 // TestPostgreSQLLifecycleIntegration tests the complete PostgreSQL lifecycle using CLI
 func TestPostgreSQLLifecycleIntegration(t *testing.T) {
 	if testing.Short() {

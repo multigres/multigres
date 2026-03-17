@@ -47,7 +47,6 @@ tools: ## Install protobuf and build tools.
 	ln -sf "$(MTROOT)/misc/git/pre-commit" "$$(git rev-parse --git-dir)/hooks/pre-commit"
 	ln -sf "$(MTROOT)/misc/git/commit-msg" "$$(git rev-parse --git-dir)/hooks/commit-msg"
 	./tools/setup_build_tools.sh
-	go install golang.org/x/tools/cmd/goyacc@latest
 
 # Proto source files
 PROTO_SRCS = $(shell find proto -name '*.proto')

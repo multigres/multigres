@@ -422,13 +422,13 @@ message PromoteRequest {
   string reason = 5;
 
   // Coordinator ID that ran this election
-  string coordinator_id = 6;
+  clustermetadata.ID coordinator_id = 6;
 
-  // List of pooler names that were in the cohort
-  repeated string cohort_members = 7;
+  // List of poolers that were in the cohort
+  repeated clustermetadata.ID cohort_members = 7;
 
-  // List of pooler names that accepted the term during BeginTerm
-  repeated string accepted_members = 8;
+  // List of poolers that accepted the term during BeginTerm
+  repeated clustermetadata.ID accepted_members = 8;
 }
 
 message PromoteResponse {
@@ -602,7 +602,7 @@ message InitializeEmptyPrimaryRequest {
   clustermetadata.QuorumRule durability_quorum_rule = 3;
 
   // ID of the multiorch coordinator performing the bootstrap
-  string coordinator_id = 4;
+  clustermetadata.ID coordinator_id = 4;
 }
 
 message InitializeEmptyPrimaryResponse {

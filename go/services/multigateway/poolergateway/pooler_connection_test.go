@@ -1,4 +1,4 @@
-// Copyright 2026 Supabase, Inc.
+// Copyright 2025 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -80,7 +80,7 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	logger := slog.Default()
 
 	// Create a real PoolerConnection - this is what we're testing
-	conn, err := NewPoolerConnection(pooler, logger)
+	conn, err := NewPoolerConnection(context.Background(), pooler, logger, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -96,25 +96,28 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	spans := setup.SpanExporter.GetSpans()
 	require.NotEmpty(t, spans, "expected at least one span from gRPC call")
 
-	// Find the client span with our pooler.id attribute
-	var foundPoolerAttr bool
+	// Find a client span with our pooler.id attribute.
+	// Other tests in this package may also produce spans with different pooler IDs,
+	// so we only check that at least one span has our expected value.
+	var foundMatchingAttr bool
 	expectedPoolerID := topoclient.MultiPoolerIDString(pooler.Id)
 
 	for _, span := range spans {
-		// Look for our pooler.id attribute
 		for _, attr := range span.Attributes {
-			if attr.Key == "multigres.pooler.id" {
-				foundPoolerAttr = true
-				assert.Equal(t, expectedPoolerID, attr.Value.AsString(),
-					"pooler.id attribute should match the pooler ID")
+			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == expectedPoolerID {
+				foundMatchingAttr = true
 				break
 			}
 		}
+		if foundMatchingAttr {
+			break
+		}
 	}
 
-	assert.True(t, foundPoolerAttr,
-		"gRPC client span should have multigres.pooler.id attribute - "+
-			"if this fails, telemetry attributes are not properly configured in NewPoolerConnection")
+	assert.True(t, foundMatchingAttr,
+		"gRPC client span should have multigres.pooler.id attribute with value %q - "+
+			"if this fails, telemetry attributes are not properly configured in NewPoolerConnection",
+		expectedPoolerID)
 }
 
 // TestNewPoolerConnection verifies basic PoolerConnection creation.
@@ -125,7 +128,7 @@ func TestNewPoolerConnection(t *testing.T) {
 	// Create a new pooler connection
 	// The connection will fail to actually connect (no server), but gRPC uses
 	// non-blocking dial so NewPoolerConnection succeeds.
-	conn, err := NewPoolerConnection(pooler, logger)
+	conn, err := NewPoolerConnection(context.Background(), pooler, logger, nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 	defer conn.Close()
@@ -154,7 +157,7 @@ func TestPoolerConnection_ID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pooler := createTestMultiPooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-			conn, err := NewPoolerConnection(pooler, logger)
+			conn, err := NewPoolerConnection(context.Background(), pooler, logger, nil)
 			require.NoError(t, err)
 			defer conn.Close()
 

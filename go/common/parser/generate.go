@@ -29,7 +29,7 @@ package parser
 // Ported from vitess/go/vt/sqlparser/generate.go:21
 // This will process postgres.y grammar file and generate postgres.go parser
 
-//go:generate goyacc -o postgres.go postgres.y
+//go:generate go run ./goyacc -o postgres.go postgres.y
 //go:generate go tool goimports -w postgres.go
 //go:generate go tool gofumpt -w postgres.go
 

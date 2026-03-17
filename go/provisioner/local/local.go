@@ -71,57 +71,23 @@ func (p *localProvisioner) Name() string {
 	return "local"
 }
 
-// createPoolerDirectoryWithPassword creates the pooler directory structure and password file
-// at the conventional location (poolerDir/pgpassword.txt).
-// If sourcePasswordFile is provided and exists, its content is copied; otherwise "postgres" is used.
-func createPoolerDirectoryWithPassword(poolerDir, sourcePasswordFile string) error {
-	// Create the pooler directory structure
-	if err := os.MkdirAll(poolerDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create pooler directory %s: %w", poolerDir, err)
-	}
-
-	// Conventional password file location
-	conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
-
-	// Determine password content
-	password := []byte("postgres")
-	if sourcePasswordFile != "" {
-		if content, err := os.ReadFile(sourcePasswordFile); err == nil {
-			password = content
-		}
-		// If source file doesn't exist, fall back to default "postgres"
-	}
-
-	// Create the password file at the conventional location
-	if err := os.WriteFile(conventionalPwfile, password, 0o600); err != nil {
-		return fmt.Errorf("failed to create password file %s: %w", conventionalPwfile, err)
-	}
-
-	return nil
-}
-
-// initializePgctldDirectories initializes all pgctld directories and password files based on the config
+// initializePgctldDirectories creates all pgctld pooler directories based on the config.
 func (p *localProvisioner) initializePgctldDirectories() error {
-	// Get the typed configuration
 	config := p.config
 
-	// Initialize directories for each cell's pgctld configuration
 	for cellName, cellConfig := range config.Cells {
 		fmt.Printf("Setting up pgctld directory for cell %s...\n", cellName)
 
 		poolerDir := cellConfig.Pgctld.PoolerDir
-
 		if poolerDir == "" {
 			return fmt.Errorf("pooler-dir not found in config for pgtctld in cell %s", cellName)
 		}
 
-		if err := createPoolerDirectoryWithPassword(poolerDir, cellConfig.Pgctld.PgPwfile); err != nil {
-			return fmt.Errorf("failed to initialize pgctld directory for cell %s: %w", cellName, err)
+		if err := os.MkdirAll(poolerDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create pooler directory %s for cell %s: %w", poolerDir, cellName, err)
 		}
 
-		conventionalPwfile := filepath.Join(poolerDir, "pgpassword.txt")
 		fmt.Printf("✓ Created pooler directory: %s\n", poolerDir)
-		fmt.Printf("✓ Created password file: %s\n", conventionalPwfile)
 	}
 
 	return nil
@@ -805,7 +771,6 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pooler-dir", poolerDir,
 		"--pg-port", strconv.Itoa(pgPort),
 		"--hostname", "localhost",
-		"--connpool-admin-password", "postgres", // Password created in initializePgctldDirectories
 		"--socket-file", pgSocketFile, // PostgreSQL Unix socket for trust auth
 	}
 
@@ -837,6 +802,14 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 
 	// Start multipooler process
 	multipoolerCmd := exec.CommandContext(ctx, multipoolerBinary, args...)
+
+	// Pass POSTGRES_PASSWORD so multipooler can authenticate to the admin pool.
+	// Read from the password file written by initializePgctldDirectories; fall back to "postgres".
+	pgPassword := "postgres"
+	if content, err := os.ReadFile(filepath.Join(poolerDir, "pgpassword.txt")); err == nil {
+		pgPassword = strings.TrimSpace(string(content))
+	}
+	multipoolerCmd.Env = append(os.Environ(), "POSTGRES_PASSWORD="+pgPassword)
 
 	fmt.Printf("▶️  - Launching multipooler (HTTP:%d, gRPC:%d)...", httpPort, grpcPort)
 
@@ -982,9 +955,6 @@ func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisio
 	}
 
 	// Add optional interval configs if specified
-	if interval, ok := multiorchConfig["cluster_metadata_refresh_interval"].(string); ok && interval != "" {
-		args = append(args, "--cluster-metadata-refresh-interval", interval)
-	}
 	if interval, ok := multiorchConfig["pooler_health_check_interval"].(string); ok && interval != "" {
 		args = append(args, "--pooler-health-check-interval", interval)
 	}
@@ -1621,8 +1591,8 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		databaseConfig := &clustermetadatapb.Database{
 			Name:             databaseName,
 			BackupLocation:   backupLocation,
-			DurabilityPolicy: "ANY_2",   // Default durability policy for bootstrap
-			Cells:            cellNames, // Register with all cells
+			DurabilityPolicy: "AT_LEAST_2", // Default durability policy for bootstrap
+			Cells:            cellNames,    // Register with all cells
 		}
 
 		if err := ts.CreateDatabase(ctx, databaseName, databaseConfig); err != nil {

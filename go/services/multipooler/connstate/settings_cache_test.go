@@ -227,12 +227,53 @@ func TestSettingsQueries(t *testing.T) {
 	// ApplyQuery should be computed from Vars
 	assert.NotEmpty(t, s.ApplyQuery())
 
-	// Should contain both settings (sorted alphabetically)
-	expected := "SET SESSION search_path = 'public'; SET SESSION timezone = 'UTC'"
+	// Should contain both settings using set_config (sorted alphabetically)
+	expected := "SELECT pg_catalog.set_config('search_path', 'public', false); SELECT pg_catalog.set_config('timezone', 'UTC', false)"
 	assert.Equal(t, expected, s.ApplyQuery())
 
-	// ResetQuery should return RESET ALL
-	assert.Equal(t, "RESET ALL", s.ResetQuery())
+	// ResetQuery should return RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL
+	assert.Equal(t, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL", s.ResetQuery())
+}
+
+func TestSettingsApplyQueryListGUC(t *testing.T) {
+	// Regression test: list-valued GUCs like search_path must not be wrapped
+	// in a single pair of quotes. set_config() handles the comma-separated
+	// list internally, matching how pg_dump serializes search_path.
+	s := NewSettings(map[string]string{
+		"search_path": "temp_func_test, public",
+	}, 1)
+
+	expected := "SELECT pg_catalog.set_config('search_path', 'temp_func_test, public', false)"
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
+func TestSettingsApplyQuerySQLInjection(t *testing.T) {
+	// Single quotes in values must be escaped by doubling them.
+	s := NewSettings(map[string]string{
+		"application_name": "my'app; DROP TABLE users--",
+	}, 1)
+
+	expected := "SELECT pg_catalog.set_config('application_name', 'my''app; DROP TABLE users--', false)"
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
+func TestSettingsApplyQuerySingleQuoteInName(t *testing.T) {
+	// Single quotes in variable names must also be escaped.
+	s := NewSettings(map[string]string{
+		"custom.it's": "value",
+	}, 1)
+
+	expected := "SELECT pg_catalog.set_config('custom.it''s', 'value', false)"
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
+func TestSettingsApplyQueryEmpty(t *testing.T) {
+	// Nil and empty settings should return empty string.
+	var nilSettings *Settings
+	assert.Equal(t, "", nilSettings.ApplyQuery())
+
+	empty := NewSettings(map[string]string{}, 1)
+	assert.Equal(t, "", empty.ApplyQuery())
 }
 
 func TestSettingsPointerEqualityForPooling(t *testing.T) {

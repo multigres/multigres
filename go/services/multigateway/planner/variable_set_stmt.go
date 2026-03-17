@@ -59,13 +59,31 @@ func (p *Planner) planVariableSetStmt(
 		return plan, nil
 	}
 
-	// Only track VAR_SET_VALUE, VAR_RESET, VAR_RESET_ALL
-	// Other kinds (DEFAULT, CURRENT, MULTI) are passed through
+	// SET var TO DEFAULT is equivalent to RESET var in PostgreSQL
+	// (PG's ExecSetVariableStmt falls through from VAR_SET_DEFAULT to VAR_RESET).
+	// Normalize before the switch so it shares the same tracking path.
+	if stmt.Kind == ast.VAR_SET_DEFAULT {
+		p.logger.Debug("SET TO DEFAULT treated as RESET",
+			"variable", stmt.Name)
+		stmt = &ast.VariableSetStmt{
+			Kind: ast.VAR_RESET,
+			Name: stmt.Name,
+		}
+	}
+
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE, ast.VAR_RESET, ast.VAR_RESET_ALL:
 		// These are tracked locally
+
+	case ast.VAR_SET_MULTI, ast.VAR_SET_CURRENT:
+		// VAR_SET_MULTI: SET TRANSACTION / SET SESSION CHARACTERISTICS — transaction-scoped,
+		//   must be executed directly on the backend, no session tracking needed.
+		// VAR_SET_CURRENT: SET var FROM CURRENT — reads current PG value, needs backend execution.
+		p.logger.Debug("passing through to PostgreSQL",
+			"kind", stmt.Kind, "variable", stmt.Name)
+		return p.planDefault(sql, conn)
+
 	default:
-		// TODO: support VAR_SET_DEFAULT, VAR_SET_CURRENT, VAR_SET_MULTI when needed
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))
 	}
 

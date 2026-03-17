@@ -401,7 +401,7 @@ func TestReconnect_ReappliesSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET commands for re-applying settings.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	conn := newTestDirectConn(t, server)
 	defer conn.Close()
@@ -420,7 +420,7 @@ func TestReconnect_ReappliesSettings(t *testing.T) {
 	assert.Equal(t, settings, conn.Settings())
 
 	// Verify SET was actually called during reconnect.
-	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0)
+	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0)
 }
 
 func TestReconnect_NoSettingsToReapply(t *testing.T) {
@@ -452,7 +452,7 @@ func TestQueryWithRetry_ReappliesSettingsAfterReconnect(t *testing.T) {
 
 	// Reconnect re-applies settings via SET.
 	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
-		Query:       "SET SESSION search_path = 'public'",
+		Query:       "SELECT pg_catalog.set_config('search_path', 'public', false)",
 		QueryResult: &sqltypes.Result{},
 	})
 

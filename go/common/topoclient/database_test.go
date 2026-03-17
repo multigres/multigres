@@ -20,13 +20,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/prototest"
 )
 
 func TestDatabaseOperations(t *testing.T) {
@@ -68,7 +68,7 @@ func TestDatabaseOperations(t *testing.T) {
 				retrieved, err := ts.GetDatabase(ctx, database_a)
 				require.NoError(t, err)
 				require.Equal(t, db.Name, retrieved.Name)
-				require.True(t, proto.Equal(db.BackupLocation, retrieved.BackupLocation))
+				prototest.RequireEqual(t, db.BackupLocation, retrieved.BackupLocation)
 				require.Equal(t, db.DurabilityPolicy, retrieved.DurabilityPolicy)
 				require.Equal(t, db.Cells, retrieved.Cells)
 
@@ -216,7 +216,7 @@ func TestDatabaseCRUDOperations(t *testing.T) {
 				retrieved, err := ts.GetDatabase(ctx, database)
 				require.NoError(t, err)
 				require.Equal(t, db.Name, retrieved.Name)
-				require.True(t, proto.Equal(db.BackupLocation, retrieved.BackupLocation))
+				prototest.RequireEqual(t, db.BackupLocation, retrieved.BackupLocation)
 				require.Equal(t, db.DurabilityPolicy, retrieved.DurabilityPolicy)
 				require.Equal(t, db.Cells, retrieved.Cells)
 			},

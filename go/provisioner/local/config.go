@@ -112,13 +112,12 @@ type MultipoolerConfig struct {
 
 // MultiorchConfig holds multiorch service configuration
 type MultiorchConfig struct {
-	Path                           string `yaml:"path"`
-	HttpPort                       int    `yaml:"http-port"`
-	GrpcPort                       int    `yaml:"grpc-port"`
-	LogLevel                       string `yaml:"log-level"`
-	ClusterMetadataRefreshInterval string `yaml:"cluster-metadata-refresh-interval,omitempty"`
-	PoolerHealthCheckInterval      string `yaml:"pooler-health-check-interval,omitempty"`
-	RecoveryCycleInterval          string `yaml:"recovery-cycle-interval,omitempty"`
+	Path                      string `yaml:"path"`
+	HttpPort                  int    `yaml:"http-port"`
+	GrpcPort                  int    `yaml:"grpc-port"`
+	LogLevel                  string `yaml:"log-level"`
+	PoolerHealthCheckInterval string `yaml:"pooler-health-check-interval,omitempty"`
+	RecoveryCycleInterval     string `yaml:"recovery-cycle-interval,omitempty"`
 }
 
 // MultiadminConfig holds multiadmin service configuration
@@ -139,7 +138,7 @@ type PgctldConfig struct {
 	PgPort            int    `yaml:"pg-port"`             // PostgreSQL port
 	PgDatabase        string `yaml:"pg-database"`         // PostgreSQL database name
 	PgUser            string `yaml:"pg-user"`             // PostgreSQL username
-	PgPwfile          string `yaml:"pg-pwfile"`           // Source password file path; copied to pooler-dir/pgpassword.txt during init
+	PgPassword        string `yaml:"pg-password"`         // PostgreSQL password (default: "postgres")
 	Timeout           int    `yaml:"timeout"`             // Operation timeout in seconds
 	LogLevel          string `yaml:"log-level"`           // Log level
 	PgBackRestPort    int    `yaml:"pgbackrest-port"`     // pgBackRest TLS server port
@@ -298,13 +297,12 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					LogLevel:       "info",
 				},
 				Multiorch: MultiorchConfig{
-					Path:                           filepath.Join(binDir, "multiorch"),
-					HttpPort:                       ports.DefaultMultiorchHTTP,
-					GrpcPort:                       ports.DefaultMultiorchGRPC,
-					LogLevel:                       "info",
-					ClusterMetadataRefreshInterval: "500ms",
-					PoolerHealthCheckInterval:      "500ms",
-					RecoveryCycleInterval:          "500ms",
+					Path:                      filepath.Join(binDir, "multiorch"),
+					HttpPort:                  ports.DefaultMultiorchHTTP,
+					GrpcPort:                  ports.DefaultMultiorchGRPC,
+					LogLevel:                  "info",
+					PoolerHealthCheckInterval: "500ms",
+					RecoveryCycleInterval:     "500ms",
 				},
 				Pgctld: PgctldConfig{
 					Path:              filepath.Join(binDir, "pgctld"),
@@ -315,6 +313,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					PgPort:            ports.DefaultLocalPostgresPort,
 					PgDatabase:        dbName,
 					PgUser:            constants.DefaultPostgresUser,
+					PgPassword:        "postgres",
 					Timeout:           30,
 					LogLevel:          "info",
 					PgBackRestPort:    ports.DefaultPgbackRestPort,
@@ -343,13 +342,12 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					LogLevel:       "info",
 				},
 				Multiorch: MultiorchConfig{
-					Path:                           filepath.Join(binDir, "multiorch"),
-					HttpPort:                       ports.DefaultMultiorchHTTP + 1,
-					GrpcPort:                       ports.DefaultMultiorchGRPC + 1,
-					LogLevel:                       "info",
-					ClusterMetadataRefreshInterval: "500ms",
-					PoolerHealthCheckInterval:      "500ms",
-					RecoveryCycleInterval:          "500ms",
+					Path:                      filepath.Join(binDir, "multiorch"),
+					HttpPort:                  ports.DefaultMultiorchHTTP + 1,
+					GrpcPort:                  ports.DefaultMultiorchGRPC + 1,
+					LogLevel:                  "info",
+					PoolerHealthCheckInterval: "500ms",
+					RecoveryCycleInterval:     "500ms",
 				},
 				Pgctld: PgctldConfig{
 					Path:              filepath.Join(binDir, "pgctld"),
@@ -360,7 +358,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					PgPort:            ports.DefaultLocalPostgresPort + 1,
 					PgDatabase:        dbName,
 					PgUser:            constants.DefaultPostgresUser,
-					PgPwfile:          filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone2), "pgpassword.txt"),
+					PgPassword:        "postgres",
 					Timeout:           30,
 					LogLevel:          "info",
 					PgBackRestPort:    ports.DefaultPgbackRestPort + 1,
@@ -389,13 +387,12 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					LogLevel:       "info",
 				},
 				Multiorch: MultiorchConfig{
-					Path:                           filepath.Join(binDir, "multiorch"),
-					HttpPort:                       ports.DefaultMultiorchHTTP + 2,
-					GrpcPort:                       ports.DefaultMultiorchGRPC + 2,
-					LogLevel:                       "info",
-					ClusterMetadataRefreshInterval: "500ms",
-					PoolerHealthCheckInterval:      "500ms",
-					RecoveryCycleInterval:          "500ms",
+					Path:                      filepath.Join(binDir, "multiorch"),
+					HttpPort:                  ports.DefaultMultiorchHTTP + 2,
+					GrpcPort:                  ports.DefaultMultiorchGRPC + 2,
+					LogLevel:                  "info",
+					PoolerHealthCheckInterval: "500ms",
+					RecoveryCycleInterval:     "500ms",
 				},
 				Pgctld: PgctldConfig{
 					Path:              filepath.Join(binDir, "pgctld"),
@@ -406,7 +403,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 					PgPort:            ports.DefaultLocalPostgresPort + 2,
 					PgDatabase:        dbName,
 					PgUser:            constants.DefaultPostgresUser,
-					PgPwfile:          filepath.Join(GeneratePoolerDir(baseDir, serviceIDZone3), "pgpassword.txt"),
+					PgPassword:        "postgres",
 					Timeout:           30,
 					LogLevel:          "info",
 					PgBackRestPort:    ports.DefaultPgbackRestPort + 2,
@@ -489,13 +486,12 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 		}, nil
 	case constants.ServiceMultiorch:
 		return map[string]any{
-			"path":                              cellServices.Multiorch.Path,
-			"http_port":                         cellServices.Multiorch.HttpPort,
-			"grpc_port":                         cellServices.Multiorch.GrpcPort,
-			"log_level":                         cellServices.Multiorch.LogLevel,
-			"cluster_metadata_refresh_interval": cellServices.Multiorch.ClusterMetadataRefreshInterval,
-			"pooler_health_check_interval":      cellServices.Multiorch.PoolerHealthCheckInterval,
-			"recovery_cycle_interval":           cellServices.Multiorch.RecoveryCycleInterval,
+			"path":                         cellServices.Multiorch.Path,
+			"http_port":                    cellServices.Multiorch.HttpPort,
+			"grpc_port":                    cellServices.Multiorch.GrpcPort,
+			"log_level":                    cellServices.Multiorch.LogLevel,
+			"pooler_health_check_interval": cellServices.Multiorch.PoolerHealthCheckInterval,
+			"recovery_cycle_interval":      cellServices.Multiorch.RecoveryCycleInterval,
 		}, nil
 	case constants.ServicePgctld:
 		return map[string]any{
@@ -507,6 +503,7 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"pg_port":             cellServices.Pgctld.PgPort,
 			"pg_database":         cellServices.Pgctld.PgDatabase,
 			"pg_user":             cellServices.Pgctld.PgUser,
+			"password":            cellServices.Pgctld.PgPassword,
 			"timeout":             cellServices.Pgctld.Timeout,
 			"log_level":           cellServices.Pgctld.LogLevel,
 			"pgbackrest_port":     cellServices.Pgctld.PgBackRestPort,

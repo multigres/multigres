@@ -43,6 +43,14 @@ jobs:
       - name: Run short tests
         run: go test -json -short -v ./... | tee short-test-results.jsonl | go tool tparse -follow
 
+      - name: Upload test logs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: short-test-logs
+          path: short-test-results.jsonl
+          retention-days: 7
+
       - name: Test Report
         uses: dorny/test-reporter@b082adf0eced0765477756c2a610396589b8c637 # v2.5.0
         if: ${{ !cancelled() }}

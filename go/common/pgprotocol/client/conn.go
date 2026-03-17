@@ -165,6 +165,7 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 
 	netConn, err := dial(ctx, c.config)
 	if err != nil {
+		c.closed.Store(true)
 		return fmt.Errorf("reconnect dial failed: %w", err)
 	}
 
