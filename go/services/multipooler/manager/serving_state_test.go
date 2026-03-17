@@ -131,6 +131,14 @@ func TestServingStateManager_DemotionFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, mp.Type)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, mp.ServingStatus)
+	assert.Equal(t, 1, comp.callCount)
+
+	// Step 1b: Retry NOT_SERVING (idempotent — should be a no-op)
+	err = ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	require.NoError(t, err)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, mp.Type)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, mp.ServingStatus)
+	assert.Equal(t, 1, comp.callCount) // no additional call
 
 	// Step 2: Transition to replica serving
 	err = ssm.SetState(context.Background(), clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)

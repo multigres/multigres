@@ -79,9 +79,16 @@ func (ssm *ServingStateManager) Register(component StateAware) {
 // SetState transitions all components to the given state in parallel.
 // The multipooler record is updated only after all components converge.
 // Returns an error if any component fails to transition.
+// No-op if the state hasn't changed.
 func (ssm *ServingStateManager) SetState(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
+
+	if ssm.multipooler.Type == poolerType && ssm.multipooler.ServingStatus == servingStatus {
+		ssm.logger.InfoContext(ctx, "Serving state unchanged, skipping",
+			"type", poolerType, "status", servingStatus)
+		return nil
+	}
 
 	ssm.logger.InfoContext(ctx, "Setting serving state",
 		"target_type", poolerType, "target_status", servingStatus,

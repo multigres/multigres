@@ -112,25 +112,21 @@ func (ssm *ServingStateManager) SetState(ctx, poolerType, servingStatus) error {
 
 ### `PoolerController` interface
 
-`SetServingType` now takes both `PoolerType` and `PoolerServingStatus`. `OnStateChange` added to support `StateAware`:
+`SetServingType` was replaced by `OnStateChange` which takes both `PoolerType` and `PoolerServingStatus`:
 
 ```go
 // Before
 SetServingType(ctx context.Context, servingStatus PoolerServingStatus) error
 
 // After
-SetServingType(ctx context.Context, poolerType PoolerType, servingStatus PoolerServingStatus) error
 OnStateChange(ctx context.Context, poolerType PoolerType, servingStatus PoolerServingStatus) error
 ```
-
-TODO: Fold `SetServingType` into `OnStateChange` — they do the same thing.
 
 ### `QueryPoolerServer`
 
 - Added `poolerType` field
 - `IsServing()` now only checks `servingStatus == SERVING` (no more `SERVING_RDONLY`)
-- `SetServingType` stores both type and status
-- `OnStateChange` delegates to `SetServingType`
+- `OnStateChange` stores both type and status
 
 ### `ReplTracker`
 
@@ -191,7 +187,6 @@ EmergencyDemote:
 
 ## Future work
 
-- **Fold `SetServingType` into `OnStateChange`**: They do the same thing on `QueryPoolerServer`. `SetServingType` can be removed from `PoolerController` once all callers go through the state manager.
 - **Unexport `MakePrimary`/`MakeNonPrimary`**: Now that `ReplTracker` has `OnStateChange`, the direct methods can be unexported.
 - **Rename to `StateManager`**: `ServingStateManager` is verbose — can be shortened once the pattern is established.
 - **StateManager owns `multipooler` record**: The manager currently shares the `multipooler` pointer. The state manager could own it more explicitly.

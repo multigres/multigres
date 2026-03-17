@@ -42,10 +42,6 @@ func (m *mockPoolerController) Open(context.Context) error { return nil }
 func (m *mockPoolerController) Close() error               { return nil }
 func (m *mockPoolerController) IsHealthy() error           { return nil }
 func (m *mockPoolerController) IsServing() bool            { return true }
-func (m *mockPoolerController) SetServingType(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) error {
-	return nil
-}
-
 func (m *mockPoolerController) OnStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) error {
 	return nil
 }

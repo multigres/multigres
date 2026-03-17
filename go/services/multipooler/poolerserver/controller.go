@@ -34,7 +34,8 @@ import (
 // not by the serving status. The MultiPoolerManager creates and controls the lifecycle
 // of the PoolerController, similar to how TabletManager controls TabletServer in Vitess.
 type PoolerController interface {
-	// SetServingType transitions the query service to the required serving state.
+	// OnStateChange transitions the query service to match the new serving state.
+	// This is called by ServingStateManager during state transitions.
 	//
 	// The poolerType determines query behavior:
 	//   - PRIMARY: Accept reads + writes
@@ -46,11 +47,6 @@ type PoolerController interface {
 	//   - NOT_SERVING: Reject all queries
 	//
 	// Returns error if the transition fails.
-	// TODO: FOld into OnStateChange
-	SetServingType(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
-
-	// OnStateChange transitions the query service to match the new serving state.
-	// This is called by ServingStateManager during state transitions.
 	OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
 
 	// IsServing returns true if the query service is currently serving requests.

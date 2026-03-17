@@ -69,10 +69,9 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 	}
 }
 
-// SetServingType transitions the serving state.
+// OnStateChange transitions the query service to match the new serving state.
 // Implements PoolerController interface.
-// TODO: Fold into OnStateChange.
-func (s *QueryPoolerServer) SetServingType(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -88,11 +87,6 @@ func (s *QueryPoolerServer) SetServingType(ctx context.Context, poolerType clust
 	// - (*, NOT_SERVING): Reject all queries
 
 	return nil
-}
-
-// OnStateChange transitions the query service to match the new serving state.
-func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	return s.SetServingType(ctx, poolerType, servingStatus)
 }
 
 // IsServing returns true if currently serving queries.
@@ -134,7 +128,7 @@ func (s *QueryPoolerServer) RegisterGRPCServices() {
 func (s *QueryPoolerServer) StartServiceForTests() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
-	return s.SetServingType(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	return s.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 }
 
 // Executor returns the executor instance for use by gRPC service handlers.
