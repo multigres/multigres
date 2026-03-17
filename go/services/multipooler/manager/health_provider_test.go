@@ -282,6 +282,46 @@ func TestHealthStreamer_UpdatePrimaryObservation(t *testing.T) {
 	}
 }
 
+func TestHealthStreamer_OnStateChange(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+	hs := newHealthStreamer(logger, serviceID, "tg1", "0")
+
+	// Subscribe before the state change
+	_, ch := hs.subscribe()
+
+	// Call OnStateChange — updates both fields atomically with one broadcast
+	err := hs.OnStateChange(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	require.NoError(t, err)
+
+	// Verify subscriber receives a single broadcast with both fields updated
+	select {
+	case received := <-ch:
+		require.NotNil(t, received)
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, received.Target.PoolerType)
+		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("subscriber did not receive health broadcast")
+	}
+
+	// Verify getState reflects both changes
+	state := hs.getState()
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, state.Target.PoolerType)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, state.ServingStatus)
+
+	// Verify no extra broadcast was sent (only one message in channel)
+	select {
+	case <-ch:
+		t.Fatal("unexpected extra broadcast")
+	default:
+		// Good — only one broadcast
+	}
+}
+
 func TestHealthHeartbeat_BroadcastsPeriodically(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	serviceID := &clustermetadatapb.ID{

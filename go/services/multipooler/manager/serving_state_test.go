@@ -203,6 +203,47 @@ func TestServingStateManager_NoComponents(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
 }
 
+func TestServingStateManager_HealthStreamerIntegration(t *testing.T) {
+	// Verify that when healthStreamer is registered as a component,
+	// SetState triggers a health stream broadcast with the correct state.
+	logger := newTestLogger()
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pooler",
+	}
+	hs := newHealthStreamer(logger, serviceID, "tg1", "0")
+	comp := &testComponent{}
+	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+
+	ssm := NewServingStateManager(logger, mp, comp, hs)
+
+	// Subscribe to health stream before state change
+	_, ch := hs.subscribe()
+
+	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	require.NoError(t, err)
+
+	// testComponent should be notified
+	assert.Equal(t, 1, comp.callCount)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, comp.lastType)
+
+	// healthStreamer should have broadcast to subscriber
+	select {
+	case received := <-ch:
+		require.NotNil(t, received)
+		assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, received.Target.PoolerType)
+		assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, received.ServingStatus)
+		assert.Equal(t, serviceID, received.PoolerID)
+	default:
+		t.Fatal("healthStreamer did not broadcast on SetState")
+	}
+
+	// Multipooler record should be updated
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, mp.Type)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
+}
+
 func TestServingStateManager_ParallelExecution(t *testing.T) {
 	// Verify both components are invoked (they run in parallel via errgroup).
 	comp1 := &slowComponent{}

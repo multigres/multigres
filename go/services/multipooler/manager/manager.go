@@ -248,9 +248,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// Create the query service controller with the pool manager
 	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm)
 
-	// Create the serving state manager with the query service as the initial component.
+	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
-	pm.servingState = NewServingStateManager(logger, pm.multipooler, pm.qsc)
+	pm.servingState = NewServingStateManager(logger, pm.multipooler, pm.qsc, pm.healthStreamer)
 
 	// Register pgBackRest health metrics.
 	var metricsErr error
@@ -1026,9 +1026,6 @@ func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotion
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
-	// Update health streamer with serving status change
-	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_NOT_SERVING)
-
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update serving status in topology", "error", err)
 		return mterrors.Wrap(err, "failed to sync NOT_SERVING to topology")
@@ -1356,25 +1353,20 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 	pm.logger.InfoContext(ctx, "Topology update needed")
 	pm.logger.InfoContext(ctx, "Updating pooler type in topology to PRIMARY")
 
-	// Update local state first
+	// Use the serving state manager to transition components (query service, heartbeat, health streamer)
+	// and update the multipooler record. The serving status stays SERVING during promotion.
+	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+		return mterrors.Wrap(err, "failed to set serving state for promotion")
+	}
+
+	// Sync to topology
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
-	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
 		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
-	}
-
-	// Update health streamer with pooler type change
-	pm.healthStreamer.UpdatePoolerType(clustermetadatapb.PoolerType_PRIMARY)
-
-	// Update heartbeat tracker to primary mode
-	if pm.replTracker != nil {
-		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
-		pm.replTracker.MakePrimary()
 	}
 
 	return nil

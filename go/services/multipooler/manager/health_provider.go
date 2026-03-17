@@ -106,10 +106,18 @@ func (hs *healthStreamer) UpdatePrimaryObservation(obs *poolerserver.PrimaryObse
 	hs.broadcastLocked()
 }
 
-// TODO: Consider adding a ChangeState(servingStatus, poolerType, primaryObs) method
-// that updates multiple fields atomically with a single broadcast, similar to Vitess's
-// healthStreamer.ChangeState(). This would avoid multiple broadcasts when several
-// fields change together (e.g., during promotion).
+// OnStateChange updates both poolerType and servingStatus atomically with a single
+// broadcast. This implements the StateAware interface so the healthStreamer can be
+// registered with ServingStateManager.
+func (hs *healthStreamer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	hs.poolerType = poolerType
+	hs.servingStatus = servingStatus
+	hs.broadcastLocked()
+	return nil
+}
 
 // Broadcast sends the current state to all clients without changing any state.
 // Used for periodic heartbeats.

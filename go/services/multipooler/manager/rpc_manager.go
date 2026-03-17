@@ -739,9 +739,6 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 		return mterrors.Wrap(err, "failed to update pooler type in topology")
 	}
 
-	// Update health streamer with pooler type change
-	pm.healthStreamer.UpdatePoolerType(poolerType)
-
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
 	return nil
 }
