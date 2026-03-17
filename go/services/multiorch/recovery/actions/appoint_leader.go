@@ -43,7 +43,7 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 type AppointLeaderAction struct {
 	config      *config.Config
 	consensus   *consensus.Coordinator
-	poolerStore *store.PoolerHealthStore
+	poolerStore *store.PoolerStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -52,7 +52,7 @@ type AppointLeaderAction struct {
 func NewAppointLeaderAction(
 	cfg *config.Config,
 	consensus *consensus.Coordinator,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *AppointLeaderAction {
