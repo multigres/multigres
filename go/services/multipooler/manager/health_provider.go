@@ -78,24 +78,6 @@ func newHealthStreamer(logger *slog.Logger, poolerID *clustermetadatapb.ID, tabl
 	}
 }
 
-// UpdateServingStatus updates the serving status and broadcasts to clients.
-func (hs *healthStreamer) UpdateServingStatus(status clustermetadatapb.PoolerServingStatus) {
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	hs.servingStatus = status
-	hs.broadcastLocked()
-}
-
-// UpdatePoolerType updates the pooler type and broadcasts to clients.
-func (hs *healthStreamer) UpdatePoolerType(poolerType clustermetadatapb.PoolerType) {
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	hs.poolerType = poolerType
-	hs.broadcastLocked()
-}
-
 // UpdatePrimaryObservation updates the primary observation (term + primary ID)
 // and broadcasts to clients.
 func (hs *healthStreamer) UpdatePrimaryObservation(obs *poolerserver.PrimaryObservation) {

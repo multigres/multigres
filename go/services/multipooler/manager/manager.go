@@ -333,9 +333,12 @@ func (pm *MultiPoolerManager) Open() {
 
 	pm.isOpen = true
 
-	// Start health heartbeat goroutine and mark pooler as serving
+	// Start health heartbeat goroutine and transition to SERVING.
+	// SetState notifies all components (query service, heartbeat, health streamer).
 	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
-	pm.healthStreamer.UpdateServingStatus(clustermetadatapb.PoolerServingStatus_SERVING)
+	if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+		pm.logger.ErrorContext(pm.ctx, "Failed to transition to SERVING on open", "error", err)
+	}
 }
 
 // Pause temporarily closes the manager for maintenance operations that require
@@ -746,8 +749,10 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.topoLoaded = true
 		pm.mu.Unlock()
 
-		// Update health streamer with newly loaded multipooler type
-		pm.healthStreamer.UpdatePoolerType(pm.multipooler.Type)
+		// Notify all components of the pooler type loaded from topology.
+		if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, pm.multipooler.ServingStatus); err != nil {
+			pm.logger.Error("Failed to set state after topo load", "error", err)
+		}
 
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
