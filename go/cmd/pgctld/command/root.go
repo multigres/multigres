@@ -47,6 +47,7 @@ type PgCtlCommand struct {
 	pgListenAddresses  viperutil.Value[string]
 	pgHbaTemplate      viperutil.Value[string]
 	postgresConfigTmpl viperutil.Value[string]
+	pgInitdbArgs       viperutil.Value[string]
 
 	vc        *viperutil.ViperConfig
 	lg        *servenv.Logger
@@ -107,6 +108,12 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			FlagName: "postgres-config-template",
 			Dynamic:  false,
 		}),
+		pgInitdbArgs: viperutil.Configure(reg, "pg-initdb-args", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pg-initdb-args",
+			EnvVars:  []string{constants.PgInitdbArgsEnvVar},
+			Dynamic:  false,
+		}),
 		vc:        viperutil.NewViperConfig(reg),
 		lg:        servenv.NewLogger(reg, telemetry),
 		telemetry: telemetry,
@@ -156,6 +163,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
+	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
 
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
@@ -170,6 +178,7 @@ management for PostgreSQL servers.`,
 		pc.pgListenAddresses,
 		pc.pgHbaTemplate,
 		pc.postgresConfigTmpl,
+		pc.pgInitdbArgs,
 	)
 
 	// Add all subcommands

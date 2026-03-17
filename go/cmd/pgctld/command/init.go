@@ -61,12 +61,18 @@ file and environment variable settings.
 
 Password can be set via the POSTGRES_PASSWORD environment variable.
 
+Extra initdb arguments can be set via the POSTGRES_INITDB_ARGS environment variable,
+or overridden with the --pg-initdb-args flag.
+
 Examples:
   # Initialize data directory
   pgctld init --pooler-dir /var/lib/pooler-dir
 
   # Initialize with existing configuration
   pgctld init -d /var/lib/pooler-dir
+
+  # Initialize with ICU locale provider and specific locale en_US.UTF-8
+  pgctld init --pg-initdb-args "--locale=icu --icu-locale=en_US.UTF-8" -d /var/lib/pooler-dir
 
   # Initialize using config file settings
   pgctld init --config-file /etc/pgctld/config.yaml`,

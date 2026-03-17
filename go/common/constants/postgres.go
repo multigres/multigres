@@ -37,6 +37,9 @@ const (
 	// PgDataDirEnvVar is the environment variable for the PostgreSQL data directory.
 	PgDataDirEnvVar = "PGDATA"
 
+	// PgInitdbArgsEnvVar is the environment variable for extra arguments passed to initdb.
+	PgInitdbArgsEnvVar = "POSTGRES_INITDB_ARGS"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"
