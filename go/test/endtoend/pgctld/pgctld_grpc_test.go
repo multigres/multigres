@@ -426,13 +426,14 @@ func TestGRPCPortableConfig(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		// First, create a service with port 5432 and initialize
-		initialPort := 5432
 		service, err := command.NewPgCtldService(
 			slog.Default(),
-			initialPort,
-			constants.DefaultPostgresUser,
-			constants.DefaultPostgresDatabase,
-			shardsetup.TestPostgresPassword,
+			command.PgCtldServiceConfig{
+				Port:     5432,
+				User:     constants.DefaultPostgresUser,
+				Database: constants.DefaultPostgresDatabase,
+				Password: shardsetup.TestPostgresPassword,
+			},
 			30,
 			dataDir,
 			"localhost",
@@ -448,13 +449,14 @@ func TestGRPCPortableConfig(t *testing.T) {
 
 		// Now try to create a service with a different port (5433)
 		// This should succeed because port is now passed as a CLI parameter, making configs portable
-		differentPort := 5433
 		service2, err := command.NewPgCtldService(
 			slog.Default(),
-			differentPort,
-			constants.DefaultPostgresUser,
-			constants.DefaultPostgresDatabase,
-			shardsetup.TestPostgresPassword,
+			command.PgCtldServiceConfig{
+				Port:     5433,
+				User:     constants.DefaultPostgresUser,
+				Database: constants.DefaultPostgresDatabase,
+				Password: shardsetup.TestPostgresPassword,
+			},
 			30,
 			dataDir,
 			"localhost",
@@ -483,12 +485,15 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	// Create the pgctld service with mock environment
+	cfg := command.PgCtldServiceConfig{
+		Port:     5432,
+		User:     constants.DefaultPostgresUser,
+		Database: constants.DefaultPostgresDatabase,
+		Password: shardsetup.TestPostgresPassword,
+	}
 	service, err := command.NewPgCtldService(
 		slog.Default(),
-		5432,
-		constants.DefaultPostgresUser,
-		constants.DefaultPostgresDatabase,
-		shardsetup.TestPostgresPassword,
+		cfg,
 		30,
 		dataDir,
 		"localhost",

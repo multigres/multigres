@@ -211,12 +211,15 @@ func createTestGRPCServerWithPgBackRest(t *testing.T, setup *TestSetup) (net.Lis
 	grpcServer := grpc.NewServer()
 
 	// Create the pgctld service with pgBackRest configuration
+	cfg := command.PgCtldServiceConfig{
+		Port:     setup.PgPort,
+		User:     constants.DefaultPostgresUser,
+		Database: constants.DefaultPostgresDatabase,
+		Password: shardsetup.TestPostgresPassword,
+	}
 	service, err := command.NewPgCtldService(
 		slog.Default(),
-		setup.PgPort,
-		constants.DefaultPostgresUser,
-		constants.DefaultPostgresDatabase,
-		shardsetup.TestPostgresPassword,
+		cfg,
 		30,
 		setup.PoolerDir,
 		"localhost",
