@@ -15,7 +15,6 @@
 package multiorch
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -27,7 +26,6 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // connectToPostgres establishes a connection to PostgreSQL using Unix socket
@@ -49,36 +47,27 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) string {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
-	checkInterval := 2 * time.Second
-
-	for time.Now().Before(deadline) {
-		for name, inst := range setup.Multipoolers {
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-			client.Close()
-
-			if err != nil {
-				continue
-			}
-
-			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-				t.Logf("Shard bootstrapped: primary is %s (pooler_type=%s)", name, status.Status.PoolerType)
-				return name
-			}
-		}
-		t.Logf("Waiting for shard bootstrap... (sleeping %v)", checkInterval)
-		time.Sleep(checkInterval)
+	var poolers []*shardsetup.MultipoolerInstance
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
 	}
 
-	t.Fatalf("Timeout: shard did not bootstrap within %v", timeout)
-	return ""
+	primaryName := shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
+			for _, r := range statuses {
+				if r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+					return r.Name, true, ""
+				}
+			}
+			return "", false, "no primary elected yet"
+		},
+		"shard did not bootstrap within %v", timeout,
+	)
+	t.Logf("Shard bootstrapped: primary is %s", primaryName)
+	return primaryName
 }
 
 // waitForStandbysInitialized polls multipooler nodes until expected count of standbys are initialized
@@ -86,74 +75,36 @@ func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout tim
 func waitForStandbysInitialized(t *testing.T, setup *shardsetup.ShardSetup, expectedCount int, timeout time.Duration) {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
-	checkInterval := 2 * time.Second
-
-	for time.Now().Before(deadline) {
-		standbyCount := 0
-		for name, inst := range setup.Multipoolers {
-			if name == setup.PrimaryName {
-				continue
-			}
-
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-			client.Close()
-
-			if err != nil {
-				continue
-			}
-
-			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && status.Status.PostgresRunning {
-				standbyCount++
-			}
-		}
-		if standbyCount >= expectedCount {
-			t.Logf("All %d standbys initialized successfully", standbyCount)
-
-			// Also wait for sync replication to be configured on primary
-			// (initialization includes wiring up replication)
-			if waitForSyncReplicationConfiguredInternal(t, setup, deadline) {
-				return
-			}
-			// If sync replication not yet configured, continue waiting
-		}
-		t.Logf("Waiting for standbys to initialize... (have %d/%d, sleeping %v)", standbyCount, expectedCount, checkInterval)
-		time.Sleep(checkInterval)
+	var poolers []*shardsetup.MultipoolerInstance
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
 	}
 
-	t.Fatalf("Timeout: standbys did not initialize within %v", timeout)
-}
-
-// waitForSyncReplicationConfiguredInternal checks if sync replication is configured.
-// Returns true if configured, false if not yet configured.
-// Does not block or log - used internally by waitForStandbysInitialized.
-func waitForSyncReplicationConfiguredInternal(t *testing.T, setup *shardsetup.ShardSetup, deadline time.Time) bool {
-	t.Helper()
-
-	if time.Now().After(deadline) {
-		return false
-	}
-
-	primaryClient := setup.NewPrimaryClient(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	syncStandbyNames, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
-	cancel()
-	primaryClient.Close()
-
-	if err != nil {
-		return false
-	}
-
-	if syncStandbyNames != "" {
-		t.Logf("Sync replication configured: synchronous_standby_names=%s", syncStandbyNames)
-		return true
-	}
-	return false
+	shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []shardsetup.PoolerStatusResult) (any, bool, string) {
+			standbyCount := 0
+			syncConfigured := false
+			for _, r := range statuses {
+				if r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+					if r.Status.PrimaryStatus != nil && r.Status.PrimaryStatus.SyncReplicationConfig != nil {
+						syncConfigured = len(r.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds) >= expectedCount
+					}
+				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresRunning {
+					standbyCount++
+				}
+			}
+			if standbyCount < expectedCount {
+				return nil, false, fmt.Sprintf("only %d/%d standbys initialized", standbyCount, expectedCount)
+			}
+			if !syncConfigured {
+				return nil, false, "sync replication not yet configured on primary"
+			}
+			return nil, true, ""
+		},
+		"standbys did not initialize within %v", timeout,
+	)
+	t.Logf("All %d standbys initialized successfully", expectedCount)
 }

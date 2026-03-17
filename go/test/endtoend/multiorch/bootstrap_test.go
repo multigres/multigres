@@ -21,7 +21,6 @@ package multiorch
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -252,46 +251,26 @@ func TestBootstrapInitialization(t *testing.T) {
 
 	t.Run("verify consensus term", func(t *testing.T) {
 		// All nodes should eventually be initialized with consensus term = 1
-		require.Eventually(t, func() bool {
-			allInitialized := true
-			allHaveCorrectTerm := true
-
-			for name, inst := range setup.Multipoolers {
-				client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-				if err != nil {
-					t.Logf("Node %s: failed to connect: %v", name, err)
-					allInitialized = false
-					continue
+		var allInstances []*shardsetup.MultipoolerInstance
+		for _, inst := range setup.Multipoolers {
+			allInstances = append(allInstances, inst)
+		}
+		shardsetup.EventuallyPoolerCondition(t, allInstances, 30*time.Second, 1*time.Second,
+			func(name string, s *multipoolermanagerdatapb.Status) (bool, string) {
+				if !s.IsInitialized {
+					return false, "not yet initialized"
 				}
-
-				ctx := utils.WithTimeout(t, 5*time.Second)
-				status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-				client.Close()
-
-				if err != nil {
-					t.Logf("Node %s: failed to get status: %v", name, err)
-					allInitialized = false
-					continue
+				termNum := int64(0)
+				if s.ConsensusTerm != nil {
+					termNum = s.ConsensusTerm.TermNumber
 				}
-
-				if !status.Status.IsInitialized {
-					t.Logf("Node %s: not yet initialized", name)
-					allInitialized = false
-					continue
+				if termNum != 1 {
+					return false, fmt.Sprintf("consensus term is %d, expected 1", termNum)
 				}
-
-				if status.Status.ConsensusTerm == nil || status.Status.ConsensusTerm.TermNumber != 1 {
-					termNum := int64(0)
-					if status.Status.ConsensusTerm != nil {
-						termNum = status.Status.ConsensusTerm.TermNumber
-					}
-					t.Logf("Node %s: consensus term is %d, expected 1", name, termNum)
-					allHaveCorrectTerm = false
-				}
-			}
-
-			return allInitialized && allHaveCorrectTerm
-		}, 30*time.Second, 1*time.Second, "All nodes should be initialized with consensus term 1")
+				return true, ""
+			},
+			"All nodes should be initialized with consensus term 1",
+		)
 	})
 
 	t.Run("verify leadership history", func(t *testing.T) {
@@ -420,21 +399,21 @@ func TestBootstrapInitialization(t *testing.T) {
 		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler)
 
 		// Wait for auto-restore to complete
-		require.Eventually(t, func() bool {
-			client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)
-			if err != nil {
-				return false
-			}
-			defer client.Close()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			if err != nil {
-				return false
-			}
-			return status.Status.IsInitialized && status.Status.PostgresRunning && status.Status.ConsensusTerm != nil && status.Status.ConsensusTerm.TermNumber > 0
-		}, 90*time.Second, 1*time.Second, "Auto-restore should complete within timeout")
+		shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
+			func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
+				if !s.IsInitialized {
+					return false, "not yet initialized"
+				}
+				if !s.PostgresRunning {
+					return false, "postgres not running"
+				}
+				if s.ConsensusTerm == nil || s.ConsensusTerm.TermNumber == 0 {
+					return false, "consensus term not yet assigned"
+				}
+				return true, ""
+			},
+			"auto-restore should complete within timeout",
+		)
 
 		// Verify final state
 		client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)
