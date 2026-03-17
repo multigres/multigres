@@ -58,6 +58,31 @@ Cluster orchestration service for consensus and failover.
 **Configuration file**: `multiorch.yaml`
 **Environment prefix**: `MULTIORCH_`
 
+## PostgreSQL Environment Variables
+
+The following environment variables are recognized by `pgctld` (and to
+some extent, Multipooler) and follow the Docker `postgres` image
+convention.
+
+| Variable               | CLI flag               | Default    | Description                           |
+| ---------------------- | ---------------------- | ---------- | ------------------------------------- |
+| `POSTGRES_USER`        | `--pg-user` / `-U`     | `postgres` | PostgreSQL user name                  |
+| `POSTGRES_PASSWORD`    | _(none)_               | _(empty)_  | PostgreSQL password                   |
+| `POSTGRES_DB`          | `--pg-database` / `-D` | `postgres` | PostgreSQL database name              |
+| `POSTGRES_INITDB_ARGS` | `--pg-initdb-args`     | _(empty)_  | Extra arguments forwarded to `initdb` |
+
+`POSTGRES_USER`
+: PostgreSQL user for connecting to PostgreSQL server and perform administrative actions. This user requires `SUPERUSER` privileges and is expected to use SCRAM-256 password authentication over a local socket connection, but this is not enforced.
+
+`POSTGRES_PASSWORD`
+: Password for the user provided in `POSTGRES_USER`.
+
+`POSTGRES_DB`
+: PostgreSQL database name to use when connecting to the database.
+
+`POSTGRES_INITDB_ARGS`
+: Extra arguments forwarded to `initdb` during cluster initialisation (e.g. `--locale-provider=icu --icu-locale=en_US.UTF-8`). Note that these are split into separate arguments on space using `strings.Fields` so you should not use spaces in values to options.
+
 ## Example Usage
 
 ```bash

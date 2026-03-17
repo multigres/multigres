@@ -249,7 +249,6 @@ func TestInitializeDataDir(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_args_test")
 		defer cleanup()
 
-		poolerDir := baseDir
 		argsFile := filepath.Join(baseDir, "initdb-args.txt")
 
 		// Mock initdb that records its arguments to a file so we can assert on them.
@@ -264,6 +263,7 @@ touch "$2/pg_hba.conf"
 `)
 
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
 
 		logger := slog.New(slog.DiscardHandler)
 		cfg := PgCtldServiceConfig{
