@@ -214,7 +214,11 @@ func TestInitializeDataDir(t *testing.T) {
 		defer os.Setenv("PATH", originalPath)
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
+		cfg := PgCtldServiceConfig{
+			User:     constants.DefaultPostgresUser,
+			Password: shardsetup.TestPostgresPassword,
+		}
+		err := initializeDataDir(logger, cfg)
 		require.NoError(t, err)
 
 		// Verify directory was created (dataDir is poolerDir/pg_data)
@@ -232,9 +236,48 @@ func TestInitializeDataDir(t *testing.T) {
 		// fail.
 		t.Setenv(constants.PgDataDirEnvVar, "/root/impossible_dir")
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
+		cfg := PgCtldServiceConfig{
+			User:     constants.DefaultPostgresUser,
+			Password: shardsetup.TestPostgresPassword,
+		}
+		err := initializeDataDir(logger, cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "initdb failed")
+	})
+
+	t.Run("extra initdb args are forwarded to initdb", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_initdb_args_test")
+		defer cleanup()
+
+		poolerDir := baseDir
+		argsFile := filepath.Join(baseDir, "initdb-args.txt")
+
+		// Mock initdb that records its arguments to a file so we can assert on them.
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "initdb", `
+echo "$@" > `+argsFile+`
+mkdir -p "$2/base"
+echo "15.0" > "$2/PG_VERSION"
+touch "$2/postgresql.conf"
+touch "$2/pg_hba.conf"
+`)
+
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		logger := slog.New(slog.DiscardHandler)
+		cfg := PgCtldServiceConfig{
+			User:       constants.DefaultPostgresUser,
+			InitdbArgs: "--locale-provider=icu --icu-locale=en_US.UTF-8",
+		}
+		err := initializeDataDir(logger, cfg)
+		require.NoError(t, err)
+
+		argsBytes, err := os.ReadFile(argsFile)
+		require.NoError(t, err)
+		argsOut := string(argsBytes)
+		assert.Contains(t, argsOut, "--locale-provider=icu")
+		assert.Contains(t, argsOut, "--icu-locale=en_US.UTF-8")
 	})
 }
 
