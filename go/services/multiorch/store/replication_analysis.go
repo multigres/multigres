@@ -41,7 +41,7 @@ type ReplicationAnalysis struct {
 	PoolerType           clustermetadatapb.PoolerType
 	CurrentServingStatus clustermetadatapb.PoolerServingStatus
 	IsPrimary            bool
-	// Represents if the poolerID is reachable and it's returing a
+	// Represents if the poolerID is reachable and it's returning a
 	// valid status response
 	LastCheckValid   bool
 	IsStale          bool
