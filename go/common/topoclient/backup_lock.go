@@ -70,13 +70,13 @@ func (ts *store) TryLockBackup(ctx context.Context, shardKey types.ShardKey, act
 	)
 }
 
-// ForceUnlockBackup forcefully removes the backup lock for the specified shard,
+// RevokeBackup forcefully removes the backup lock for the specified shard,
 // regardless of who holds it. This is used by the steal protocol during failover
 // or manual intervention. The old holder's KeepAlive channel will be closed,
 // triggering process cleanup on their side.
 //
 // Returns nil if no lock exists.
-func (ts *store) ForceUnlockBackup(ctx context.Context, shardKey types.ShardKey) error {
+func (ts *store) RevokeBackup(ctx context.Context, shardKey types.ShardKey) error {
 	bl := &backupLock{ShardKey: shardKey}
 	if ts.globalTopo == nil {
 		return errors.New("no global cell connection on the topo server")

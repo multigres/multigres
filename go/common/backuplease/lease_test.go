@@ -93,7 +93,7 @@ func TestLostChannelFiresOnForceUnlock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Force unlock (simulating steal)
-	err = ts.ForceUnlockBackup(ctx, testShardKey)
+	err = ts.RevokeBackup(ctx, testShardKey)
 	require.NoError(t, err)
 
 	// Lost channel should fire within the check interval + some margin

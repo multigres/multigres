@@ -61,7 +61,7 @@ func Steal(
 		"operation", operation)
 
 	// Revoke existing lock
-	if err := store.ForceUnlockBackup(ctx, shardKey); err != nil {
+	if err := store.RevokeBackup(ctx, shardKey); err != nil {
 		logger.WarnContext(ctx, "Failed to force-unlock backup lease during steal",
 			"shard", shardKey.String(),
 			"stealer", stealerID,

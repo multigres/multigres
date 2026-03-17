@@ -84,7 +84,7 @@ func TestForceUnlockBackup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Force unlock should succeed
-	err = ts.ForceUnlockBackup(ctx, shardKey)
+	err = ts.RevokeBackup(ctx, shardKey)
 	require.NoError(t, err)
 
 	// Should be acquirable again after force unlock
@@ -95,7 +95,7 @@ func TestForceUnlockBackup(t *testing.T) {
 	require.NoError(t, unlockErr)
 
 	// Force unlock when no lock exists should be a no-op
-	err = ts.ForceUnlockBackup(ctx, shardKey)
+	err = ts.RevokeBackup(ctx, shardKey)
 	require.NoError(t, err)
 }
 
@@ -122,7 +122,7 @@ func TestAssertBackupLockHeld(t *testing.T) {
 	require.NoError(t, err)
 
 	// Force unlock — assert should fail on memorytopo after force unlock
-	err = ts.ForceUnlockBackup(ctx, shardKey)
+	err = ts.RevokeBackup(ctx, shardKey)
 	require.NoError(t, err)
 
 	err = topoclient.AssertBackupLockHeld(lockCtx, shardKey)

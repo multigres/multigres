@@ -58,7 +58,7 @@ func (l *Lease) Lost() <-chan struct{} {
 // operation completes (successfully or with error).
 func (l *Lease) Release(ctx context.Context) {
 	l.cancel() // stop the monitor goroutine
-	l.span.End()
+	defer l.span.End()
 	var err error
 	l.unlock(&err)
 	if err != nil {

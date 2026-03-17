@@ -536,7 +536,7 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 	return nil
 }
 
-// stanzaCreateWithLease acquires a distributed backup lease and then runs
+// initializePgBackRestStanza acquires a distributed backup lease and then runs
 // pgbackrest stanza-create. The lease ensures no other pooler is writing to
 // the same shard's backup repository concurrently.
 // Must be called after PostgreSQL is initialized and running.

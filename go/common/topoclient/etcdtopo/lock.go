@@ -322,7 +322,8 @@ func (s *etcdtopo) TryLockEphemeral(ctx context.Context, key, contents string, t
 		return nil, convertError(err, key)
 	}
 	if !txnresp.Succeeded {
-		// Key already exists — another holder has the lock.
+		// Key already exists — another holder has the lock. So, we revoke our
+		// own lease.
 		if _, rerr := s.cli.Revoke(context.TODO(), lease.ID); rerr != nil {
 			slog.InfoContext(ctx, "Revoke failed after lock contention", "error", rerr)
 		}
