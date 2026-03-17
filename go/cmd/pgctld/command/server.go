@@ -675,6 +675,18 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	if err != nil {
 		s.logger.WarnContext(ctx, "Failed to check postgres state (continuing anyway)", "error", err)
 	} else if !cleanlyStopped {
+		// Remove standby.signal if present before crash recovery. Single-user crash
+		// recovery mode (postgres --single) does not support standby mode, so a
+		// leftover standby.signal from a previously failed rewind attempt would
+		// prevent crash recovery from completing. It is safe to remove it here
+		// because the caller will re-create it via Restart --as-standby after rewind.
+		standbySignalPath := filepath.Join(s.poolerDir, "pg_data", "standby.signal")
+		if err := os.Remove(standbySignalPath); err != nil && !os.IsNotExist(err) {
+			s.logger.WarnContext(ctx, "Failed to remove standby.signal before rewind", "error", err)
+		} else if err == nil {
+			s.logger.InfoContext(ctx, "Removed stale standby.signal before rewind", "path", standbySignalPath)
+		}
+
 		// Try to run crash recovery.
 		// It's not harmful to do this if postgres is already running.
 		if err := runCrashRecovery(ctx, s.logger, s.poolerDir); err != nil {
