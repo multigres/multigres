@@ -52,12 +52,15 @@ func Steal(
 	}
 
 	// Lock is held by someone else — steal it.
+	ctx, stealSpan := telemetry.Tracer().Start(ctx, "backup-lease/steal")
+	defer stealSpan.End()
+
 	logger.InfoContext(ctx, "Backup lease held by another process, stealing",
 		"shard", shardKey.String(),
 		"stealer", stealerID,
 		"operation", operation)
 
-	// Step 1: Revoke existing lock
+	// Revoke existing lock
 	if err := store.ForceUnlockBackup(ctx, shardKey); err != nil {
 		logger.WarnContext(ctx, "Failed to force-unlock backup lease during steal",
 			"shard", shardKey.String(),
@@ -70,23 +73,18 @@ func Steal(
 		Stealer: stealerID,
 	})
 
-	// Step 2: Wait for old holder to clean up
+	// Wait for old holder to clean up
 	logger.InfoContext(ctx, "Waiting for old holder cleanup",
 		"shard", shardKey.String(),
 		"grace_period", StealGracePeriod)
 
-	if err := telemetry.WithSpan(ctx, "backup-lease/steal-wait", func(ctx context.Context) error {
-		select {
-		case <-time.After(StealGracePeriod):
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}); err != nil {
-		return ctx, nil, err
+	select {
+	case <-time.After(StealGracePeriod):
+	case <-ctx.Done():
+		return ctx, nil, ctx.Err()
 	}
 
-	// Step 3: Acquire new lease
+	// Acquire new lease
 	lockCtx, lease, err = Acquire(ctx, store, shardKey, stealerID, operation, logger)
 	if err != nil {
 		logger.WarnContext(ctx, "Failed to acquire backup lease after steal",
