@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -290,6 +291,11 @@ func (pm *MultiPoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		PostgresRunning:  pm.isPostgresRunning(ctx),
 		PostgresRole:     pm.getRole(ctx),
 		ShardId:          pm.getShardID(),
+	}
+
+	if action, duration := pm.actionLock.ActiveAction(); action != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
+		poolerStatus.PostgresAction = action
+		poolerStatus.PostgresActionDuration = durationpb.New(duration)
 	}
 
 	// Get consensus term if available (use inconsistent read for monitoring)

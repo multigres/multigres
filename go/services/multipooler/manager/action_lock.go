@@ -20,10 +20,12 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/sync/semaphore"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // actionLockKey is the context key for storing action lock information
@@ -44,6 +46,11 @@ type ActionLock struct {
 	mu        sync.Mutex
 	currentID uint64 // ID of current lock holder (0 if unlocked)
 	nextID    uint64 // Counter for generating unique IDs
+
+	// activeAction and activeActionStartedAt track the current postgres action
+	// in progress. Protected by mu. Cleared automatically on Release.
+	activeAction          multipoolermanagerdatapb.PostgresAction
+	activeActionStartedAt time.Time
 }
 
 // NewActionLock creates a new ActionLock.
@@ -120,9 +127,36 @@ func (al *ActionLock) Release(ctx context.Context) {
 
 	al.mu.Lock()
 	al.currentID = 0
+	al.activeAction = multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED
+	al.activeActionStartedAt = time.Time{}
 	al.mu.Unlock()
 
 	al.sema.Release(1)
+}
+
+// SetAction records the postgres action currently being performed.
+// Must be called while holding the lock (enforced via AssertActionLockHeld).
+func (al *ActionLock) SetAction(ctx context.Context, action multipoolermanagerdatapb.PostgresAction) error {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	al.activeAction = action
+	al.activeActionStartedAt = time.Now()
+	return nil
+}
+
+// ActiveAction returns the current postgres action and how long it has been running.
+// Returns UNSPECIFIED and zero duration when no action is in progress.
+// Safe to call without holding the action lock.
+func (al *ActionLock) ActiveAction() (multipoolermanagerdatapb.PostgresAction, time.Duration) {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	if al.activeAction == multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
+		return multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED, 0
+	}
+	return al.activeAction, time.Since(al.activeActionStartedAt)
 }
 
 // AssertActionLockHeld returns an error if the provided context does not hold
