@@ -1262,11 +1262,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// At this point, we can update the pooler type to primary
-	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
-	pm.mu.Unlock()
-
 	// Configure sync replication if needed
 	if err := pm.configureReplicationAfterPromotion(ctx, state, syncReplicationConfig); err != nil {
 		return nil, err
@@ -1320,13 +1315,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, mterrors.Wrap(err, "promotion failed: could not write leadership history (sync replication may not be functioning)")
 	}
 
-	// Update heartbeat tracker to primary mode
-	if pm.replTracker != nil {
-		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
-		pm.replTracker.MakePrimary()
-	}
-
-	// Update topology if needed (best-effort, don't fail promotion)
+	// Update topology and notify all components (best-effort, don't fail promotion)
 	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update topology after promotion", "error", err)
 	}

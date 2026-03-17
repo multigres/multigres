@@ -35,7 +35,7 @@ import (
 // of the PoolerController, similar to how TabletManager controls TabletServer in Vitess.
 type PoolerController interface {
 	// OnStateChange transitions the query service to match the new serving state.
-	// This is called by ServingStateManager during state transitions.
+	// This is called by StateManager during state transitions.
 	//
 	// The poolerType determines query behavior:
 	//   - PRIMARY: Accept reads + writes

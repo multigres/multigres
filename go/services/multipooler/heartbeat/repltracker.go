@@ -61,9 +61,8 @@ func (rt *ReplTracker) HeartbeatReader() *Reader {
 	return rt.hr
 }
 
-// MakePrimary must be called if the database becomes a primary.
-// TODO: These functions should be unexported.
-func (rt *ReplTracker) MakePrimary() {
+// makePrimary transitions to primary mode: stops reader, starts writer.
+func (rt *ReplTracker) makePrimary() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -72,8 +71,8 @@ func (rt *ReplTracker) MakePrimary() {
 	rt.hw.Open()
 }
 
-// MakeNonPrimary must be called if the database becomes a non-primary (standby).
-func (rt *ReplTracker) MakeNonPrimary() {
+// makeNonPrimary transitions to standby mode: stops writer, starts reader.
+func (rt *ReplTracker) makeNonPrimary() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -86,9 +85,9 @@ func (rt *ReplTracker) MakeNonPrimary() {
 // Starts the heartbeat writer for (PRIMARY, SERVING), stops it otherwise.
 func (rt *ReplTracker) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		rt.MakePrimary()
+		rt.makePrimary()
 	} else {
-		rt.MakeNonPrimary()
+		rt.makeNonPrimary()
 	}
 	return nil
 }

@@ -90,7 +90,7 @@ func (hs *healthStreamer) UpdatePrimaryObservation(obs *poolerserver.PrimaryObse
 
 // OnStateChange updates both poolerType and servingStatus atomically with a single
 // broadcast. This implements the StateAware interface so the healthStreamer can be
-// registered with ServingStateManager.
+// registered with StateManager.
 func (hs *healthStreamer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()

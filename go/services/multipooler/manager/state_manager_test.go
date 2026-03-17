@@ -67,11 +67,11 @@ func newTestMultiPooler(poolerType clustermetadatapb.PoolerType, status clusterm
 	}
 }
 
-func TestServingStateManager_SetState_PrimaryServing(t *testing.T) {
+func TestStateManager_SetState_PrimaryServing(t *testing.T) {
 	comp := &testComponent{}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp)
+	ssm := NewStateManager(newTestLogger(), mp, comp)
 
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 	require.NoError(t, err)
@@ -86,11 +86,11 @@ func TestServingStateManager_SetState_PrimaryServing(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
 }
 
-func TestServingStateManager_SetState_NotServing(t *testing.T) {
+func TestStateManager_SetState_NotServing(t *testing.T) {
 	comp := &testComponent{}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp)
+	ssm := NewStateManager(newTestLogger(), mp, comp)
 
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 	require.NoError(t, err)
@@ -102,11 +102,11 @@ func TestServingStateManager_SetState_NotServing(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, mp.ServingStatus)
 }
 
-func TestServingStateManager_SetState_ComponentError(t *testing.T) {
+func TestStateManager_SetState_ComponentError(t *testing.T) {
 	comp := &testComponent{err: errors.New("transition failed")}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp)
+	ssm := NewStateManager(newTestLogger(), mp, comp)
 
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
 	require.Error(t, err)
@@ -117,14 +117,14 @@ func TestServingStateManager_SetState_ComponentError(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
 }
 
-func TestServingStateManager_DemotionFlow(t *testing.T) {
+func TestStateManager_DemotionFlow(t *testing.T) {
 	// Simulate the demotion flow:
 	// Step 1: (PRIMARY, SERVING) -> (PRIMARY, NOT_SERVING)
 	// Step 2: (PRIMARY, NOT_SERVING) -> (REPLICA, SERVING)
 	comp := &testComponent{}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp)
+	ssm := NewStateManager(newTestLogger(), mp, comp)
 
 	// Step 1: Stop serving
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
@@ -148,12 +148,12 @@ func TestServingStateManager_DemotionFlow(t *testing.T) {
 	assert.Equal(t, 2, comp.callCount)
 }
 
-func TestServingStateManager_MultipleComponents(t *testing.T) {
+func TestStateManager_MultipleComponents(t *testing.T) {
 	comp1 := &testComponent{}
 	comp2 := &testComponent{}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp1, comp2)
+	ssm := NewStateManager(newTestLogger(), mp, comp1, comp2)
 
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 	require.NoError(t, err)
@@ -165,12 +165,12 @@ func TestServingStateManager_MultipleComponents(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, comp2.lastType)
 }
 
-func TestServingStateManager_MultipleComponents_OneError(t *testing.T) {
+func TestStateManager_MultipleComponents_OneError(t *testing.T) {
 	comp1 := &testComponent{}
 	comp2 := &testComponent{err: errors.New("comp2 failed")}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp1, comp2)
+	ssm := NewStateManager(newTestLogger(), mp, comp1, comp2)
 
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
 	require.Error(t, err)
@@ -181,12 +181,12 @@ func TestServingStateManager_MultipleComponents_OneError(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
 }
 
-func TestServingStateManager_Register(t *testing.T) {
+func TestStateManager_Register(t *testing.T) {
 	comp1 := &testComponent{}
 	comp2 := &testComponent{}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp1)
+	ssm := NewStateManager(newTestLogger(), mp, comp1)
 
 	// Register a second component after creation.
 	ssm.Register(comp2)
@@ -198,10 +198,10 @@ func TestServingStateManager_Register(t *testing.T) {
 	assert.Equal(t, 1, comp2.callCount)
 }
 
-func TestServingStateManager_NoComponents(t *testing.T) {
+func TestStateManager_NoComponents(t *testing.T) {
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp)
+	ssm := NewStateManager(newTestLogger(), mp)
 
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 	require.NoError(t, err)
@@ -211,7 +211,7 @@ func TestServingStateManager_NoComponents(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
 }
 
-func TestServingStateManager_HealthStreamerIntegration(t *testing.T) {
+func TestStateManager_HealthStreamerIntegration(t *testing.T) {
 	// Verify that when healthStreamer is registered as a component,
 	// SetState triggers a health stream broadcast with the correct state.
 	logger := newTestLogger()
@@ -224,7 +224,7 @@ func TestServingStateManager_HealthStreamerIntegration(t *testing.T) {
 	comp := &testComponent{}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
-	ssm := NewServingStateManager(logger, mp, comp, hs)
+	ssm := NewStateManager(logger, mp, comp, hs)
 
 	// Subscribe to health stream before state change
 	_, ch := hs.subscribe()
@@ -252,13 +252,13 @@ func TestServingStateManager_HealthStreamerIntegration(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, mp.ServingStatus)
 }
 
-func TestServingStateManager_ParallelExecution(t *testing.T) {
+func TestStateManager_ParallelExecution(t *testing.T) {
 	// Verify both components are invoked (they run in parallel via errgroup).
 	comp1 := &slowComponent{}
 	comp2 := &slowComponent{}
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
-	ssm := NewServingStateManager(newTestLogger(), mp, comp1, comp2)
+	ssm := NewStateManager(newTestLogger(), mp, comp1, comp2)
 
 	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 	require.NoError(t, err)

@@ -39,7 +39,7 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	assert.False(t, rt.IsPrimary())
 	assert.False(t, rt.hw.IsOpen())
 
-	rt.MakePrimary()
+	rt.makePrimary()
 	assert.True(t, rt.IsPrimary())
 	assert.True(t, rt.hw.IsOpen())
 
@@ -66,7 +66,7 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	rt.MakePrimary()
+	rt.makePrimary()
 	assert.True(t, rt.IsPrimary())
 	assert.True(t, rt.hw.IsOpen())
 
@@ -74,7 +74,7 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	assert.Greater(t, rt.Writes(), int64(0))
 
-	rt.MakeNonPrimary()
+	rt.makeNonPrimary()
 	assert.False(t, rt.IsPrimary())
 	assert.False(t, rt.hw.IsOpen())
 
@@ -144,7 +144,7 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	defer rt.Close()
 
 	// Start as primary
-	rt.MakePrimary()
+	rt.makePrimary()
 	assert.True(t, rt.IsPrimary())
 	assert.True(t, rt.hw.IsOpen())
 	assert.False(t, rt.hr.IsOpen())
@@ -155,7 +155,7 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	assert.EqualValues(t, 0, rt.hr.Reads())
 
 	// Switch to non-primary
-	rt.MakeNonPrimary()
+	rt.makeNonPrimary()
 	assert.False(t, rt.IsPrimary())
 	assert.False(t, rt.hw.IsOpen())
 	assert.True(t, rt.hr.IsOpen())

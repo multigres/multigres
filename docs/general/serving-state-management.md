@@ -42,10 +42,10 @@ Brief query blackout during type transition (same as Vitess).
 
 **Chosen: Current state on the `multipooler` record, no separate target state.**
 
-The `MultiPooler` proto record (`multipooler.Type` and `multipooler.ServingStatus`) is the single source of truth. The `ServingStateManager` doesn't store target state — `SetState()` receives the desired type and status as arguments, converges components, and updates the record atomically. Since only one transition runs at a time (callers hold `ssm.mu`), there's no need to track a separate target.
+The `MultiPooler` proto record (`multipooler.Type` and `multipooler.ServingStatus`) is the single source of truth. The `StateManager` doesn't store target state — `SetState()` receives the desired type and status as arguments, converges components, and updates the record atomically. Since only one transition runs at a time (callers hold `ssm.mu`), there's no need to track a separate target.
 
 ```go
-type ServingStateManager struct {
+type StateManager struct {
     multipooler  *clustermetadatapb.MultiPooler  // current state lives here
     components   []StateAware                     // registered components
 }
@@ -53,9 +53,9 @@ type ServingStateManager struct {
 
 This replaces the old `queryServingState` field which was a third copy of the serving status.
 
-**Alternative considered: Separate target state fields.** `ServingStateManager` would store `targetType`/`targetStatus` to allow a future background retry loop to re-attempt convergence toward the last-set target. We deferred this — target state can be added when async retry is needed. For now one transition at a time is sufficient.
+**Alternative considered: Separate target state fields.** `StateManager` would store `targetType`/`targetStatus` to allow a future background retry loop to re-attempt convergence toward the last-set target. We deferred this — target state can be added when async retry is needed. For now one transition at a time is sufficient.
 
-**Alternative considered: Fully separate state tracking.** `ServingStateManager` would track both target and current state independently from the `multipooler` record. More explicit separation of "local state" vs "topology state", but introduces duplication. We chose to avoid it since the `multipooler` record is already authoritative.
+**Alternative considered: Fully separate state tracking.** `StateManager` would track both target and current state independently from the `multipooler` record. More explicit separation of "local state" vs "topology state", but introduces duplication. We chose to avoid it since the `multipooler` record is already authoritative.
 
 ### Decision 3: Component notification model
 
@@ -86,7 +86,7 @@ type StateAware interface {
 `SetState()` fans out `OnStateChange` to all components in parallel and waits. Errors are returned to the caller. A background retry loop can be added later for transient failures.
 
 ```go
-func (ssm *ServingStateManager) SetState(ctx, poolerType, servingStatus) error {
+func (ssm *StateManager) SetState(ctx, poolerType, servingStatus) error {
     g, ctx := errgroup.WithContext(ctx)
     for _, c := range ssm.components {
         g.Go(func() error {
@@ -131,9 +131,9 @@ OnStateChange(ctx context.Context, poolerType PoolerType, servingStatus PoolerSe
 ### `ReplTracker`
 
 - Added `OnStateChange` method: starts heartbeat for `(PRIMARY, SERVING)`, stops otherwise
-- Delegates to existing `MakePrimary()`/`MakeNonPrimary()` (TODO: unexport those)
+- Delegates to unexported `makePrimary()`/`makeNonPrimary()`
 
-### `ServingStateManager` (new)
+### `StateManager` (new)
 
 Coordinates state transitions via the `StateAware` interface:
 - Components implement `OnStateChange` directly and are registered via constructor or `Register()`
@@ -142,8 +142,8 @@ Coordinates state transitions via the `StateAware` interface:
 
 ### Manager
 
-- Replaced `queryServingState` field with `servingState *ServingStateManager`
-- Creates `ServingStateManager` with `pm.qsc` at init
+- Replaced `queryServingState` field with `servingState *StateManager`
+- Creates `StateManager` with `pm.qsc` at init
 - Registers `pm.replTracker` when heartbeat starts
 - `setServingReadOnly()` replaced by `setNotServing()` which delegates to `servingState.SetState()`
 - `changeTypeLocked()` delegates to `servingState.SetState()` instead of managing heartbeat directly
@@ -176,7 +176,7 @@ EmergencyDemote:
 | File | Change |
 |---|---|
 | `proto/clustermetadata.proto` | Removed `SERVING_RDONLY` |
-| `go/services/multipooler/manager/serving_state.go` | New: `ServingStateManager`, `StateAware` interface |
+| `go/services/multipooler/manager/serving_state.go` | New: `StateManager`, `StateAware` interface |
 | `go/services/multipooler/manager/serving_state_test.go` | New: 9 unit tests |
 | `go/services/multipooler/manager/manager.go` | Replaced `queryServingState`, rewrote demotion helpers |
 | `go/services/multipooler/manager/rpc_manager.go` | Updated `changeTypeLocked` and emergency demotion |
@@ -187,8 +187,6 @@ EmergencyDemote:
 
 ## Future work
 
-- **Unexport `MakePrimary`/`MakeNonPrimary`**: Now that `ReplTracker` has `OnStateChange`, the direct methods can be unexported.
-- **Rename to `StateManager`**: `ServingStateManager` is verbose — can be shortened once the pattern is established.
 - **StateManager owns `multipooler` record**: The manager currently shares the `multipooler` pointer. The state manager could own it more explicitly.
 - **Query enforcement**: `QueryPoolerServer` stores `poolerType` but doesn't yet enforce read-only for replicas. The TODO remains for when transaction/query engines are added.
 - **Async retry**: Add a background retry loop for transient convergence failures (similar to Vitess's `retryTransition`).

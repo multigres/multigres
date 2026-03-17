@@ -96,7 +96,7 @@ type MultiPoolerManager struct {
 	isOpen bool
 	// all fields other than Type and ServingStatus never change after initialization.
 	// They can be accessed without holding the lock.
-	// TODO: Maybe the StateManager should own this now.
+	// Type and ServingStatus are exclusively written by the StateManager.
 	multipooler     *clustermetadatapb.MultiPooler
 	state           ManagerState
 	stateError      error
@@ -136,7 +136,7 @@ type MultiPoolerManager struct {
 
 	// servingState coordinates serving state transitions across components
 	// (query service, heartbeat tracker) and updates the multipooler record.
-	servingState *ServingStateManager
+	servingState *StateManager
 
 	// The following three variables are for pgbackrest.
 	primaryPoolerID *clustermetadatapb.ID
@@ -250,7 +250,7 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
-	pm.servingState = NewServingStateManager(logger, pm.multipooler, pm.qsc, pm.healthStreamer)
+	pm.servingState = NewStateManager(logger, pm.multipooler, pm.qsc, pm.healthStreamer)
 
 	// Register pgBackRest health metrics.
 	var metricsErr error
@@ -308,13 +308,6 @@ func (pm *MultiPoolerManager) execArgs(ctx context.Context, sql string, args ...
 // This operation is infallible - if connection pools fail to open, queries will fail
 // gracefully at query time rather than preventing the manager from opening.
 // Open is idempotent and safe to call multiple times.
-//
-// TODO:
-//   - Replace with proper state manager (like tm_state.go) that orchestrates
-//     state transitions and manages Open/Close lifecycle.
-//   - The replTracker is being Open/Close with a big hammer. A better approach
-//     is to call MakePrimary / MakeNonPrimary during state transitions.
-//     We can do this, once we introduce the proper state manager.
 func (pm *MultiPoolerManager) Open() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -406,10 +399,10 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 
 	if isPrimary {
 		pm.logger.InfoContext(ctx, "Starting heartbeat writer - connected to primary database")
-		pm.replTracker.MakePrimary()
+		_ = pm.replTracker.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
 	} else {
 		pm.logger.InfoContext(ctx, "Not starting heartbeat writer - connected to standby database")
-		pm.replTracker.MakeNonPrimary()
+		_ = pm.replTracker.OnStateChange(ctx, clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
 	}
 
 	return nil
@@ -1006,7 +999,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 }
 
 // setNotServing transitions the pooler to NOT_SERVING status during demotion.
-// This uses the ServingStateManager to coordinate:
+// This uses the StateManager to coordinate:
 //   - Query service rejects all queries
 //   - Heartbeat writer is stopped
 //   - Multipooler record is updated

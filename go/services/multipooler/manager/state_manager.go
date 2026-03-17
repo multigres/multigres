@@ -34,33 +34,33 @@ type StateAware interface {
 	OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
 }
 
-// ServingStateManager coordinates serving state transitions across components.
+// StateManager coordinates serving state transitions across components.
 //
 // The current state lives in the multipooler record (multipooler.Type and
 // multipooler.ServingStatus), which is the source of truth for topology.
 //
 // On SetState, the manager fans out OnStateChange to all registered components
 // in parallel, waits for completion, then updates the multipooler record.
-// TODO: RENAME TO StateManager
-type ServingStateManager struct {
+type StateManager struct {
 	mu     sync.Mutex
 	logger *slog.Logger
 
 	// Current state lives in multipooler.Type / .ServingStatus.
-	// This pointer is shared with MultiPoolerManager.
+	// This pointer is shared with MultiPoolerManager; the StateManager is the
+	// exclusive writer of the Type and ServingStatus fields.
 	multipooler *clustermetadatapb.MultiPooler
 
 	// Registered components that react to state changes.
 	components []StateAware
 }
 
-// NewServingStateManager creates a new ServingStateManager.
-func NewServingStateManager(
+// NewStateManager creates a new StateManager.
+func NewStateManager(
 	logger *slog.Logger,
 	multipooler *clustermetadatapb.MultiPooler,
 	components ...StateAware,
-) *ServingStateManager {
-	return &ServingStateManager{
+) *StateManager {
+	return &StateManager{
 		logger:      logger,
 		multipooler: multipooler,
 		components:  components,
@@ -70,7 +70,7 @@ func NewServingStateManager(
 // Register adds a component to be notified on state changes.
 // This is used for components created after the manager (e.g., ReplTracker).
 // Must not be called concurrently with SetState.
-func (ssm *ServingStateManager) Register(component StateAware) {
+func (ssm *StateManager) Register(component StateAware) {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 	ssm.components = append(ssm.components, component)
@@ -80,7 +80,7 @@ func (ssm *ServingStateManager) Register(component StateAware) {
 // The multipooler record is updated only after all components converge.
 // Returns an error if any component fails to transition.
 // No-op if the state hasn't changed.
-func (ssm *ServingStateManager) SetState(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+func (ssm *StateManager) SetState(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 
