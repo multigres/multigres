@@ -30,6 +30,7 @@ package parser
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
@@ -68,24 +69,23 @@ type ImportQual struct {
 
 %}
 
-%union {
-	// Basic types
+%struct {
 	ival       int
 	str        string
+	location   int
+}
+
+%union {
 	keyword    string
 	bval       bool
 	byt        byte
 	rune       rune
-
-	// AST nodes
 	node       ast.Node
 	stmt       ast.Stmt
 	stmtList   []ast.Stmt
 	list       *ast.NodeList
 	groupClause *ast.GroupClause
 	selectLimit *selectLimit
-
-	// Specific AST node types
 	into       *ast.IntoClause
 	onconflict *ast.OnConflictClause
 	windef     *ast.WindowDef
@@ -100,7 +100,7 @@ type ImportQual struct {
 	constraint *ast.Constraint
 	indexElem  *ast.IndexElem
 	alterCmd   *ast.AlterTableCmd
-	with	   *ast.WithClause
+	with       *ast.WithClause
 	rangevar   *ast.RangeVar
 	objType    ast.ObjectType
 	dropBehav  ast.DropBehavior
@@ -110,26 +110,23 @@ type ImportQual struct {
 	partboundspec *ast.PartitionBoundSpec
 	oncommit   ast.OnCommitAction
 	defelt     *ast.DefElem
-	target     *ast.ResTarget   // For select targets, insert columns
-	alias      *ast.Alias       // For table and column aliases
-	jtype      ast.JoinType     // For join type specifications
-	jexpr      *ast.JoinExpr    // For joined table expressions
-	keyaction  *ast.KeyAction   // For foreign key actions
-	keyactions *ast.KeyActions  // For foreign key action sets
-	funparam   *ast.FunctionParameter  // For function parameters
-	funparammode ast.FunctionParameterMode  // For parameter modes (IN/OUT/INOUT/VARIADIC)
-	vsetstmt   *ast.VariableSetStmt    // For SET/RESET statements
+	target     *ast.ResTarget
+	alias      *ast.Alias
+	jtype      ast.JoinType
+	jexpr      *ast.JoinExpr
+	keyaction  *ast.KeyAction
+	keyactions *ast.KeyActions
+	funparam   *ast.FunctionParameter
+	funparammode ast.FunctionParameterMode
+	vsetstmt   *ast.VariableSetStmt
 	rolespec   *ast.RoleSpec
 	objwithargs *ast.ObjectWithArgs
 	statelem   *ast.StatsElem
-	accesspriv *ast.AccessPriv         // For privilege specifications
-	privtarget *PrivTarget             // For privilege target specifications
-	vacrel     *ast.VacuumRelation     // For vacuum relation specifications
-	importqual *ImportQual             // For import qualification specifications
-	importqualtype ast.ImportForeignSchemaType // For import qualification type
-
-	// Location tracking
-	location   int
+	accesspriv *ast.AccessPriv
+	privtarget *PrivTarget
+	vacrel     *ast.VacuumRelation
+	importqual *ImportQual
+	importqualtype ast.ImportForeignSchemaType
 }
 
 /*
@@ -625,8 +622,6 @@ stmtmulti:
 			{
 				if $3 != nil {
 					$$ = append($1, $3)
-				} else {
-					$$ = $1
 				}
 			}
 		|	toplevel_stmt
@@ -15622,10 +15617,16 @@ func (l *Lexer) Error(s string) {
 	l.RecordError(fmt.Errorf("parse error at position %d: %s", l.GetPosition(), s))
 }
 
+var parserPool = sync.Pool{
+	New: func() any { return yyNewParser() },
+}
+
 // ParseSQL parses SQL input and returns the AST
 func ParseSQL(input string) ([]ast.Stmt, error) {
 	lexer := NewLexer(input)
-	yyParse(lexer)
+	parser := parserPool.Get().(yyParser)
+	parser.Parse(lexer)
+	parserPool.Put(parser)
 
 	if lexer.HasErrors() {
 		return nil, lexer.GetErrors()[0]

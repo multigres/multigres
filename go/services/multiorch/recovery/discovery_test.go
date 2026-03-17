@@ -484,7 +484,7 @@ func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	defer ts.Close()
 
 	cfg := config.NewTestConfig(config.WithCell("zone1"))
-	poolerStore := store.NewPoolerHealthStore()
+	poolerStore := store.NewPoolerStore(nil, slog.Default())
 	queue := NewQueue(slog.Default(), cfg)
 	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
 	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, queue, slog.Default())

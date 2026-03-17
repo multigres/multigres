@@ -28,38 +28,56 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// PoolerStore wraps the generic ProtoStore with pooler-specific query methods.
-// It provides convenient accessors for finding poolers by shard, ID, or role,
-// and can verify health via RPC calls.
+// PoolerStore manages pooler health state and provides RPC-based domain queries.
 type PoolerStore struct {
-	store     *ProtoStore[string, *multiorchdatapb.PoolerHealthState]
+	health    *poolerHealthStore
 	rpcClient rpcclient.MultiPoolerClient
 	logger    *slog.Logger
 }
 
-// NewPoolerStore creates a new PoolerStore wrapper.
-func NewPoolerStore(
-	store *ProtoStore[string, *multiorchdatapb.PoolerHealthState],
-	rpcClient rpcclient.MultiPoolerClient,
-	logger *slog.Logger,
-) *PoolerStore {
+// NewPoolerStore creates a new PoolerStore.
+// rpcClient and logger are used by FindHealthyPrimary; they may be nil in tests
+// that do not exercise that method.
+func NewPoolerStore(rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *PoolerStore {
 	return &PoolerStore{
-		store:     store,
+		health:    newPoolerHealthStore(),
 		rpcClient: rpcClient,
 		logger:    logger,
 	}
 }
 
-// Range delegates to the underlying store.
+// Get retrieves a pooler's health state by its ID string.
+// Returns a deep clone safe to mutate, and false if the key does not exist.
+func (s *PoolerStore) Get(poolerID string) (*multiorchdatapb.PoolerHealthState, bool) {
+	return s.health.get(poolerID)
+}
+
+// Set stores a deep clone of the pooler health state.
+func (s *PoolerStore) Set(poolerID string, state *multiorchdatapb.PoolerHealthState) {
+	s.health.set(poolerID, state)
+}
+
+// Delete removes a pooler from the store. Returns true if the pooler existed.
+func (s *PoolerStore) Delete(poolerID string) bool {
+	return s.health.delete(poolerID)
+}
+
+// Len returns the number of poolers in the store.
+func (s *PoolerStore) Len() int {
+	return s.health.len()
+}
+
+// Range iterates over all poolers. Each value passed to the callback is a deep
+// clone safe to mutate. Iteration stops early if the callback returns false.
 func (s *PoolerStore) Range(fn func(key string, value *multiorchdatapb.PoolerHealthState) bool) {
-	s.store.Range(fn)
+	s.health.rangeHealth(fn)
 }
 
 // FindPoolersInShard returns all poolers belonging to the given shard.
 func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multiorchdatapb.PoolerHealthState {
 	var poolers []*multiorchdatapb.PoolerHealthState
 
-	s.store.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}
@@ -80,7 +98,7 @@ func (s *PoolerStore) FindPoolersInShard(shardKey commontypes.ShardKey) []*multi
 func (s *PoolerStore) FindPoolerByID(id *clustermetadatapb.ID) (*multiorchdatapb.PoolerHealthState, error) {
 	var found *multiorchdatapb.PoolerHealthState
 
-	s.store.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+	s.health.rangeHealth(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			return true // continue
 		}

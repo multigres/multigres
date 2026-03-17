@@ -29,7 +29,7 @@ import (
 // RecoveryActionFactory creates recovery actions with all necessary dependencies.
 type RecoveryActionFactory struct {
 	config      *config.Config
-	poolerStore *store.PoolerHealthStore
+	poolerStore *store.PoolerStore
 	rpcClient   rpcclient.MultiPoolerClient
 	topoStore   topoclient.Store
 	coordinator *consensus.Coordinator
@@ -39,7 +39,7 @@ type RecoveryActionFactory struct {
 // NewRecoveryActionFactory creates a factory for recovery actions.
 func NewRecoveryActionFactory(
 	cfg *config.Config,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	rpcClient rpcclient.MultiPoolerClient,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
@@ -70,8 +70,7 @@ func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
 
 // NewFixReplicationAction creates a fix replication action.
 func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
-	poolerStore := store.NewPoolerStore(f.poolerStore, f.rpcClient, f.logger)
-	return actions.NewFixReplicationAction(f.config, f.rpcClient, poolerStore, f.topoStore, f.logger)
+	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
 // NewDemoteStalePrimaryAction creates an action to demote a stale primary.
