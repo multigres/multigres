@@ -274,6 +274,30 @@ func (sc *ScatterConn) PortalStreamExecute(
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
+	} else if conn.IsInTransaction() {
+		// Case 2: In transaction but no reserved connection — create one with BEGIN.
+		// Same deferred-BEGIN pattern as StreamExecute and CopyInitiate.
+		//
+		// We reuse ReserveStreamExecute with a no-op "SELECT 1" query rather than
+		// adding a dedicated ReservePortalStreamExecute RPC. A new RPC would require
+		// changes to the QueryService interface, proto definitions, all implementations,
+		// and the gRPC service, far more invasive for the same result.
+		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for portal transaction")
+
+		reservationOpts := protoutil.NewTransactionReservationOptions()
+		if state.PendingBeginQuery != "" {
+			reservationOpts.BeginQuery = state.PendingBeginQuery
+			state.PendingBeginQuery = ""
+		}
+		noopCallback := func(context.Context, *sqltypes.Result) error { return nil }
+		reservedState, reserveErr := sc.gateway.ReserveStreamExecute(
+			ctx, target, "SELECT 1", eo, reservationOpts, noopCallback)
+		if reserveErr != nil {
+			return fmt.Errorf("reserve connection for portal failed: %w", reserveErr)
+		}
+		sc.applyReservedState(conn, state, target, reservedState)
+		eo.ReservedConnectionId = reservedState.GetReservedConnectionId()
+		qs, err = sc.gateway.QueryServiceByID(ctx, reservedState.GetPoolerId(), target)
 	}
 	if err != nil {
 		return err
