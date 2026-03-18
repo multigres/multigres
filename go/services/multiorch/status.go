@@ -57,12 +57,19 @@ func (mo *MultiOrch) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleReady serves the readiness check
+// handleReady serves the readiness check.
+// Returns 503 if:
+// - There was an initialization error, OR
+// - All known poolers have been unreachable for 3x the health check interval
 func (mo *MultiOrch) handleReady(w http.ResponseWriter, r *http.Request) {
 	mo.serverStatus.mu.Lock()
-	defer mo.serverStatus.mu.Unlock()
+	hasInitError := len(mo.serverStatus.InitError) > 0
+	mo.serverStatus.mu.Unlock()
 
-	isReady := (len(mo.serverStatus.InitError) == 0)
+	threshold := 3 * mo.cfg.GetPoolerHealthCheckInterval()
+	allUnreachable := mo.recoveryEngine != nil && mo.recoveryEngine.AllPoolersUnreachable(threshold)
+
+	isReady := !hasInitError && !allUnreachable
 	if !isReady {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
