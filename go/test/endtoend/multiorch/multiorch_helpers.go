@@ -55,37 +55,48 @@ func waitForShardReady(t *testing.T, setup *shardsetup.ShardSetup, expectedStand
 
 	primaryName := shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
 		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
-			var primary string
-			var syncStandbyNames map[string]bool
-			replicaNames := make(map[string]bool)
-			for _, r := range statuses {
+			var primaryStatus *shardsetup.PoolerStatusResult
+			replicaStatuses := make(map[string]*shardsetup.PoolerStatusResult)
+			for i, r := range statuses {
 				if r.Err != nil || r.Status == nil {
 					continue
 				}
 				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-					primary = r.Name
-					if r.Status.PrimaryStatus != nil && r.Status.PrimaryStatus.SyncReplicationConfig != nil {
-						syncStandbyNames = make(map[string]bool)
-						for _, id := range r.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds {
-							syncStandbyNames[id.Name] = true
-						}
-					}
+					primaryStatus = &statuses[i]
 				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresRunning {
-					replicaNames[r.Name] = true
+					replicaStatuses[r.Name] = &statuses[i]
 				}
 			}
-			if primary == "" {
+			if primaryStatus == nil {
 				return "", false, "no primary elected yet"
 			}
-			if len(replicaNames) != expectedStandbyCount {
-				return "", false, fmt.Sprintf("%d/%d standbys initialized", len(replicaNames), expectedStandbyCount)
+			if len(replicaStatuses) != expectedStandbyCount {
+				return "", false, fmt.Sprintf("%d/%d standbys initialized", len(replicaStatuses), expectedStandbyCount)
 			}
-			for name := range replicaNames {
+			// Build lookup sets from the primary's sync config.
+			syncStandbyNames := make(map[string]bool) // short name (e.g. "pooler-2") -> true
+			syncAppNames := make(map[string]bool)     // application name (e.g. "test-cell_pooler-2") -> true
+			if syncConfig := primaryStatus.Status.GetPrimaryStatus().GetSyncReplicationConfig(); syncConfig != nil {
+				for _, id := range syncConfig.StandbyIds {
+					syncStandbyNames[id.Name] = true
+				}
+				for _, appName := range syncConfig.StandbyApplicationNames {
+					syncAppNames[appName] = true
+				}
+			}
+			for name, r := range replicaStatuses {
 				if !syncStandbyNames[name] {
 					return "", false, fmt.Sprintf("replica %s not yet in primary sync config", name)
 				}
+				connInfo := r.Status.GetReplicationStatus().GetPrimaryConnInfo()
+				if connInfo == nil {
+					return "", false, fmt.Sprintf("replica %s primary_conn_info not yet configured", name)
+				}
+				if !syncAppNames[connInfo.ApplicationName] {
+					return "", false, fmt.Sprintf("replica %s primary_conn_info application_name %q not in primary sync config", name, connInfo.ApplicationName)
+				}
 			}
-			return primary, true, ""
+			return primaryStatus.Name, true, ""
 		},
 		"shard did not become ready within %v", timeout,
 	)
