@@ -42,9 +42,10 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	return db
 }
 
-// waitForShardPrimary polls multipooler nodes until at least one is initialized as primary.
+// waitForShardReady polls until one node is an initialized primary, expectedStandbyCount nodes
+// are initialized replicating standbys, and sync replication is configured on the primary.
 // Returns the name of the elected primary.
-func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) string {
+func waitForShardReady(t *testing.T, setup *shardsetup.ShardSetup, expectedStandbyCount int, timeout time.Duration) string {
 	t.Helper()
 
 	var poolers []*shardsetup.MultipoolerInstance
@@ -54,57 +55,40 @@ func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout tim
 
 	primaryName := shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
 		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
+			var primary string
+			var syncStandbyNames map[string]bool
+			replicaNames := make(map[string]bool)
 			for _, r := range statuses {
 				if r.Err != nil || r.Status == nil {
 					continue
 				}
 				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-					return r.Name, true, ""
-				}
-			}
-			return "", false, "no primary elected yet"
-		},
-		"shard did not bootstrap within %v", timeout,
-	)
-	t.Logf("Shard bootstrapped: primary is %s", primaryName)
-	return primaryName
-}
-
-// waitForStandbysInitialized polls multipooler nodes until expected count of standbys are initialized
-// and synchronous replication is configured on the primary.
-func waitForStandbysInitialized(t *testing.T, setup *shardsetup.ShardSetup, expectedCount int, timeout time.Duration) {
-	t.Helper()
-
-	var poolers []*shardsetup.MultipoolerInstance
-	for _, inst := range setup.Multipoolers {
-		poolers = append(poolers, inst)
-	}
-
-	shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
-		func(statuses []shardsetup.PoolerStatusResult) (any, bool, string) {
-			standbyCount := 0
-			syncConfigured := false
-			for _, r := range statuses {
-				if r.Err != nil || r.Status == nil {
-					continue
-				}
-				if r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+					primary = r.Name
 					if r.Status.PrimaryStatus != nil && r.Status.PrimaryStatus.SyncReplicationConfig != nil {
-						syncConfigured = len(r.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds) >= expectedCount
+						syncStandbyNames = make(map[string]bool)
+						for _, id := range r.Status.PrimaryStatus.SyncReplicationConfig.StandbyIds {
+							syncStandbyNames[id.Name] = true
+						}
 					}
 				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresRunning {
-					standbyCount++
+					replicaNames[r.Name] = true
 				}
 			}
-			if standbyCount < expectedCount {
-				return nil, false, fmt.Sprintf("only %d/%d standbys initialized", standbyCount, expectedCount)
+			if primary == "" {
+				return "", false, "no primary elected yet"
 			}
-			if !syncConfigured {
-				return nil, false, "sync replication not yet configured on primary"
+			if len(replicaNames) != expectedStandbyCount {
+				return "", false, fmt.Sprintf("%d/%d standbys initialized", len(replicaNames), expectedStandbyCount)
 			}
-			return nil, true, ""
+			for name := range replicaNames {
+				if !syncStandbyNames[name] {
+					return "", false, fmt.Sprintf("replica %s not yet in primary sync config", name)
+				}
+			}
+			return primary, true, ""
 		},
-		"standbys did not initialize within %v", timeout,
+		"shard did not become ready within %v", timeout,
 	)
-	t.Logf("All %d standbys initialized successfully", expectedCount)
+	t.Logf("Shard ready: primary=%s, %d standbys initialized with sync replication", primaryName, expectedStandbyCount)
+	return primaryName
 }
