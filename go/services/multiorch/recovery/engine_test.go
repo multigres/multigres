@@ -660,3 +660,78 @@ func TestRecoveryEngine_FullIntegration(t *testing.T) {
 	_, ok = re.poolerStore.Get(keyNew)
 	require.True(t, ok, "new pooler should still exist")
 }
+
+func TestAllPoolersUnreachable(t *testing.T) {
+	ctx := context.Background()
+	threshold := 15 * time.Second
+
+	t.Run("no poolers returns false", func(t *testing.T) {
+		engine := newTestEngine(ctx, t)
+		require.False(t, engine.AllPoolersUnreachable(threshold))
+	})
+
+	t.Run("all poolers healthy returns false", func(t *testing.T) {
+		engine := newTestEngine(ctx, t)
+		engine.poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.Now(),
+		})
+		engine.poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.Now(),
+		})
+		require.False(t, engine.AllPoolersUnreachable(threshold))
+	})
+
+	t.Run("some poolers unreachable returns false", func(t *testing.T) {
+		engine := newTestEngine(ctx, t)
+		engine.poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: false,
+			LastSeen:         timestamppb.New(time.Now().Add(-1 * time.Hour)),
+		})
+		engine.poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.Now(),
+		})
+		require.False(t, engine.AllPoolersUnreachable(threshold))
+	})
+
+	t.Run("all poolers unreachable within threshold returns false", func(t *testing.T) {
+		engine := newTestEngine(ctx, t)
+		recentTime := timestamppb.New(time.Now().Add(-5 * time.Second))
+		engine.poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: false,
+			LastSeen:         recentTime,
+		})
+		engine.poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: false,
+			LastSeen:         recentTime,
+		})
+		require.False(t, engine.AllPoolersUnreachable(threshold))
+	})
+
+	t.Run("all poolers unreachable beyond threshold returns true", func(t *testing.T) {
+		engine := newTestEngine(ctx, t)
+		oldTime := timestamppb.New(time.Now().Add(-1 * time.Minute))
+		engine.poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: false,
+			LastSeen:         oldTime,
+		})
+		engine.poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: false,
+			LastSeen:         oldTime,
+		})
+		require.True(t, engine.AllPoolersUnreachable(threshold))
+	})
+
+	t.Run("all poolers never seen returns true", func(t *testing.T) {
+		engine := newTestEngine(ctx, t)
+		engine.poolerStore.Set("pooler1", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: false,
+		})
+		engine.poolerStore.Set("pooler2", &multiorchdatapb.PoolerHealthState{
+			IsLastCheckValid: false,
+		})
+		require.True(t, engine.AllPoolersUnreachable(threshold))
+	})
+}
