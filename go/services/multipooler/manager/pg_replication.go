@@ -47,22 +47,76 @@ import (
 // Application Name Helpers
 // ----------------------------------------------------------------------------
 
+// maxApplicationNameLength is the maximum length of a PostgreSQL application_name (NAMEDATALEN - 1).
+const maxApplicationNameLength = 63
+
+// applicationName is a validated PostgreSQL application_name string.
+// Use generateApplicationName to construct one from a cluster ID.
+type applicationName string
+
 // generateApplicationName generates the application_name for a multipooler from its ID
 // Format: {cell}_{name}
 // This is used consistently for:
 // - SetPrimaryConnInfo: standby's application_name when connecting to primary
 // - ConfigureSynchronousReplication: standby names in synchronous_standby_names
-func generateApplicationName(id *clustermetadatapb.ID) string {
-	return fmt.Sprintf("%s_%s", id.Cell, id.Name)
+func generateApplicationName(id *clustermetadatapb.ID) (applicationName, error) {
+	if id == nil {
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "nil")
+	}
+	if id.Cell == "" {
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty cell")
+	}
+	if id.Name == "" {
+		return "", mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "empty name")
+	}
+	// Underscores are not allowed in Cell or Name because they are used as delimiters
+	// in the application_name format (cell_name). Allowing underscores would break parsing.
+	if strings.Contains(id.Cell, "_") {
+		return "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"cell contains underscore: %q (underscores not allowed)", id.Cell)
+	}
+	if strings.Contains(id.Name, "_") {
+		return "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"name contains underscore: %q (underscores not allowed)", id.Name)
+	}
+	name := fmt.Sprintf("%s_%s", id.Cell, id.Name)
+	if len(name) > maxApplicationNameLength {
+		return "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"application name %q exceeds maximum length of %d characters", name, maxApplicationNameLength)
+	}
+	return applicationName(name), nil
 }
 
-// formatStandbyList converts standby IDs to a comma-separated list of quoted application names
-func formatStandbyList(standbyIDs []*clustermetadatapb.ID) string {
-	quotedNames := make([]string, len(standbyIDs))
-	for i, id := range standbyIDs {
-		quotedNames[i] = fmt.Sprintf(`"%s"`, generateApplicationName(id))
+// applicationNamesToStrings converts a slice of applicationName to plain strings for use in APIs
+// that accept []string (e.g., history records).
+func applicationNamesToStrings(names []applicationName) []string {
+	strs := make([]string, len(names))
+	for i, n := range names {
+		strs[i] = string(n)
 	}
-	return strings.Join(quotedNames, ", ")
+	return strs
+}
+
+// formatStandbyList formats a list of application names as a comma-separated list of quoted names.
+func formatStandbyList(names []applicationName) string {
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = fmt.Sprintf(`"%s"`, name)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// standbyIDsToAppNames converts a slice of standby IDs to their application names.
+func standbyIDsToAppNames(ids []*clustermetadatapb.ID) ([]applicationName, error) {
+	names := make([]applicationName, len(ids))
+	for i, id := range ids {
+		name, err := generateApplicationName(id)
+		if err != nil {
+			return nil, mterrors.Wrapf(err, "standby_ids[%d]", i)
+		}
+		names[i] = name
+	}
+	return names, nil
 }
 
 // ----------------------------------------------------------------------------
@@ -651,12 +705,10 @@ func (pm *MultiPoolerManager) setSynchronousCommit(ctx context.Context, synchron
 
 // buildSynchronousStandbyNamesValue constructs the synchronous_standby_names value string
 // This produces values like: FIRST 1 ("standby-1", "standby-2") or ANY 1 ("standby-1", "standby-2")
-func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) (string, error) {
-	if len(standbyIDs) == 0 {
+func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []applicationName) (string, error) {
+	if len(names) == 0 {
 		return "", nil
 	}
-
-	standbyList := formatStandbyList(standbyIDs)
 
 	var methodStr string
 	switch method {
@@ -669,7 +721,7 @@ func buildSynchronousStandbyNamesValue(method multipoolermanagerdatapb.Synchrono
 			fmt.Sprintf("invalid synchronous method: %s, must be FIRST or ANY", method.String()))
 	}
 
-	return fmt.Sprintf("%s %d (%s)", methodStr, numSync, standbyList), nil
+	return fmt.Sprintf("%s %d (%s)", methodStr, numSync, formatStandbyList(names)), nil
 }
 
 // applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
@@ -698,9 +750,9 @@ func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, 
 //
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
 // Application names are generated from multipooler IDs using the shared generateApplicationName helper
-func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, standbyIDs []*clustermetadatapb.ID) error {
+func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []applicationName) error {
 	// If standby list is empty, clear synchronous_standby_names
-	if len(standbyIDs) == 0 {
+	if len(names) == 0 {
 		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer execCancel()
 
@@ -718,7 +770,7 @@ func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, sy
 	}
 
 	// Build the synchronous_standby_names value using the shared helper
-	standbyNamesValue, err := buildSynchronousStandbyNamesValue(synchronousMethod, numSync, standbyIDs)
+	standbyNamesValue, err := buildSynchronousStandbyNamesValue(synchronousMethod, numSync, names)
 	if err != nil {
 		return err
 	}
@@ -896,45 +948,19 @@ func (pm *MultiPoolerManager) syncReplicationConfigMatches(current *multipoolerm
 // ----------------------------------------------------------------------------
 // Validation Helpers
 // ----------------------------------------------------------------------------
-// validateStandbyIDs validates a list of standby IDs
-func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) error {
+// validateStandbyIDs validates that the list is non-empty and converts each ID to its application name.
+func validateStandbyIDs(standbyIDs []*clustermetadatapb.ID) ([]applicationName, error) {
 	if len(standbyIDs) == 0 {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "standby_ids cannot be empty")
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "standby_ids cannot be empty")
 	}
-
-	for i, id := range standbyIDs {
-		if id == nil {
-			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("standby_ids[%d] is nil", i))
-		}
-		if id.Cell == "" {
-			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("standby_ids[%d] has empty cell", i))
-		}
-		if id.Name == "" {
-			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("standby_ids[%d] has empty name", i))
-		}
-		// Underscores are not allowed in Cell or Name because they are used as delimiters
-		// in the application_name format (cell_name). Allowing underscores would break parsing.
-		if strings.Contains(id.Cell, "_") {
-			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("standby_ids[%d] cell contains underscore: %q (underscores not allowed)", i, id.Cell))
-		}
-		if strings.Contains(id.Name, "_") {
-			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
-				fmt.Sprintf("standby_ids[%d] name contains underscore: %q (underscores not allowed)", i, id.Name))
-		}
-	}
-
-	return nil
+	return standbyIDsToAppNames(standbyIDs)
 }
 
 // validateSyncReplicationParams validates the parameters for ConfigureSynchronousReplication
-func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) error {
+func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatapb.ID) ([]applicationName, error) {
 	// Validate numSync is non-negative
 	if numSync < 0 {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			fmt.Sprintf("num_sync must be non-negative, got: %d", numSync))
 	}
 
@@ -943,17 +969,19 @@ func validateSyncReplicationParams(numSync int32, standbyIDs []*clustermetadatap
 		// Validate that numSync doesn't exceed the number of standbys (PostgreSQL requirement)
 		// Note: numSync=0 is allowed and will be defaulted to 1 in setSynchronousStandbyNames
 		if numSync > int32(len(standbyIDs)) {
-			return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 				fmt.Sprintf("num_sync (%d) cannot exceed number of standby_ids (%d)", numSync, len(standbyIDs)))
 		}
 
 		// Validate each standby ID
-		if err := validateStandbyIDs(standbyIDs); err != nil {
-			return err
+		names, err := validateStandbyIDs(standbyIDs)
+		if err != nil {
+			return nil, err
 		}
+		return names, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 // ----------------------------------------------------------------------------
@@ -975,29 +1003,29 @@ func standbyUpdateOperationName(op multipoolermanagerdatapb.StandbyUpdateOperati
 // ----------------------------------------------------------------------------
 
 // applyAddOperation adds new standbys to the standby list (idempotent)
-func applyAddOperation(currentStandbys []*clustermetadatapb.ID, newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
-	updatedStandbys := append([]*clustermetadatapb.ID{}, currentStandbys...)
-	existingMap := make(map[string]bool)
+func applyAddOperation(currentStandbys, newStandbys []applicationName) []applicationName {
+	updatedStandbys := append([]applicationName{}, currentStandbys...)
+	existingMap := make(map[applicationName]bool, len(currentStandbys))
 	for _, standby := range currentStandbys {
-		existingMap[generateApplicationName(standby)] = true
+		existingMap[standby] = true
 	}
 	for _, newStandby := range newStandbys {
-		if !existingMap[generateApplicationName(newStandby)] {
+		if !existingMap[newStandby] {
 			updatedStandbys = append(updatedStandbys, newStandby)
 		}
 	}
 	return updatedStandbys
 }
 
-// applyRemoveOperation removes standbys from the standby list (idempotent)
-func applyRemoveOperation(currentStandbys []*clustermetadatapb.ID, standbysToRemove []*clustermetadatapb.ID) []*clustermetadatapb.ID {
-	removeMap := make(map[string]bool)
+// applyRemoveOperation removes standby names from the standby list (idempotent)
+func applyRemoveOperation(currentStandbys, standbysToRemove []applicationName) []applicationName {
+	removeMap := make(map[applicationName]bool, len(standbysToRemove))
 	for _, standby := range standbysToRemove {
-		removeMap[generateApplicationName(standby)] = true
+		removeMap[standby] = true
 	}
-	var updatedStandbys []*clustermetadatapb.ID
+	var updatedStandbys []applicationName
 	for _, standby := range currentStandbys {
-		if !removeMap[generateApplicationName(standby)] {
+		if !removeMap[standby] {
 			updatedStandbys = append(updatedStandbys, standby)
 		}
 	}
@@ -1005,7 +1033,7 @@ func applyRemoveOperation(currentStandbys []*clustermetadatapb.ID, standbysToRem
 }
 
 // applyReplaceOperation replaces the entire standby list
-func applyReplaceOperation(newStandbys []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+func applyReplaceOperation(newStandbys []applicationName) []applicationName {
 	return newStandbys
 }
 

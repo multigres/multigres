@@ -48,7 +48,7 @@ const StalePrimaryDrainTimeout = 5 * time.Second
 type DemoteStalePrimaryAction struct {
 	config      *config.Config
 	rpcClient   rpcclient.MultiPoolerClient
-	poolerStore *store.PoolerHealthStore
+	poolerStore *store.PoolerStore
 	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
@@ -57,7 +57,7 @@ type DemoteStalePrimaryAction struct {
 func NewDemoteStalePrimaryAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *DemoteStalePrimaryAction {

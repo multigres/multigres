@@ -188,6 +188,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	if multiPooler.Id == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
 	}
+	if _, err := generateApplicationName(multiPooler.Id); err != nil {
+		return nil, mterrors.Wrap(err, "invalid MultiPooler.Id")
+	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
 	if err := constants.ValidateMVPTableGroupAndShard(multiPooler.TableGroup, multiPooler.Shard); err != nil {
@@ -1683,12 +1686,18 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 
 	case remedialActionStartPostgres:
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
 		if err := pm.startPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
 		}
 
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
 		}
@@ -1715,7 +1724,7 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 
 // startPostgres starts PostgreSQL via pgctld
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgresSQL")
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL")
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}

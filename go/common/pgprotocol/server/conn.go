@@ -413,6 +413,10 @@ func (c *Conn) serve() error {
 
 	// First, handle the startup phase.
 	if err := c.handleStartup(); err != nil {
+		if errors.Is(err, io.EOF) {
+			c.logger.Debug("client disconnected before startup")
+			return nil
+		}
 		c.logger.Error("startup failed", "error", err)
 		// Try to send an error response before closing.
 		// If the error is already a PgDiagnostic (e.g., duplicate SSLRequest
@@ -448,6 +452,10 @@ func (c *Conn) serve() error {
 
 		// Process the message based on type.
 		if err := c.handleMessage(msgType); err != nil {
+			if errors.Is(err, io.EOF) {
+				c.logger.Debug("client closed connection")
+				return nil
+			}
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
 			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))

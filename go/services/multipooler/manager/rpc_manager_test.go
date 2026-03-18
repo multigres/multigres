@@ -324,7 +324,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			name:       "Promote times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_REPLICA,
 			callMethod: func(ctx context.Context) error {
-				_, err := manager.Promote(ctx, 1, "", nil, false /* force */, "", "", nil, nil)
+				_, err := manager.Promote(ctx, 1, "", nil, false /* force */, "", nil, nil, nil)
 				return err
 			},
 		},
@@ -515,7 +515,7 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	pm.mu.Unlock()
 
 	// Call Promote - should detect PG is already promoted and only update topology
-	resp, err := pm.Promote(ctx, 10, "0/ABCDEF0", nil, false /* force */, "", "", nil, nil)
+	resp, err := pm.Promote(ctx, 10, "0/ABCDEF0", nil, false /* force */, "", nil, nil, nil)
 	require.NoError(t, err, "Should succeed - idempotent retry after partial failure")
 	require.NotNil(t, resp)
 
@@ -564,7 +564,7 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call Promote - should succeed with WasAlreadyPrimary=true (idempotent)
-	resp, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, false /* force */, "", "", nil, nil)
+	resp, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, false /* force */, "", nil, nil, nil)
 	require.NoError(t, err, "Should succeed - everything is already complete")
 	require.NotNil(t, resp)
 
@@ -599,7 +599,7 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 	pm.mu.Unlock()
 
 	// Call Promote without force - should fail with inconsistent state error
-	_, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, false, "", "", nil, nil)
+	_, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, false, "", nil, nil, nil)
 	require.Error(t, err, "Should fail due to inconsistent state without force flag")
 	assert.Contains(t, err.Error(), "inconsistent state")
 	assert.Contains(t, err.Error(), "Manual intervention required")
@@ -657,7 +657,7 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call Promote with force=true - should fix the inconsistency
-	resp, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, true, "", "", nil, nil)
+	resp, err := pm.Promote(ctx, 10, "0/FEDCBA0", nil, true, "", nil, nil, nil)
 	require.NoError(t, err, "Should succeed with force flag - fixing inconsistent state")
 	require.NotNil(t, resp)
 
@@ -722,7 +722,7 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call Promote - should execute all steps
-	resp, err := pm.Promote(ctx, 10, "0/5678ABC", nil, false /* force */, "", "", nil, nil)
+	resp, err := pm.Promote(ctx, 10, "0/5678ABC", nil, false /* force */, "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -759,7 +759,7 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call Promote with different expected LSN - should fail
-	_, err := pm.Promote(ctx, 10, "0/1111111", nil, false /* force */, "", "", nil, nil)
+	_, err := pm.Promote(ctx, 10, "0/1111111", nil, false /* force */, "", nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "LSN")
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -780,7 +780,7 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 	setTermForTest(t, tmpDir, term)
 
 	// Call Promote with wrong term (current term is 10, passing 5)
-	_, err := pm.Promote(ctx, 5, "0/1234567", nil, false /* force */, "", "", nil, nil)
+	_, err := pm.Promote(ctx, 5, "0/1234567", nil, false /* force */, "", nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "term")
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
@@ -842,7 +842,7 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	pm.mu.Unlock()
 
 	// First call
-	resp1, err := pm.Promote(ctx, 10, "0/AAA1111", nil, false /* force */, "", "", nil, nil)
+	resp1, err := pm.Promote(ctx, 10, "0/AAA1111", nil, false /* force */, "", nil, nil, nil)
 	require.NoError(t, err)
 	assert.False(t, resp1.WasAlreadyPrimary)
 
@@ -853,7 +853,7 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 
 	// Second call should SUCCEED - topology is PRIMARY and everything is consistent (idempotent)
 	// The pg_is_in_recovery pattern already returns "f" (false) since the first call consumed the "t" patterns
-	resp2, err := pm.Promote(ctx, 10, "0/AAA1111", nil, false /* force */, "", "", nil, nil)
+	resp2, err := pm.Promote(ctx, 10, "0/AAA1111", nil, false /* force */, "", nil, nil, nil)
 	require.NoError(t, err, "Second call should succeed - idempotent operation")
 	assert.True(t, resp2.WasAlreadyPrimary, "Second call should report as already primary")
 	assert.Equal(t, "0/AAA1111", resp2.LsnPosition)
@@ -905,7 +905,7 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Call Promote with empty expectedLSN - should skip LSN validation
-	resp, err := pm.Promote(ctx, 10, "", nil, false /* force */, "", "", nil, nil)
+	resp, err := pm.Promote(ctx, 10, "", nil, false /* force */, "", nil, nil, nil)
 	require.NoError(t, err, "Should succeed with empty expectedLSN")
 	require.NotNil(t, resp)
 
@@ -961,9 +961,16 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 
 	// Call Promote with election metadata
 	reason := "dead_primary"
-	coordinatorID := "coordinator-1"
-	cohortMembers := []string{"pooler-1", "pooler-2", "pooler-3"}
-	acceptedMembers := []string{"pooler-1", "pooler-3"}
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	cohortMembers := []*clustermetadatapb.ID{
+		{Cell: "zone1", Name: "pooler-1"},
+		{Cell: "zone1", Name: "pooler-2"},
+		{Cell: "zone1", Name: "pooler-3"},
+	}
+	acceptedMembers := []*clustermetadatapb.ID{
+		{Cell: "zone1", Name: "pooler-1"},
+		{Cell: "zone1", Name: "pooler-3"},
+	}
 
 	resp, err := pm.Promote(ctx, 10, "0/1234567", nil, false /* force */, reason, coordinatorID, cohortMembers, acceptedMembers)
 	require.NoError(t, err, "Promote should succeed with election metadata")
@@ -1039,7 +1046,7 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	require.Equal(t, int64(0), term.GetPrimaryTerm(), "primary_term should be 0 before promotion")
 
 	// Call Promote - should FAIL because leadership history insertion fails
-	resp, err := pm.Promote(ctx, 10, "0/9876543", nil, false /* force */, "test_reason", "test_coordinator", nil, nil)
+	resp, err := pm.Promote(ctx, 10, "0/9876543", nil, false /* force */, "test_reason", nil, nil, nil)
 	require.Error(t, err, "Promote should fail when leadership history insertion fails")
 	require.Nil(t, resp)
 
@@ -1169,7 +1176,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	factory.SetError(errors.New("topo unavailable"))
 
 	// Promote should succeed despite topo failure
-	resp, err := pm.Promote(ctx, 10, "0/ABCDEF0", nil, false, "test_reason", "test_coordinator", nil, nil)
+	resp, err := pm.Promote(ctx, 10, "0/ABCDEF0", nil, false, "test_reason", nil, nil, nil)
 	require.NoError(t, err, "Promote should succeed even when topology update fails")
 	require.NotNil(t, resp)
 

@@ -172,7 +172,7 @@ func Configure[T any](reg *Registry, key string, opts Options[T]) (v Value[T]) {
 }
 
 // KeyPrefixFunc is a helper function to allow modules to extract a common key
-// prefix used by that module to avoid repitition (and typos, missed updates,
+// prefix used by that module to avoid repetition (and typos, missed updates,
 // and so on).
 //
 // For example, package go/vt/vttablet/schema may want to do:

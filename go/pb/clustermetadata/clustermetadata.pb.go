@@ -167,11 +167,15 @@ type QuorumType int32
 const (
 	// QUORUM_TYPE_UNKNOWN represents an unknown or uninitialized quorum type
 	QuorumType_QUORUM_TYPE_UNKNOWN QuorumType = 0
-	// QUORUM_TYPE_ANY_N requires any N nodes from discovered cohort
+	// Deprecated: use QUORUM_TYPE_AT_LEAST_N
 	QuorumType_QUORUM_TYPE_ANY_N QuorumType = 1
-	// QUORUM_TYPE_MULTI_CELL_ANY_N requires nodes from multiple cells (availability zones)
-	// with at least one node from each of the required cells
+	// Deprecated: use QUORUM_TYPE_MULTI_CELL_AT_LEAST_N
 	QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N QuorumType = 2
+	// QUORUM_TYPE_AT_LEAST_N requires at least N nodes from the discovered cohort to acknowledge
+	QuorumType_QUORUM_TYPE_AT_LEAST_N QuorumType = 3
+	// QUORUM_TYPE_MULTI_CELL_AT_LEAST_N requires nodes from multiple cells (availability zones)
+	// with at least one node from each of the required cells
+	QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N QuorumType = 4
 )
 
 // Enum value maps for QuorumType.
@@ -180,11 +184,15 @@ var (
 		0: "QUORUM_TYPE_UNKNOWN",
 		1: "QUORUM_TYPE_ANY_N",
 		2: "QUORUM_TYPE_MULTI_CELL_ANY_N",
+		3: "QUORUM_TYPE_AT_LEAST_N",
+		4: "QUORUM_TYPE_MULTI_CELL_AT_LEAST_N",
 	}
 	QuorumType_value = map[string]int32{
-		"QUORUM_TYPE_UNKNOWN":          0,
-		"QUORUM_TYPE_ANY_N":            1,
-		"QUORUM_TYPE_MULTI_CELL_ANY_N": 2,
+		"QUORUM_TYPE_UNKNOWN":               0,
+		"QUORUM_TYPE_ANY_N":                 1,
+		"QUORUM_TYPE_MULTI_CELL_ANY_N":      2,
+		"QUORUM_TYPE_AT_LEAST_N":            3,
+		"QUORUM_TYPE_MULTI_CELL_AT_LEAST_N": 4,
 	}
 )
 
@@ -1239,8 +1247,8 @@ type QuorumRule struct {
 	// quorum_type determines which quorum algorithm to use
 	QuorumType QuorumType `protobuf:"varint,1,opt,name=quorum_type,json=quorumType,proto3,enum=clustermetadata.QuorumType" json:"quorum_type,omitempty"`
 	// required_count: number of nodes/cells required
-	//   - For QUORUM_TYPE_ANY_N: number of nodes required from discovered cohort
-	//   - For QUORUM_TYPE_MULTI_CELL_ANY_N: number of distinct cells required,
+	//   - For QUORUM_TYPE_AT_LEAST_N: number of nodes required from discovered cohort
+	//   - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N: number of distinct cells required,
 	//     with at least one node from each cell
 	RequiredCount int32 `protobuf:"varint,2,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
 	// Human-readable description
@@ -1419,12 +1427,14 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
 	"\aRESTORE\x10\x03\x12\x12\n" +
-	"\x0eSERVING_RDONLY\x10\x05\"\x04\b\x04\x10\x04*^\n" +
+	"\x0eSERVING_RDONLY\x10\x05\"\x04\b\x04\x10\x04*\xa1\x01\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +
 	"\x11QUORUM_TYPE_ANY_N\x10\x01\x12 \n" +
-	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02*\xa2\x01\n" +
+	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02\x12\x1a\n" +
+	"\x16QUORUM_TYPE_AT_LEAST_N\x10\x03\x12%\n" +
+	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*\xa2\x01\n" +
 	"\x1cAsyncReplicationFallbackMode\x12+\n" +
 	"'ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN\x10\x00\x12)\n" +
 	"%ASYNC_REPLICATION_FALLBACK_MODE_ALLOW\x10\x01\x12*\n" +

@@ -18,14 +18,44 @@ import (
 	multiorchdata "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// PoolerHealthStore is a type alias for the store that holds pooler health state.
-// This provides a shorter, more readable type name for the commonly used
-// ProtoStore[string, *multiorchdata.PoolerHealthState].
-type PoolerHealthStore = ProtoStore[string, *multiorchdata.PoolerHealthState]
+// poolerHealthStore is a thread-safe store for pooler health state.
+// It provides clone-on-read/write semantics so callers always work with
+// isolated copies, preventing concurrent mutation of shared state.
+type poolerHealthStore struct {
+	proto *ProtoStore[string, *multiorchdata.PoolerHealthState]
+}
 
-// NewPoolerHealthStore creates a new store for pooler health state.
-func NewPoolerHealthStore() *PoolerHealthStore {
-	return NewProtoStore[string, *multiorchdata.PoolerHealthState]()
+// newPoolerHealthStore creates a new store for pooler health state.
+func newPoolerHealthStore() *poolerHealthStore {
+	return &poolerHealthStore{
+		proto: NewProtoStore[string, *multiorchdata.PoolerHealthState](),
+	}
+}
+
+// get retrieves a pooler's health state by its ID string.
+func (s *poolerHealthStore) get(poolerID string) (*multiorchdata.PoolerHealthState, bool) {
+	return s.proto.Get(poolerID)
+}
+
+// set stores a deep clone of the pooler health state.
+func (s *poolerHealthStore) set(poolerID string, state *multiorchdata.PoolerHealthState) {
+	s.proto.Set(poolerID, state)
+}
+
+// delete removes a pooler from the store. Returns true if the pooler existed.
+func (s *poolerHealthStore) delete(poolerID string) bool {
+	return s.proto.Delete(poolerID)
+}
+
+// len returns the number of poolers in the store.
+func (s *poolerHealthStore) len() int {
+	return s.proto.Len()
+}
+
+// range iterates over all poolers. Each value passed to the callback is a deep
+// clone safe to mutate. Iteration stops early if the callback returns false.
+func (s *poolerHealthStore) rangeHealth(fn func(key string, value *multiorchdata.PoolerHealthState) bool) {
+	s.proto.Range(fn)
 }
 
 // IsInitialized returns true if the pooler has been initialized.

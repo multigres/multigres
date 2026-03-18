@@ -74,3 +74,6 @@ demo/k8s/data/
 # Next
 .next
 
+# Generated PR description
+pr-description.md
+

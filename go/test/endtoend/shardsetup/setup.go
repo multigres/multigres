@@ -101,7 +101,7 @@ func WithCellName(cell string) SetupOption {
 }
 
 // WithDurabilityPolicy sets the durability policy for the database.
-// Default is "ANY_2".
+// Default is "AT_LEAST_2".
 func WithDurabilityPolicy(policy string) SetupOption {
 	return func(c *SetupConfig) {
 		c.DurabilityPolicy = policy
@@ -259,7 +259,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		TableGroup:       constants.DefaultTableGroup,
 		Shard:            constants.DefaultShard,
 		CellName:         "test-cell",
-		DurabilityPolicy: "ANY_2",
+		DurabilityPolicy: "AT_LEAST_2",
 	}
 
 	// Apply options
@@ -612,23 +612,45 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 			continue
 		}
 
-		// Check if node is initialized (can query postgres)
-		_, err = QueryStringValue(ctx, client.Pooler, "SELECT 1")
-		if err != nil {
-			client.Close()
-			poolerStatuses = append(poolerStatuses, name+": not_queryable")
+		// Try both the Status RPC and a postgres query independently — either can
+		// succeed without the other, and we want to report as much as possible.
+
+		// --- Manager Status RPC (works even when postgres is down) ---
+		var status *multipoolermanagerdatapb.Status
+		statusResp, statusErr := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		if statusErr == nil && statusResp.Status != nil {
+			status = statusResp.Status
+		}
+
+		// --- Postgres query ---
+		_, queryErr := QueryStringValue(ctx, client.Pooler, "SELECT 1")
+		queryable := queryErr == nil
+
+		client.Close()
+
+		// Build a status string from everything we know.
+		// Start with queryability, then layer in type/replication/action details.
+		if !queryable && status == nil {
+			poolerStatuses = append(poolerStatuses, name+": not_queryable, status_rpc_failed")
 			continue
 		}
 
-		// Check pooler type via Status RPC - must be explicit (not UNKNOWN)
-		statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil || statusResp.Status == nil {
-			client.Close()
-			poolerStatuses = append(poolerStatuses, name+": queryable, status_rpc_failed")
+		// Format active action suffix (present in every line when an action is running).
+		actionSuffix := ""
+		if status != nil && status.PostgresAction != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
+			actionSuffix = fmt.Sprintf(", action=%s(%s)", status.PostgresAction, status.PostgresActionDuration.AsDuration().Round(time.Second))
+		}
+
+		if !queryable {
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: not_queryable%s", name, actionSuffix))
 			continue
 		}
 
-		status := statusResp.Status
+		if status == nil {
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, status_rpc_failed%s", name, actionSuffix))
+			continue
+		}
+
 		isFullyInitialized := false
 
 		switch status.PoolerType {
@@ -643,14 +665,14 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 				}
 				t.Logf("checkBootstrapStatus: %s is PRIMARY but sync replication not ready (standbys=%d, expected=%d)",
 					name, standbyCount, expectedReplicaCount)
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (standbys=%d/%d)",
-					name, standbyCount, expectedReplicaCount))
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (standbys=%d/%d)%s",
+					name, standbyCount, expectedReplicaCount, actionSuffix))
 			} else {
 				primaryName = name
 				standbyCount := len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured (standbys=%d/%d)",
-					name, standbyCount, expectedReplicaCount))
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured (standbys=%d/%d)%s",
+					name, standbyCount, expectedReplicaCount, actionSuffix))
 			}
 
 		case clustermetadatapb.PoolerType_REPLICA:
@@ -669,17 +691,15 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 
 			if !hasHost {
 				t.Logf("checkBootstrapStatus: %s is REPLICA but primary_conn_info not configured", name)
-				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_waiting")
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_waiting%s", name, actionSuffix))
 			} else {
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_configured")
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_configured%s", name, actionSuffix))
 			}
 		default:
-			poolerStatuses = append(poolerStatuses, name+": queryable, type=UNKNOWN")
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=UNKNOWN%s", name, actionSuffix))
 			// UNKNOWN type means not fully initialized yet - don't count
 		}
-
-		client.Close()
 
 		if isFullyInitialized {
 			initializedCount++
@@ -706,7 +726,8 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		attribute.StringSlice("pooler.statuses", poolerStatuses),
 	)
 
-	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q", primaryName, initializedCount, len(setup.Multipoolers), latestBackupID)
+	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q [%s]",
+		primaryName, initializedCount, len(setup.Multipoolers), latestBackupID, strings.Join(poolerStatuses, " | "))
 
 	// Query multiorch instances for status (best-effort diagnostic logging)
 	logMultiOrchStatus(ctx, t, setup)
