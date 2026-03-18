@@ -131,7 +131,9 @@ func TestIsDataDirInitialized(t *testing.T) {
 		{
 			name: "non-existent directory",
 			setupDir: func(baseDir string) string {
-				return filepath.Join(baseDir, "nonexistent")
+				nonExistent := filepath.Join(baseDir, "nonexistent")
+				t.Setenv(constants.PgDataDirEnvVar, nonExistent)
+				return nonExistent
 			},
 			initialized: false,
 		},
@@ -143,7 +145,7 @@ func TestIsDataDirInitialized(t *testing.T) {
 			defer cleanup()
 
 			tt.setupDir(baseDir)
-			result := pgctld.IsDataDirInitialized(baseDir)
+			result := pgctld.IsDataDirInitialized()
 			assert.Equal(t, tt.initialized, result)
 		})
 	}
@@ -199,6 +201,7 @@ func TestInitializeDataDir(t *testing.T) {
 
 		// baseDir serves as poolerDir; dataDir will be poolerDir/pg_data
 		poolerDir := baseDir
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
 
 		// Setup mock initdb binary
 		binDir := filepath.Join(baseDir, "bin")
@@ -211,7 +214,7 @@ func TestInitializeDataDir(t *testing.T) {
 		defer os.Setenv("PATH", originalPath)
 
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, poolerDir, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
+		err := initializeDataDir(logger, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
 		require.NoError(t, err)
 
 		// Verify directory was created (dataDir is poolerDir/pg_data)
@@ -223,11 +226,13 @@ func TestInitializeDataDir(t *testing.T) {
 	})
 
 	t.Run("fails with invalid directory permissions", func(t *testing.T) {
-		// Try to create data dir in a read-only location
-		poolerDir := "/root/impossible_dir"
-
+		// Try to create data dir in a read-only location (simulate permission
+		// error). The function initializeDataDir reads the PGDATA env var to
+		// determine where to initialize, so we set it to a location that should
+		// fail.
+		t.Setenv(constants.PgDataDirEnvVar, "/root/impossible_dir")
 		logger := slog.New(slog.DiscardHandler)
-		err := initializeDataDir(logger, poolerDir, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
+		err := initializeDataDir(logger, constants.DefaultPostgresUser, shardsetup.TestPostgresPassword)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "initdb failed")
 	})
@@ -316,8 +321,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			constants.DefaultPostgresUser,
 			constants.DefaultPostgresDatabase,
 			30, // timeout
-			pgctld.PostgresDataDir(baseDir),
-			pgctld.PostgresConfigFile(baseDir),
+			pgctld.PostgresDataDir(),
+			pgctld.PostgresConfigFile(),
 			baseDir,
 			"localhost",
 			pgctld.PostgresSocketDir(baseDir),
@@ -351,8 +356,8 @@ func TestWaitForPostgreSQL(t *testing.T) {
 			"postgres",
 			"postgres",
 			1, // 1 second timeout
-			pgctld.PostgresDataDir(baseDir),
-			pgctld.PostgresConfigFile(baseDir),
+			pgctld.PostgresDataDir(),
+			pgctld.PostgresConfigFile(),
 			baseDir,
 			"localhost",
 			pgctld.PostgresSocketDir(baseDir),
@@ -391,8 +396,8 @@ func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
 			"postgres",
 			"postgres",
 			5, // 5 second timeout
-			pgctld.PostgresDataDir(baseDir),
-			pgctld.PostgresConfigFile(baseDir),
+			pgctld.PostgresDataDir(),
+			pgctld.PostgresConfigFile(),
 			baseDir,
 			"localhost",
 			pgctld.PostgresSocketDir(baseDir),

@@ -149,6 +149,10 @@ message MultiPooler {
   // PoolerDir is used by pgBackRest to compute the primary's data directory.
   string pooler_dir = 10;
 
+  // PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
+  // Used by multiadmin to compute the primary's data directory for pgBackRest.
+  string pg_data_dir = 11;
+
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.

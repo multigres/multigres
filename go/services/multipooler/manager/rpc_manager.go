@@ -1699,7 +1699,7 @@ func (pm *MultiPoolerManager) fixPgBackRestPaths(ctx context.Context) error {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pooler directory not set")
 	}
 
-	autoConfPath := filepath.Join(poolerDir, "pg_data", "postgresql.auto.conf")
+	autoConfPath := filepath.Join(postgresDataDir(), "postgresql.auto.conf")
 
 	pm.logger.InfoContext(ctx, "Fixing pgbackrest paths in postgresql.auto.conf", "file", autoConfPath)
 

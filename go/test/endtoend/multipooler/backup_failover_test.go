@@ -130,7 +130,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 
 	// pg2-path is required even in TLS mode (pgBackRest 2.58+).
 	// Pass the primary's pg_data directory so pgBackRest can connect to it remotely.
-	primaryPg2Path := filepath.Join(primary.Pgctld.DataDir, "pg_data")
+	primaryPg2Path := filepath.Join(primary.Pgctld.PoolerDir, "pg_data")
 
 	// Start a full backup from the standby in a goroutine (it will block inside s3mock).
 	// The standby connects to the primary's pgBackRest TLS server (pg2-host-type=tls).

@@ -1062,7 +1062,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// completely fresh. This clears pg_data (PostgreSQL data),
 		// pg_sockets (stale Unix sockets), pgbackrest (backup state),
 		// and any other state files.
-		dataDir := inst.Pgctld.DataDir
+		dataDir := inst.Pgctld.PoolerDir
 		entries, err := os.ReadDir(dataDir)
 		if err != nil {
 			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
@@ -1437,7 +1437,7 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	}
 
 	// Read the PID from postmaster.pid file
-	pgDataDir := filepath.Join(inst.Pgctld.DataDir, "pg_data")
+	pgDataDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_data")
 	pidFile := filepath.Join(pgDataDir, "postmaster.pid")
 
 	pidBytes, err := os.ReadFile(pidFile)

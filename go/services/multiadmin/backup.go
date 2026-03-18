@@ -93,9 +93,8 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 			s.logger.WarnContext(ctx, "Failed to find primary pooler for pg2_path override",
 				"error", err)
 			// Continue without override - will work in TLS mode, fail in local mode
-		} else if primary.PoolerDir != "" {
-			// Construct primary's PGDATA path: ${pooler_dir}/pg_data
-			overrides["pg2_path"] = primary.PoolerDir + "/pg_data"
+		} else if primary.PgDataDir != "" {
+			overrides["pg2_path"] = primary.PgDataDir
 			s.logger.DebugContext(ctx, "Added pg2_path override for replica backup",
 				"pg2_path", overrides["pg2_path"])
 		}

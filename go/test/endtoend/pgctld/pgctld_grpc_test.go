@@ -421,6 +421,10 @@ func TestGRPCPortableConfig(t *testing.T) {
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	t.Run("portable_config_with_different_ports", func(t *testing.T) {
+		// Set environment variables before creating service (NewPgCtldService reads PGDATA)
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(dataDir, "pg_data"))
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
 		// First, create a service with port 5432 and initialize
 		initialPort := 5432
 		service, err := command.NewPgCtldService(
@@ -436,10 +440,6 @@ func TestGRPCPortableConfig(t *testing.T) {
 			"", // pgbackrestCertDir
 		)
 		require.NoError(t, err)
-
-		// Set environment variables for the initialization
-		t.Setenv("PGDATA", dataDir)
-		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		// Initialize the data directory with the initial port
 		ctx := context.Background()
@@ -478,6 +478,10 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	// Create gRPC server
 	grpcServer := grpc.NewServer()
 
+	// Set environment variables before creating service (NewPgCtldService reads PGDATA)
+	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(dataDir, "pg_data"))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
 	// Create the pgctld service with mock environment
 	service, err := command.NewPgCtldService(
 		slog.Default(),
@@ -493,9 +497,6 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	)
 
 	require.NoError(t, err)
-	// Set environment variables for the service
-	t.Setenv("PGDATA", dataDir)
-	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	// Register the service
 	pb.RegisterPgCtldServer(grpcServer, service)
