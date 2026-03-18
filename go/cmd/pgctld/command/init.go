@@ -84,10 +84,10 @@ Examples:
 // and creates the target database — mirroring docker-library/postgres's docker_setup_db behaviour.
 func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPassword string, pgDatabase string) (*InitResult, error) {
 	result := &InitResult{}
-	dataDir := pgctld.PostgresDataDir(poolerDir)
+	dataDir := pgctld.PostgresDataDir()
 
 	// Check if data directory is already initialized
-	if pgctld.IsDataDirInitialized(poolerDir) {
+	if pgctld.IsDataDirInitialized() {
 		logger.Info("Data directory is already initialized", "data_dir", dataDir)
 		result.AlreadyInitialized = true
 		result.Message = "Data directory is already initialized"
@@ -95,7 +95,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 	}
 
 	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
-	if err := initializeDataDir(logger, poolerDir, pgUser, pgPassword); err != nil {
+	if err := initializeDataDir(logger, pgUser, pgPassword); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
@@ -107,7 +107,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 	// If the target database is not the default "postgres" (always created by initdb),
 	// start PostgreSQL transiently and create it — same as docker-library/postgres does.
 	if pgDatabase != constants.DefaultPostgresDatabase {
-		if err := setupDatabase(logger, poolerDir, pgPort, pgUser, pgDatabase); err != nil {
+		if err := setupDatabase(logger, pgPort, pgUser, pgDatabase); err != nil {
 			return nil, fmt.Errorf("failed to create database %q: %w", pgDatabase, err)
 		}
 	}
@@ -127,9 +127,9 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 
 	// Display appropriate message for CLI users
 	if result.AlreadyInitialized {
-		fmt.Printf("Data directory is already initialized: %s\n", pgctld.PostgresDataDir(poolerDir))
+		fmt.Printf("Data directory is already initialized: %s\n", pgctld.PostgresDataDir())
 	} else {
-		fmt.Printf("Data directory initialized successfully: %s\n", pgctld.PostgresDataDir(poolerDir))
+		fmt.Printf("Data directory initialized successfully: %s\n", pgctld.PostgresDataDir())
 	}
 
 	return nil
@@ -138,9 +138,9 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 // setupDatabase starts a transient pgInstance and creates pgDatabase if it does
 // not already exist, then stops the instance.  This mirrors what the official
 // docker-library/postgres image does in its docker_setup_db() entrypoint function.
-func setupDatabase(logger *slog.Logger, poolerDir string, pgPort int, pgUser, pgDatabase string) error {
-	dataDir := pgctld.PostgresDataDir(poolerDir)
-	configFile := pgctld.PostgresConfigFile(poolerDir)
+func setupDatabase(logger *slog.Logger, pgPort int, pgUser, pgDatabase string) error {
+	dataDir := pgctld.PostgresDataDir()
+	configFile := pgctld.PostgresConfigFile()
 
 	logger.Info("Starting PostgreSQL transiently to create database", "database", pgDatabase)
 	pg, err := newPgInstance(logger, dataDir, configFile, pgPort, pgUser)
@@ -178,9 +178,9 @@ func setupDatabase(logger *slog.Logger, poolerDir string, pgPort int, pgUser, pg
 	return nil
 }
 
-func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string, pgPassword string) error {
+func initializeDataDir(logger *slog.Logger, pgUser string, pgPassword string) error {
 	// Derive dataDir from poolerDir using the standard convention
-	dataDir := pgctld.PostgresDataDir(poolerDir)
+	dataDir := pgctld.PostgresDataDir()
 
 	// Note: initdb will create the data directory itself if it doesn't exist.
 	// We don't create it beforehand to avoid leaving empty directories if initdb fails.

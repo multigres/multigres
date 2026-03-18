@@ -397,6 +397,7 @@ func TestPgCtldServiceVersion(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
 		service, err := NewPgCtldService(testLogger(), 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
@@ -425,6 +426,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
 		service, err := NewPgCtldService(testLogger(), 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
@@ -493,8 +495,10 @@ func TestGetPoolerDir(t *testing.T) {
 
 func TestPgCtldService_PgBackRestFields(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
-	service, err := NewPgCtldService(logger, 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 60, t.TempDir(), "localhost", 0, "")
+	service, err := NewPgCtldService(logger, 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
 
 	// Verify service has pgBackRest management fields
@@ -504,7 +508,9 @@ func TestPgCtldService_PgBackRestFields(t *testing.T) {
 
 func TestPgCtldService_StatusMethods(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	service, err := NewPgCtldService(logger, 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 60, t.TempDir(), "localhost", 0, "")
+	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
+	service, err := NewPgCtldService(logger, 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
 	defer service.Close()
 
@@ -531,6 +537,7 @@ func TestPgCtldService_StatusMethods(t *testing.T) {
 func TestPgCtldService_StartPgBackRest_ValidationErrors(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
 	service, err := NewPgCtldService(logger, 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
@@ -545,6 +552,7 @@ func TestPgCtldService_StartPgBackRest_ValidationErrors(t *testing.T) {
 func TestPgCtldService_ManagePgBackRest_Lifecycle(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
 	service, err := NewPgCtldService(logger, 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
@@ -576,6 +584,7 @@ func TestPgCtldService_ManagePgBackRest_Lifecycle(t *testing.T) {
 func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
 	service, err := NewPgCtldService(logger, 5432, constants.DefaultPostgresUser, constants.DefaultPostgresDatabase, shardsetup.TestPostgresPassword, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)

@@ -51,7 +51,7 @@ func TestPgBackRestServer_Lifecycle(t *testing.T) {
 	initAndStartPostgreSQL(t, client)
 
 	// Verify pgbackrest-server.conf was generated
-	configPath := filepath.Join(setup.DataDir, "pgbackrest", "pgbackrest-server.conf")
+	configPath := filepath.Join(setup.PoolerDir, "pgbackrest", "pgbackrest-server.conf")
 	assert.FileExists(t, configPath, "pgbackrest-server.conf should be generated")
 
 	// Verify TLS server is running via socket connection
@@ -120,7 +120,7 @@ func TestPgBackRestServer_CrashRecovery(t *testing.T) {
 	require.Equal(t, int32(0), status1.RestartCount, "Should have zero restarts initially")
 
 	// Get the PID of the running pgBackRest process for this specific test
-	configPath := filepath.Join(setup.DataDir, "pgbackrest", "pgbackrest-server.conf")
+	configPath := filepath.Join(setup.PoolerDir, "pgbackrest", "pgbackrest-server.conf")
 	pid1 := getPgBackRestPID(t, configPath)
 	require.Greater(t, pid1, 0, "Should find running pgBackRest process")
 	t.Logf("Initial pgBackRest PID: %d", pid1)

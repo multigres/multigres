@@ -42,13 +42,13 @@ type StartResult struct {
 // NewPostgresCtlConfigFromDefaults creates a PostgresCtlConfig using command-line parameters
 // Port, listen_addresses, and unix_socket_directories come from CLI flags, not from the config file
 func NewPostgresCtlConfigFromDefaults(poolerDir string, pgPort int, pgListenAddresses string, pgUser string, pgDatabase string, timeout int) (*pgctld.PostgresCtlConfig, error) {
-	postgresConfigFile := pgctld.PostgresConfigFile(poolerDir)
+	postgresConfigFile := pgctld.PostgresConfigFile()
 
 	effectivePort := pgPort
 	effectiveListenAddresses := pgListenAddresses
 	effectiveUnixSocketDirectories := pgctld.PostgresSocketDir(poolerDir)
 
-	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, timeout, pgctld.PostgresDataDir(poolerDir), postgresConfigFile, poolerDir, effectiveListenAddresses, effectiveUnixSocketDirectories)
+	config, err := pgctld.NewPostgresCtlConfig(effectivePort, pgUser, pgDatabase, timeout, pgctld.PostgresDataDir(), postgresConfigFile, poolerDir, effectiveListenAddresses, effectiveUnixSocketDirectories)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}

@@ -34,12 +34,22 @@ const (
 	// PgDatabaseEnvVar is the environment variable for the PostgreSQL database name.
 	PgDatabaseEnvVar = "POSTGRES_DB"
 
+	// PgDataDirEnvVar is the environment variable for the PostgreSQL data directory.
+	PgDataDirEnvVar = "PGDATA"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"
 
 	// PostgresExecutable is the name of the PostgreSQL server binary.
 	PostgresExecutable = "postgres"
+
+	// MultigresMarkerDirectory is the name of the directory used by pgctld to
+	// mark a PostgreSQL data directory as managed by pgctld. This is also where
+	// all marker files are stored, such as the file indicating that the cluster
+	// is in the process of being initialized. This directory is created inside
+	// the PostgreSQL data directory.
+	MultigresMarkerDirectory = "multigres"
 
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second

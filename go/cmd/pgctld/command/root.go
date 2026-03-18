@@ -193,6 +193,10 @@ func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) e
 		return errors.New("pooler-dir needs to be set")
 	}
 
+	if os.Getenv(constants.PgDataDirEnvVar) == "" {
+		return fmt.Errorf("%s environment variable is required", constants.PgDataDirEnvVar)
+	}
+
 	// If pg-hba-template is specified, read and replace the default template
 	pgHbaTemplatePath := pc.pgHbaTemplate.Get()
 	if pgHbaTemplatePath != "" {
@@ -249,10 +253,8 @@ func (pc *PgCtlCommand) validateInitialized(cmd *cobra.Command, args []string) e
 	}
 
 	// Check if data directory is initialized
-	poolerDir := pc.GetPoolerDir()
-
-	if !pgctld.IsDataDirInitialized(poolerDir) {
-		dataDir := pgctld.PostgresDataDir(poolerDir)
+	if !pgctld.IsDataDirInitialized() {
+		dataDir := pgctld.PostgresDataDir()
 		return fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
 	}
 

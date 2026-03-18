@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 func TestPgHbaTemplate(t *testing.T) {
@@ -37,6 +38,7 @@ func TestPgHbaTemplate(t *testing.T) {
 	t.Run("custom template replaces default", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_hba_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		// Create a custom pg_hba.conf template file
 		customTemplate := `# Custom pg_hba.conf template for testing
@@ -67,6 +69,7 @@ host    all             all             ::1/128                 scram-sha-256
 	t.Run("non-existent template file returns error", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_hba_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		nonExistentPath := filepath.Join(baseDir, "nonexistent.conf")
 
@@ -91,6 +94,7 @@ host    all             all             ::1/128                 scram-sha-256
 	t.Run("empty template flag does not replace default", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_hba_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		// Reset template before test
 		config.PostgresHbaDefaultTmpl = originalTemplate
@@ -110,6 +114,7 @@ host    all             all             ::1/128                 scram-sha-256
 	t.Run("template with empty content is accepted", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_hba_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		// Create an empty template file
 		emptyTemplate := ""
@@ -135,6 +140,7 @@ host    all             all             ::1/128                 scram-sha-256
 	t.Run("unreadable template file returns error", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_hba_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		// Create a template file with no read permissions
 		templatePath := filepath.Join(baseDir, "unreadable_pg_hba.conf")
@@ -172,6 +178,7 @@ func TestPostgresConfigTemplate(t *testing.T) {
 	t.Run("custom template replaces default", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		// Create a custom postgresql.conf template file
 		customTemplate := `# Custom postgresql.conf template for testing
@@ -202,6 +209,7 @@ work_mem = {{.WorkMem}}
 	t.Run("non-existent template file returns error", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		nonExistentPath := filepath.Join(baseDir, "nonexistent.conf")
 
@@ -226,6 +234,7 @@ work_mem = {{.WorkMem}}
 	t.Run("empty template flag does not replace default", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_pg_config_test")
 		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
 
 		// Reset template before test
 		config.PostgresConfigDefaultTmpl = originalTemplate
@@ -240,6 +249,36 @@ work_mem = {{.WorkMem}}
 
 		// Verify template was NOT changed
 		assert.Equal(t, originalTemplate, config.PostgresConfigDefaultTmpl)
+	})
+}
+
+func TestPGDATARequired(t *testing.T) {
+	t.Run("missing PGDATA returns error", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_pgdata_test")
+		defer cleanup()
+		// Do NOT set PGDATA — it must be absent for this test
+		t.Setenv(constants.PgDataDirEnvVar, "")
+
+		_, pc := GetRootCommand()
+		pc.poolerDir.Set(baseDir)
+
+		err := pc.validateGlobalFlags(nil, nil)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "PGDATA environment variable is required")
+	})
+
+	t.Run("PGDATA set allows validation to proceed", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_pgdata_test")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, baseDir+"/pg_data")
+
+		_, pc := GetRootCommand()
+		pc.poolerDir.Set(baseDir)
+
+		err := pc.validateGlobalFlags(nil, nil)
+
+		require.NoError(t, err)
 	})
 }
 

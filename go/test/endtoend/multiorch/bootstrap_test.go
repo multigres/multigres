@@ -382,7 +382,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		standbyInst.Pgctld.StopPostgres(t)
 
 		// Remove pg_data directory to simulate complete data loss
-		pgDataDir := filepath.Join(standbyInst.Pgctld.DataDir, "pg_data")
+		pgDataDir := filepath.Join(standbyInst.Pgctld.PoolerDir, "pg_data")
 		err := os.RemoveAll(pgDataDir)
 		require.NoError(t, err, "Should remove pg_data directory")
 		t.Logf("Removed pg_data directory: %s", pgDataDir)
@@ -434,7 +434,7 @@ func TestBootstrapInitialization(t *testing.T) {
 		// Verify each pooler has archive_command pointing to its own local pgbackrest.conf
 		for name, inst := range setup.Multipoolers {
 			// Read postgresql.auto.conf
-			autoConfPath := filepath.Join(inst.Pgctld.DataDir, "pg_data", "postgresql.auto.conf")
+			autoConfPath := filepath.Join(inst.Pgctld.PoolerDir, "pg_data", "postgresql.auto.conf")
 			content, err := os.ReadFile(autoConfPath)
 			require.NoError(t, err, "Should read postgresql.auto.conf on %s", name)
 
@@ -445,7 +445,7 @@ func TestBootstrapInitialization(t *testing.T) {
 				"Node %s should have archive_mode enabled", name)
 
 			// Verify archive_command points to this pooler's local pgbackrest.conf
-			expectedConfigPath := filepath.Join(inst.Pgctld.DataDir, "pgbackrest", "pgbackrest.conf")
+			expectedConfigPath := filepath.Join(inst.Pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
 			assert.Contains(t, autoConfStr, "--config="+expectedConfigPath,
 				"Node %s should have archive_command pointing to local pgbackrest.conf at %s", name, expectedConfigPath)
 		}
