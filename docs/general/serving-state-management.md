@@ -20,16 +20,16 @@ The multipooler had no unified serving state management:
 
 Vitess uses only 3 internal serving states and determines read-only vs read-write behavior from tablet type (PRIMARY vs REPLICA), not serving state. We follow the same pattern:
 
-| Combination | Behavior |
-|---|---|
-| `(PRIMARY, SERVING)` | Accept reads + writes |
-| `(REPLICA, SERVING)` | Accept reads only |
-| `(DRAINED, *)` | Offline, no user queries |
-| `(*, NOT_SERVING)` | Reject all queries |
+| Combination          | Behavior                 |
+| -------------------- | ------------------------ |
+| `(PRIMARY, SERVING)` | Accept reads + writes    |
+| `(REPLICA, SERVING)` | Accept reads only        |
+| `(DRAINED, *)`       | Offline, no user queries |
+| `(*, NOT_SERVING)`   | Reject all queries       |
 
 The demotion flow now goes through `NOT_SERVING` instead of `SERVING_RDONLY`:
 
-```
+```text
 Before:  (PRIMARY, SERVING) -> (PRIMARY, SERVING_RDONLY) -> (REPLICA, SERVING)
 After:   (PRIMARY, SERVING) -> (PRIMARY, NOT_SERVING)    -> (REPLICA, SERVING)
 ```
@@ -69,7 +69,7 @@ type StateAware interface {
 }
 ```
 
-`QueryPoolerServer` and `ReplTracker` implement `OnStateChange` directly on the type — no adapter wrappers needed. Go's structural typing means they satisfy `StateAware` without importing the `manager` package. `OnStateChange` is also added to the `PoolerController` interface so `pm.qsc` (typed as `PoolerController`) satisfies `StateAware`.
+`QueryPoolerServer`, `ReplTracker`, and `healthStreamer` implement `OnStateChange` directly on the type — no adapter wrappers needed. Go's structural typing means they satisfy `StateAware` without importing the `manager` package. `OnStateChange` is also added to the `PoolerController` interface so `pm.qsc` (typed as `PoolerController`) satisfies `StateAware`.
 
 **Why parallel**: Components are independent — the query service and heartbeat tracker don't depend on each other's transitions. Parallel execution reduces latency during state changes. If ordering ever matters for a future component, it can be handled by that component internally (checking another component's state before proceeding).
 
@@ -102,7 +102,9 @@ func (ssm *StateManager) SetState(ctx, poolerType, servingStatus) error {
 }
 ```
 
-**Alternative considered: Background convergence goroutine.** A dedicated goroutine watches for target changes and continuously converges. `SetState()` would be non-blocking. Pros: natural retry, coalesces rapid changes. Cons: more complex lifecycle, harder to report errors, caller can't know when transition completes without additional synchronization. We chose synchronous for now — it matches how the code was already structured and the callers expect errors back.
+**Alternative considered: Background convergence goroutine.** A dedicated goroutine watches for target changes and continuously converges. `SetState()` would be non-blocking.
+Pros: natural retry, coalesces rapid changes. Cons: more complex lifecycle, harder to report errors, caller can't know when transition completes without additional synchronization.
+We chose synchronous for now — it matches how the code was already structured and the callers expect errors back.
 
 ## What changed
 
@@ -133,9 +135,15 @@ OnStateChange(ctx context.Context, poolerType PoolerType, servingStatus PoolerSe
 - Added `OnStateChange` method: starts heartbeat for `(PRIMARY, SERVING)`, stops otherwise
 - Delegates to unexported `makePrimary()`/`makeNonPrimary()`
 
+### `healthStreamer`
+
+- `UpdateServingStatus()` and `UpdatePoolerType()` replaced by `OnStateChange()` which updates both fields atomically with a single broadcast
+- Registered as a `StateAware` component so health broadcasts stay in sync with serving state
+
 ### `StateManager` (new)
 
 Coordinates state transitions via the `StateAware` interface:
+
 - Components implement `OnStateChange` directly and are registered via constructor or `Register()`
 - `SetState()` fans out to all components in parallel via `errgroup`
 - Multipooler record updated only after all components succeed
@@ -143,15 +151,16 @@ Coordinates state transitions via the `StateAware` interface:
 ### Manager
 
 - Replaced `queryServingState` field with `servingState *StateManager`
-- Creates `StateManager` with `pm.qsc` at init
+- Creates `StateManager` with `pm.qsc` and `pm.healthStreamer` at init
 - Registers `pm.replTracker` when heartbeat starts
 - `setServingReadOnly()` replaced by `setNotServing()` which delegates to `servingState.SetState()`
 - `changeTypeLocked()` delegates to `servingState.SetState()` instead of managing heartbeat directly
 - `demotionState.isServingReadOnly` renamed to `isNotServing`
+- `checkPrimaryGuardrails()` no longer checks pooler type — uses `pg_is_in_recovery()` only, since the multipooler type can lag behind PostgreSQL during promotion
 
 ### Demotion flow (after)
 
-```
+```text
 EmergencyDemote:
 
 1. pm.setNotServing(ctx, state)
@@ -173,21 +182,21 @@ EmergencyDemote:
 
 ## Files changed
 
-| File | Change |
-|---|---|
-| `proto/clustermetadata.proto` | Removed `SERVING_RDONLY` |
-| `go/services/multipooler/manager/serving_state.go` | New: `StateManager`, `StateAware` interface |
-| `go/services/multipooler/manager/serving_state_test.go` | New: 9 unit tests |
-| `go/services/multipooler/manager/manager.go` | Replaced `queryServingState`, rewrote demotion helpers |
-| `go/services/multipooler/manager/rpc_manager.go` | Updated `changeTypeLocked` and emergency demotion |
-| `go/services/multipooler/poolerserver/controller.go` | Added `PoolerType` to `SetServingType`, added `OnStateChange` |
-| `go/services/multipooler/poolerserver/pooler.go` | Added `poolerType` field, `OnStateChange`, simplified `IsServing` |
-| `go/services/multipooler/heartbeat/repltracker.go` | Added `OnStateChange` |
-| `go/services/multipooler/manager/pg_multischema_test.go` | Updated mock signature |
+| File                                                          | Change                                                                                                          |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `proto/clustermetadata.proto`                                 | Removed `SERVING_RDONLY` and `reserved 4`                                                                       |
+| `go/services/multipooler/manager/state_manager.go`            | New: `StateManager`, `StateAware` interface                                                                     |
+| `go/services/multipooler/manager/state_manager_test.go`       | New: unit tests for StateManager                                                                                |
+| `go/services/multipooler/manager/manager.go`                  | Replaced `queryServingState`, rewrote demotion helpers, removed pooler type check from `checkPrimaryGuardrails` |
+| `go/services/multipooler/manager/health_provider.go`          | Replaced `UpdateServingStatus`/`UpdatePoolerType` with `OnStateChange`                                          |
+| `go/services/multipooler/manager/rpc_manager.go`              | Updated `changeTypeLocked` and emergency demotion                                                               |
+| `go/services/multipooler/poolerserver/controller.go`          | Replaced `SetServingType` with `OnStateChange`                                                                  |
+| `go/services/multipooler/poolerserver/pooler.go`              | Added `poolerType` field, `OnStateChange`, simplified `IsServing`                                               |
+| `go/services/multipooler/heartbeat/repltracker.go`            | Added `OnStateChange`                                                                                           |
+| `go/services/multigateway/poolergateway/pooler_connection.go` | Simplified `IsServing` (removed `SERVING_RDONLY`)                                                               |
 
 ## Future work
 
-- **StateManager owns `multipooler` record**: The manager currently shares the `multipooler` pointer. The state manager could own it more explicitly.
 - **Query enforcement**: `QueryPoolerServer` stores `poolerType` but doesn't yet enforce read-only for replicas. The TODO remains for when transaction/query engines are added.
 - **Async retry**: Add a background retry loop for transient convergence failures (similar to Vitess's `retryTransition`).
 - **Health check integration**: Future health check component would implement `StateAware` and check `qsc.IsServing()` before reporting healthy.
