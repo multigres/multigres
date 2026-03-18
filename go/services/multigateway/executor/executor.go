@@ -147,7 +147,11 @@ func (e *Executor) PortalStreamExecute(
 	}
 
 	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
-	return nil, err
+	// Extract tables from the AST even when there's no plan (most extended protocol queries).
+	result := &handler.ExecuteResult{
+		TablesUsed: ast.ExtractTablesUsed(portalInfo.PreparedStatementInfo.AstStmt()),
+	}
+	return result, err
 }
 
 // Describe returns metadata about a prepared statement or portal.

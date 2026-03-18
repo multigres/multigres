@@ -100,7 +100,7 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
-	plan.TablesUsed = ExtractTablesUsed(stmt)
+	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	return plan, nil
 }
 

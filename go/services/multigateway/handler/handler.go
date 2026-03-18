@@ -170,12 +170,13 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// For multi-statement batches, use implicit transaction handling.
 	// This handles cases where transactions start/end mid-batch and ensures
 	// proper auto-rollback for implicit transaction segments on failure.
+	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
 	var tablesUsed []string
 	if len(asts) > 1 {
 		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
 			"statement_count", len(asts),
 			"already_in_transaction", conn.IsInTransaction())
-		tablesUsed, err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
+		err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
 	} else {
 		// Single statement - execute with timeout enforcement
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])

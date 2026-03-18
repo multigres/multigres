@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package planner
+package ast_test
 
 import (
 	"testing"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 func TestExtractTablesUsed(t *testing.T) {
@@ -102,12 +103,12 @@ func TestExtractTablesUsed(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, stmts, 1)
 
-			got := ExtractTablesUsed(stmts[0])
+			got := ast.ExtractTablesUsed(stmts[0])
 			assert.ElementsMatch(t, tt.expect, got)
 		})
 	}
 }
 
 func TestExtractTablesUsed_NilStmt(t *testing.T) {
-	assert.Nil(t, ExtractTablesUsed(nil))
+	assert.Nil(t, ast.ExtractTablesUsed(nil))
 }
