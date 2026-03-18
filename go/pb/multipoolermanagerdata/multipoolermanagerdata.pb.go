@@ -1036,9 +1036,12 @@ type SynchronousReplicationConfiguration struct {
 	// Number of synchronous standbys
 	NumSync int32 `protobuf:"varint,3,opt,name=num_sync,json=numSync,proto3" json:"num_sync,omitempty"`
 	// List of standby IDs that can participate in synchronous replication
-	StandbyIds    []*clustermetadata.ID `protobuf:"bytes,4,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	StandbyIds []*clustermetadata.ID `protobuf:"bytes,4,rep,name=standby_ids,json=standbyIds,proto3" json:"standby_ids,omitempty"`
+	// Application names for standbys in standby_ids (format: {cell}_{name}).
+	// Parallel to standby_ids: standby_application_names[i] is the application name for standby_ids[i].
+	StandbyApplicationNames []string `protobuf:"bytes,5,rep,name=standby_application_names,json=standbyApplicationNames,proto3" json:"standby_application_names,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *SynchronousReplicationConfiguration) Reset() {
@@ -1095,6 +1098,13 @@ func (x *SynchronousReplicationConfiguration) GetNumSync() int32 {
 func (x *SynchronousReplicationConfiguration) GetStandbyIds() []*clustermetadata.ID {
 	if x != nil {
 		return x.StandbyIds
+	}
+	return nil
+}
+
+func (x *SynchronousReplicationConfiguration) GetStandbyApplicationNames() []string {
+	if x != nil {
+		return x.StandbyApplicationNames
 	}
 	return nil
 }
@@ -4180,13 +4190,14 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"!\n" +
 	"\x1fStandbyReplicationStatusRequest\"l\n" +
 	" StandbyReplicationStatusResponse\x12H\n" +
-	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"\xaf\x02\n" +
+	"\x06status\x18\x01 \x01(\v20.multipoolermanagerdata.StandbyReplicationStatusR\x06status\"\xeb\x02\n" +
 	"#SynchronousReplicationConfiguration\x12]\n" +
 	"\x12synchronous_commit\x18\x01 \x01(\x0e2..multipoolermanagerdata.SynchronousCommitLevelR\x11synchronousCommit\x12X\n" +
 	"\x12synchronous_method\x18\x02 \x01(\x0e2).multipoolermanagerdata.SynchronousMethodR\x11synchronousMethod\x12\x19\n" +
 	"\bnum_sync\x18\x03 \x01(\x05R\anumSync\x124\n" +
 	"\vstandby_ids\x18\x04 \x03(\v2\x13.clustermetadata.IDR\n" +
-	"standbyIds\"\x95\x02\n" +
+	"standbyIds\x12:\n" +
+	"\x19standby_application_names\x18\x05 \x03(\tR\x17standbyApplicationNames\"\x95\x02\n" +
 	"\rPrimaryStatus\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\tR\x03lsn\x12\x14\n" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready\x12D\n" +

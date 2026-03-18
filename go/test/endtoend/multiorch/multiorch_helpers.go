@@ -15,7 +15,6 @@
 package multiorch
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -27,7 +26,6 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // connectToPostgres establishes a connection to PostgreSQL using Unix socket
@@ -44,116 +42,64 @@ func connectToPostgres(t *testing.T, socketDir string, port int) *sql.DB {
 	return db
 }
 
-// waitForShardPrimary polls multipooler nodes until at least one is initialized as primary.
+// waitForShardReady polls until one node is an initialized primary, expectedStandbyCount nodes
+// are initialized replicating standbys, and sync replication is configured on the primary.
 // Returns the name of the elected primary.
-func waitForShardPrimary(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) string {
+func waitForShardReady(t *testing.T, setup *shardsetup.ShardSetup, expectedStandbyCount int, timeout time.Duration) string {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
-	checkInterval := 2 * time.Second
-
-	for time.Now().Before(deadline) {
-		for name, inst := range setup.Multipoolers {
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-			client.Close()
-
-			if err != nil {
-				continue
-			}
-
-			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-				t.Logf("Shard bootstrapped: primary is %s (pooler_type=%s)", name, status.Status.PoolerType)
-				return name
-			}
-		}
-		t.Logf("Waiting for shard bootstrap... (sleeping %v)", checkInterval)
-		time.Sleep(checkInterval)
+	var poolers []*shardsetup.MultipoolerInstance
+	for _, inst := range setup.Multipoolers {
+		poolers = append(poolers, inst)
 	}
 
-	t.Fatalf("Timeout: shard did not bootstrap within %v", timeout)
-	return ""
-}
-
-// waitForStandbysInitialized polls multipooler nodes until expected count of standbys are initialized
-// and synchronous replication is configured on the primary.
-func waitForStandbysInitialized(t *testing.T, setup *shardsetup.ShardSetup, expectedCount int, timeout time.Duration) {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	checkInterval := 2 * time.Second
-
-	for time.Now().Before(deadline) {
-		standbyCount := 0
-		for name, inst := range setup.Multipoolers {
-			if name == setup.PrimaryName {
-				continue
+	primaryName := shardsetup.EventuallyPoolersCondition(t, poolers, timeout, 2*time.Second,
+		func(statuses []shardsetup.PoolerStatusResult) (string, bool, string) {
+			var primaryStatus *shardsetup.PoolerStatusResult
+			replicaStatuses := make(map[string]*shardsetup.PoolerStatusResult)
+			for i, r := range statuses {
+				if r.Err != nil || r.Status == nil {
+					continue
+				}
+				if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+					primaryStatus = &statuses[i]
+				} else if r.Status.IsInitialized && r.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && r.Status.PostgresRunning {
+					replicaStatuses[r.Name] = &statuses[i]
+				}
 			}
-
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
+			if primaryStatus == nil {
+				return "", false, "no primary elected yet"
 			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-			cancel()
-			client.Close()
-
-			if err != nil {
-				continue
+			if len(replicaStatuses) != expectedStandbyCount {
+				return "", false, fmt.Sprintf("%d/%d standbys initialized", len(replicaStatuses), expectedStandbyCount)
 			}
-
-			if status.Status.IsInitialized && status.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA && status.Status.PostgresRunning {
-				standbyCount++
+			// Build lookup sets from the primary's sync config.
+			syncStandbyNames := make(map[string]bool) // short name (e.g. "pooler-2") -> true
+			syncAppNames := make(map[string]bool)     // application name (e.g. "test-cell_pooler-2") -> true
+			if syncConfig := primaryStatus.Status.GetPrimaryStatus().GetSyncReplicationConfig(); syncConfig != nil {
+				for _, id := range syncConfig.StandbyIds {
+					syncStandbyNames[id.Name] = true
+				}
+				for _, appName := range syncConfig.StandbyApplicationNames {
+					syncAppNames[appName] = true
+				}
 			}
-		}
-		if standbyCount >= expectedCount {
-			t.Logf("All %d standbys initialized successfully", standbyCount)
-
-			// Also wait for sync replication to be configured on primary
-			// (initialization includes wiring up replication)
-			if waitForSyncReplicationConfiguredInternal(t, setup, deadline) {
-				return
+			for name, r := range replicaStatuses {
+				if !syncStandbyNames[name] {
+					return "", false, fmt.Sprintf("replica %s not yet in primary sync config", name)
+				}
+				connInfo := r.Status.GetReplicationStatus().GetPrimaryConnInfo()
+				if connInfo == nil {
+					return "", false, fmt.Sprintf("replica %s primary_conn_info not yet configured", name)
+				}
+				if !syncAppNames[connInfo.ApplicationName] {
+					return "", false, fmt.Sprintf("replica %s primary_conn_info application_name %q not in primary sync config", name, connInfo.ApplicationName)
+				}
 			}
-			// If sync replication not yet configured, continue waiting
-		}
-		t.Logf("Waiting for standbys to initialize... (have %d/%d, sleeping %v)", standbyCount, expectedCount, checkInterval)
-		time.Sleep(checkInterval)
-	}
-
-	t.Fatalf("Timeout: standbys did not initialize within %v", timeout)
-}
-
-// waitForSyncReplicationConfiguredInternal checks if sync replication is configured.
-// Returns true if configured, false if not yet configured.
-// Does not block or log - used internally by waitForStandbysInitialized.
-func waitForSyncReplicationConfiguredInternal(t *testing.T, setup *shardsetup.ShardSetup, deadline time.Time) bool {
-	t.Helper()
-
-	if time.Now().After(deadline) {
-		return false
-	}
-
-	primaryClient := setup.NewPrimaryClient(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	syncStandbyNames, err := shardsetup.QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
-	cancel()
-	primaryClient.Close()
-
-	if err != nil {
-		return false
-	}
-
-	if syncStandbyNames != "" {
-		t.Logf("Sync replication configured: synchronous_standby_names=%s", syncStandbyNames)
-		return true
-	}
-	return false
+			return primaryStatus.Name, true, ""
+		},
+		"shard did not become ready within %v", timeout,
+	)
+	t.Logf("Shard ready: primary=%s, %d standbys initialized with sync replication", primaryName, expectedStandbyCount)
+	return primaryName
 }
