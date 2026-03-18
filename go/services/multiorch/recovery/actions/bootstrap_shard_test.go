@@ -84,7 +84,7 @@ func TestBootstrapShardAction_ExecuteNoCohort(t *testing.T) {
 	ps := store.NewPoolerStore(nil, logger)
 	coord := newTestCoordinator(ts, nil, logger)
 
-	action := NewBootstrapShardAction(nil, nil, ps.Health(), ts, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, ps, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -203,7 +203,7 @@ func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
 
 	// Now try to execute recovery - should fail to acquire lock
 	coord := newTestCoordinator(ts, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, ps.Health(), ts, coord, logger)
+	action := NewBootstrapShardAction(nil, nil, ps, ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -370,7 +370,7 @@ func TestBootstrapShardAction_ConfiguresSyncReplication(t *testing.T) {
 
 	// Execute bootstrap action
 	coord := newTestCoordinator(ts, mockClient, logger)
-	action := NewBootstrapShardAction(nil, mockClient, ps.Health(), ts, coord, logger)
+	action := NewBootstrapShardAction(nil, mockClient, ps, ts, coord, logger)
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
 		ShardKey: commontypes.ShardKey{
@@ -491,7 +491,7 @@ func TestBootstrapShardAction_QuorumCheckFailsWithInsufficientPoolers(t *testing
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -585,7 +585,7 @@ func TestBootstrapShardAction_QuorumCheckPassesWithEnoughPoolers(t *testing.T) {
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -658,7 +658,7 @@ func TestBootstrapShardAction_FullBootstrapFlow(t *testing.T) {
 	}
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,
@@ -756,7 +756,7 @@ func TestBootstrapShardAction_SkipsIfAlreadyInitialized(t *testing.T) {
 	})
 
 	coord := newTestCoordinator(ts, fakeClient, logger)
-	action := NewBootstrapShardAction(nil, fakeClient, ps.Health(), ts, coord, logger)
+	action := NewBootstrapShardAction(nil, fakeClient, ps, ts, coord, logger)
 
 	problem := types.Problem{
 		Code: types.ProblemShardNeedsBootstrap,

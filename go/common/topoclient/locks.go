@@ -345,3 +345,11 @@ func WithType(lt LockType) LockOption {
 		o.lockType = lt
 	})
 }
+
+// WithTTL sets a custom TTL for the lock lease.
+// For Named locks, this overrides the default NamedLockTTL (24h).
+func WithTTL(ttl time.Duration) LockOption {
+	return newFuncLockOption(func(o *lockOptions) {
+		o.ttl = ttl
+	})
+}

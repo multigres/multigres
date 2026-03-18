@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 // Watch implementation. Today, those logical versions are based on the key's
 // ModRevision value, which is a monotonically increasing int64 value. See
 // https://github.com/vitessio/vitess/pull/15847 for additional details and the
-// current reasoning behing using ModRevision. This can be changed in the future
+// current reasoning behind using ModRevision. This can be changed in the future
 // but should be done so intentionally, thus this test ensures we don't change the
 // behavior accidentally/uinintentionally.
 func TestWatchTopoVersion(t *testing.T) {

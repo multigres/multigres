@@ -30,6 +30,7 @@ package parser
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
@@ -621,8 +622,6 @@ stmtmulti:
 			{
 				if $3 != nil {
 					$$ = append($1, $3)
-				} else {
-					$$ = $1
 				}
 			}
 		|	toplevel_stmt
@@ -15618,10 +15617,16 @@ func (l *Lexer) Error(s string) {
 	l.RecordError(fmt.Errorf("parse error at position %d: %s", l.GetPosition(), s))
 }
 
+var parserPool = sync.Pool{
+	New: func() any { return yyNewParser() },
+}
+
 // ParseSQL parses SQL input and returns the AST
 func ParseSQL(input string) ([]ast.Stmt, error) {
 	lexer := NewLexer(input)
-	yyParse(lexer)
+	parser := parserPool.Get().(yyParser)
+	parser.Parse(lexer)
+	parserPool.Put(parser)
 
 	if lexer.HasErrors() {
 		return nil, lexer.GetErrors()[0]

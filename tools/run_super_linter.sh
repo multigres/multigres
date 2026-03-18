@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # Get the common git directory (handles worktrees)
-GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
+GIT_COMMON_DIR=$(realpath "$(git rev-parse --git-common-dir)")
 
 # Use -it only if running in a TTY
 if [ -t 0 ]; then

@@ -34,13 +34,13 @@ type PoolersByShard map[string]map[string]map[string]map[string]*multiorchdatapb
 
 // AnalysisGenerator creates ReplicationAnalysis from the pooler store.
 type AnalysisGenerator struct {
-	poolerStore    *store.PoolerHealthStore
+	poolerStore    *store.PoolerStore
 	poolersByShard PoolersByShard
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
 // It eagerly builds the poolersByShard map from the current store state.
-func NewAnalysisGenerator(poolerStore *store.PoolerHealthStore) *AnalysisGenerator {
+func NewAnalysisGenerator(poolerStore *store.PoolerStore) *AnalysisGenerator {
 	g := &AnalysisGenerator{
 		poolerStore: poolerStore,
 	}

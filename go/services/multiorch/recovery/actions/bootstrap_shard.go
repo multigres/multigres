@@ -55,7 +55,7 @@ const DefaultStatusRPCTimeout = 5 * time.Second
 type BootstrapShardAction struct {
 	config           *config.Config
 	rpcClient        rpcclient.MultiPoolerClient
-	poolerStore      *store.PoolerHealthStore
+	poolerStore      *store.PoolerStore
 	topoStore        topoclient.Store
 	logger           *slog.Logger
 	statusRPCTimeout time.Duration
@@ -66,7 +66,7 @@ type BootstrapShardAction struct {
 func NewBootstrapShardAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
 	logger *slog.Logger,
@@ -103,13 +103,17 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 		"tablegroup", problem.ShardKey.TableGroup,
 		"shard", problem.ShardKey.Shard)
 
-	// Acquire distributed lock for this shard
+	// Acquire distributed lock for this shard. A short TTL ensures the lock
+	// auto-expires if this orch crashes mid-bootstrap, allowing another orch
+	// to retry promptly.
+	const shardLockTTL = 60 * time.Second
 	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", problem.ShardKey.String())
 
 	ctx, unlock, err := a.topoStore.LockShard(
 		ctx,
 		problem.ShardKey,
 		"bootstrap recovery",
+		topoclient.WithTTL(shardLockTTL),
 	)
 	if err != nil {
 		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
