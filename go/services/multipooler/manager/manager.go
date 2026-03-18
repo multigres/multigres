@@ -377,6 +377,13 @@ func (pm *MultiPoolerManager) closeLocked(logMessage string) bool {
 		return false
 	}
 
+	// Transition to NOT_SERVING before closing resources. This notifies all
+	// components: query service rejects queries, heartbeat stops, health
+	// streamer broadcasts NOT_SERVING to subscribers.
+	if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+		pm.logger.Warn("Failed to transition to NOT_SERVING during close", "error", err)
+	}
+
 	pm.pgMonitor.Stop()
 	pm.closeConnectionsLocked()
 	pm.cancel()
@@ -385,27 +392,18 @@ func (pm *MultiPoolerManager) closeLocked(logMessage string) bool {
 	return true
 }
 
-// startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
+// startHeartbeat starts the replication tracker and syncs it to the current serving state.
+// The heartbeat writer/reader mode is determined by the multipooler record (the source of truth),
+// not by querying the database directly. If the type later changes (e.g., via promotion or
+// topology load), StateManager.SetState will notify the replTracker.
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
 	// Create the replication tracker using the executor's InternalQueryService
 	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQueryService(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
-	pm.servingState.Register(pm.replTracker)
 
-	// Check if we're connected to a primary
-	isPrimary, err := pm.isPrimary(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check if database is primary: %w", err)
-	}
-
-	if isPrimary {
-		pm.logger.InfoContext(ctx, "Starting heartbeat writer - connected to primary database")
-		_ = pm.replTracker.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
-	} else {
-		pm.logger.InfoContext(ctx, "Not starting heartbeat writer - connected to standby database")
-		_ = pm.replTracker.OnStateChange(ctx, clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
-	}
-
-	return nil
+	// Register with StateManager and sync to current state. This ensures the
+	// heartbeat writer starts for PRIMARY or the reader starts for REPLICA,
+	// based on whatever state the StateManager currently holds.
+	return pm.servingState.RegisterAndSync(ctx, pm.replTracker)
 }
 
 // QueryServiceControl returns the query service controller.

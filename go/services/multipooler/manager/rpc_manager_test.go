@@ -132,10 +132,8 @@ func TestPrimaryPosition(t *testing.T) {
 			require.NoError(t, err)
 			defer manager.Shutdown()
 
-			// Set up mock query service for isInRecovery check during startup
+			// Set up mock query service for isInRecovery checks during test
 			mockQueryService := mock.NewQueryService()
-			// PRIMARY: pg_is_in_recovery returns false (not in recovery)
-			// REPLICA: pg_is_in_recovery returns true (in recovery)
 			isReplica := tt.poolerType == clustermetadatapb.PoolerType_REPLICA
 			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{isReplica}}))
 			manager.qsc = &mockPoolerController{queryService: mockQueryService}
@@ -368,17 +366,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	}
 }
 
-// expectStartupQueries adds expectations for queries that happen during manager startup.
-// The manager is created as a REPLICA, so pg_is_in_recovery() returns true,
-// which causes the heartbeat reader to start (not writer).
-// Note: Schema creation is now handled by multiorch during bootstrap initialization,
-// so we no longer expect CREATE SCHEMA or CREATE TABLE queries here.
-// Also note: Since we mark as initialized in these tests, we don't expect the isInitialized check.
-func expectStartupQueries(m *mock.QueryService) {
-	// Heartbeat startup: checks if DB is primary/replica
-	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-}
-
 // expectLeadershipHistoryInsert adds a mock expectation for successful leadership history insertion.
 // This is required for Promote to succeed since leadership history insertion failure now fails the promotion.
 func expectLeadershipHistoryInsert(m *mock.QueryService) {
@@ -489,12 +476,7 @@ func TestPromoteIdempotency_PostgreSQLPromotedButTopologyNotUpdated(t *testing.T
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Note: We don't call expectStartupQueries here because we need fine-grained control.
-	// Startup heartbeat check returns "t" (we're configured as REPLICA initially)
-	// But checkPromotionState should return "f" (PG is already primary)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// All subsequent calls return "f" (PostgreSQL is already primary)
+	// checkPromotionState should return "f" (PG is already primary)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
@@ -543,12 +525,7 @@ func TestPromoteIdempotency_FullyCompleteTopologyPrimary(t *testing.T) {
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Note: We don't call expectStartupQueries here because we need fine-grained control.
-	// Startup heartbeat check returns "t" (we're configured as REPLICA initially)
-	// But checkPromotionState should return "f" (PG is already primary)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-	// All subsequent calls return "f" (PostgreSQL is already primary)
+	// checkPromotionState should return "f" (PG is already primary)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 
@@ -585,7 +562,6 @@ func TestPromoteIdempotency_InconsistentStateTopologyPrimaryPgNotPrimary(t *test
 
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
-	expectStartupQueries(mockQueryService)
 
 	// Mock: checkPromotionState queries pg_is_in_recovery() - returns true (still standby!)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
@@ -618,13 +594,9 @@ func TestPromoteIdempotency_InconsistentStateFixedWithForce(t *testing.T) {
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Note: We don't call expectStartupQueries here because we need fine-grained control.
 	// The sequence of pg_is_in_recovery calls is:
-	// 1. Startup heartbeat check - returns "t" (consumed)
-	// 2. Promote checkPromotionState - returns "t" (consumed) - still in recovery
-	// 3. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// 1. Promote checkPromotionState - returns "t" (consumed) - still in recovery
+	// 2. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
@@ -680,13 +652,9 @@ func TestPromoteIdempotency_NothingCompleteYet(t *testing.T) {
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Note: We don't call expectStartupQueries here because we need fine-grained control.
 	// The sequence of pg_is_in_recovery calls is:
-	// 1. Startup heartbeat check - returns "t" (consumed)
-	// 2. Promote checkPromotionState - returns "t" (consumed) - still in recovery
-	// 3. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// 1. Promote checkPromotionState - returns "t" (consumed) - still in recovery
+	// 2. waitForPromotionComplete polling - returns "f" (persistent) - promotion complete
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
@@ -742,7 +710,6 @@ func TestPromoteIdempotency_LSNMismatchBeforePromotion(t *testing.T) {
 
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
-	expectStartupQueries(mockQueryService)
 
 	// PostgreSQL is still in recovery
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
@@ -771,7 +738,6 @@ func TestPromoteIdempotency_TermMismatch(t *testing.T) {
 
 	// Create mock - only startup expectations needed because term validation happens before test DB queries
 	mockQueryService := mock.NewQueryService()
-	expectStartupQueries(mockQueryService)
 
 	pm, tmpDir := setupPromoteTestManager(t, mockQueryService)
 
@@ -793,15 +759,10 @@ func TestPromoteIdempotency_SecondCallSucceedsAfterCompletion(t *testing.T) {
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Note: We don't call expectStartupQueries here because we need fine-grained control
-	// over which pg_is_in_recovery calls return "t" (in recovery) vs "f" (primary).
 	// The sequence of pg_is_in_recovery calls is:
-	// 1. Startup heartbeat check - returns "t" (consumed)
-	// 2. Promote checkPromotionState - returns "t" (consumed)
-	// 3. waitForPromotionComplete polling - returns "f" (consumed on first call)
-	// 4. Second Promote call checkPromotionState - returns "f" (consumed on second call)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// 1. Promote checkPromotionState - returns "t" (consumed)
+	// 2. waitForPromotionComplete polling - returns "f" (consumed on first call)
+	// 3. Second Promote call checkPromotionState - returns "f" (consumed on second call)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// waitForPromotionComplete returns false (promotion complete)
@@ -867,14 +828,9 @@ func TestPromoteIdempotency_EmptyExpectedLSNSkipsValidation(t *testing.T) {
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Note: We don't call expectStartupQueries here because we need fine-grained control
-	// over which pg_is_in_recovery calls return "t" (in recovery) vs "f" (primary).
 	// The sequence of pg_is_in_recovery calls is:
-	// 1. Startup heartbeat check - returns "t" (consumed)
-	// 2. Promote checkPromotionState - returns "t" (consumed)
-	// 3. waitForPromotionComplete polling - returns "f" (consumed)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// 1. Promote checkPromotionState - returns "t" (consumed)
+	// 2. waitForPromotionComplete polling - returns "f" (consumed)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// After pg_promote(), waitForPromotionComplete polls until pg_is_in_recovery returns false
@@ -921,9 +877,6 @@ func TestPromote_WithElectionMetadata(t *testing.T) {
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Startup heartbeat check returns "t" (we're configured as REPLICA initially)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// checkPromotionState returns "t" (still in recovery)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -1001,9 +954,6 @@ func TestPromote_LeadershipHistoryErrorFailsPromotion(t *testing.T) {
 	// Create mock and set ALL expectations BEFORE starting the manager
 	mockQueryService := mock.NewQueryService()
 
-	// Startup heartbeat check returns "t" (we're configured as REPLICA initially)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// checkPromotionState returns "t" (still in recovery)
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -1076,9 +1026,6 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 
 	mockQueryService := mock.NewQueryService()
 
-	// Startup heartbeat check
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	// checkPromotionState
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -1325,10 +1272,8 @@ func TestSetPrimaryConnInfo_StoresPrimaryPoolerID(t *testing.T) {
 	pm.consensusState = NewConsensusState(tmpDir, serviceID)
 	pm.mu.Unlock()
 
-	// Set up mock query service for isInRecovery check during startup
+	// Set up mock query service
 	mockQueryService := mock.NewQueryService()
-	// REPLICA: pg_is_in_recovery returns true (in recovery) - for startup check
-	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	// REPLICA: pg_is_in_recovery returns true (in recovery) - for SetPrimaryConnInfo guardrail check
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
 	// SetPrimaryConnInfo executes ALTER SYSTEM SET primary_conninfo

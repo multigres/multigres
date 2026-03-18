@@ -76,6 +76,17 @@ func (ssm *StateManager) Register(component StateAware) {
 	ssm.components = append(ssm.components, component)
 }
 
+// RegisterAndSync adds a component and immediately syncs it to the current state.
+// This is used for components created after the initial state transition (e.g.,
+// ReplTracker is created after Open() has already transitioned to SERVING).
+// The component is initialized from the multipooler record, which is the source of truth.
+func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAware) error {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	ssm.components = append(ssm.components, component)
+	return component.OnStateChange(ctx, ssm.multipooler.Type, ssm.multipooler.ServingStatus)
+}
+
 // SetState transitions all components to the given state in parallel.
 // The multipooler record is updated only after all components converge.
 // Returns an error if any component fails to transition.

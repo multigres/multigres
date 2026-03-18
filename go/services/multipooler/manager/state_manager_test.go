@@ -198,6 +198,48 @@ func TestStateManager_Register(t *testing.T) {
 	assert.Equal(t, 1, comp2.callCount)
 }
 
+func TestStateManager_RegisterAndSync(t *testing.T) {
+	comp1 := &testComponent{}
+	mp := newTestMultiPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+
+	// Create manager with no components, then transition state.
+	ssm := NewStateManager(newTestLogger(), mp)
+	err := ssm.SetState(context.Background(), clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	require.NoError(t, err)
+
+	// Register a late component — it should immediately receive the current state.
+	comp2 := &testComponent{}
+	err = ssm.RegisterAndSync(context.Background(), comp2)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, comp2.callCount)
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, comp2.lastType)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, comp2.lastStatus)
+
+	// comp1 was never registered, so it shouldn't have been called.
+	assert.Equal(t, 0, comp1.callCount)
+
+	// A subsequent SetState should notify both the constructor components and the late one.
+	ssm2 := NewStateManager(newTestLogger(),
+		newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING),
+		comp1)
+	comp3 := &testComponent{}
+	err = ssm2.RegisterAndSync(context.Background(), comp3)
+	require.NoError(t, err)
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, comp3.lastType)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_NOT_SERVING, comp3.lastStatus)
+}
+
+func TestStateManager_RegisterAndSync_Error(t *testing.T) {
+	mp := newTestMultiPooler(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING)
+	ssm := NewStateManager(newTestLogger(), mp)
+
+	comp := &testComponent{err: errors.New("sync failed")}
+	err := ssm.RegisterAndSync(context.Background(), comp)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sync failed")
+}
+
 func TestStateManager_NoComponents(t *testing.T) {
 	mp := newTestMultiPooler(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
