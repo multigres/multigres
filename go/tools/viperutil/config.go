@@ -307,8 +307,8 @@ func init() {
 }
 
 func (h *ConfigFileNotFoundHandling) Set(arg string) error {
-	larg := strings.ToLower(arg)
-	if v, ok := handlingNamesToValues[larg]; ok {
+	argLower := strings.ToLower(arg)
+	if v, ok := handlingNamesToValues[argLower]; ok {
 		*h = ConfigFileNotFoundHandling(v)
 		return nil
 	}

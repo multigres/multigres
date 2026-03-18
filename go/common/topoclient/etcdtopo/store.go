@@ -98,7 +98,7 @@ func registerEtcdTopoFlags(fs *pflag.FlagSet) {
 
 // Close implements topoclient.Conn.Close.
 // It will nil out the global and cells fields, so any attempt to
-// re-use this server will panic.
+// reuse this server will panic.
 func (s *etcdtopo) Close() error {
 	close(s.running)
 	if err := s.cli.Close(); err != nil {

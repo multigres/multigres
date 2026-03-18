@@ -137,7 +137,7 @@ service MultiPoolerManager {
   //
   // Backup and Restore
   // All of these RPCs perform backups and restores in the context
-  // of the datbase, table group and shard this multipooler serves.
+  // of the database, table group and shard this multipooler serves.
   //
 
   // Backup performs a backup

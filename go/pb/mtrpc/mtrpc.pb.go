@@ -90,7 +90,7 @@ const (
 	// For example, directory to be deleted may be non-empty, an rmdir
 	// operation is applied to a non-directory, etc.
 	//
-	// A litmus test that may help a service implementor in deciding
+	// A litmus test that may help a service implementer in deciding
 	// between FAILED_PRECONDITION, ABORTED, and UNAVAILABLE:
 	//
 	//	(a) Use UNAVAILABLE if the client can retry just the failing call.
