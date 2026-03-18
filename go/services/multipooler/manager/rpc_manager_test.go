@@ -88,7 +88,7 @@ func TestPrimaryPosition(t *testing.T) {
 			poolerType:    clustermetadatapb.PoolerType_REPLICA,
 			expectError:   true,
 			expectedCode:  mtrpcpb.Code_FAILED_PRECONDITION,
-			errorContains: "pooler type is REPLICA",
+			errorContains: "standby mode",
 		},
 		{
 			name:          "PRIMARY pooler passes type check",

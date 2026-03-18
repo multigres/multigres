@@ -582,15 +582,9 @@ func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 	return nil
 }
 
-// checkPrimaryGuardrails verifies that the pooler is a PRIMARY and PostgreSQL is not in recovery mode
-// This is a common guardrail for primary-only operations
+// checkPrimaryGuardrails verifies that PostgreSQL is not in recovery mode.
+// This is the canonical guardrail for primary-only operations.
 func (pm *MultiPoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
-	// Guardrail: Check pooler type - only PRIMARY poolers can perform primary operations
-	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_PRIMARY, "Primary operation"); err != nil {
-		return err
-	}
-
-	// Guardrail: Check if the PostgreSQL instance is in standby mode
 	isInRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
