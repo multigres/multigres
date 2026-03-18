@@ -555,3 +555,26 @@ func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []
 
 	return poolers
 }
+
+// AllPoolersUnreachable reports whether all known poolers have been unreachable
+// for longer than the given threshold. Returns false when the store is empty
+// (before first discovery) to avoid false not-ready during startup.
+func (re *Engine) AllPoolersUnreachable(threshold time.Duration) bool {
+	count := 0
+	allUnreachable := true
+
+	re.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
+		count++
+		if pooler.IsLastCheckValid {
+			allUnreachable = false
+			return false // stop early
+		}
+		if pooler.LastSeen != nil && time.Since(pooler.LastSeen.AsTime()) < threshold {
+			allUnreachable = false
+			return false // stop early
+		}
+		return true // continue
+	})
+
+	return count > 0 && allUnreachable
+}
