@@ -109,6 +109,9 @@ func (p *Planner) Plan(
 
 	case ast.T_NotifyStmt:
 		return p.planNotifyStmt(sql)
+
+	case ast.T_DiscardStmt:
+		return p.planDiscardStmt(sql, stmt.(*ast.DiscardStmt), conn)
 	// Future: Add more statement types here
 	// case ast.T_SelectStmt:
 	//     plan, err = p.planSelectStmt(sql, stmt.(*ast.SelectStmt), conn)

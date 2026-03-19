@@ -694,6 +694,48 @@ func (g *grpcQueryService) ConcludeTransaction(
 	return result, reservedState, nil
 }
 
+// DiscardTempTables sends DISCARD TEMP on a reserved connection.
+// Returns the result and the authoritative reservation state from the multipooler.
+func (g *grpcQueryService) DiscardTempTables(
+	ctx context.Context,
+	target *querypb.Target,
+	options *querypb.ExecuteOptions,
+) (*sqltypes.Result, *querypb.ReservedState, error) {
+	g.logger.DebugContext(ctx, "discard temp tables",
+		"pooler_id", g.poolerID,
+		"tablegroup", target.TableGroup,
+		"shard", target.Shard,
+		"reserved_conn_id", options.ReservedConnectionId)
+
+	// Create the request
+	req := &multipoolerservice.DiscardTempTablesRequest{
+		Target:  target,
+		Options: options,
+	}
+
+	// Call the gRPC DiscardTempTables
+	response, err := g.client.DiscardTempTables(ctx, req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("discard temp tables failed: %w", err)
+	}
+
+	result := sqltypes.ResultFromProto(response.Result)
+	reservedState := response.GetReservedState()
+
+	if reservedState.GetReservedConnectionId() == 0 {
+		g.logger.DebugContext(ctx, "temp tables discarded, connection released",
+			"pooler_id", g.poolerID,
+			"command_tag", result.CommandTag)
+	} else {
+		g.logger.DebugContext(ctx, "temp tables discarded, connection still reserved",
+			"pooler_id", g.poolerID,
+			"command_tag", result.CommandTag,
+			"reservation_reasons", protoutil.ReasonsString(reservedState.GetReservationReasons()))
+	}
+
+	return result, reservedState, nil
+}
+
 // ReleaseReservedConnection forcefully releases a reserved connection.
 func (g *grpcQueryService) ReleaseReservedConnection(
 	ctx context.Context,

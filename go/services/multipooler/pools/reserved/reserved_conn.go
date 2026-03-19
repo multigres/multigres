@@ -123,9 +123,6 @@ func (c *Conn) Commit(ctx context.Context) error {
 // Rollback rolls back the current transaction.
 func (c *Conn) Rollback(ctx context.Context) error {
 	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
-	}
-	if !c.IsInTransaction() {
 		// No active transaction, but that's okay for rollback.
 		return nil
 	}

@@ -44,6 +44,7 @@ const (
 	MultiPoolerService_CopyBidiExecute_FullMethodName           = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
 	MultiPoolerService_ReserveStreamExecute_FullMethodName      = "/multipoolerservice.MultiPoolerService/ReserveStreamExecute"
 	MultiPoolerService_ConcludeTransaction_FullMethodName       = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
+	MultiPoolerService_DiscardTempTables_FullMethodName         = "/multipoolerservice.MultiPoolerService/DiscardTempTables"
 	MultiPoolerService_ReleaseReservedConnection_FullMethodName = "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"
 	MultiPoolerService_StreamPoolerHealth_FullMethodName        = "/multipoolerservice.MultiPoolerService/StreamPoolerHealth"
 	MultiPoolerService_StreamNotifications_FullMethodName       = "/multipoolerservice.MultiPoolerService/StreamNotifications"
@@ -86,6 +87,10 @@ type MultiPoolerServiceClient interface {
 	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
 	// Returns the reserved state - if non-empty, the connection is still reserved.
 	ConcludeTransaction(ctx context.Context, in *ConcludeTransactionRequest, opts ...grpc.CallOption) (*ConcludeTransactionResponse, error)
+	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
+	// The connection may remain reserved if there are other reasons to keep it (e.g., active transaction).
+	// Returns the reserved state - if non-empty, the connection is still reserved.
+	DiscardTempTables(ctx context.Context, in *DiscardTempTablesRequest, opts ...grpc.CallOption) (*DiscardTempTablesResponse, error)
 	// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 	// Used during client disconnect to clean up all reserved connections on the multipooler.
 	// If the connection has a transaction, ROLLBACK is executed.
@@ -230,6 +235,16 @@ func (c *multiPoolerServiceClient) ConcludeTransaction(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *multiPoolerServiceClient) DiscardTempTables(ctx context.Context, in *DiscardTempTablesRequest, opts ...grpc.CallOption) (*DiscardTempTablesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DiscardTempTablesResponse)
+	err := c.cc.Invoke(ctx, MultiPoolerService_DiscardTempTables_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*ReleaseReservedConnectionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReleaseReservedConnectionResponse)
@@ -315,6 +330,10 @@ type MultiPoolerServiceServer interface {
 	// The connection may remain reserved if there are other reasons to keep it (e.g., temp tables).
 	// Returns the reserved state - if non-empty, the connection is still reserved.
 	ConcludeTransaction(context.Context, *ConcludeTransactionRequest) (*ConcludeTransactionResponse, error)
+	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
+	// The connection may remain reserved if there are other reasons to keep it (e.g., active transaction).
+	// Returns the reserved state - if non-empty, the connection is still reserved.
+	DiscardTempTables(context.Context, *DiscardTempTablesRequest) (*DiscardTempTablesResponse, error)
 	// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 	// Used during client disconnect to clean up all reserved connections on the multipooler.
 	// If the connection has a transaction, ROLLBACK is executed.
@@ -372,6 +391,9 @@ func (UnimplementedMultiPoolerServiceServer) ReserveStreamExecute(*ReserveStream
 }
 func (UnimplementedMultiPoolerServiceServer) ConcludeTransaction(context.Context, *ConcludeTransactionRequest) (*ConcludeTransactionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConcludeTransaction not implemented")
+}
+func (UnimplementedMultiPoolerServiceServer) DiscardTempTables(context.Context, *DiscardTempTablesRequest) (*DiscardTempTablesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DiscardTempTables not implemented")
 }
 func (UnimplementedMultiPoolerServiceServer) ReleaseReservedConnection(context.Context, *ReleaseReservedConnectionRequest) (*ReleaseReservedConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReleaseReservedConnection not implemented")
@@ -515,6 +537,24 @@ func _MultiPoolerService_ConcludeTransaction_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiPoolerService_DiscardTempTables_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DiscardTempTablesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiPoolerServiceServer).DiscardTempTables(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiPoolerService_DiscardTempTables_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiPoolerServiceServer).DiscardTempTables(ctx, req.(*DiscardTempTablesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiPoolerService_ReleaseReservedConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReleaseReservedConnectionRequest)
 	if err := dec(in); err != nil {
@@ -577,6 +617,10 @@ var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConcludeTransaction",
 			Handler:    _MultiPoolerService_ConcludeTransaction_Handler,
+		},
+		{
+			MethodName: "DiscardTempTables",
+			Handler:    _MultiPoolerService_DiscardTempTables_Handler,
 		},
 		{
 			MethodName: "ReleaseReservedConnection",

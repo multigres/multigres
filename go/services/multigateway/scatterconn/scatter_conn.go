@@ -333,6 +333,19 @@ func (sc *ScatterConn) PortalStreamExecute(
 		sc.applyReservedState(conn, state, target, reservedState)
 		eo.ReservedConnectionId = reservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, reservedState.GetPoolerId(), target)
+	} else if state.SessionPinned {
+		// Session pinned (temp tables) but no reserved connection yet.
+		// Fall back to ReserveStreamExecute with the query text to create
+		// the reservation. Subsequent portal executions will use Case 1.
+		sc.logger.DebugContext(ctx, "creating reserved connection for session pin via portal execution")
+		sql := portalInfo.PreparedStatementInfo.Query
+		reservationOpts := protoutil.NewTempTableReservationOptions()
+		reservedState, rsErr := sc.gateway.ReserveStreamExecute(ctx, target, sql, eo, reservationOpts, callback)
+		if rsErr != nil {
+			return fmt.Errorf("reserve stream execute failed: %w", rsErr)
+		}
+		sc.applyReservedState(conn, state, target, reservedState)
+		return nil
 	}
 	if err != nil {
 		return err
@@ -558,6 +571,102 @@ func (sc *ScatterConn) ConcludeTransaction(
 	}
 
 	// Send the result to the client (COMMIT/ROLLBACK command tag)
+	if callbackResult != nil {
+		if err := callback(ctx, callbackResult); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// DiscardTempTables sends DISCARD TEMP on reserved connections that have the
+// temp table reason set. Based on the returned state from the multipooler,
+// shard state entries are either cleared (connection fully released) or updated.
+func (sc *ScatterConn) DiscardTempTables(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.discard_temp_tables",
+		trace.WithAttributes(
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	// Collect shard state updates to apply after iteration.
+	type shardUpdate struct {
+		target        *querypb.Target
+		clear         bool
+		reservedState *querypb.ReservedState
+	}
+	var updates []shardUpdate
+	var errs []error
+	var callbackResult *sqltypes.Result
+
+	// Iterate over all shard states with reserved connections.
+	// Only discard on shards that have the temp table reason.
+	for _, ss := range state.ShardStates {
+		if ss.ReservedState.GetReservedConnectionId() == 0 {
+			continue
+		}
+		if !protoutil.HasTempTableReason(ss.ReservedState.GetReservationReasons()) {
+			continue
+		}
+
+		eo := &querypb.ExecuteOptions{
+			User:                 conn.User(),
+			SessionSettings:      state.GetSessionSettings(),
+			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
+		}
+
+		qs, err := sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), ss.Target)
+		if err != nil {
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			errs = append(errs, fmt.Errorf("discard temp tables: pooler lookup failed for %s: %w", ss.Target, err))
+			continue
+		}
+
+		result, reservedState, err := qs.DiscardTempTables(ctx, ss.Target, eo)
+		if err != nil {
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			errs = append(errs, fmt.Errorf("discard temp tables failed for %s: %w", ss.Target, err))
+			continue
+		}
+
+		if reservedState.GetReservedConnectionId() == 0 {
+			// Connection fully released by multipooler
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+		} else {
+			// Connection still reserved for other reasons — update our local tracking
+			updates = append(updates, shardUpdate{target: ss.Target, reservedState: reservedState})
+		}
+
+		// Keep the last successful result for the callback
+		callbackResult = result
+	}
+
+	// Apply collected updates outside the iteration loop.
+	for _, u := range updates {
+		if u.clear {
+			state.ClearReservedConnection(u.target)
+		} else {
+			state.SetReservedConnection(u.target, u.reservedState)
+		}
+	}
+
+	if len(errs) > 0 {
+		if len(errs) > 1 {
+			sc.logger.ErrorContext(ctx, "multiple shard errors during discard temp tables",
+				"error_count", len(errs),
+				"errors", errors.Join(errs...))
+		}
+		return errs[0]
+	}
+
+	// Send the result to the client
 	if callbackResult != nil {
 		if err := callback(ctx, callbackResult); err != nil {
 			return err

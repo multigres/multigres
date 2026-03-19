@@ -26,8 +26,37 @@ func checkAndPinForTempTable(node ast.Stmt, state *MultiGatewayConnectionState) 
 			state.SessionPinned = true
 		}
 	case *ast.CreateTableAsStmt:
+		// Covers CREATE TEMP TABLE AS SELECT.
 		if stmt.Into != nil && stmt.Into.Rel != nil && stmt.Into.Rel.RelPersistence == 't' {
 			state.SessionPinned = true
 		}
+	case *ast.SelectStmt:
+		// Covers SELECT INTO TEMPORARY TABLE (parsed as SelectStmt with IntoClause).
+		if stmt.IntoClause != nil && stmt.IntoClause.Rel != nil && stmt.IntoClause.Rel.RelPersistence == 't' {
+			state.SessionPinned = true
+		}
+	case *ast.ViewStmt:
+		if stmt.View != nil && stmt.View.RelPersistence == 't' {
+			state.SessionPinned = true
+		}
+	}
+}
+
+// checkAndUnpinForDiscard checks if an AST node is a DISCARD TEMP or
+// DISCARD ALL statement and unpins the session if so. This allows the
+// reserved connection to be released back to the pool once the multipooler
+// removes the temp table reason.
+func checkAndUnpinForDiscard(node ast.Stmt, state *MultiGatewayConnectionState) {
+	if !state.SessionPinned {
+		return
+	}
+
+	stmt, ok := node.(*ast.DiscardStmt)
+	if !ok {
+		return
+	}
+
+	if stmt.Target == ast.DISCARD_TEMP || stmt.Target == ast.DISCARD_ALL {
+		state.SessionPinned = false
 	}
 }
