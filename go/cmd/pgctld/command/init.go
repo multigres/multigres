@@ -61,12 +61,18 @@ file and environment variable settings.
 
 Password can be set via the POSTGRES_PASSWORD environment variable.
 
+Extra initdb arguments can be set via the POSTGRES_INITDB_ARGS environment variable,
+or overridden with the --pg-initdb-args flag.
+
 Examples:
   # Initialize data directory
   pgctld init --pooler-dir /var/lib/pooler-dir
 
   # Initialize with existing configuration
   pgctld init -d /var/lib/pooler-dir
+
+  # Initialize with ICU locale provider and specific locale en_US.UTF-8
+  pgctld init --pg-initdb-args "--locale=icu --icu-locale=en_US.UTF-8" -d /var/lib/pooler-dir
 
   # Initialize using config file settings
   pgctld init --config-file /etc/pgctld/config.yaml`,
@@ -82,12 +88,12 @@ Examples:
 // InitDataDirWithResult initializes PostgreSQL data directory and returns detailed result information.
 // When pgDatabase differs from the default "postgres" database, it starts PostgreSQL transiently
 // and creates the target database — mirroring docker-library/postgres's docker_setup_db behaviour.
-func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pgUser string, pgPassword string, pgDatabase string) (*InitResult, error) {
+func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServiceConfig) (*InitResult, error) {
 	result := &InitResult{}
-	dataDir := pgctld.PostgresDataDir(poolerDir)
+	dataDir := pgctld.PostgresDataDir()
 
 	// Check if data directory is already initialized
-	if pgctld.IsDataDirInitialized(poolerDir) {
+	if pgctld.IsDataDirInitialized() {
 		logger.Info("Data directory is already initialized", "data_dir", dataDir)
 		result.AlreadyInitialized = true
 		result.Message = "Data directory is already initialized"
@@ -95,20 +101,20 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 	}
 
 	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
-	if err := initializeDataDir(logger, poolerDir, pgUser, pgPassword); err != nil {
+	if err := initializeDataDir(logger, cfg); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
 	// create server config using the pooler directory
-	_, err := pgctld.GeneratePostgresServerConfig(poolerDir, pgPort, pgUser)
+	_, err := pgctld.GeneratePostgresServerConfig(poolerDir, cfg.Port, cfg.User)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres config: %w", err)
 	}
 
 	// If the target database is not the default "postgres" (always created by initdb),
 	// start PostgreSQL transiently and create it — same as docker-library/postgres does.
-	if pgDatabase != constants.DefaultPostgresDatabase {
-		if err := setupDatabase(logger, poolerDir, pgPort, pgUser, pgDatabase); err != nil {
-			return nil, fmt.Errorf("failed to create database %q: %w", pgDatabase, err)
+	if cfg.Database != constants.DefaultPostgresDatabase {
+		if err := setupDatabase(logger, cfg); err != nil {
+			return nil, fmt.Errorf("failed to create database %q: %w", cfg.Database, err)
 		}
 	}
 
@@ -120,16 +126,22 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, pgPort int, pg
 
 func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 	poolerDir := i.pgCtlCmd.GetPoolerDir()
-	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, i.pgCtlCmd.pgPort.Get(), i.pgCtlCmd.pgUser.Get(), i.pgCtlCmd.pgPassword.Get(), i.pgCtlCmd.pgDatabase.Get())
+	cfg := PgCtldServiceConfig{
+		Port:     i.pgCtlCmd.pgPort.Get(),
+		User:     i.pgCtlCmd.pgUser.Get(),
+		Database: i.pgCtlCmd.pgDatabase.Get(),
+		Password: i.pgCtlCmd.pgPassword.Get(),
+	}
+	result, err := InitDataDirWithResult(i.pgCtlCmd.lg.GetLogger(), poolerDir, cfg)
 	if err != nil {
 		return err
 	}
 
 	// Display appropriate message for CLI users
 	if result.AlreadyInitialized {
-		fmt.Printf("Data directory is already initialized: %s\n", pgctld.PostgresDataDir(poolerDir))
+		fmt.Printf("Data directory is already initialized: %s\n", pgctld.PostgresDataDir())
 	} else {
-		fmt.Printf("Data directory initialized successfully: %s\n", pgctld.PostgresDataDir(poolerDir))
+		fmt.Printf("Data directory initialized successfully: %s\n", pgctld.PostgresDataDir())
 	}
 
 	return nil
@@ -138,12 +150,12 @@ func (i *PgCtldInitCmd) runInit(cmd *cobra.Command, args []string) error {
 // setupDatabase starts a transient pgInstance and creates pgDatabase if it does
 // not already exist, then stops the instance.  This mirrors what the official
 // docker-library/postgres image does in its docker_setup_db() entrypoint function.
-func setupDatabase(logger *slog.Logger, poolerDir string, pgPort int, pgUser, pgDatabase string) error {
-	dataDir := pgctld.PostgresDataDir(poolerDir)
-	configFile := pgctld.PostgresConfigFile(poolerDir)
+func setupDatabase(logger *slog.Logger, cfg PgCtldServiceConfig) error {
+	dataDir := pgctld.PostgresDataDir()
+	configFile := pgctld.PostgresConfigFile()
 
-	logger.Info("Starting PostgreSQL transiently to create database", "database", pgDatabase)
-	pg, err := newPgInstance(logger, dataDir, configFile, pgPort, pgUser)
+	logger.Info("Starting PostgreSQL transiently to create database", "database", cfg.Database)
+	pg, err := newPgInstance(logger, dataDir, configFile, cfg.Port, cfg.User)
 	if err != nil {
 		return err
 	}
@@ -155,32 +167,32 @@ func setupDatabase(logger *slog.Logger, poolerDir string, pgPort int, pgUser, pg
 	// Single quotes in the name are escaped as '' per the SQL standard.
 	checkOut, err := pg.psql(constants.DefaultPostgresDatabase,
 		"-Atc", fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = '%s'",
-			strings.ReplaceAll(pgDatabase, "'", "''")),
+			strings.ReplaceAll(cfg.Database, "'", "''")),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to query pg_database for %q: %w\nOutput: %s", pgDatabase, err, checkOut)
+		return fmt.Errorf("failed to query pg_database for %q: %w\nOutput: %s", cfg.Database, err, checkOut)
 	}
 	if strings.TrimSpace(string(checkOut)) == "1" {
-		logger.Info("Database already exists, skipping creation", "database", pgDatabase)
+		logger.Info("Database already exists, skipping creation", "database", cfg.Database)
 		return nil
 	}
 
 	// CREATE DATABASE with a double-quoted identifier; double quotes in the name
 	// are escaped as "" per the SQL standard.
-	logger.Info("Creating database", "database", pgDatabase)
+	logger.Info("Creating database", "database", cfg.Database)
 	if out, err := pg.psql(constants.DefaultPostgresDatabase,
-		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(pgDatabase, `"`, `""`)),
+		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, strings.ReplaceAll(cfg.Database, `"`, `""`)),
 	); err != nil {
-		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", pgDatabase, err, out)
+		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", cfg.Database, err, out)
 	}
 
-	logger.Info("Database created successfully", "database", pgDatabase)
+	logger.Info("Database created successfully", "database", cfg.Database)
 	return nil
 }
 
-func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string, pgPassword string) error {
+func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	// Derive dataDir from poolerDir using the standard convention
-	dataDir := pgctld.PostgresDataDir(poolerDir)
+	dataDir := pgctld.PostgresDataDir()
 
 	// Note: initdb will create the data directory itself if it doesn't exist.
 	// We don't create it beforehand to avoid leaving empty directories if initdb fails.
@@ -190,11 +202,11 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string, pgP
 	// pgBackRest will validate checksums for the Postgres cluster it's backing up.
 	// However, pgBackRest merely logs checksum validation errors but does not fail
 	// the backup.
-	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", pgUser}
+	args := []string{"-D", dataDir, "--data-checksums", "--auth-local=trust", "--auth-host=scram-sha-256", "-U", cfg.User}
 
 	// If password is provided, create a temporary password file for initdb
 	var tempPwFile string
-	if pgPassword != "" {
+	if cfg.Password != "" {
 		// Create temporary password file
 		tmpFile, err := os.CreateTemp("", "pgpassword-*.txt")
 		if err != nil {
@@ -203,7 +215,7 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string, pgP
 		tempPwFile = tmpFile.Name()
 		defer os.Remove(tempPwFile)
 
-		if _, err := tmpFile.WriteString(pgPassword); err != nil {
+		if _, err := tmpFile.WriteString(cfg.Password); err != nil {
 			tmpFile.Close()
 			return fmt.Errorf("failed to write password to temporary file: %w", err)
 		}
@@ -213,9 +225,14 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string, pgP
 
 		// Add pwfile argument to initdb
 		args = append(args, "--pwfile="+tempPwFile)
-		logger.Info("Setting password during initdb", "user", pgUser, "password_source", "POSTGRES_PASSWORD environment variable")
+		logger.Info("Setting password during initdb", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
 	} else {
-		logger.Warn("No password provided - skipping password setup", "user", pgUser, "warning", "PostgreSQL user will not have password authentication enabled")
+		logger.Warn("No password provided - skipping password setup", "user", cfg.User, "warning", "PostgreSQL user will not have password authentication enabled")
+	}
+
+	if cfg.InitdbArgs != "" {
+		args = append(args, strings.Fields(cfg.InitdbArgs)...)
+		logger.Info("Appending extra initdb args", "args", cfg.InitdbArgs)
 	}
 
 	cmd := exec.Command("initdb", args...)
@@ -227,8 +244,8 @@ func initializeDataDir(logger *slog.Logger, poolerDir string, pgUser string, pgP
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
 
-	if pgPassword != "" {
-		logger.Info("User password set successfully", "user", pgUser, "password_source", "POSTGRES_PASSWORD environment variable")
+	if cfg.Password != "" {
+		logger.Info("User password set successfully", "user", cfg.User, "password_source", "POSTGRES_PASSWORD environment variable")
 	}
 
 	return nil

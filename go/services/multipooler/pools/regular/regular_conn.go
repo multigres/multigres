@@ -247,9 +247,9 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 // BindAndExecute binds parameters and executes atomically.
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
 // If the context is cancelled, the backend query is cancelled via adminPool.
-func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	return execWithContextCancel(c, ctx, func() (bool, error) {
-		return c.conn.BindAndExecute(ctx, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+		return c.conn.BindAndExecute(ctx, portalName, stmtName, params, paramFormats, resultFormats, maxRows, callback)
 	})
 }
 

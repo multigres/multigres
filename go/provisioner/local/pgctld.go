@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
@@ -297,6 +298,9 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	if runtime.GOOS == "darwin" && os.Getenv("LC_ALL") == "" && os.Getenv("LANG") == "" {
 		pgctldCmd.Env = append(pgctldCmd.Env, "LC_ALL=C")
 	}
+
+	// Set PGDATA so pgctld knows where the PostgreSQL data directory is.
+	pgctldCmd.Env = append(pgctldCmd.Env, constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"))
 
 	// Pass the PostgreSQL password so pgctld can use it during init (--pwfile)
 	// and pg_hba.conf setup.

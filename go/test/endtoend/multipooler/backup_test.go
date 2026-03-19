@@ -101,7 +101,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 			// Connect to primary PostgreSQL database using Unix socket
 			var err error
 			db := connectToPostgresViaSocket(t,
-				getPostgresSocketPath(setup.PrimaryPgctld.DataDir),
+				getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir),
 				setup.PrimaryPgctld.PgPort)
 			defer db.Close()
 
@@ -217,7 +217,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					require.NoError(t, err, "Should be able to stop PostgreSQL on standby")
 
 					// Remove pg_data directory
-					removeDataDirectory(t, setup.StandbyPgctld.DataDir)
+					removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
 
 					restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
 						BackupId: fullBackupID,
@@ -266,7 +266,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 
 					// Connect to the standby database after restore
 					standbyDB := connectToPostgresViaSocket(t,
-						getPostgresSocketPath(setup.StandbyPgctld.DataDir),
+						getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
 						setup.StandbyPgctld.PgPort)
 					defer standbyDB.Close()
 
@@ -292,7 +292,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					}, 10*time.Second, 100*time.Millisecond, "New row should replicate to standby after restore")
 
 					// Check if standby.signal exists
-					standbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
+					standbySignalPath := filepath.Join(setup.StandbyPgctld.PoolerDir, "pg_data", "standby.signal")
 					_, statErr := os.Stat(standbySignalPath)
 					assert.Nil(t, statErr, "standby signal should exist")
 
@@ -460,7 +460,7 @@ func TestBackup_FromStandby(t *testing.T) {
 
 			// For local mode (tests without TLS), we need to pass pg2_path override
 			// so pgBackRest can connect to the primary's postgres to get WAL files
-			primaryDataPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data")
+			primaryDataPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data")
 			overrides := map[string]string{
 				"pg2_path": primaryDataPath,
 			}
@@ -596,7 +596,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Log("PostgreSQL stopped on standby")
 
 				t.Log("Step 3: Removing standby pg_data directory...")
-				removeDataDirectory(t, setup.StandbyPgctld.DataDir)
+				removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
 
 				t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
 
@@ -658,7 +658,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 				// Connect to standby and verify it's in recovery mode
 				standbyDB := connectToPostgresViaSocket(t,
-					getPostgresSocketPath(setup.StandbyPgctld.DataDir),
+					getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
 					setup.StandbyPgctld.PgPort)
 				defer standbyDB.Close()
 

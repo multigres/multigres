@@ -41,3 +41,54 @@ func IsRollbackStatement(stmt Stmt) bool {
 	}
 	return txStmt.Kind == TRANS_STMT_ROLLBACK
 }
+
+// ExtractTablesUsed walks the AST and returns deduplicated, schema-qualified
+// table names from all RangeVar nodes. CTE names are excluded since they are
+// virtual tables, not real ones. Returns nil for statements that don't
+// reference tables (SET, SHOW, BEGIN, etc.).
+func ExtractTablesUsed(stmt Stmt) []string {
+	if stmt == nil {
+		return nil
+	}
+
+	// Single pass: collect CTE names and RangeVar references together,
+	// then filter CTE references from the result.
+	cteNames := make(map[string]struct{})
+	seen := make(map[string]struct{})
+	var tables []string
+
+	Rewrite(stmt, func(cursor *Cursor) bool {
+		switch n := cursor.Node().(type) {
+		case *CommonTableExpr:
+			if n.Ctename != "" {
+				cteNames[n.Ctename] = struct{}{}
+			}
+		case *RangeVar:
+			if n.RelName == "" {
+				return true
+			}
+			name := n.RelName
+			if n.SchemaName != "" {
+				name = n.SchemaName + "." + name
+			}
+			if _, exists := seen[name]; !exists {
+				seen[name] = struct{}{}
+				tables = append(tables, name)
+			}
+		}
+		return true
+	}, nil)
+
+	// Remove CTE references (unqualified names that match a CTE).
+	if len(cteNames) > 0 {
+		filtered := tables[:0]
+		for _, name := range tables {
+			if _, isCTE := cteNames[name]; !isCTE {
+				filtered = append(filtered, name)
+			}
+		}
+		tables = filtered
+	}
+
+	return tables
+}

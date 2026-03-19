@@ -43,7 +43,7 @@ import (
 // This struct is extracted from multipooler/setup_test.go and extended for multiorch support.
 type ProcessInstance struct {
 	Name        string
-	DataDir     string // Used by pgctld, multipooler
+	PoolerDir   string // Used by pgctld, multipooler
 	ConfigFile  string // Used by pgctld
 	LogFile     string
 	GrpcPort    int
@@ -100,12 +100,12 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s with binary '%s'", p.Name, p.Binary)
-	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.DataDir, p.GrpcPort, p.PgPort)
+	t.Logf("Data dir: %s, gRPC port: %d, PG port: %d", p.PoolerDir, p.GrpcPort, p.PgPort)
 
 	// Build pgctld server command with pgBackRest configuration
 	args := []string{
 		"server",
-		"--pooler-dir", p.DataDir,
+		"--pooler-dir", p.PoolerDir,
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--timeout", "60",
@@ -129,7 +129,7 @@ func (p *ProcessInstance) startPgctld(ctx context.Context, t *testing.T) error {
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	p.Process.Env = append(p.Environment,
-		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
+		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.PoolerDir),
 	)
 
 	t.Logf("Running server command: %v", p.Process.Args)
@@ -149,14 +149,14 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 
 	// Build command arguments
 	// Socket file path for Unix socket connection (uses trust auth per pg_hba.conf)
-	socketFile := filepath.Join(p.DataDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
+	socketFile := filepath.Join(p.PoolerDir, "pg_sockets", fmt.Sprintf(".s.PGSQL.%d", p.PgPort))
 	args := []string{
 		"--grpc-port", strconv.Itoa(p.GrpcPort),
 		"--database", "postgres", // Required parameter
 		"--table-group", "default", // Required parameter (MVP only supports "default")
 		"--shard", "0-inf", // Required parameter (MVP only supports "0-inf")
 		"--pgctld-addr", p.PgctldAddr,
-		"--pooler-dir", p.DataDir, // Use the same pooler dir as pgctld
+		"--pooler-dir", p.PoolerDir, // Use the same pooler dir as pgctld
 		"--pg-port", strconv.Itoa(p.PgPort),
 		"--socket-file", socketFile, // Unix socket for trust authentication
 		"--service-map", "grpc-pooler,grpc-poolermanager,grpc-consensus,grpc-backup",
@@ -186,7 +186,7 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 
 	// Set MULTIGRES_TESTDATA_DIR for directory-deletion triggered cleanup
 	p.Process.Env = append(p.Environment,
-		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.DataDir),
+		"MULTIGRES_TESTDATA_DIR="+filepath.Dir(p.PoolerDir),
 	)
 
 	t.Logf("Running multipooler command: %v", p.Process.Args)
@@ -230,8 +230,8 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 	}
 
 	p.Process = exec.Command(p.Binary, args...)
-	if p.DataDir != "" {
-		p.Process.Dir = p.DataDir
+	if p.PoolerDir != "" {
+		p.Process.Dir = p.PoolerDir
 	}
 
 	// Set up logging like multiorch_helpers.go does

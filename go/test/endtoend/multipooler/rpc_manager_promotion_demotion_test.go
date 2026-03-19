@@ -131,7 +131,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify standby.signal exists after demotion and replication config
 		t.Log("Verifying standby.signal exists after demotion...")
-		primaryStandbySignalPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "standby.signal")
+		primaryStandbySignalPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data", "standby.signal")
 		_, statErr := os.Stat(primaryStandbySignalPath)
 		assert.NoError(t, statErr, "standby.signal should exist after demotion")
 
@@ -170,8 +170,8 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify signal files are removed after promotion
 		t.Log("Verifying signal files removed from newly promoted primary...")
-		standbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
-		recoverySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "recovery.signal")
+		standbySignalPath := filepath.Join(setup.StandbyPgctld.PoolerDir, "pg_data", "standby.signal")
+		recoverySignalPath := filepath.Join(setup.StandbyPgctld.PoolerDir, "pg_data", "recovery.signal")
 
 		_, standbyStatErr := os.Stat(standbySignalPath)
 		assert.True(t, os.IsNotExist(standbyStatErr), "standby.signal should not exist after promotion")
@@ -204,7 +204,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify standby.signal exists after second demotion
 		t.Log("Verifying standby.signal exists after second demotion...")
-		standbyStandbySignalPath := filepath.Join(setup.StandbyPgctld.DataDir, "pg_data", "standby.signal")
+		standbyStandbySignalPath := filepath.Join(setup.StandbyPgctld.PoolerDir, "pg_data", "standby.signal")
 		_, statErr2 := os.Stat(standbyStandbySignalPath)
 		assert.NoError(t, statErr2, "standby.signal should exist after demotion")
 
@@ -233,8 +233,8 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 
 		// Verify signal files are removed after restoring original primary
 		t.Log("Verifying signal files removed from restored primary...")
-		primaryStandbySignalPath = filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "standby.signal")
-		primaryRecoverySignalPath := filepath.Join(setup.PrimaryPgctld.DataDir, "pg_data", "recovery.signal")
+		primaryStandbySignalPath = filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data", "standby.signal")
+		primaryRecoverySignalPath := filepath.Join(setup.PrimaryPgctld.PoolerDir, "pg_data", "recovery.signal")
 
 		_, primaryStandbyStatErr := os.Stat(primaryStandbySignalPath)
 		assert.True(t, os.IsNotExist(primaryStandbyStatErr), "standby.signal should not exist after promotion")
@@ -292,12 +292,12 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err)
 
-		// Second demotion should fail with guard rail error (server is now REPLICA in topology)
+		// Second demotion should fail with guard rail error (server is now a standby in PostgreSQL)
 		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
-		require.Error(t, err, "Second emergency demote should fail - cannot demote a REPLICA")
-		assert.Contains(t, err.Error(), "pooler type is REPLICA")
+		require.Error(t, err, "Second emergency demote should fail - cannot demote a standby")
+		assert.Contains(t, err.Error(), "standby mode")
 
-		t.Log("EmergencyDemote guard rail verified - cannot demote a REPLICA")
+		t.Log("EmergencyDemote guard rail verified - cannot demote a standby")
 	})
 
 	t.Run("Idempotency_Promote", func(t *testing.T) {
@@ -554,7 +554,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		t.Log("Testing EmergencyDemote on standby (should fail)...")
 
 		// Use Force=true since we're testing error behavior for demote on standby,
-		// not term validation. The demote should fail because standby is REPLICA type.
+		// not term validation. The demote should fail because PostgreSQL is in standby mode.
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
@@ -562,7 +562,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		}
 		_, err = standbyManagerClient.EmergencyDemote(context.Background(), demoteReq)
 		require.Error(t, err, "EmergencyDemote should fail on standby")
-		assert.Contains(t, err.Error(), "pooler type is REPLICA, must be PRIMARY")
+		assert.Contains(t, err.Error(), "standby mode")
 
 		t.Log("Confirmed: EmergencyDemote correctly rejected on standby")
 	})

@@ -43,6 +43,26 @@ func TestPgDatabaseEnvVar(t *testing.T) {
 	})
 }
 
+func TestPgInitdbArgsEnvVar(t *testing.T) {
+	t.Run("defaults to empty when POSTGRES_INITDB_ARGS not set", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Equal(t, "", pc.pgInitdbArgs.Get())
+	})
+
+	t.Run("POSTGRES_INITDB_ARGS env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbArgsEnvVar, "--locale-provider=icu")
+		_, pc := GetRootCommand()
+		assert.Equal(t, "--locale-provider=icu", pc.pgInitdbArgs.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_INITDB_ARGS env var", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbArgsEnvVar, "--locale-provider=icu")
+		_, pc := GetRootCommand()
+		pc.pgInitdbArgs.Set("--encoding=UTF-8")
+		assert.Equal(t, "--encoding=UTF-8", pc.pgInitdbArgs.Get())
+	})
+}
+
 func TestPgBackRestFlags(t *testing.T) {
 	// Test default values
 	rootCmd, _ := GetRootCommand()

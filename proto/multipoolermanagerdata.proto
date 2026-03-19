@@ -150,6 +150,10 @@ message SynchronousReplicationConfiguration {
 
   // List of standby IDs that can participate in synchronous replication
   repeated clustermetadata.ID standby_ids = 4;
+
+  // Application names for standbys in standby_ids (format: {cell}_{name}).
+  // Parallel to standby_ids: standby_application_names[i] is the application name for standby_ids[i].
+  repeated string standby_application_names = 5;
 }
 
 // PostgreSQL primary server status

@@ -234,7 +234,7 @@ func TestPgProtocolClientExtendedQuery(t *testing.T) {
 
 		// BindAndExecute - binds parameters and executes atomically
 		var results []*sqltypes.Result
-		completed, err := conn.BindAndExecute(ctx, "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
+		completed, err := conn.BindAndExecute(ctx, "test_stmt", "test_stmt", [][]byte{[]byte("10"), []byte("20")}, nil, nil, 0,
 			func(ctx context.Context, result *sqltypes.Result) error {
 				results = append(results, result)
 				return nil

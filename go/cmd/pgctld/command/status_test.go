@@ -25,12 +25,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 )
 
 func TestRunStatus(t *testing.T) {
 	baseDir, cleanup := testutil.TempDir(t, "pgctld_status_test")
 	defer cleanup()
+
+	// Set PGDATA to the expected data directory location (may not exist yet for not_initialized test)
+	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
 
 	// Setup mock binaries
 	binDir := filepath.Join(baseDir, "bin")
@@ -146,8 +150,8 @@ func TestIsServerReady(t *testing.T) {
 				"postgres",
 				"postgres",
 				30,
-				pgctld.PostgresDataDir(baseDir),
-				pgctld.PostgresConfigFile(baseDir),
+				pgctld.PostgresDataDir(),
+				pgctld.PostgresConfigFile(),
 				baseDir,
 				"localhost",
 				pgctld.PostgresSocketDir(baseDir),
@@ -204,8 +208,8 @@ func TestGetServerVersion(t *testing.T) {
 				"postgres",
 				"postgres",
 				30,
-				pgctld.PostgresDataDir(baseDir),
-				pgctld.PostgresConfigFile(baseDir),
+				pgctld.PostgresDataDir(),
+				pgctld.PostgresConfigFile(),
 				baseDir,
 				"localhost",
 				pgctld.PostgresSocketDir(baseDir),

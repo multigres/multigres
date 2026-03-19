@@ -807,6 +807,11 @@ func (pm *MultiPoolerManager) getSynchronousReplicationConfig(ctx context.Contex
 		config.SynchronousMethod = syncConfig.Method
 		config.NumSync = syncConfig.NumSync
 		config.StandbyIds = syncConfig.StandbyIDs
+		appNames, err := standbyIDsToAppNames(syncConfig.StandbyIDs)
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to convert standby IDs to application names")
+		}
+		config.StandbyApplicationNames = applicationNamesToStrings(appNames)
 	}
 
 	// Query synchronous_commit
