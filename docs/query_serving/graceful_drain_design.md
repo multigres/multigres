@@ -101,9 +101,9 @@ Regular pool connections and reserved pool connections use separate
 callback pairs to avoid double-counting:
 
 | Pool type | Increment callback | Decrement callback |
-|-----------|-------------------|-------------------|
-| Regular   | `OnBorrow`        | `OnRecycle`       |
-| Reserved  | `OnReserve`       | `OnRelease`       |
+| --------- | ------------------ | ------------------ |
+| Regular   | `OnBorrow`         | `OnRecycle`        |
+| Reserved  | `OnReserve`        | `OnRelease`        |
 
 The reserved pool's inner regular connpool does **not** get
 `OnBorrow`/`OnRecycle` callbacks. This is intentional: the reserved
@@ -117,27 +117,27 @@ logical lend tracked by `OnReserve`/`OnRelease`.
 admission gate called by every gRPC handler before acquiring an
 executor:
 
-| State | `allowOnShutdown=false` | `allowOnShutdown=true` |
-|-------|------------------------|----------------------|
-| SERVING, not shutting down | Allow | Allow |
-| SERVING, shutting down | Reject (`ErrShuttingDown`) | Allow |
-| NOT_SERVING | Reject (`ErrNotServing`) | Reject (`ErrNotServing`) |
+| State                      | `allowOnShutdown=false`    | `allowOnShutdown=true`   |
+| -------------------------- | -------------------------- | ------------------------ |
+| SERVING, not shutting down | Allow                      | Allow                    |
+| SERVING, shutting down     | Reject (`ErrShuttingDown`) | Allow                    |
+| NOT_SERVING                | Reject (`ErrNotServing`)   | Reject (`ErrNotServing`) |
 
 Each gRPC method sets `allowOnShutdown` based on whether it operates
 on an existing reserved connection:
 
-| Method | `allowOnShutdown` | Rationale |
-|--------|------------------|-----------|
-| `StreamExecute` | `reservedConnId > 0` | Allow if continuing existing reservation |
-| `ExecuteQuery` | `reservedConnId > 0` | Same |
-| `Describe` | `reservedConnId > 0` | Same |
-| `PortalStreamExecute` | `reservedConnId > 0` | Same |
-| `CopyBidiExecute` | `reservedConnId > 0` | Same |
-| `ReserveStreamExecute` | `false` | Always a new reservation |
-| `ConcludeTransaction` | `true` | Always on existing reserved conn |
-| `ReleaseReservedConnection` | `true` | Always on existing reserved conn |
-| `GetAuthCredentials` | `false` | Admin operation, not query path |
-| `StreamPoolerHealth` | No gate | Health streaming is independent |
+| Method                      | `allowOnShutdown`    | Rationale                                |
+| --------------------------- | -------------------- | ---------------------------------------- |
+| `StreamExecute`             | `reservedConnId > 0` | Allow if continuing existing reservation |
+| `ExecuteQuery`              | `reservedConnId > 0` | Same                                     |
+| `Describe`                  | `reservedConnId > 0` | Same                                     |
+| `PortalStreamExecute`       | `reservedConnId > 0` | Same                                     |
+| `CopyBidiExecute`           | `reservedConnId > 0` | Same                                     |
+| `ReserveStreamExecute`      | `false`              | Always a new reservation                 |
+| `ConcludeTransaction`       | `true`               | Always on existing reserved conn         |
+| `ReleaseReservedConnection` | `true`               | Always on existing reserved conn         |
+| `GetAuthCredentials`        | `false`              | Admin operation, not query path          |
+| `StreamPoolerHealth`        | No gate              | Health streaming is independent          |
 
 ### Two-Phase Shutdown
 
