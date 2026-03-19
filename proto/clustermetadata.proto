@@ -254,20 +254,6 @@ enum PoolerServingStatus {
   // startup time.  No queries can be served in RESTORE mode.
   RESTORE = 3;
 
-  // DRAINED is the status a server goes into when used by Multigres tools
-  // to perform an offline action. It is a serving type (as
-  // the tools processes may need to run queries), but it's not used
-  // to route queries from Multigres users. In this state,
-  // this multipooler is dedicated to the process that uses it.
-  // DRAINED = 4;
-  // (TODO): This enum value conflicts with DRAINED in PoolerType.
-  // We need to reconcile them once we have serving state transitions in Pooler.
-  reserved 4;
-
-  // SERVING_RDONLY is the status of a server in read-only mode.
-  // This is used during demotion when the server transitions from PRIMARY to REPLICA,
-  // or for read-only replicas. The server accepts connections but only serves read queries.
-  SERVING_RDONLY = 5;
 }
 
 // =============================================================================

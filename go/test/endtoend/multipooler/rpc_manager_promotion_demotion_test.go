@@ -292,12 +292,12 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		_, err = primaryManagerClient.SetPrimaryConnInfo(utils.WithShortDeadline(t), setPrimaryConnInfoReq)
 		require.NoError(t, err)
 
-		// Second demotion should fail with guard rail error (server is now REPLICA in topology)
+		// Second demotion should fail with guard rail error (server is now a standby in PostgreSQL)
 		_, err = primaryManagerClient.EmergencyDemote(utils.WithTimeout(t, 10*time.Second), demoteReq)
-		require.Error(t, err, "Second emergency demote should fail - cannot demote a REPLICA")
-		assert.Contains(t, err.Error(), "pooler type is REPLICA")
+		require.Error(t, err, "Second emergency demote should fail - cannot demote a standby")
+		assert.Contains(t, err.Error(), "standby mode")
 
-		t.Log("EmergencyDemote guard rail verified - cannot demote a REPLICA")
+		t.Log("EmergencyDemote guard rail verified - cannot demote a standby")
 	})
 
 	t.Run("Idempotency_Promote", func(t *testing.T) {
@@ -554,7 +554,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		t.Log("Testing EmergencyDemote on standby (should fail)...")
 
 		// Use Force=true since we're testing error behavior for demote on standby,
-		// not term validation. The demote should fail because standby is REPLICA type.
+		// not term validation. The demote should fail because PostgreSQL is in standby mode.
 		demoteReq := &multipoolermanagerdatapb.EmergencyDemoteRequest{
 			ConsensusTerm: 0, // Ignored when Force=true
 			DrainTimeout:  nil,
@@ -562,7 +562,7 @@ func TestEmergencyDemoteAndPromote(t *testing.T) {
 		}
 		_, err = standbyManagerClient.EmergencyDemote(context.Background(), demoteReq)
 		require.Error(t, err, "EmergencyDemote should fail on standby")
-		assert.Contains(t, err.Error(), "pooler type is REPLICA, must be PRIMARY")
+		assert.Contains(t, err.Error(), "standby mode")
 
 		t.Log("Confirmed: EmergencyDemote correctly rejected on standby")
 	})

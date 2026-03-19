@@ -729,30 +729,20 @@ func (pm *MultiPoolerManager) changeTypeLocked(ctx context.Context, poolerType c
 
 	pm.logger.InfoContext(ctx, "changeTypeLocked called", "pooler_type", poolerType.String(), "service_id", pm.serviceID.String())
 
-	// Update local state first
+	// Use the serving state manager to transition components and update the multipooler record.
+	// The serving status stays SERVING during type changes (the node remains available).
+	if err := pm.servingState.SetState(ctx, poolerType, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+		return mterrors.Wrap(err, "failed to set serving state")
+	}
+
+	// Sync to topology
 	pm.mu.Lock()
-	pm.multipooler.Type = poolerType
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
-	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err, "service_id", pm.serviceID.String())
 		return mterrors.Wrap(err, "failed to update pooler type in topology")
-	}
-
-	// Update health streamer with pooler type change
-	pm.healthStreamer.UpdatePoolerType(poolerType)
-
-	// Update heartbeat tracker based on new type
-	if pm.replTracker != nil {
-		if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-			pm.logger.InfoContext(ctx, "Starting heartbeat writer for new primary")
-			pm.replTracker.MakePrimary()
-		} else {
-			pm.logger.InfoContext(ctx, "Stopping heartbeat writer for replica")
-			pm.replTracker.MakeNonPrimary()
-		}
 	}
 
 	pm.logger.InfoContext(ctx, "Pooler type updated successfully", "new_type", poolerType.String(), "service_id", pm.serviceID.String())
@@ -953,7 +943,7 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 	}
 
 	// If everything is already complete, return early (fully idempotent)
-	if state.isServingReadOnly && state.isReplicaInTopology && state.isReadOnly {
+	if state.isNotServing && state.isReplicaInTopology && state.isReadOnly {
 		return &multipoolermanagerdatapb.EmergencyDemoteResponse{
 			WasAlreadyDemoted:     true,
 			ConsensusTerm:         consensusTerm,
@@ -962,14 +952,9 @@ func (pm *MultiPoolerManager) emergencyDemoteLocked(ctx context.Context, consens
 		}, nil
 	}
 
-	// Transition to Read-Only Serving
-	// For now, this is not that useful as we have to restart
-	// the server anyways to make it a standby.
-	// However, we are setting the hooks to make sure that
-	// we can make the primary readonly first,
-	// drain write connections and then transition it
-	// as a replica without restarting postgres
-	if err := pm.setServingReadOnly(ctx, state); err != nil {
+	// Transition to NOT_SERVING — rejects all queries and stops heartbeat.
+	// This ensures no new writes arrive while we drain existing connections.
+	if err := pm.setNotServing(ctx, state); err != nil {
 		return nil, err
 	}
 
@@ -1283,11 +1268,6 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, err
 	}
 
-	// At this point, we can update the pooler type to primary
-	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
-	pm.mu.Unlock()
-
 	// Configure sync replication if needed
 	if err := pm.configureReplicationAfterPromotion(ctx, state, syncReplicationConfig); err != nil {
 		return nil, err
@@ -1341,13 +1321,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 		return nil, mterrors.Wrap(err, "promotion failed: could not write leadership history (sync replication may not be functioning)")
 	}
 
-	// Update heartbeat tracker to primary mode
-	if pm.replTracker != nil {
-		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
-		pm.replTracker.MakePrimary()
-	}
-
-	// Update topology if needed (best-effort, don't fail promotion)
+	// Update topology and notify all components (best-effort, don't fail promotion)
 	if err := pm.updateTopologyAfterPromotion(ctx, state); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to update topology after promotion", "error", err)
 	}
