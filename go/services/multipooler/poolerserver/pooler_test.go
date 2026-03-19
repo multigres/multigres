@@ -80,7 +80,7 @@ func newStartRequestTestServer() *QueryPoolerServer {
 	return &QueryPoolerServer{
 		logger:        logger,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		gracePeriod:   defaultGracePeriod,
+		gracePeriod:   3 * time.Second,
 	}
 }
 
@@ -188,7 +188,7 @@ func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
 		logger:        logger,
 		poolManager:   mock,
 		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-		gracePeriod:   defaultGracePeriod,
+		gracePeriod:   3 * time.Second,
 	}
 }
 

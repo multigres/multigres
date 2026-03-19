@@ -34,10 +34,6 @@ var (
 
 	// ErrShuttingDown is returned when a new request is made during graceful shutdown.
 	ErrShuttingDown = errors.New("pooler is shutting down")
-
-	// defaultGracePeriod is how long to wait for in-flight connections to drain
-	// during a NOT_SERVING transition before completing the state change.
-	defaultGracePeriod = 3 * time.Second
 )
 
 // QueryPoolerServer is the core pooler implementation for query serving.
@@ -66,8 +62,8 @@ type QueryPoolerServer struct {
 	// are rejected but existing reserved connections are allowed to finish.
 	shuttingDown bool
 
-	// gracePeriod is how long OnStateChange waits for in-flight connections to drain.
-	// TODO: make it a flag
+	// gracePeriod is how long OnStateChange waits for in-flight connections to drain
+	// before force-closing reserved connections. Configured via --connpool-drain-grace-period.
 	gracePeriod time.Duration
 }
 
@@ -76,15 +72,11 @@ type QueryPoolerServer struct {
 // The pool manager must already be opened before calling this function.
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
-// during NOT_SERVING transitions. If <= 0, defaultGracePeriod is used.
+// during NOT_SERVING transitions before force-closing reserved connections.
 func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider, gracePeriod time.Duration) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
 		exec = executor.NewExecutor(logger, poolManager, poolerID)
-	}
-
-	if gracePeriod <= 0 {
-		gracePeriod = defaultGracePeriod
 	}
 
 	return &QueryPoolerServer{
