@@ -91,7 +91,7 @@ func TestQuorumLoss(t *testing.T) {
 
 	preKillSuccess, preKillFailed := validator.Stats()
 	t.Logf("Pre-kill writes: %d successful, %d failed", preKillSuccess, preKillFailed)
-	require.Greater(t, preKillSuccess, int64(0), "should have some successful writes before killing standbys")
+	require.Greater(t, preKillSuccess, 0, "should have some successful writes before killing standbys")
 
 	// Kill both standbys to break quorum
 	t.Logf("Killing postgres on both standbys: %s, %s", standbyNames[0], standbyNames[1])
