@@ -182,8 +182,9 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 
 	// For multi-statement batches, use implicit transaction handling.
-	// Exception: pinned sessions bypass implicit wrapping — the PG backend
-	// handles auto-commit natively on the reserved connection.
+	// Exception: pinned sessions iterate and plan each statement individually
+	// so that DISCARD TEMP and other special statements get proper primitives.
+	// The PG backend handles auto-commit natively on the reserved connection.
 	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
 	// For multi-statement batches, per-table metrics, span attributes, and query log
 	// enrichment are handled per-statement inside executeWithImplicitTransaction.
@@ -191,8 +192,16 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	var result *ExecuteResult
 	if len(asts) > 1 {
 		if st.SessionPinned {
-			h.logger.DebugContext(ctx, "executing multi-statement batch on pinned session (no implicit txn)")
-			_, err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], countingCallback)
+			h.logger.DebugContext(ctx, "executing multi-statement batch on pinned session",
+				"statement_count", len(asts))
+			for _, stmt := range asts {
+				stmtCtx, cancel := h.statementTimeoutCtx(ctx, st, stmt)
+				_, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
+				cancel()
+				if err != nil {
+					break
+				}
+			}
 		} else {
 			h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
 				"statement_count", len(asts),

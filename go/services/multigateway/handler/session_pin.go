@@ -56,7 +56,10 @@ func checkAndUnpinForDiscard(node ast.Stmt, state *MultiGatewayConnectionState) 
 		return
 	}
 
-	if stmt.Target == ast.DISCARD_TEMP || stmt.Target == ast.DISCARD_ALL {
+	// Only DISCARD TEMP unpins. DISCARD ALL does NOT drop temp tables in
+	// PostgreSQL — it resets GUCs, cursors, and prepared statements but
+	// temp tables persist until the session ends or DISCARD TEMP is called.
+	if stmt.Target == ast.DISCARD_TEMP {
 		state.SessionPinned = false
 	}
 }

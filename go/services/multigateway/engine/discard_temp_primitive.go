@@ -24,7 +24,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// DiscardTempPrimitive handles DISCARD TEMP and DISCARD ALL statements.
+// DiscardTempPrimitive handles DISCARD TEMP statements.
 //
 // When the session is pinned (has temp tables), it uses the dedicated
 // DiscardTempTables RPC to remove the temp table reservation reason on
@@ -58,6 +58,9 @@ func (d *DiscardTempPrimitive) StreamExecute(
 	// If the session is pinned (has temp tables), use the dedicated RPC
 	// to remove the temp table reason on the multipooler side.
 	if state.SessionPinned {
+		// Clear any deferred BEGIN — the session is being unpinned, so
+		// a pending transaction start should not carry over.
+		state.PendingBeginQuery = ""
 		return exec.DiscardTempTables(ctx, conn, state, callback)
 	}
 
