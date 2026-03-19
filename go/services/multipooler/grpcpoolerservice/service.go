@@ -55,6 +55,11 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 // StreamExecute executes a SQL query and streams the results back to the client.
 // This is the main execution method used by multigateway.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -110,6 +115,11 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -181,6 +191,11 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 // Describe returns metadata about a prepared statement or portal.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -202,6 +217,11 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -279,6 +299,11 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 	if req.Phase != multipoolerpb.CopyBidiExecuteRequest_INITIATE {
 		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
 	}
+
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
 
 	// Get the executor from the pooler
 	exec, err := s.pooler.Executor()
@@ -433,6 +458,12 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 // ReserveStreamExecute creates a reserved connection and executes a query.
 // Based on ReservationOptions.Reason, may execute BEGIN before the query.
 func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_ReserveStreamExecuteServer) error {
+	// ReserveStreamExecute creates a new reservation, so never allow on shutdown.
+	if err := s.pooler.StartRequest(false); err != nil {
+		return status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
+
 	// Validate reservation reasons at the gRPC trust boundary.
 	if req.ReservationOptions != nil {
 		if err := protoutil.ValidateReasons(req.ReservationOptions.Reasons); err != nil {
@@ -477,6 +508,12 @@ func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExe
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
+	// ConcludeTransaction is COMMIT/ROLLBACK — always allow during shutdown.
+	if err := s.pooler.StartRequest(true); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -497,6 +534,12 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 
 // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
+	// ReleaseReservedConnection is cleanup — always allow during shutdown.
+	if err := s.pooler.StartRequest(true); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	defer s.pooler.EndRequest()
+
 	executor, err := s.pooler.Executor()
 	if err != nil {
 		return nil, errors.New("executor not initialized")

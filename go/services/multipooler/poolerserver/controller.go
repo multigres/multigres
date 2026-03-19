@@ -70,6 +70,15 @@ type PoolerController interface {
 	// queries using the connection pool.
 	InternalQueryService() executor.InternalQueryService
 
+	// StartRequest gates an incoming request based on serving state.
+	// If allowOnShutdown is true, the request is permitted during the graceful
+	// shutdown drain phase (e.g., COMMIT/ROLLBACK on existing connections).
+	// Returns an error if the request should be rejected.
+	StartRequest(allowOnShutdown bool) error
+
+	// EndRequest signals that a previously started request has completed.
+	EndRequest()
+
 	// RegisterGRPCServices registers gRPC services with the server.
 	// This is called by MultiPoolerManager during startup.
 	RegisterGRPCServices()

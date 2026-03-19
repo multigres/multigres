@@ -49,7 +49,9 @@ func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { r
 func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService {
 	return m.queryService
 }
-func (m *mockPoolerController) RegisterGRPCServices() {}
+func (m *mockPoolerController) StartRequest(bool) error { return nil }
+func (m *mockPoolerController) EndRequest()             {}
+func (m *mockPoolerController) RegisterGRPCServices()   {}
 
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 

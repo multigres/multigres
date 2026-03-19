@@ -28,6 +28,17 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
+// Sentinel errors for request gating.
+var (
+	// ErrNotServing is returned when the pooler is not in SERVING state.
+	ErrNotServing = errors.New("pooler is not serving")
+	// ErrShuttingDown is returned when the pooler is draining and the request
+	// does not have allowOnShutdown=true.
+	ErrShuttingDown = errors.New("pooler is shutting down")
+)
+
+const defaultGracePeriod = 5 * time.Second
+
 // QueryPoolerServer is the core pooler implementation for query serving.
 // It encapsulates the components required to manage query execution
 // (e.g. pooling, execution, transactions).
@@ -47,7 +58,11 @@ type QueryPoolerServer struct {
 	mu             sync.Mutex
 	poolerType     clustermetadatapb.PoolerType
 	servingStatus  clustermetadatapb.PoolerServingStatus
+	shuttingDown   bool
 	healthProvider HealthProvider
+
+	requests    *RequestsWaiter
+	gracePeriod time.Duration
 }
 
 // NewQueryPoolerServer creates a new QueryPoolerServer instance with the given pool manager
@@ -66,27 +81,109 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		executor:       exec,
 		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		healthProvider: healthProvider,
+		requests:       NewRequestsWaiter(),
+		// TODO: Create a flag for this
+		gracePeriod: defaultGracePeriod,
 	}
 }
 
 // OnStateChange transitions the query service to match the new serving state.
 // Implements PoolerController interface.
+//
+// For SERVING transitions: straightforward state update.
+// For NOT_SERVING transitions: two-phase shutdown:
+//  1. Set shuttingDown=true to block new queries while allowing in-flight transactions to complete.
+//  2. Wait for in-flight requests to drain (up to gracePeriod), then finalize to NOT_SERVING.
 func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
 		"pooler_type_from", s.poolerType, "pooler_type_to", poolerType,
 		"status_from", s.servingStatus, "status_to", servingStatus)
-	s.poolerType = poolerType
-	s.servingStatus = servingStatus
 
-	// TODO: Implement state-specific behavior:
-	// - (PRIMARY, SERVING): Accept reads + writes
-	// - (REPLICA, SERVING): Accept reads only
-	// - (*, NOT_SERVING): Reject all queries
+	s.poolerType = poolerType
+
+	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+		s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		s.shuttingDown = false
+		s.mu.Unlock()
+		return nil
+	}
+
+	// NOT_SERVING transition: begin two-phase shutdown.
+	// Phase 1: set shuttingDown to block new non-shutdown requests.
+	s.shuttingDown = true
+	s.mu.Unlock()
+
+	// Phase 2: drain in-flight requests.
+	// TODO: shouldn't this be a for loop?, until inflight is 0.
+	inflight := s.requests.GetCount()
+	if inflight > 0 {
+		s.logger.InfoContext(ctx, "Draining in-flight requests",
+			"count", inflight, "grace_period", s.gracePeriod)
+
+		if s.gracePeriod > 0 {
+			timer := time.NewTimer(s.gracePeriod)
+			defer timer.Stop()
+			select {
+			case <-s.requests.ZeroChan():
+				s.logger.InfoContext(ctx, "All in-flight requests drained")
+			case <-timer.C:
+				s.logger.WarnContext(ctx, "Grace period expired with in-flight requests",
+					"remaining", s.requests.GetCount())
+			case <-ctx.Done():
+				s.logger.WarnContext(ctx, "Context cancelled during drain",
+					"remaining", s.requests.GetCount())
+			}
+		} else {
+			select {
+			case <-s.requests.ZeroChan():
+				s.logger.InfoContext(ctx, "All in-flight requests drained")
+			case <-ctx.Done():
+				s.logger.WarnContext(ctx, "Context cancelled during drain",
+					"remaining", s.requests.GetCount())
+			}
+		}
+	}
+
+	// Finalize: set NOT_SERVING and clear shuttingDown.
+	s.mu.Lock()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	s.shuttingDown = false
+	s.mu.Unlock()
 
 	return nil
+}
+
+// StartRequest gates an incoming request based on serving state.
+// If allowOnShutdown is true, the request is allowed during the shutdown drain phase
+// (e.g., COMMIT/ROLLBACK on existing reserved connections).
+// Returns ErrNotServing if NOT_SERVING, or ErrShuttingDown if draining and !allowOnShutdown.
+func (s *QueryPoolerServer) StartRequest(allowOnShutdown bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING {
+		return ErrNotServing
+	}
+	if s.shuttingDown && !allowOnShutdown {
+		return ErrShuttingDown
+	}
+
+	s.requests.Add(1)
+	return nil
+}
+
+// EndRequest signals that a request has completed.
+func (s *QueryPoolerServer) EndRequest() {
+	s.requests.Done()
+}
+
+// SetGracePeriod sets the maximum time to wait for in-flight requests during drain.
+func (s *QueryPoolerServer) SetGracePeriod(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gracePeriod = d
 }
 
 // IsServing returns true if currently serving queries.
