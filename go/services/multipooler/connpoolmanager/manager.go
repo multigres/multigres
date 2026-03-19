@@ -498,6 +498,22 @@ func (m *Manager) WaitForDrain(ctx context.Context) error {
 	}
 }
 
+// CloseReservedConnections kills all active reserved connections across all user pools.
+// Used after drain grace period expires to prevent reserved connections from being
+// used in a non-serving state.
+func (m *Manager) CloseReservedConnections(ctx context.Context) int {
+	pools := m.userPoolsSnapshot.Load()
+	if pools == nil {
+		return 0
+	}
+
+	total := 0
+	for _, pool := range *pools {
+		total += pool.CloseReservedConnections(ctx)
+	}
+	return total
+}
+
 // IsClosed returns whether the manager has been closed.
 func (m *Manager) IsClosed() bool {
 	return m.closed.Load()

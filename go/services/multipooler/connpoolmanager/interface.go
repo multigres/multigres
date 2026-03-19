@@ -83,6 +83,11 @@ type PoolManager interface {
 	// Used during graceful shutdown to wait for in-flight queries to complete.
 	WaitForDrain(ctx context.Context) error
 
+	// CloseReservedConnections kills all active reserved connections across all user pools.
+	// Used after drain grace period expires to prevent reserved connections from being
+	// used in a non-serving state.
+	CloseReservedConnections(ctx context.Context) int
+
 	// --- Stats ---
 
 	// Stats returns statistics for all pools.

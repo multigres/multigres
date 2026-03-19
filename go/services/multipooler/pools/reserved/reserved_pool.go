@@ -393,6 +393,26 @@ func (p *Pool) ForEachActive(fn func(connID int64, rc *Conn) bool) {
 	}
 }
 
+// KillAll kills all active reserved connections.
+// Used during graceful shutdown when the drain grace period has expired.
+func (p *Pool) KillAll(ctx context.Context) int {
+	p.mu.Lock()
+	ids := make([]int64, 0, len(p.active))
+	for id := range p.active {
+		ids = append(ids, id)
+	}
+	p.mu.Unlock()
+
+	for _, connID := range ids {
+		if err := p.KillConnection(ctx, connID); err != nil {
+			p.logger.WarnContext(ctx, "failed to kill connection during drain",
+				"conn_id", connID, "error", err)
+		}
+	}
+
+	return len(ids)
+}
+
 // KillTimedOut kills all connections that have exceeded their timeout.
 // This should be called periodically by a background goroutine.
 func (p *Pool) KillTimedOut(ctx context.Context) int {

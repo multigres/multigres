@@ -154,9 +154,12 @@ When `OnStateChange` receives `NOT_SERVING`:
 3. **Phase 3 — Complete**: re-acquire the mutex, set
    `servingStatus=NOT_SERVING` and `shuttingDown=false`.
 
-If the grace period expires before drain completes, a warning is
-logged and the transition proceeds anyway. This prevents shutdown from
-blocking indefinitely on a stuck connection.
+If the grace period expires before drain completes, all remaining
+reserved connections are forcibly killed via
+`poolManager.CloseReservedConnections()`. This ensures no reserved
+connections survive into a non-serving state where they could execute
+queries against a demoted replica. The force-close kills the backend
+PostgreSQL processes and returns the connections to the pool.
 
 When `OnStateChange` receives `SERVING`, the transition is immediate:
 set `servingStatus=SERVING` and `shuttingDown=false`.
@@ -182,6 +185,14 @@ Manager.createUserPoolSlow()
 Each user pool created by the manager gets its own set of callback
 closures that all funnel into the single `Manager.lentAdd` counter.
 
+## Configuration
+
+The drain grace period is configurable via the
+`--connpool-drain-grace-period` flag (default: 3s). This controls how
+long `OnStateChange` waits for in-flight connections to drain before
+force-closing reserved connections and completing the NOT_SERVING
+transition.
+
 ## Testing
 
 - **`connpoolmanager/drain_test.go`**: unit tests for `lentAdd`
@@ -189,4 +200,6 @@ closures that all funnel into the single `Manager.lentAdd` counter.
   blocking until zero, and context cancellation
 - **`poolerserver/pooler_test.go`**: unit tests for `StartRequest`
   across all state combinations (serving, not serving, shutting down
-  with and without `allowOnShutdown`)
+  with and without `allowOnShutdown`), concurrency tests for
+  `OnStateChange` drain behavior, grace period expiry, and
+  SERVING/NOT_SERVING round-trips

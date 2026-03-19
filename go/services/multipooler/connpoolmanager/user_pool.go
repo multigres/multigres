@@ -250,6 +250,12 @@ func (p *UserPool) GetReservedConn(connID int64) (*reserved.Conn, bool) {
 	return p.reservedPool.Get(connID)
 }
 
+// CloseReservedConnections kills all active reserved connections.
+// Used during graceful shutdown when the drain grace period has expired.
+func (p *UserPool) CloseReservedConnections(ctx context.Context) int {
+	return p.reservedPool.KillAll(ctx)
+}
+
 // Close closes both regular and reserved pools.
 func (p *UserPool) Close() {
 	p.mu.Lock()

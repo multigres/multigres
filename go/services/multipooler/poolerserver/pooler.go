@@ -75,10 +75,16 @@ type QueryPoolerServer struct {
 // and health provider.
 // The pool manager must already be opened before calling this function.
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider) *QueryPoolerServer {
+// gracePeriod controls how long OnStateChange waits for in-flight connections to drain
+// during NOT_SERVING transitions. If <= 0, defaultGracePeriod is used.
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider, gracePeriod time.Duration) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
 		exec = executor.NewExecutor(logger, poolManager, poolerID)
+	}
+
+	if gracePeriod <= 0 {
+		gracePeriod = defaultGracePeriod
 	}
 
 	return &QueryPoolerServer{
@@ -87,7 +93,7 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		executor:       exec,
 		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		healthProvider: healthProvider,
-		gracePeriod:    defaultGracePeriod,
+		gracePeriod:    gracePeriod,
 	}
 }
 
@@ -123,8 +129,16 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 		defer cancel()
 
 		if err := s.poolManager.WaitForDrain(drainCtx); err != nil {
-			s.logger.WarnContext(ctx, "Graceful drain did not complete within grace period",
+			s.logger.WarnContext(ctx, "Graceful drain did not complete within grace period, force-closing reserved connections",
 				"grace_period", s.gracePeriod, "error", err)
+			// Force-close all reserved connections to prevent them from being used
+			// in a non-serving state. This kills backend processes and returns
+			// connections to the pool.
+			killed := s.poolManager.CloseReservedConnections(ctx)
+			if killed > 0 {
+				s.logger.WarnContext(ctx, "Force-closed reserved connections after drain timeout",
+					"killed", killed)
+			}
 		}
 	}
 
