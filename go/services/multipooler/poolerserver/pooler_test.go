@@ -15,6 +15,7 @@
 package poolerserver
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 )
 
@@ -68,4 +70,60 @@ func TestNewQueryPoolerServer_WithPoolManager(t *testing.T) {
 	exec, err := pooler.Executor()
 	require.NoError(t, err)
 	require.NotNil(t, exec)
+}
+
+func newStartRequestTestServer() *QueryPoolerServer {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return &QueryPoolerServer{
+		logger:        logger,
+		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		gracePeriod:   defaultGracePeriod,
+	}
+}
+
+func TestStartRequest_Serving(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+
+	// Both allowOnShutdown=true and false should succeed when serving
+	err := s.StartRequest(false)
+	require.NoError(t, err)
+
+	err = s.StartRequest(true)
+	require.NoError(t, err)
+}
+
+func TestStartRequest_NotServing(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+
+	// Both should fail when not serving
+	err := s.StartRequest(false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotServing)
+
+	err = s.StartRequest(true)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotServing)
+}
+
+func TestStartRequest_ShuttingDown_NewRequestRejected(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.shuttingDown = true
+
+	// New requests (allowOnShutdown=false) should be rejected
+	err := s.StartRequest(false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrShuttingDown)
+}
+
+func TestStartRequest_ShuttingDown_ExistingReservedAllowed(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.shuttingDown = true
+
+	// Existing reserved connections (allowOnShutdown=true) should be allowed
+	err := s.StartRequest(true)
+	require.NoError(t, err)
 }

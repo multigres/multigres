@@ -41,6 +41,12 @@ type PoolConfig struct {
 	// RegularPoolConfig is the configuration for the underlying regular pool.
 	// The reserved pool creates and manages this pool internally.
 	RegularPoolConfig *regular.PoolConfig
+
+	// OnReserve is called after a new reserved connection is created (optional).
+	OnReserve func()
+
+	// OnRelease is called after a reserved connection is released or killed (optional).
+	OnRelease func()
 }
 
 // Pool manages reserved connections with ID-based tracking.
@@ -174,6 +180,9 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 	p.mu.Unlock()
 
 	p.reserveCount.Add(1)
+	if p.config.OnReserve != nil {
+		p.config.OnReserve()
+	}
 
 	p.logger.DebugContext(ctx, "reserved connection created",
 		"conn_id", connID,
@@ -221,6 +230,9 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	p.mu.Unlock()
 
 	p.killCount.Add(1)
+	if p.config.OnRelease != nil {
+		p.config.OnRelease()
+	}
 
 	// Kill the backend process.
 	if err := rc.Kill(ctx); err != nil {
@@ -246,6 +258,9 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 	p.mu.Unlock()
 
 	p.releaseCount.Add(1)
+	if p.config.OnRelease != nil {
+		p.config.OnRelease()
+	}
 
 	// Update metrics based on reason.
 	switch reason {

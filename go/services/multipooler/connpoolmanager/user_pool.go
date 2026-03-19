@@ -83,6 +83,18 @@ type UserPoolConfig struct {
 
 	// Logger for pool operations.
 	Logger *slog.Logger
+
+	// OnBorrow is called after a regular connection is borrowed from any pool (optional).
+	OnBorrow func()
+
+	// OnRecycle is called after a regular connection is returned to any pool (optional).
+	OnRecycle func()
+
+	// OnReserve is called after a new reserved connection is created (optional).
+	OnReserve func()
+
+	// OnRelease is called after a reserved connection is released or killed (optional).
+	OnRelease func()
 }
 
 // NewUserPool creates a new UserPool for the given user.
@@ -94,6 +106,14 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 		logger = slog.Default()
 	}
 	logger = logger.With("user", config.ClientConfig.User)
+
+	// Wire OnBorrow/OnRecycle callbacks into both regular and reserved pool configs.
+	if config.OnBorrow != nil {
+		config.RegularPoolConfig.OnBorrow = config.OnBorrow
+	}
+	if config.OnRecycle != nil {
+		config.RegularPoolConfig.OnRecycle = config.OnRecycle
+	}
 
 	// Create regular pool for this user
 	regularPool := regular.NewPool(ctx, &regular.PoolConfig{
@@ -110,6 +130,8 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 	reservedPool := reserved.NewPool(ctx, &reserved.PoolConfig{
 		InactivityTimeout: config.ReservedInactivityTimeout,
 		Logger:            logger,
+		OnReserve:         config.OnReserve,
+		OnRelease:         config.OnRelease,
 		RegularPoolConfig: &regular.PoolConfig{
 			ClientConfig:   config.ClientConfig,
 			ConnPoolConfig: config.ReservedPoolConfig,

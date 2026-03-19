@@ -94,6 +94,12 @@ type Config struct {
 	// OTel metrics instruments (optional, noop if not set).
 	// These are shared across all pools and created by the owner (e.g., connpoolmanager).
 	ConnectionCount ConnectionCount
+
+	// OnBorrow is called after a connection is borrowed from the pool (optional).
+	OnBorrow func()
+
+	// OnRecycle is called after a connection is returned to the pool (optional).
+	OnRecycle func()
 }
 
 // stackMask is the number of connection state stacks minus one;
@@ -161,6 +167,10 @@ type Pool[C Connection] struct {
 		connectTimeout time.Duration
 		// logWait is called every time a client must block waiting for a connection
 		logWait func(time.Time)
+		// onBorrow is called after a connection is borrowed from the pool
+		onBorrow func()
+		// onRecycle is called after a connection is returned to the pool
+		onRecycle func()
 	}
 
 	Metrics Metrics
@@ -186,6 +196,8 @@ func NewPool[C Connection](ctx context.Context, config *Config) *Pool[C] {
 	pool.config.refreshInterval.Store(config.RefreshInterval.Nanoseconds())
 	pool.config.connectTimeout = config.ConnectTimeout
 	pool.config.logWait = config.LogWait
+	pool.config.onBorrow = config.OnBorrow
+	pool.config.onRecycle = config.OnRecycle
 	pool.logger = config.Logger
 	if pool.logger == nil {
 		pool.logger = slog.Default()
@@ -473,6 +485,9 @@ func (pool *Pool[C]) connectionCtx(ctx context.Context) (context.Context, contex
 // Return connections to the pool by calling Pooled.Recycle.
 func (pool *Pool[C]) put(conn *Pooled[C]) {
 	pool.borrowed.Add(-1)
+	if pool.config.onRecycle != nil {
+		pool.config.onRecycle()
+	}
 	pool.requested.Add(-1) // Track demand: decrement on return
 	pool.otelConnectionCount.Add(pool.ctx, -1, pool.Name, dbconv.ClientConnectionStateUsed)
 
@@ -696,6 +711,9 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	// best case: if there's a connection in the clean stack, return it right away
 	if conn := pool.pop(&pool.clean); conn != nil {
 		pool.borrowed.Add(1)
+		if pool.config.onBorrow != nil {
+			pool.config.onBorrow()
+		}
 		pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 		return conn, nil
 	}
@@ -745,6 +763,9 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	}
 
 	pool.borrowed.Add(1)
+	if pool.config.onBorrow != nil {
+		pool.config.onBorrow()
+	}
 	pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 	return conn, nil
 }
@@ -835,6 +856,9 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	}
 
 	pool.borrowed.Add(1)
+	if pool.config.onBorrow != nil {
+		pool.config.onBorrow()
+	}
 	pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 	return conn, nil
 }

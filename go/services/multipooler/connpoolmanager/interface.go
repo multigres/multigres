@@ -77,6 +77,12 @@ type PoolManager interface {
 	// bypass the pool's normal ApplySettings mechanism.
 	ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error
 
+	// --- Drain ---
+
+	// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
+	// Used during graceful shutdown to wait for in-flight queries to complete.
+	WaitForDrain(ctx context.Context) error
+
 	// --- Stats ---
 
 	// Stats returns statistics for all pools.

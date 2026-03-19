@@ -89,6 +89,12 @@ type Manager struct {
 	// Fair share allocators (created once in Open)
 	regularAllocator  *FairShareAllocator
 	reservedAllocator *FairShareAllocator
+
+	// Drain tracking: counts connections currently lent out across all pools.
+	// Used for graceful drain during state transitions (NOT_SERVING).
+	drainMu   sync.Mutex
+	lentCount int64
+	zeroCh    chan struct{}
 }
 
 // Open initializes the manager and creates the shared admin pool.
@@ -105,6 +111,11 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.connConfig = connConfig
 	emptyPools := make(map[string]*UserPool)
 	m.userPoolsSnapshot.Store(&emptyPools)
+
+	// Initialize zeroCh as closed: starts at zero lent connections (drained).
+	zeroCh := make(chan struct{})
+	close(zeroCh)
+	m.zeroCh = zeroCh
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
 	m.closed.Store(false)
 
@@ -226,6 +237,13 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 	initialRegularCap := max(int64(float64(initialUserPoolCapacity)*(1-reservedRatio)), 1)
 	initialReservedCap := max(int64(float64(initialUserPoolCapacity)*reservedRatio), 1)
 
+	// Create drain tracking callbacks for this user pool.
+	// These are called on every borrow/recycle/reserve/release to track lent connections.
+	onBorrow := func() { m.lentAdd(1) }
+	onRecycle := func() { m.lentAdd(-1) }
+	onReserve := func() { m.lentAdd(1) }
+	onRelease := func() { m.lentAdd(-1) }
+
 	// Create new user pool with per-user pool names for metric cardinality.
 	// Note: Including username in pool names enables per-user monitoring but increases
 	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
@@ -257,6 +275,10 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		DemandWindow:              m.config.DemandWindow(),
 		RebalanceInterval:         m.config.RebalanceInterval(),
 		Logger:                    m.logger,
+		OnBorrow:                  onBorrow,
+		OnRecycle:                 onRecycle,
+		OnReserve:                 onReserve,
+		OnRelease:                 onRelease,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create user pool for %q: %w", user, err)
@@ -438,6 +460,42 @@ func (m *Manager) Stats() ManagerStats {
 type ManagerStats struct {
 	Admin     connpool.PoolStats       // Shared admin pool stats
 	UserPools map[string]UserPoolStats // Per-user pool stats
+}
+
+// lentAdd adjusts the lent connection count by n.
+// When the count transitions to zero, zeroCh is closed to unblock WaitForDrain.
+// When it transitions away from zero, a new zeroCh is created.
+func (m *Manager) lentAdd(n int64) {
+	m.drainMu.Lock()
+	defer m.drainMu.Unlock()
+
+	m.lentCount += n
+	if m.lentCount == 0 {
+		// Signal drain complete by closing the channel.
+		select {
+		case <-m.zeroCh:
+			// Already closed, nothing to do.
+		default:
+			close(m.zeroCh)
+		}
+	} else if m.lentCount == n && n > 0 {
+		// Transitioned from 0 to positive: create a new open channel.
+		m.zeroCh = make(chan struct{})
+	}
+}
+
+// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
+func (m *Manager) WaitForDrain(ctx context.Context) error {
+	m.drainMu.Lock()
+	ch := m.zeroCh
+	m.drainMu.Unlock()
+
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // IsClosed returns whether the manager has been closed.
