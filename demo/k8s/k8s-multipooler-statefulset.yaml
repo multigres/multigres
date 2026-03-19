@@ -171,6 +171,8 @@ spec:
               value: "multipooler"
             - name: POSTGRES_PASSWORD
               value: postgres
+            - name: PGDATA
+              value: /data/pg_data
           envFrom:
             - configMapRef:
                 name: otel-config
@@ -212,6 +214,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: PGDATA
+              value: /data/pg_data
 
       volumes:
         # We have to give different mount points.

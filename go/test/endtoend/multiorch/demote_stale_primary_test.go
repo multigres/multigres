@@ -244,7 +244,7 @@ func writeDataToNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, primaryNa
 	primary := setup.GetMultipoolerInstance(primaryName)
 	require.NotNil(t, primary, "primary instance should exist")
 
-	socketDir := filepath.Join(primary.Pgctld.DataDir, "pg_sockets")
+	socketDir := filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets")
 	db := connectToPostgres(t, socketDir, primary.Pgctld.PgPort)
 	require.NotNil(t, db, "should connect to new primary")
 	defer db.Close()
@@ -260,44 +260,24 @@ func writeDataToNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, primaryNa
 }
 
 // waitForDivergenceRepaired waits for multiorch to repair the diverged node
-func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName, newPrimaryName string, timeout time.Duration) {
+func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName, _ string, timeout time.Duration) {
 	t.Helper()
 
 	oldPrimary := setup.GetMultipoolerInstance(oldPrimaryName)
 	require.NotNil(t, oldPrimary, "old primary instance should exist")
 
-	require.Eventually(t, func() bool {
-		client, err := shardsetup.NewMultipoolerClient(oldPrimary.Multipooler.GrpcPort)
-		if err != nil {
-			t.Logf("Cannot connect to old primary: %v", err)
-			return false
-		}
-		defer client.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		resp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil {
-			t.Logf("Status call failed: %v", err)
-			return false
-		}
-
-		// Check if it's now a REPLICA and replicating
-		if resp.Status.PoolerType != clustermetadatapb.PoolerType_REPLICA {
-			t.Logf("Old primary type is %s, waiting for REPLICA...", resp.Status.PoolerType)
-			return false
-		}
-
-		if resp.Status.ReplicationStatus == nil || resp.Status.ReplicationStatus.PrimaryConnInfo == nil {
-			t.Logf("Old primary not yet configured for replication")
-			return false
-		}
-
-		t.Logf("Old primary is now REPLICA, replicating from %s",
-			resp.Status.ReplicationStatus.PrimaryConnInfo.Host)
-		return true
-	}, timeout, 2*time.Second, "old primary should become replica after pg_rewind")
+	shardsetup.EventuallyPoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary}, timeout, 2*time.Second,
+		func(_ string, s *multipoolermanagerdatapb.Status) (bool, string) {
+			if s.PoolerType != clustermetadatapb.PoolerType_REPLICA {
+				return false, fmt.Sprintf("type=%v, waiting for REPLICA", s.PoolerType)
+			}
+			if s.ReplicationStatus == nil || s.ReplicationStatus.PrimaryConnInfo == nil {
+				return false, "replication not yet configured"
+			}
+			return true, ""
+		},
+		"old primary should become replica after pg_rewind",
+	)
 }
 
 // verifyReplicaReplicating verifies the replica is actively streaming from the new primary

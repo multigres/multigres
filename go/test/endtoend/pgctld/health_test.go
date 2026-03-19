@@ -56,7 +56,7 @@ func TestPgctldLiveEndpoint(t *testing.T) {
 		"--pg-port", strconv.Itoa(pgPort),
 		"--timeout", "30",
 	)
-	setupTestEnv(cmd)
+	setupTestEnv(cmd, tempDir)
 
 	err := cmd.Start()
 	require.NoError(t, err, "pgctld should start")

@@ -110,10 +110,6 @@ const (
 	// RESTORE is the status a server uses when restoring a backup, at
 	// startup time.  No queries can be served in RESTORE mode.
 	PoolerServingStatus_RESTORE PoolerServingStatus = 3
-	// SERVING_RDONLY is the status of a server in read-only mode.
-	// This is used during demotion when the server transitions from PRIMARY to REPLICA,
-	// or for read-only replicas. The server accepts connections but only serves read queries.
-	PoolerServingStatus_SERVING_RDONLY PoolerServingStatus = 5
 )
 
 // Enum value maps for PoolerServingStatus.
@@ -123,14 +119,12 @@ var (
 		1: "NOT_SERVING",
 		2: "BACKUP",
 		3: "RESTORE",
-		5: "SERVING_RDONLY",
 	}
 	PoolerServingStatus_value = map[string]int32{
-		"SERVING":        0,
-		"NOT_SERVING":    1,
-		"BACKUP":         2,
-		"RESTORE":        3,
-		"SERVING_RDONLY": 5,
+		"SERVING":     0,
+		"NOT_SERVING": 1,
+		"BACKUP":      2,
+		"RESTORE":     3,
 	}
 )
 
@@ -786,7 +780,10 @@ type MultiPooler struct {
 	// Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
 	PortMap map[string]int32 `protobuf:"bytes,9,rep,name=port_map,json=portMap,proto3" json:"port_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	// PoolerDir is used by pgBackRest to compute the primary's data directory.
-	PoolerDir     string `protobuf:"bytes,10,opt,name=pooler_dir,json=poolerDir,proto3" json:"pooler_dir,omitempty"`
+	PoolerDir string `protobuf:"bytes,10,opt,name=pooler_dir,json=poolerDir,proto3" json:"pooler_dir,omitempty"`
+	// PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
+	// Used by multiadmin to compute the primary's data directory for pgBackRest.
+	PgDataDir     string `protobuf:"bytes,11,opt,name=pg_data_dir,json=pgDataDir,proto3" json:"pg_data_dir,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -887,6 +884,13 @@ func (x *MultiPooler) GetPortMap() map[string]int32 {
 func (x *MultiPooler) GetPoolerDir() string {
 	if x != nil {
 		return x.PoolerDir
+	}
+	return ""
+}
+
+func (x *MultiPooler) GetPgDataDir() string {
+	if x != nil {
+		return x.PgDataDir
 	}
 	return ""
 }
@@ -1351,7 +1355,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x04 \x01(\tR\tkeyPrefix\x12.\n" +
-	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\xf8\x03\n" +
+	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\x98\x04\n" +
 	"\vMultiPooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1f\n" +
@@ -1365,7 +1369,8 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bport_map\x18\t \x03(\v2).clustermetadata.MultiPooler.PortMapEntryR\aportMap\x12\x1d\n" +
 	"\n" +
 	"pooler_dir\x18\n" +
-	" \x01(\tR\tpoolerDir\x1a:\n" +
+	" \x01(\tR\tpoolerDir\x12\x1e\n" +
+	"\vpg_data_dir\x18\v \x01(\tR\tpgDataDir\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +
@@ -1420,14 +1425,13 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
 	"\aREPLICA\x10\x02\x12\v\n" +
-	"\aDRAINED\x10\x03*f\n" +
+	"\aDRAINED\x10\x03*L\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
 	"\vNOT_SERVING\x10\x01\x12\n" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
-	"\aRESTORE\x10\x03\x12\x12\n" +
-	"\x0eSERVING_RDONLY\x10\x05\"\x04\b\x04\x10\x04*\xa1\x01\n" +
+	"\aRESTORE\x10\x03*\xa1\x01\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +

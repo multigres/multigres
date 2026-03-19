@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/pathutil"
@@ -51,10 +52,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run()) //nolint:forbidigo
 }
 
-// setupTestEnv sets up environment variables for PostgreSQL tests
-func setupTestEnv(cmd *exec.Cmd) {
+// setupTestEnv sets up environment variables for PostgreSQL tests.
+// poolerDir is the pooler directory; PGDATA is set to poolerDir/pg_data.
+func setupTestEnv(cmd *exec.Cmd, poolerDir string) {
 	cmd.Env = append(os.Environ(),
 		"PGCONNECT_TIMEOUT=5", // Shorter timeout for tests
+		constants.PgDataDirEnvVar+"="+filepath.Join(poolerDir, "pg_data"),
 	)
 	if runtime.GOOS == "darwin" {
 		// Required to avoid "postmaster became multithreaded during startup" on macOS
@@ -63,8 +66,8 @@ func setupTestEnv(cmd *exec.Cmd) {
 }
 
 // setupTestEnvWithPassword sets up environment variables for PostgreSQL tests, including the password.
-func setupTestEnvWithPassword(cmd *exec.Cmd, password string) {
-	setupTestEnv(cmd)
+func setupTestEnvWithPassword(cmd *exec.Cmd, poolerDir, password string) {
+	setupTestEnv(cmd, poolerDir)
 	cmd.Env = append(cmd.Env, "POSTGRES_PASSWORD="+password)
 }
 
@@ -97,7 +100,7 @@ timeout: 30
 	t.Run("basic_commands_with_real_postgresql", func(t *testing.T) {
 		// Step 1: Initialize the database first
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
-		setupTestEnv(initCmd)
+		setupTestEnv(initCmd, dataDir)
 		initOutput, err := initCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("pgctld init failed with output: %s", string(initOutput))
@@ -118,7 +121,7 @@ timeout: 30
 
 		// Step 2: Check status - should show stopped after init
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
-		setupTestEnv(statusCmd)
+		setupTestEnv(statusCmd, dataDir)
 		output, err := statusCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("pgctld status failed with output: %s", string(output))
@@ -191,6 +194,7 @@ timeout: 30
 		serverCmd.Env = append(os.Environ(),
 			"MULTIGRES_TESTDATA_DIR="+tempDir,
 			"PGCONNECT_TIMEOUT=5",
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"),
 		)
 
 		// Required to avoid "postmaster became multithreaded during startup" on macOS
@@ -269,7 +273,7 @@ timeout: 30
 		// Measure time to start PostgreSQL
 		startTime := time.Now()
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(initCmd)
+		setupTestEnv(initCmd, dataDir)
 		startOutput, err := initCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("pgctld start failed with output: %s", string(startOutput))
@@ -278,7 +282,7 @@ timeout: 30
 		require.NoError(t, err)
 
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(startCmd)
+		setupTestEnv(startCmd, dataDir)
 		startOutput, err = startCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("pgctld start failed with output: %s", string(startOutput))
@@ -293,7 +297,7 @@ timeout: 30
 
 		// Clean shutdown
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(stopCmd)
+		setupTestEnv(stopCmd, dataDir)
 		err = stopCmd.Run()
 		require.NoError(t, err)
 	})
@@ -305,7 +309,7 @@ timeout: 30
 
 			// Start
 			startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--config-file", pgctldConfigFile)
-			setupTestEnv(startCmd)
+			setupTestEnv(startCmd, dataDir)
 			startOutput, err := startCmd.CombinedOutput()
 			if err != nil {
 				t.Logf("pgctld start failed with error: %v, output: %s", err, string(startOutput))
@@ -317,7 +321,7 @@ timeout: 30
 
 			// Stop
 			stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(perfTestPort), "--mode", "fast", "--config-file", pgctldConfigFile)
-			setupTestEnv(stopCmd)
+			setupTestEnv(stopCmd, dataDir)
 			err = stopCmd.Run()
 			require.NoError(t, err)
 
@@ -366,7 +370,7 @@ timeout: 30
 		t.Logf("PostgreSQL version: %s", string(output))
 
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile, "--pg-port", strconv.Itoa(testPort))
-		setupTestEnv(initCmd)
+		setupTestEnv(initCmd, dataDir)
 		initOutput, err := initCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("pgctld init failed with output: %s", string(initOutput))
@@ -375,7 +379,7 @@ timeout: 30
 
 		// Start PostgreSQL to test compatibility
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(startCmd)
+		setupTestEnv(startCmd, dataDir)
 		startOutput, err := startCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("pgctld start failed with output: %s", string(startOutput))
@@ -384,14 +388,14 @@ timeout: 30
 
 		// Get version info through pgctld
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(statusCmd)
+		setupTestEnv(statusCmd, dataDir)
 		output, err = statusCmd.Output()
 		require.NoError(t, err)
 		t.Logf("pgctld status output: %s", string(output))
 
 		// Clean shutdown
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-		setupTestEnv(stopCmd)
+		setupTestEnv(stopCmd, dataDir)
 		err = stopCmd.Run()
 		require.NoError(t, err)
 	})
@@ -428,7 +432,7 @@ timeout: 30
 
 	// Initialize database
 	initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-	setupTestEnv(initCmd)
+	setupTestEnv(initCmd, dataDir)
 	initOutput, err := initCmd.CombinedOutput()
 	if err != nil {
 		t.Logf("pgctld init failed with output: %s", string(initOutput))
@@ -437,7 +441,7 @@ timeout: 30
 
 	// Start PostgreSQL
 	startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-	setupTestEnv(startCmd)
+	setupTestEnv(startCmd, dataDir)
 	startOutput, err := startCmd.CombinedOutput()
 	if err != nil {
 		t.Logf("pgctld start failed with output: %s", string(startOutput))
@@ -446,14 +450,14 @@ timeout: 30
 
 	// Verify it's running
 	statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-	setupTestEnv(statusCmd)
+	setupTestEnv(statusCmd, dataDir)
 	output, err := statusCmd.Output()
 	require.NoError(t, err)
 	assert.Contains(t, string(output), "Running")
 
 	// Restart as standby
 	restartCmd := exec.Command("pgctld", "restart", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--as-standby", "--config-file", pgctldConfigFile)
-	setupTestEnv(restartCmd)
+	setupTestEnv(restartCmd, dataDir)
 	output, err = restartCmd.CombinedOutput()
 	if err != nil {
 		t.Logf("restart --as-standby output: %s", string(output))
@@ -468,7 +472,7 @@ timeout: 30
 
 	// Verify server is still running
 	statusCmd = exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-	setupTestEnv(statusCmd)
+	setupTestEnv(statusCmd, dataDir)
 	output, err = statusCmd.Output()
 	require.NoError(t, err)
 	assert.Contains(t, string(output), "Running")
@@ -483,7 +487,7 @@ timeout: 30
 		"-d", "postgres",
 		"-t", "-c", "SELECT pg_is_in_recovery();",
 	)
-	setupTestEnv(recoveryCheckCmd)
+	setupTestEnv(recoveryCheckCmd, dataDir)
 	output, err = recoveryCheckCmd.CombinedOutput()
 	require.NoError(t, err, "Recovery check should succeed, output: %s", string(output))
 	t.Logf("Recovery mode check result: %s", string(output))
@@ -492,7 +496,7 @@ timeout: 30
 
 	// Clean stop
 	stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(testPort), "--config-file", pgctldConfigFile)
-	setupTestEnv(stopCmd)
+	setupTestEnv(stopCmd, dataDir)
 	err = stopCmd.Run()
 	require.NoError(t, err)
 }
@@ -532,6 +536,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		initCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
 			"POSTGRES_PASSWORD="+testPassword,
+			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
 		)
 		// Required to avoid "postmaster became multithreaded during startup" on macOS
 		if runtime.GOOS == "darwin" {
@@ -548,6 +553,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		startCmd.Env = append(os.Environ(),
 			"PGCONNECT_TIMEOUT=5",
 			"POSTGRES_PASSWORD="+testPassword,
+			constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"),
 		)
 
 		// Required to avoid "postmaster became multithreaded during startup" on macOS
@@ -581,6 +587,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 
 		// Get the actual port from the status output
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", baseDir)
+		statusCmd.Env = append(os.Environ(), constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"))
 		statusOutput, err := statusCmd.CombinedOutput()
 		require.NoError(t, err, "pgctld status should succeed")
 		t.Logf("Status output: %s", string(statusOutput))
@@ -655,7 +662,7 @@ func TestPostgreSQLAuthentication(t *testing.T) {
 		// Clean shutdown
 		t.Logf("Shutting down PostgreSQL")
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", baseDir)
-		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5")
+		stopCmd.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=5", constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"))
 		err = stopCmd.Run()
 		require.NoError(t, err, "pgctld stop should succeed")
 	})
@@ -685,7 +692,7 @@ func TestCustomDatabaseCreation(t *testing.T) {
 		port := utils.GetFreePort(t)
 		socketDir := filepath.Join(baseDir, "pg_sockets")
 
-		baseEnv := append(os.Environ(), "PGCONNECT_TIMEOUT=5")
+		baseEnv := append(os.Environ(), "PGCONNECT_TIMEOUT=5", constants.PgDataDirEnvVar+"="+filepath.Join(baseDir, "pg_data"))
 		if runtime.GOOS == "darwin" {
 			baseEnv = append(baseEnv, "LC_ALL=en_US.UTF-8")
 		}
@@ -796,7 +803,8 @@ timeout: 30
 		// Step 1: Initialize the database first
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		initCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		initOutput, err := initCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("initCmd.Output() error: %v, output: %s", err, string(initOutput))
@@ -806,7 +814,8 @@ timeout: 30
 		// Step 2: Check status - should be stopped after init
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		output, err := statusCmd.CombinedOutput()
 		if err != nil {
 			t.Logf("statusCmd.Output() error: %v, output: %s", err, string(output))
@@ -817,14 +826,16 @@ timeout: 30
 		// Step 3: Start PostgreSQL
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		startCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		err = startCmd.Run()
 		require.NoError(t, err)
 
 		// Step 4: Check status - should be running
 		statusCmd = exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		output, err = statusCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(output), "Running")
@@ -832,21 +843,24 @@ timeout: 30
 		// Step 5: Reload configuration
 		reloadCmd := exec.Command("pgctld", "reload-config", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		reloadCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		err = reloadCmd.Run()
 		require.NoError(t, err)
 
 		// Step 6: Restart PostgreSQL
 		restartCmd := exec.Command("pgctld", "restart", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		restartCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		err = restartCmd.Run()
 		require.NoError(t, err)
 
 		// Step 7: Check status again - should still be running
 		statusCmd = exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		output, err = statusCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(output), "Running")
@@ -854,14 +868,16 @@ timeout: 30
 		// Step 8: Stop PostgreSQL
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		err = stopCmd.Run()
 		require.NoError(t, err)
 
 		// Step 9: Final status check - should be stopped
 		statusCmd = exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		output, err = statusCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(output), "Stopped")
@@ -897,21 +913,24 @@ timeout: 30
 	// Initialize database first
 	initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 	initCmd.Env = append(os.Environ(),
-		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+		constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 	err = initCmd.Run()
 	require.NoError(t, err)
 
 	// Start PostgreSQL for the first time
 	startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 	startCmd.Env = append(os.Environ(),
-		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+		constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 	err = startCmd.Run()
 	require.NoError(t, err)
 
 	// Stop initial start
 	stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 	stopCmd.Env = append(os.Environ(),
-		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+		constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 	err = stopCmd.Run()
 	require.NoError(t, err)
 
@@ -921,14 +940,16 @@ timeout: 30
 			// Start PostgreSQL
 			startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 			startCmd.Env = append(os.Environ(),
-				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+				constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 			err := startCmd.Run()
 			require.NoError(t, err)
 
 			// Verify running
 			statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 			statusCmd.Env = append(os.Environ(),
-				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+				constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 			output, err := statusCmd.Output()
 			require.NoError(t, err)
 			assert.Contains(t, string(output), "Running")
@@ -936,14 +957,16 @@ timeout: 30
 			// Stop PostgreSQL
 			stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--mode", "fast", "--config-file", pgctldConfigFile)
 			stopCmd.Env = append(os.Environ(),
-				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+				constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 			err = stopCmd.Run()
 			require.NoError(t, err)
 
 			// Verify stopped
 			statusCmd = exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 			statusCmd.Env = append(os.Environ(),
-				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+				"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+				constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 			output, err = statusCmd.Output()
 			require.NoError(t, err)
 			assert.Contains(t, string(output), "Stopped")
@@ -981,21 +1004,24 @@ timeout: 30
 	// Initialize database first
 	initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 	initCmd.Env = append(os.Environ(),
-		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+		constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 	err = initCmd.Run()
 	require.NoError(t, err)
 
 	// Start PostgreSQL
 	startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 	startCmd.Env = append(os.Environ(),
-		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+		"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+		constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 	err = startCmd.Run()
 	require.NoError(t, err)
 
 	defer func() {
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--mode", "fast", "--config-file", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		_ = stopCmd.Run()
 	}()
 
@@ -1012,14 +1038,16 @@ log_min_messages = info
 		// Reload configuration
 		reloadCmd := exec.Command("pgctld", "reload-config", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		reloadCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		err = reloadCmd.Run()
 		require.NoError(t, err)
 
 		// Server should still be running
 		statusCmd := exec.Command("pgctld", "status", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		statusCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		output, err := statusCmd.Output()
 		require.NoError(t, err)
 		assert.Contains(t, string(output), "Running")
@@ -1058,28 +1086,32 @@ timeout: 30
 		// Try to start with non-existent directory - should fail requiring init first
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", nonexistentDir, "--config-file", pgctldConfigFile)
 		startCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(nonexistentDir, "pg_data"))
 		err := startCmd.Run()
 		require.Error(t, err, "Start should fail when data directory is not initialized")
 
 		// Initialize first, then start should work
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", nonexistentDir, "--config-file", pgctldConfigFile)
 		initCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(nonexistentDir, "pg_data"))
 		err = initCmd.Run()
 		require.NoError(t, err)
 
 		// Now start should work
 		startCmd = exec.Command("pgctld", "start", "--pooler-dir", nonexistentDir, "--config-file", pgctldConfigFile)
 		startCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(nonexistentDir, "pg_data"))
 		err = startCmd.Run()
 		require.NoError(t, err)
 
 		// Clean stop
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", nonexistentDir, "--mode", "immediate", "--config-file", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(nonexistentDir, "pg_data"))
 		_ = stopCmd.Run()
 	})
 
@@ -1087,21 +1119,24 @@ timeout: 30
 		// Initialize data directory first
 		initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		initCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		err := initCmd.Run()
 		require.NoError(t, err)
 
 		// Start PostgreSQL
 		startCmd := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		startCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		err = startCmd.Run()
 		require.NoError(t, err)
 
 		// Try to start again - should handle gracefully
 		startCmd2 := exec.Command("pgctld", "start", "--pooler-dir", dataDir, "--config-file", pgctldConfigFile)
 		startCmd2.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		output, err := startCmd2.CombinedOutput()
 		// Should either succeed or fail gracefully with appropriate message
 		if err != nil {
@@ -1111,7 +1146,8 @@ timeout: 30
 		// Clean stop
 		stopCmd := exec.Command("pgctld", "stop", "--pooler-dir", dataDir, "--mode", "immediate", "--config-file", pgctldConfigFile)
 		stopCmd.Env = append(os.Environ(),
-			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"))
+			"PATH="+filepath.Join(tempDir, "bin")+":"+os.Getenv("PATH"),
+			constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"))
 		_ = stopCmd.Run()
 	})
 }
@@ -1140,7 +1176,7 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 
 	// Initialize data directory
 	initCmd := exec.Command("pgctld", "init", "--pooler-dir", dataDir, "--pg-port", strconv.Itoa(pgPort), "--config-file", pgctldConfigFile)
-	setupTestEnv(initCmd)
+	setupTestEnv(initCmd, dataDir)
 	require.NoError(t, initCmd.Run())
 
 	// Start pgctld server subprocess with orphan detection enabled
@@ -1157,6 +1193,7 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	serverCmd.Env = append(os.Environ(),
 		"MULTIGRES_TESTDATA_DIR="+dataDir,
 		"PGCONNECT_TIMEOUT=5",
+		constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data"),
 		"PATH="+endtoendDir+":"+os.Getenv("PATH"))
 
 	// Required to avoid "postmaster became multithreaded during startup" on macOS
@@ -1274,7 +1311,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		"--grpc-port", strconv.Itoa(primaryGrpcPort),
 		"--pg-port", strconv.Itoa(primaryPgPort),
 		"--config-file", primaryConfigFile)
-	setupTestEnvWithPassword(primaryServerCmd, testPassword)
+	setupTestEnvWithPassword(primaryServerCmd, primaryDir, testPassword)
 	require.NoError(t, primaryServerCmd.Start())
 	defer func() {
 		if primaryServerCmd.Process != nil {
@@ -1318,7 +1355,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		"--grpc-port", strconv.Itoa(standbyGrpcPort),
 		"--pg-port", strconv.Itoa(standbyPgPort),
 		"--config-file", standbyConfigFile)
-	setupTestEnvWithPassword(standbyServerCmd, testPassword)
+	setupTestEnvWithPassword(standbyServerCmd, standbyDir, testPassword)
 	require.NoError(t, standbyServerCmd.Start())
 	defer func() {
 		if standbyServerCmd.Process != nil {

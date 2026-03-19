@@ -46,20 +46,21 @@ func (m *trackingMockExecutor) StreamExecute(
 	_ string,
 	astStmt ast.Stmt,
 	callback func(context.Context, *sqltypes.Result) error,
-) error {
+) (*ExecuteResult, error) {
 	m.executedStmts = append(m.executedStmts, astStmt)
 	idx := m.callCount
 	m.callCount++
 	if m.errOnCallIndex >= 0 && idx == m.errOnCallIndex {
-		return m.errToReturn
+		return nil, m.errToReturn
 	}
 	// Call the callback with a result that includes a CommandTag,
 	// mimicking real executor behavior.
-	return callback(ctx, &sqltypes.Result{CommandTag: astStmt.SqlString()})
+	err := callback(ctx, &sqltypes.Result{CommandTag: astStmt.SqlString()})
+	return &ExecuteResult{}, err
 }
 
-func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, func(context.Context, *sqltypes.Result) error) error {
-	return nil
+func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
+	return &ExecuteResult{}, nil
 }
 
 func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {

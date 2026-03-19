@@ -652,52 +652,41 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		}
 
 		isFullyInitialized := false
+		diag := FormatPoolerDiagnostics(status)
 
 		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
 			// Check that sync replication is configured with expected standbys
-			if status.PrimaryStatus == nil ||
-				status.PrimaryStatus.SyncReplicationConfig == nil ||
-				len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds) < expectedReplicaCount {
-				standbyCount := 0
-				if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
-					standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
-				}
-				t.Logf("checkBootstrapStatus: %s is PRIMARY but sync replication not ready (standbys=%d, expected=%d)",
-					name, standbyCount, expectedReplicaCount)
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (standbys=%d/%d)%s",
-					name, standbyCount, expectedReplicaCount, actionSuffix))
+			standbyCount := 0
+			if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
+				standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
+			}
+			if standbyCount < expectedReplicaCount {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (%d/%d standbys)%s %s",
+					name, standbyCount, expectedReplicaCount, actionSuffix, diag))
 			} else {
 				primaryName = name
-				standbyCount := len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured (standbys=%d/%d)%s",
-					name, standbyCount, expectedReplicaCount, actionSuffix))
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured%s %s",
+					name, actionSuffix, diag))
 			}
 
 		case clustermetadatapb.PoolerType_REPLICA:
 			// Check that primary_conn_info is configured
-			hasReplicationStatus := status.ReplicationStatus != nil
-			hasPrimaryConnInfo := hasReplicationStatus && status.ReplicationStatus.PrimaryConnInfo != nil
-			hasHost := hasPrimaryConnInfo && status.ReplicationStatus.PrimaryConnInfo.Host != ""
-
-			t.Logf("checkBootstrapStatus: %s is REPLICA - hasReplicationStatus=%v, hasPrimaryConnInfo=%v, hasHost=%v",
-				name, hasReplicationStatus, hasPrimaryConnInfo, hasHost)
-
-			if hasPrimaryConnInfo {
-				t.Logf("checkBootstrapStatus: %s PrimaryConnInfo.Host=%q, Port=%d",
-					name, status.ReplicationStatus.PrimaryConnInfo.Host, status.ReplicationStatus.PrimaryConnInfo.Port)
-			}
-
+			hasHost := status.ReplicationStatus != nil &&
+				status.ReplicationStatus.PrimaryConnInfo != nil &&
+				status.ReplicationStatus.PrimaryConnInfo.Host != ""
 			if !hasHost {
-				t.Logf("checkBootstrapStatus: %s is REPLICA but primary_conn_info not configured", name)
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_waiting%s", name, actionSuffix))
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_waiting%s %s",
+					name, actionSuffix, diag))
 			} else {
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_configured%s", name, actionSuffix))
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_configured%s %s",
+					name, actionSuffix, diag))
 			}
+
 		default:
-			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=UNKNOWN%s", name, actionSuffix))
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=UNKNOWN%s %s", name, actionSuffix, diag))
 			// UNKNOWN type means not fully initialized yet - don't count
 		}
 
@@ -1062,7 +1051,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// completely fresh. This clears pg_data (PostgreSQL data),
 		// pg_sockets (stale Unix sockets), pgbackrest (backup state),
 		// and any other state files.
-		dataDir := inst.Pgctld.DataDir
+		dataDir := inst.Pgctld.PoolerDir
 		entries, err := os.ReadDir(dataDir)
 		if err != nil {
 			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
@@ -1437,7 +1426,7 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	}
 
 	// Read the PID from postmaster.pid file
-	pgDataDir := filepath.Join(inst.Pgctld.DataDir, "pg_data")
+	pgDataDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_data")
 	pidFile := filepath.Join(pgDataDir, "postmaster.pid")
 
 	pidBytes, err := os.ReadFile(pidFile)

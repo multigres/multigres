@@ -42,7 +42,7 @@ import (
 // TestSetup holds all configuration for pgBackRest server tests
 type TestSetup struct {
 	TempDir        string
-	DataDir        string
+	PoolerDir      string
 	CertDir        string
 	PgPort         int
 	PgBackRestPort int
@@ -68,7 +68,7 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	// Set PATH for PostgreSQL binaries
-	t.Setenv("PGDATA", dataDir)
+	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(dataDir, "pg_data"))
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	// Generate TLS certificates
@@ -92,7 +92,7 @@ func setupPgBackRestTest(t *testing.T) *TestSetup {
 
 	return &TestSetup{
 		TempDir:        tempDir,
-		DataDir:        dataDir,
+		PoolerDir:      dataDir,
 		CertDir:        certDir,
 		PgPort:         pgPort,
 		PgBackRestPort: pgbackrestPort,
@@ -211,14 +211,17 @@ func createTestGRPCServerWithPgBackRest(t *testing.T, setup *TestSetup) (net.Lis
 	grpcServer := grpc.NewServer()
 
 	// Create the pgctld service with pgBackRest configuration
+	cfg := command.PgCtldServiceConfig{
+		Port:     setup.PgPort,
+		User:     constants.DefaultPostgresUser,
+		Database: constants.DefaultPostgresDatabase,
+		Password: shardsetup.TestPostgresPassword,
+	}
 	service, err := command.NewPgCtldService(
 		slog.Default(),
-		setup.PgPort,
-		constants.DefaultPostgresUser,
-		constants.DefaultPostgresDatabase,
-		shardsetup.TestPostgresPassword,
+		cfg,
 		30,
-		setup.DataDir,
+		setup.PoolerDir,
 		"localhost",
 		setup.PgBackRestPort,
 		setup.CertDir,

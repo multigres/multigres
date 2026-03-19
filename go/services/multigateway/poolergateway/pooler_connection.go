@@ -70,8 +70,7 @@ func (h *PoolerHealth) IsServing() bool {
 	if h == nil {
 		return false
 	}
-	return h.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING ||
-		h.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
+	return h.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING
 }
 
 // SimpleCopy returns a shallow copy of the PoolerHealth.

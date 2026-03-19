@@ -63,9 +63,10 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			name: "idempotent - already has a backup",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
 				dataDir := filepath.Join(poolerDir, "pg_data")
-				require.NoError(t, os.MkdirAll(dataDir, 0o755))
+				markerDir := filepath.Join(dataDir, constants.MultigresMarkerDirectory)
+				require.NoError(t, os.MkdirAll(markerDir, 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
-				require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresInitMarker), []byte("initialized\n"), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(markerDir, multigresInitMarker), []byte("initialized\n"), 0o644))
 			},
 			term:          1,
 			expectSuccess: true,
@@ -93,6 +94,7 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
 			poolerDir := t.TempDir()
+			t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
 
 			// Create test config with topology store that has backup location
 			database := "postgres"
@@ -201,9 +203,11 @@ func TestIsInitialized(t *testing.T) {
 		ctx := t.Context()
 		poolerDir := t.TempDir()
 		dataDir := filepath.Join(poolerDir, "pg_data")
-		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		markerDir := filepath.Join(dataDir, constants.MultigresMarkerDirectory)
+		require.NoError(t, os.MkdirAll(markerDir, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, multigresInitMarker), []byte("initialized\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(markerDir, multigresInitMarker), []byte("initialized\n"), 0o644))
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
 
 		pm := &MultiPoolerManager{
 			config:      &Config{},
@@ -232,6 +236,9 @@ func TestIsInitialized(t *testing.T) {
 func TestHelperMethods(t *testing.T) {
 	t.Run("hasDataDirectory", func(t *testing.T) {
 		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
 		multiPooler := &clustermetadatapb.MultiPooler{PoolerDir: poolerDir}
 		pm := &MultiPoolerManager{config: &Config{}, multipooler: multiPooler}
 
@@ -239,7 +246,6 @@ func TestHelperMethods(t *testing.T) {
 		assert.False(t, pm.hasDataDirectory())
 
 		// Create data directory with PG_VERSION file (simulating initialized postgres)
-		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
 		pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
 		require.NoError(t, os.WriteFile(pgVersionFile, []byte("16"), 0o644))
@@ -277,6 +283,7 @@ func TestHelperMethods(t *testing.T) {
 		// Create data directory
 		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
 
 		// Should succeed with valid directory
 		err := pm.removeDataDirectory()
@@ -294,6 +301,7 @@ func TestHelperMethods(t *testing.T) {
 func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
 
 	database := "postgres"
 	backupLocation := t.TempDir()

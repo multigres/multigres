@@ -19,10 +19,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 func TestNewPostgresServerConfig(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
 	tests := []struct {
 		name          string
@@ -73,24 +76,27 @@ func TestNewPostgresServerConfig(t *testing.T) {
 
 func TestPostgresBaseDir(t *testing.T) {
 	tempDir := t.TempDir()
-
 	expected := tempDir + "/pg_data"
-	result := PostgresDataDir(tempDir)
+	t.Setenv(constants.PgDataDirEnvVar, expected)
+
+	result := PostgresDataDir()
 
 	assert.Equal(t, expected, result, "PostgresDataDir should return expected path")
 }
 
 func TestPostgresConfigFile(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
 	expected := tempDir + "/pg_data/postgresql.conf"
-	result := PostgresConfigFile(tempDir)
+	result := PostgresConfigFile()
 
 	assert.Equal(t, expected, result, "PostgresConfigFile should return expected path")
 }
 
 func TestMakePostgresConf(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
 	config, err := GeneratePostgresServerConfig(tempDir, 5432, "postgres")
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")

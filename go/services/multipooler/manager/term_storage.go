@@ -21,26 +21,23 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/multigres/multigres/go/common/constants"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// postgresDataDir returns the PostgreSQL data directory path
-func postgresDataDir(poolerDir string) string {
-	return filepath.Join(poolerDir, "pg_data")
+// postgresDataDir returns the PostgreSQL data directory path from PGDATA env var
+func postgresDataDir() string {
+	return os.Getenv(constants.PgDataDirEnvVar)
 }
 
-// isDataDirInitialized checks if the PostgreSQL data directory is initialized
-func isDataDirInitialized(poolerDir string) bool {
-	dataDir := postgresDataDir(poolerDir)
-	pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
-	_, err := os.Stat(pgVersionFile)
-	return err == nil
+// multigresDataDir returns the multigres-specific subdirectory within PGDATA
+func multigresDataDir() string {
+	return filepath.Join(postgresDataDir(), constants.MultigresMarkerDirectory)
 }
 
 // consensusTermPath returns the path to the consensus term file
 func consensusTermPath(poolerDir string) string {
-	dataDir := postgresDataDir(poolerDir)
-	return filepath.Join(dataDir, "consensus", "consensus_term.json")
+	return filepath.Join(poolerDir, "pg_data", "consensus", "consensus_term.json")
 }
 
 // getConsensusTerm retrieves the current consensus term information from disk
@@ -70,17 +67,10 @@ func getConsensusTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm
 
 // setConsensusTerm saves the consensus term information to disk
 func setConsensusTerm(poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) error {
-	// Check if data directory is initialized
-	if !isDataDirInitialized(poolerDir) {
-		dataDir := postgresDataDir(poolerDir)
-		return fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
-	}
-
 	termPath := consensusTermPath(poolerDir)
 	consensusDir := filepath.Dir(termPath)
 
-	// Ensure consensus directory exists (data directory should already exist since we checked above)
-	// Note: This will only create the consensus subdirectory, not the pg_data parent
+	// Ensure consensus directory exists
 	if err := os.MkdirAll(consensusDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create consensus directory: %w", err)
 	}

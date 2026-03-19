@@ -46,13 +46,6 @@ func TestPoolerHealth_IsServing(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "SERVING_RDONLY returns true",
-			health: &PoolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING_RDONLY,
-			},
-			expected: true,
-		},
-		{
 			name: "NOT_SERVING returns false",
 			health: &PoolerHealth{
 				ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,

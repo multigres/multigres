@@ -32,6 +32,11 @@ type Plan struct {
 	// Primitive is the root execution primitive.
 	// In Phase 1, this will always be a Route primitive.
 	Primitive Primitive
+
+	// TablesUsed contains deduplicated, schema-qualified table names
+	// referenced by this query. Nil for statements that don't reference
+	// tables (SET, SHOW, BEGIN, etc.).
+	TablesUsed []string
 }
 
 // NewPlan creates a new query plan.
