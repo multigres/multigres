@@ -304,9 +304,9 @@ func (e *Executor) portalExecuteWithReserved(
 		return nil, err
 	}
 
-	// Bind and execute using the canonical statement name
+	// Bind and execute using the portal's own name and the canonical statement name
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-	completed, err := reservedConn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
+	completed, err := reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	if err != nil {
 		reservedConn.Release(reserved.ReleaseError)
 		return nil, wrapQueryError(err)
@@ -350,9 +350,9 @@ func (e *Executor) portalExecuteWithRegular(
 		return nil, err
 	}
 
-	// Bind and execute with maxRows=0 (fetch all) using the canonical statement name
+	// Bind and execute with maxRows=0 (fetch all) using the portal's own name and canonical statement name
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
-	_, err = conn.Conn.BindAndExecute(ctx, canonicalName, params, paramFormats, resultFormats, 0, callback)
+	_, err = conn.Conn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, 0, callback)
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
