@@ -54,11 +54,15 @@ func (rw *RequestsWaiter) Add(n int) {
 
 // Done decrements the in-flight request count by 1.
 // If the count reaches 0, the zeroCh is closed to notify waiters.
+// Panics if count goes negative, indicating a mismatched Add/Done call.
 func (rw *RequestsWaiter) Done() {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 
 	rw.count--
+	if rw.count < 0 {
+		panic("RequestsWaiter: Done called more times than Add")
+	}
 	if rw.count == 0 {
 		close(rw.zeroCh)
 	}

@@ -111,22 +111,34 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 	}
 
 	// NOT_SERVING transition: begin two-phase shutdown.
-	// Phase 1: set shuttingDown to block new non-shutdown requests.
+	// Phase 1: set shuttingDown to block new non-shutdown requests and capture
+	// the drain channel atomically. This prevents the TOCTOU race where a
+	// StartRequest(allowOnShutdown=true) could slip in between setting
+	// shuttingDown and reading the in-flight count, causing drain to skip.
 	s.shuttingDown = true
+	zeroCh := s.requests.ZeroChan()
+	gracePeriod := s.gracePeriod
 	s.mu.Unlock()
 
 	// Phase 2: drain in-flight requests.
-	// TODO: shouldn't this be a for loop?, until inflight is 0.
-	inflight := s.requests.GetCount()
-	if inflight > 0 {
+	// We wait on zeroCh captured above. Any allowOnShutdown=true requests that
+	// start after we released the lock will call Add(1) which replaces zeroCh
+	// inside RequestsWaiter, but we hold the old channel reference. The old
+	// channel fires when the requests that were in-flight at snapshot time
+	// complete. New shutdown-allowed requests (COMMIT/ROLLBACK) are operations
+	// on those same transactions, so they will complete before or with them.
+	select {
+	case <-zeroCh:
+		// Already drained (or was already at zero).
+	default:
 		s.logger.InfoContext(ctx, "Draining in-flight requests",
-			"count", inflight, "grace_period", s.gracePeriod)
+			"count", s.requests.GetCount(), "grace_period", gracePeriod)
 
-		if s.gracePeriod > 0 {
-			timer := time.NewTimer(s.gracePeriod)
+		if gracePeriod > 0 {
+			timer := time.NewTimer(gracePeriod)
 			defer timer.Stop()
 			select {
-			case <-s.requests.ZeroChan():
+			case <-zeroCh:
 				s.logger.InfoContext(ctx, "All in-flight requests drained")
 			case <-timer.C:
 				s.logger.WarnContext(ctx, "Grace period expired with in-flight requests",
@@ -137,7 +149,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 			}
 		} else {
 			select {
-			case <-s.requests.ZeroChan():
+			case <-zeroCh:
 				s.logger.InfoContext(ctx, "All in-flight requests drained")
 			case <-ctx.Done():
 				s.logger.WarnContext(ctx, "Context cancelled during drain",
