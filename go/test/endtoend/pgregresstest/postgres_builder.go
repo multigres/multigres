@@ -590,9 +590,9 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
 
 	t.Logf("Building isolation test tools in %s...", isolationDir)
-	cmd := exec.CommandContext(ctx, "make", "-C", isolationDir, "all")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd := executil.Command(ctx, "make", "-C", isolationDir, "all")
+	cmd.Cmd.Stdout = os.Stdout
+	cmd.Cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("make isolation tools failed: %w", err)

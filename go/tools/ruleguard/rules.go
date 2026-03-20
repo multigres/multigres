@@ -80,6 +80,7 @@ func requireGrpcCommonNewClient(m dsl.Matcher) {
 func disallowDirectExecCommandContext(m dsl.Matcher) {
 	m.Import("os/exec")
 
+	// TODO: Also disallow exec.Command() with no context
 	m.Match(`exec.CommandContext($*_)`).
 		Where(!m.File().PkgPath.Matches(`tools/executil$`)).
 		Report("use executil.Command() instead of exec.CommandContext() for graceful termination, proper env handling, and trace propagation")

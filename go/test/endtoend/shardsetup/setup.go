@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -1459,11 +1458,10 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	t.Logf("Killing postgres on node %s (PID: %d) using SIGKILL", name, pid)
 
 	// Send SIGKILL to the postgres process
-	process, err := os.FindProcess(pid)
-	require.NoError(t, err, "Failed to find postgres process %d for %s", pid, name)
-
-	err = process.Signal(syscall.SIGKILL)
-	require.NoError(t, err, "Failed to kill postgres process %d for %s", pid, name)
+	killCtx, killCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer killCancel()
+	_, killed := executil.KillPID(killCtx, pid)
+	require.True(t, killed, "Failed to kill postgres process %d for %s", pid, name)
 
 	t.Logf("Postgres killed with SIGKILL on %s - multipooler should detect failure", name)
 }
