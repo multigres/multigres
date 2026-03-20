@@ -70,7 +70,7 @@ func (e *Executor) StreamExecute(
 	queryStr string,
 	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
-) error {
+) (*handler.ExecuteResult, error) {
 	e.logger.DebugContext(ctx, "executing query",
 		"query", queryStr,
 		"user", conn.User(),
@@ -83,7 +83,11 @@ func (e *Executor) StreamExecute(
 		e.logger.ErrorContext(ctx, "query planning failed",
 			"query", queryStr,
 			"error", err)
-		return err
+		return nil, err
+	}
+
+	result := &handler.ExecuteResult{
+		TablesUsed: plan.TablesUsed,
 	}
 
 	e.logger.DebugContext(ctx, "query plan created",
@@ -98,14 +102,14 @@ func (e *Executor) StreamExecute(
 			"query", queryStr,
 			"plan", plan.String(),
 			"error", err)
-		return err
+		return result, err
 	}
 
 	e.logger.DebugContext(ctx, "query execution completed",
 		"query", queryStr,
 		"tablegroup", plan.GetTableGroup())
 
-	return nil
+	return result, nil
 }
 
 // PortalStreamExecute executes a portal and streams results back via the callback function.
@@ -116,7 +120,7 @@ func (e *Executor) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
-) error {
+) (*handler.ExecuteResult, error) {
 	e.logger.DebugContext(ctx, "executing portal",
 		"portal", portalInfo.Portal.Name,
 		"max_rows", maxRows,
@@ -124,12 +128,30 @@ func (e *Executor) PortalStreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO: We will need to plan the query to find wether it can
-	// be served by a single shard or not. For now, since we only
-	// support unsharded, we don't have to do much.
-	// We just send the query to the default table group.
+	// Plan the portal query to check if it needs special handling (e.g., gateway-managed
+	// variables like statement_timeout, RESET ALL). PlanPortal returns a non-nil plan
+	// only for statements that the gateway handles locally; all other statements are
+	// sent to the multipooler via PortalStreamExecute with the portal's bound parameters.
+	plan, err := e.planner.PlanPortal(portalInfo, conn)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "portal query planning failed",
+			"query", portalInfo.PreparedStatementInfo.Query,
+			"error", err)
+		return nil, err
+	}
+	if plan != nil {
+		e.logger.DebugContext(ctx, "executing portal plan locally",
+			"plan", plan.String())
+		err = plan.StreamExecute(ctx, e.exec, conn, state, callback)
+		return &handler.ExecuteResult{TablesUsed: plan.TablesUsed}, err
+	}
 
-	return e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
+	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
+	// Extract tables from the AST even when there's no plan (most extended protocol queries).
+	result := &handler.ExecuteResult{
+		TablesUsed: ast.ExtractTablesUsed(portalInfo.PreparedStatementInfo.AstStmt()),
+	}
+	return result, err
 }
 
 // Describe returns metadata about a prepared statement or portal.
@@ -145,12 +167,25 @@ func (e *Executor) Describe(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// TODO: We will need to plan the query to find wether it can
+	// TODO: We will need to plan the query to find whether it can
 	// be served by a single shard or not. For now, since we only
 	// support unsharded, we don't have to do much.
 	// We just send the query to the default table group.
 
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, preparedStatementInfo)
+}
+
+// ReleaseAll releases all reserved connections, regardless of reservation reason.
+// Delegates to ReleaseAllReservedConnections which calls ReleaseReservedConnection
+// on the multipooler for each reserved connection. The multipooler handles
+// rollback, COPY abort, and portal release internally.
+// Used for connection cleanup when a client disconnects.
+func (e *Executor) ReleaseAll(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+) error {
+	return e.exec.ReleaseAllReservedConnections(ctx, conn, state)
 }
 
 // Ensure Executor implements handler.Executor interface.

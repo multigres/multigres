@@ -149,6 +149,10 @@ message MultiPooler {
   // PoolerDir is used by pgBackRest to compute the primary's data directory.
   string pooler_dir = 10;
 
+  // PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
+  // Used by multiadmin to compute the primary's data directory for pgBackRest.
+  string pg_data_dir = 11;
+
 }
 
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
@@ -161,6 +165,10 @@ message MultiGateway {
 
   // Map of named ports. Normally this should include postgres and grpc.
   map<string, int32> port_map = 3;
+
+  // pid_prefix is the 12-bit prefix encoded into PIDs sent to clients.
+  // Used for cross-gateway cancel request routing. Assigned at registration time.
+  uint32 pid_prefix = 4;
 }
 
 // MultiOrch represents information about a running instance of multiorch.
@@ -250,20 +258,6 @@ enum PoolerServingStatus {
   // startup time.  No queries can be served in RESTORE mode.
   RESTORE = 3;
 
-  // DRAINED is the status a server goes into when used by Multigres tools
-  // to perform an offline action. It is a serving type (as
-  // the tools processes may need to run queries), but it's not used
-  // to route queries from Multigres users. In this state,
-  // this multipooler is dedicated to the process that uses it.
-  // DRAINED = 4;
-  // (TODO): This enum value conflicts with DRAINED in PoolerType.
-  // We need to reconcile them once we have serving state transitions in Pooler.
-  reserved 4;
-
-  // SERVING_RDONLY is the status of a server in read-only mode.
-  // This is used during demotion when the server transitions from PRIMARY to REPLICA,
-  // or for read-only replicas. The server accepts connections but only serves read queries.
-  SERVING_RDONLY = 5;
 }
 
 // =============================================================================
@@ -297,8 +291,8 @@ message QuorumRule {
   QuorumType quorum_type = 1;
 
   // required_count: number of nodes/cells required
-  // - For QUORUM_TYPE_ANY_N: number of nodes required from discovered cohort
-  // - For QUORUM_TYPE_MULTI_CELL_ANY_N: number of distinct cells required,
+  // - For QUORUM_TYPE_AT_LEAST_N: number of nodes required from discovered cohort
+  // - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N: number of distinct cells required,
   //   with at least one node from each cell
   int32 required_count = 2;
 
@@ -315,12 +309,18 @@ enum QuorumType {
   // QUORUM_TYPE_UNKNOWN represents an unknown or uninitialized quorum type
   QUORUM_TYPE_UNKNOWN = 0;
 
-  // QUORUM_TYPE_ANY_N requires any N nodes from discovered cohort
+  // Deprecated: use QUORUM_TYPE_AT_LEAST_N
   QUORUM_TYPE_ANY_N = 1;
 
-  // QUORUM_TYPE_MULTI_CELL_ANY_N requires nodes from multiple cells (availability zones)
-  // with at least one node from each of the required cells
+  // Deprecated: use QUORUM_TYPE_MULTI_CELL_AT_LEAST_N
   QUORUM_TYPE_MULTI_CELL_ANY_N = 2;
+
+  // QUORUM_TYPE_AT_LEAST_N requires at least N nodes from the discovered cohort to acknowledge
+  QUORUM_TYPE_AT_LEAST_N = 3;
+
+  // QUORUM_TYPE_MULTI_CELL_AT_LEAST_N requires nodes from multiple cells (availability zones)
+  // with at least one node from each of the required cells
+  QUORUM_TYPE_MULTI_CELL_AT_LEAST_N = 4;
 }
 
 // AsyncReplicationFallbackMode defines the behavior when insufficient standbys are available

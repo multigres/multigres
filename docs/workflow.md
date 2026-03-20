@@ -2,7 +2,7 @@
 
 Our GitHub workflow is a so called triangular workflow:
 
-![Github Worflow](./img/git-workflow.svg)
+![Github Workflow](./img/git-workflow.svg)
 
 This [main repository](https://github.com/multigres/multigres) is called _upstream_.
 

@@ -34,25 +34,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// PgCtlCommand holds the configuration for pgctld commands
+// PgCtlCommand holds the configuration for pgctld commands.
+// This contains all flags and information necessary to run any pgctld command.
 type PgCtlCommand struct {
 	reg                *viperutil.Registry
 	pgDatabase         viperutil.Value[string]
 	pgUser             viperutil.Value[string]
+	pgPassword         viperutil.Value[string]
 	poolerDir          viperutil.Value[string]
 	timeout            viperutil.Value[int]
 	pgPort             viperutil.Value[int]
 	pgListenAddresses  viperutil.Value[string]
 	pgHbaTemplate      viperutil.Value[string]
 	postgresConfigTmpl viperutil.Value[string]
-
-	// Backup configuration
-	backupType      viperutil.Value[string]
-	backupPath      viperutil.Value[string]
-	backupBucket    viperutil.Value[string]
-	backupRegion    viperutil.Value[string]
-	backupEndpoint  viperutil.Value[string]
-	backupKeyPrefix viperutil.Value[string]
+	pgInitdbArgs       viperutil.Value[string]
 
 	vc        *viperutil.ViperConfig
 	lg        *servenv.Logger
@@ -68,12 +63,20 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		pgDatabase: viperutil.Configure(reg, "pg-database", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresDatabase,
 			FlagName: "pg-database",
+			EnvVars:  []string{constants.PgDatabaseEnvVar},
 			Dynamic:  false,
 		}),
 		pgUser: viperutil.Configure(reg, "pg-user", viperutil.Options[string]{
 			Default:  constants.DefaultPostgresUser,
 			FlagName: "pg-user",
+			EnvVars:  []string{constants.PgUserEnvVar},
 			Dynamic:  false,
+		}),
+		pgPassword: viperutil.Configure(reg, "pg-password", viperutil.Options[string]{
+			Default: "",
+			EnvVars: []string{constants.PgPasswordEnvVar},
+			Dynamic: false,
+			// No FlagName — env var only, no CLI flag
 		}),
 		timeout: viperutil.Configure(reg, "timeout", viperutil.Options[int]{
 			Default:  30,
@@ -105,34 +108,10 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 			FlagName: "postgres-config-template",
 			Dynamic:  false,
 		}),
-		backupType: viperutil.Configure(reg, "backup.type", viperutil.Options[string]{
+		pgInitdbArgs: viperutil.Configure(reg, "pg-initdb-args", viperutil.Options[string]{
 			Default:  "",
-			FlagName: "backup-type",
-			Dynamic:  false,
-		}),
-		backupPath: viperutil.Configure(reg, "backup.path", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-path",
-			Dynamic:  false,
-		}),
-		backupBucket: viperutil.Configure(reg, "backup.bucket", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-bucket",
-			Dynamic:  false,
-		}),
-		backupRegion: viperutil.Configure(reg, "backup.region", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-region",
-			Dynamic:  false,
-		}),
-		backupEndpoint: viperutil.Configure(reg, "backup.endpoint", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-endpoint",
-			Dynamic:  false,
-		}),
-		backupKeyPrefix: viperutil.Configure(reg, "backup.key-prefix", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "backup-key-prefix",
+			FlagName: "pg-initdb-args",
+			EnvVars:  []string{constants.PgInitdbArgsEnvVar},
 			Dynamic:  false,
 		}),
 		vc:        viperutil.NewViperConfig(reg),
@@ -150,6 +129,9 @@ It provides lifecycle management including start, stop, restart, and configurati
 management for PostgreSQL servers.`,
 		Args: cobra.NoArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Flags parsed successfully at this point — suppress usage for any subsequent
+			// runtime errors so the error message is not buried under the usage text.
+			cmd.Root().SilenceUsage = true
 			pc.lg.SetupLogging()
 			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
 			var err error
@@ -173,14 +155,15 @@ management for PostgreSQL servers.`,
 		},
 	}
 
-	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name")
-	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username")
+	root.PersistentFlags().StringP("pg-database", "D", pc.pgDatabase.Default(), "PostgreSQL database name (overrides "+constants.PgDatabaseEnvVar+" env var)")
+	root.PersistentFlags().StringP("pg-user", "U", pc.pgUser.Default(), "PostgreSQL username (overrides "+constants.PgUserEnvVar+" env var)")
 	root.PersistentFlags().IntP("timeout", "t", pc.timeout.Default(), "Operation timeout in seconds")
 	root.PersistentFlags().String("pooler-dir", pc.poolerDir.Default(), "The directory to multipooler data")
 	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
 	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
+	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
 
 	pc.vc.RegisterFlags(root.PersistentFlags())
 	pc.lg.RegisterFlags(root.PersistentFlags())
@@ -188,12 +171,14 @@ management for PostgreSQL servers.`,
 	viperutil.BindFlags(root.PersistentFlags(),
 		pc.pgDatabase,
 		pc.pgUser,
+		pc.pgPassword,
 		pc.timeout,
 		pc.poolerDir,
 		pc.pgPort,
 		pc.pgListenAddresses,
 		pc.pgHbaTemplate,
 		pc.postgresConfigTmpl,
+		pc.pgInitdbArgs,
 	)
 
 	// Add all subcommands
@@ -215,6 +200,10 @@ func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) e
 	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {
 		return errors.New("pooler-dir needs to be set")
+	}
+
+	if os.Getenv(constants.PgDataDirEnvVar) == "" {
+		return fmt.Errorf("%s environment variable is required", constants.PgDataDirEnvVar)
 	}
 
 	// If pg-hba-template is specified, read and replace the default template
@@ -273,10 +262,8 @@ func (pc *PgCtlCommand) validateInitialized(cmd *cobra.Command, args []string) e
 	}
 
 	// Check if data directory is initialized
-	poolerDir := pc.GetPoolerDir()
-
-	if !pgctld.IsDataDirInitialized(poolerDir) {
-		dataDir := pgctld.PostgresDataDir(poolerDir)
+	if !pgctld.IsDataDirInitialized() {
+		dataDir := pgctld.PostgresDataDir()
 		return fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
 	}
 

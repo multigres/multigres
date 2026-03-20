@@ -15,39 +15,37 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
 // mockExecutor is a mock implementation of the Executor interface for testing.
-type mockExecutor struct{}
-
-func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) error {
-	// Return a simple test result
-	return callback(ctx, &sqltypes.Result{
-		Fields: []*query.Field{
-			{Name: "column1", Type: "int4"},
-		},
-		Rows: []*sqltypes.Row{
-			{Values: []sqltypes.Value{[]byte("1")}},
-		},
-		CommandTag:   "SELECT 1",
-		RowsAffected: 1,
-	})
+type mockExecutor struct {
+	streamExecuteErr error
+	releaseAllCalled bool
 }
 
-func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+	if m.streamExecuteErr != nil {
+		return nil, m.streamExecuteErr
+	}
 	// Return a simple test result
-	return callback(ctx, &sqltypes.Result{
+	err := callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
 			{Name: "column1", Type: "int4"},
 		},
@@ -57,6 +55,22 @@ func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Con
 		CommandTag:   "SELECT 1",
 		RowsAffected: 1,
 	})
+	return &ExecuteResult{}, err
+}
+
+func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+	// Return a simple test result
+	err := callback(ctx, &sqltypes.Result{
+		Fields: []*query.Field{
+			{Name: "column1", Type: "int4"},
+		},
+		Rows: []*sqltypes.Row{
+			{Values: []sqltypes.Value{[]byte("1")}},
+		},
+		CommandTag:   "SELECT 1",
+		RowsAffected: 1,
+	})
+	return &ExecuteResult{}, err
 }
 
 func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
@@ -68,11 +82,16 @@ func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *M
 	}, nil
 }
 
+func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error {
+	m.releaseAllCalled = true
+	return nil
+}
+
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.
 func TestHandleQueryEmptyQuery(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 
 	// Create a mock connection
 	conn := &server.Conn{}
@@ -145,7 +164,7 @@ func TestHandleQueryEmptyQuery(t *testing.T) {
 func TestHandleQueryNonEmpty(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 
 	// Create a mock connection
 	conn := &server.Conn{}
@@ -169,7 +188,7 @@ func TestHandleQueryNonEmpty(t *testing.T) {
 func TestPreparedStatementHandling(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -221,7 +240,7 @@ func TestPreparedStatementHandling(t *testing.T) {
 func TestPortalHandling(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -275,7 +294,7 @@ func TestPortalHandling(t *testing.T) {
 func TestPreparedStatementConsolidation(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -320,7 +339,7 @@ func TestPreparedStatementConsolidation(t *testing.T) {
 func TestConnectionStateIsolation(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger)
+	handler := NewMultiGatewayHandler(executor, logger, 0)
 	conn1 := &server.Conn{}
 	conn2 := &server.Conn{}
 	ctx := context.Background()
@@ -340,4 +359,250 @@ func TestConnectionStateIsolation(t *testing.T) {
 	// Portal does NOT exist on conn2 (isolated connection state)
 	_, err = handler.HandleDescribe(ctx, conn2, 'P', "portal1")
 	require.Error(t, err)
+}
+
+// TestHandleQuery_AbortedTransactionRejectsQueries tests that queries are rejected
+// when the transaction is in an aborted state (TxnStatusFailed).
+func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Put connection in aborted transaction state
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		t.Fatal("callback should not be called for aborted transaction")
+		return nil
+	})
+
+	require.Error(t, err)
+	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+	// Status should remain Failed
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestHandleQuery_AbortedTransactionAllowsRollback tests that ROLLBACK is allowed
+// when the transaction is in an aborted state.
+func TestHandleQuery_AbortedTransactionAllowsRollback(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Put connection in aborted transaction state
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	err := h.HandleQuery(context.Background(), conn, "ROLLBACK", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	// ROLLBACK should be allowed through (executed by the mock)
+	require.NoError(t, err)
+}
+
+// TestHandleQuery_AbortedTransactionAllowsRollbackInBatch tests that a multi-statement
+// batch starting with ROLLBACK is allowed when in aborted state, matching PostgreSQL
+// behavior where "ROLLBACK; SELECT 1;" works even in aborted state.
+func TestHandleQuery_AbortedTransactionAllowsRollbackInBatch(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Put connection in aborted transaction state
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	err := h.HandleQuery(context.Background(), conn, "ROLLBACK; SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	// Batch starting with ROLLBACK should be allowed through (not rejected at the gate).
+	// Transaction state transitions (ROLLBACK clearing aborted state) are verified
+	// by integration tests since the mock executor doesn't process transaction statements.
+	require.NoError(t, err)
+}
+
+// TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback tests that
+// a multi-statement batch NOT starting with ROLLBACK is rejected in aborted state.
+func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Put connection in aborted transaction state
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1; ROLLBACK", func(_ context.Context, _ *sqltypes.Result) error {
+		t.Fatal("callback should not be called for aborted transaction")
+		return nil
+	})
+
+	require.Error(t, err)
+	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+}
+
+// TestHandleQuery_ErrorInTransactionSetsAbortedState tests that a query error
+// while in a transaction transitions the state to aborted.
+func TestHandleQuery_ErrorInTransactionSetsAbortedState(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{streamExecuteErr: errors.New("query failed")}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Put connection in active transaction
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	// Should transition to aborted state
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestHandleQuery_ErrorOutsideTransactionStaysIdle tests that a query error
+// outside a transaction does not change the transaction state.
+func TestHandleQuery_ErrorOutsideTransactionStaysIdle(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{streamExecuteErr: errors.New("query failed")}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
+		return nil
+	})
+
+	require.Error(t, err)
+	// Should stay idle (not in a transaction)
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
+}
+
+// TestHandleExecute_AbortedTransactionRejects tests that Execute messages
+// are rejected when the transaction is aborted.
+func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	ctx := context.Background()
+
+	// Setup a prepared statement and portal
+	err := h.HandleParse(ctx, conn, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+	err = h.HandleBind(ctx, conn, "portal1", "stmt1", nil, nil, nil)
+	require.NoError(t, err)
+
+	// Put connection in aborted transaction state
+	conn.SetTxnStatus(protocol.TxnStatusFailed)
+
+	err = h.HandleExecute(ctx, conn, "portal1", 0, func(_ context.Context, _ *sqltypes.Result) error {
+		t.Fatal("callback should not be called for aborted transaction")
+		return nil
+	})
+
+	require.Error(t, err)
+	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+}
+
+// TestConnectionClosed_ReleasesReservedConnections tests that ConnectionClosed
+// releases all reserved connections when the client disconnects.
+func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Initialize connection state with a reserved connection
+	state := NewMultiGatewayConnectionState()
+	conn.SetConnectionState(state)
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	target := &query.Target{
+		TableGroup: "tg1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	state.SetReservedConnection(target, &query.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	h.ConnectionClosed(conn)
+
+	require.True(t, executor.releaseAllCalled, "ReleaseAll should be called")
+}
+
+// TestConnectionClosed_ReleasesNonTransactionReservedConnections tests that
+// ConnectionClosed releases reserved connections even when not in a transaction.
+func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Initialize connection state with a reserved connection for COPY (not transaction)
+	state := NewMultiGatewayConnectionState()
+	conn.SetConnectionState(state)
+	// NOT in a transaction - TxnStatusIdle
+	target := &query.Target{
+		TableGroup: "tg1",
+		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+	}
+	state.SetReservedConnection(target, &query.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonCopy,
+	})
+
+	h.ConnectionClosed(conn)
+
+	require.True(t, executor.releaseAllCalled, "ReleaseAll should be called even without active transaction")
+}
+
+// TestConnectionClosed_NoReservedConnections tests that ConnectionClosed
+// does not call ReleaseAll when there are no reserved connections.
+func TestConnectionClosed_NoReservedConnections(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Initialize connection state with no reserved connections
+	state := NewMultiGatewayConnectionState()
+	conn.SetConnectionState(state)
+
+	h.ConnectionClosed(conn)
+
+	require.False(t, executor.releaseAllCalled, "ReleaseAll should not be called when no shard states")
+}
+
+// TestConnectionClosed_CleansPreparedStatements tests that ConnectionClosed
+// removes prepared statements for the connection.
+func TestConnectionClosed_CleansPreparedStatements(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultiGatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	ctx := context.Background()
+
+	// Add some prepared statements
+	err := h.HandleParse(ctx, conn, "stmt1", "SELECT 1", nil)
+	require.NoError(t, err)
+	err = h.HandleParse(ctx, conn, "stmt2", "SELECT 2", nil)
+	require.NoError(t, err)
+
+	// Verify they exist
+	psi := h.Consolidator().GetPreparedStatementInfo(conn.ConnectionID(), "stmt1")
+	require.NotNil(t, psi)
+
+	h.ConnectionClosed(conn)
+
+	// Prepared statements should be gone
+	psi = h.Consolidator().GetPreparedStatementInfo(conn.ConnectionID(), "stmt1")
+	require.Nil(t, psi)
+	psi = h.Consolidator().GetPreparedStatementInfo(conn.ConnectionID(), "stmt2")
+	require.Nil(t, psi)
 }

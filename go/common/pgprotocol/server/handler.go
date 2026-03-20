@@ -21,6 +21,16 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
+// CancelHandler handles PostgreSQL cancel requests, potentially routing them
+// to remote gateways when the cancel lands on a different gateway than the
+// original query. This is separate from Handler because only multigateway
+// needs cross-gateway cancel routing.
+type CancelHandler interface {
+	// HandleCancelRequest processes a cancel request with the given PID and secret key.
+	// The PID encodes a gateway prefix and local connection ID.
+	HandleCancelRequest(ctx context.Context, processID, secretKey uint32)
+}
+
 // Handler defines the interface for query execution.
 // This abstracts the actual query processing from the protocol layer,
 // allowing the protocol implementation to be decoupled from routing/execution logic.
@@ -95,4 +105,10 @@ type Handler interface {
 	// HandleSync processes a Sync message ('S').
 	// Called at the end of an extended query cycle to indicate transaction boundary.
 	HandleSync(ctx context.Context, conn *Conn) error
+
+	// ConnectionClosed is called when a client connection is closed.
+	// The handler should clean up any connection-specific state, such as
+	// rolling back active transactions and releasing reserved connections.
+	// The connection's context may already be cancelled at this point.
+	ConnectionClosed(conn *Conn)
 }

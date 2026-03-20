@@ -244,7 +244,7 @@ default_text_search_config = 'pg_catalog.english'
 # - Shared Library Preloading -
 
 ## TODO: @rafael - We are starting from a Vanilla postgres. We still
-## ened to do work here to make sure we start postgres with libraries that
+## need to do work here to make sure we start postgres with libraries that
 ## will be used by supabase infra.
 # shared_preload_libraries = 'pg_stat_statements, pgaudit, plpgsql, plpgsql_check, pg_cron, pg_net, pgsodium, timescaledb, auto_explain, pg_tle, plan_filter, supabase_vault'	# (change requires restart)
 jit_provider = 'llvmjit'		# JIT library to use

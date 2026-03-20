@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -33,6 +34,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // Compile-time assertion that BootstrapShardAction implements types.RecoveryAction.
@@ -53,7 +55,7 @@ const DefaultStatusRPCTimeout = 5 * time.Second
 type BootstrapShardAction struct {
 	config           *config.Config
 	rpcClient        rpcclient.MultiPoolerClient
-	poolerStore      *store.PoolerHealthStore
+	poolerStore      *store.PoolerStore
 	topoStore        topoclient.Store
 	logger           *slog.Logger
 	statusRPCTimeout time.Duration
@@ -64,7 +66,7 @@ type BootstrapShardAction struct {
 func NewBootstrapShardAction(
 	cfg *config.Config,
 	rpcClient rpcclient.MultiPoolerClient,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
 	logger *slog.Logger,
@@ -88,19 +90,30 @@ func (a *BootstrapShardAction) WithStatusRPCTimeout(timeout time.Duration) *Boot
 }
 
 // Execute performs bootstrap initialization for a new shard
-func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Problem) error {
+func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Problem) (retErr error) {
+	return telemetry.WithSpan(ctx, "bootstrap", func(ctx context.Context) error {
+		return a.executeInner(ctx, problem)
+	})
+}
+
+// executeInner performs the bootstrap steps inside the parent "bootstrap" span.
+func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.Problem) (retErr error) {
 	a.logger.InfoContext(ctx, "executing bootstrap shard action",
 		"database", problem.ShardKey.Database,
 		"tablegroup", problem.ShardKey.TableGroup,
 		"shard", problem.ShardKey.Shard)
 
-	// Acquire distributed lock for this shard
+	// Acquire distributed lock for this shard. A short TTL ensures the lock
+	// auto-expires if this orch crashes mid-bootstrap, allowing another orch
+	// to retry promptly.
+	const shardLockTTL = 60 * time.Second
 	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", problem.ShardKey.String())
 
 	ctx, unlock, err := a.topoStore.LockShard(
 		ctx,
 		problem.ShardKey,
 		"bootstrap recovery",
+		topoclient.WithTTL(shardLockTTL),
 	)
 	if err != nil {
 		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
@@ -182,23 +195,45 @@ func (a *BootstrapShardAction) Execute(ctx context.Context, problem types.Proble
 		"shard_key", problem.ShardKey.String(),
 		"candidate", candidate.MultiPooler.Id.Name)
 
+	// We know the candidate now — emit Started before initializing primary.
+	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryPromotion{
+		NewPrimary: candidate.MultiPooler.Id.Name,
+	})
+	defer func() {
+		if retErr == nil {
+			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.PrimaryPromotion{
+				NewPrimary: candidate.MultiPooler.Id.Name,
+			})
+		} else {
+			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.PrimaryPromotion{
+				NewPrimary: candidate.MultiPooler.Id.Name,
+			}, "error", retErr)
+		}
+	}()
+
 	// Initialize the candidate as an empty primary with term=1
 	// This now also sets the pooler type to PRIMARY and creates the durability policy
 	req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 		ConsensusTerm:        1,
 		DurabilityPolicyName: policyName,
 		DurabilityQuorumRule: quorumRule,
-		CoordinatorId:        topoclient.ClusterIDString(a.coordinator.GetCoordinatorID()),
+		CoordinatorId:        a.coordinator.GetCoordinatorID(),
 	}
-	resp, err := a.rpcClient.InitializeEmptyPrimary(ctx, candidate.MultiPooler, req)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to initialize empty primary")
-	}
-
-	if !resp.Success {
-		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
-			"failed to initialize empty primary on node %s: %s",
-			candidate.MultiPooler.Id.Name, resp.ErrorMessage)
+	var resp *multipoolermanagerdatapb.InitializeEmptyPrimaryResponse
+	if err := telemetry.WithSpan(ctx, "bootstrap/initialize-primary", func(ctx context.Context) error {
+		var rpcErr error
+		resp, rpcErr = a.rpcClient.InitializeEmptyPrimary(ctx, candidate.MultiPooler, req)
+		if rpcErr != nil {
+			return mterrors.Wrap(rpcErr, "failed to initialize empty primary")
+		}
+		if !resp.Success {
+			return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+				"failed to initialize empty primary on node %s: %s",
+				candidate.MultiPooler.Id.Name, resp.ErrorMessage)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	a.logger.InfoContext(ctx, "successfully initialized primary with durability policy",
@@ -368,27 +403,42 @@ func (a *BootstrapShardAction) getDurabilityPolicyName(ctx context.Context, data
 
 	// Validate that the policy name is supported
 	switch db.DurabilityPolicy {
-	case "ANY_2", "MULTI_CELL_ANY_2":
+	case "AT_LEAST_2", "MULTI_CELL_AT_LEAST_2",
+		"ANY_2", "MULTI_CELL_ANY_2": // deprecated: use AT_LEAST_2 / MULTI_CELL_AT_LEAST_2
 		return db.DurabilityPolicy, nil
 	default:
 		return "", mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"unsupported durability policy: %s (must be ANY_2 or MULTI_CELL_ANY_2)", db.DurabilityPolicy)
+			"unsupported durability policy: %s (must be AT_LEAST_2 or MULTI_CELL_AT_LEAST_2)", db.DurabilityPolicy)
 	}
 }
 
 // parsePolicy converts a policy name into a QuorumRule
 func (a *BootstrapShardAction) parsePolicy(policyName string) (*clustermetadatapb.QuorumRule, error) {
 	switch policyName {
-	case "ANY_2":
+	case "AT_LEAST_2":
 		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: 2,
+			Description:   "At least 2 nodes must acknowledge",
+		}, nil
+
+	case "MULTI_CELL_AT_LEAST_2":
+		return &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N,
+			RequiredCount: 2,
+			Description:   "At least 2 nodes from different cells must acknowledge",
+		}, nil
+
+	case "ANY_2": // deprecated: use AT_LEAST_2
+		return &clustermetadatapb.QuorumRule{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N, //nolint:staticcheck // deprecated
 			RequiredCount: 2,
 			Description:   "Any 2 nodes must acknowledge",
 		}, nil
 
-	case "MULTI_CELL_ANY_2":
+	case "MULTI_CELL_ANY_2": // deprecated: use MULTI_CELL_AT_LEAST_2
 		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N, //nolint:staticcheck // deprecated
 			RequiredCount: 2,
 			Description:   "Any 2 nodes from different cells must acknowledge",
 		}, nil

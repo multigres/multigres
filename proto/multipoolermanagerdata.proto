@@ -150,6 +150,10 @@ message SynchronousReplicationConfiguration {
 
   // List of standby IDs that can participate in synchronous replication
   repeated clustermetadata.ID standby_ids = 4;
+
+  // Application names for standbys in standby_ids (format: {cell}_{name}).
+  // Parallel to standby_ids: standby_application_names[i] is the application name for standby_ids[i].
+  repeated string standby_application_names = 5;
 }
 
 // PostgreSQL primary server status
@@ -227,6 +231,24 @@ message Status {
 
   // Shard ID that this pooler belongs to
   string shard_id = 10;
+
+  // Current long-running postgres action in progress, if any.
+  // UNSPECIFIED means no action is running (postgres is idle or already running).
+  PostgresAction postgres_action = 11;
+
+  // How long the current action has been running.
+  // Only meaningful when postgres_action != UNSPECIFIED.
+  google.protobuf.Duration postgres_action_duration = 12;
+}
+
+// PostgresAction identifies a long-running postgres manager operation.
+enum PostgresAction {
+  // No action in progress.
+  POSTGRES_ACTION_UNSPECIFIED = 0;
+  // PostgreSQL is being started (data directory already initialized).
+  POSTGRES_ACTION_STARTING = 1;
+  // A pgBackRest restore is running to initialize the data directory.
+  POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -422,13 +444,13 @@ message PromoteRequest {
   string reason = 5;
 
   // Coordinator ID that ran this election
-  string coordinator_id = 6;
+  clustermetadata.ID coordinator_id = 6;
 
-  // List of pooler names that were in the cohort
-  repeated string cohort_members = 7;
+  // List of poolers that were in the cohort
+  repeated clustermetadata.ID cohort_members = 7;
 
-  // List of pooler names that accepted the term during BeginTerm
-  repeated string accepted_members = 8;
+  // List of poolers that accepted the term during BeginTerm
+  repeated clustermetadata.ID accepted_members = 8;
 }
 
 message PromoteResponse {
@@ -602,7 +624,7 @@ message InitializeEmptyPrimaryRequest {
   clustermetadata.QuorumRule durability_quorum_rule = 3;
 
   // ID of the multiorch coordinator performing the bootstrap
-  string coordinator_id = 4;
+  clustermetadata.ID coordinator_id = 4;
 }
 
 message InitializeEmptyPrimaryResponse {

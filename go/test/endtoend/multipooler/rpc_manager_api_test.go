@@ -608,3 +608,51 @@ func TestGetFollowers(t *testing.T) {
 		t.Log("Confirmed: GetFollowers correctly rejected on REPLICA pooler")
 	})
 }
+
+// TestInitializeEmptyPrimary tests the InitializeEmptyPrimary RPC using the
+// already-bootstrapped integration test cluster.
+func TestInitializeEmptyPrimary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+
+	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
+	require.NoError(t, err)
+	t.Cleanup(func() { primaryClient.Close() })
+
+	t.Run("Idempotent_AlreadyIsInitialized", func(t *testing.T) {
+		// The primary was bootstrapped during test setup, so its has-backup marker
+		// file is already present. Calling InitializeEmptyPrimary again must return
+		// success immediately without re-running the bootstrap sequence.
+		resp, err := primaryClient.Manager.InitializeEmptyPrimary(
+			utils.WithShortDeadline(t),
+			&multipoolermanagerdata.InitializeEmptyPrimaryRequest{ConsensusTerm: 1},
+		)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.True(t, resp.Success, "idempotent call should report success")
+
+		// The idempotent path returns an empty backup_id (no new backup was taken).
+		assert.Empty(t, resp.BackupId, "idempotent call should not produce a new backup_id")
+
+		// Verify the pooler still reports IsInitialized=true after the idempotent call.
+		statusResp, err := primaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdata.StatusRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, statusResp.Status)
+		assert.True(t, statusResp.Status.IsInitialized, "primary should still report IsInitialized=true")
+	})
+
+	t.Run("RejectsInvalidTerm", func(t *testing.T) {
+		// consensus_term must be exactly 1 for bootstrap. Any other value is rejected
+		// before any I/O is performed.
+		_, err := primaryClient.Manager.InitializeEmptyPrimary(
+			utils.WithShortDeadline(t),
+			&multipoolermanagerdata.InitializeEmptyPrimaryRequest{ConsensusTerm: 2},
+		)
+		require.Error(t, err, "non-1 consensus term should be rejected")
+		assert.Contains(t, err.Error(), "consensus term must be 1")
+	})
+}

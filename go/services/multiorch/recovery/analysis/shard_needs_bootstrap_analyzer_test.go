@@ -25,7 +25,6 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -36,8 +35,8 @@ func TestShardNeedsBootstrapAnalyzer_Analyze(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
 	rpcClient := &rpcclient.FakeClient{}
+	poolerStore := store.NewPoolerStore(rpcClient, slog.Default())
 	coordID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
 		Cell:      "cell1",

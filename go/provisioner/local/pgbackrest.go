@@ -46,13 +46,13 @@ func GeneratePgBackRestCerts(certDir string) (*PgBackRestCertPaths, error) {
 
 	caCertFile := filepath.Join(certDir, "ca.crt")
 	caKeyFile := filepath.Join(certDir, "ca.key")
-	if err := generateCA(caCertFile, caKeyFile); err != nil {
+	if err := GenerateCA(caCertFile, caKeyFile); err != nil {
 		return nil, fmt.Errorf("failed to generate CA for pgBackRest: %w", err)
 	}
 
 	certFile := filepath.Join(certDir, "pgbackrest.crt")
 	keyFile := filepath.Join(certDir, "pgbackrest.key")
-	if err := generateCert(caCertFile, caKeyFile, certFile, keyFile, "pgbackrest", []string{"localhost", "pgbackrest"}); err != nil {
+	if err := GenerateCert(caCertFile, caKeyFile, certFile, keyFile, "pgbackrest", []string{"localhost", "pgbackrest"}); err != nil {
 		return nil, fmt.Errorf("failed to generate certificate for pgBackRest: %w", err)
 	}
 

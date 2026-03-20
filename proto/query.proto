@@ -235,6 +235,21 @@ message Portal {
   repeated int32 result_formats = 6;
 }
 
+// ReservedState contains information about a reserved connection.
+// Embedded in response messages to convey the authoritative reservation state from multipooler.
+message ReservedState {
+  // reserved_connection_id is the ID of the reserved connection.
+  // Zero when the connection has been released or was not reserved.
+  uint64 reserved_connection_id = 1;
+
+  // pooler_id identifies which multipooler instance owns the reserved connection
+  clustermetadata.ID pooler_id = 2;
+
+  // reservation_reasons is a bitmask of ReservationReason values indicating why the connection
+  // is still reserved. Zero means the connection was released.
+  uint32 reservation_reasons = 3;
+}
+
 // ExecuteOptions contains execution options for query execution.
 // This includes session state like prepared statements and portals that
 // need to be available on the connection where the query is executed.

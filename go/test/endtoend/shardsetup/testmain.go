@@ -95,19 +95,37 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/pathutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 const (
 	// TestPostgresPassword is the password used for the postgres user in tests.
-	// This is set via PGPASSWORD env var before pgctld initializes PostgreSQL.
 	TestPostgresPassword = "test_password_123"
 )
+
+// GetTestUserDSN returns a DSN for connecting to multigateway as a regular
+// test client. Uses DefaultTestUser and TestPostgresPassword.
+func GetTestUserDSN(host string, port int, args ...string) string {
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=postgres %s",
+		host, port, DefaultTestUser, TestPostgresPassword, strings.Join(args, " "))
+}
+
+// GetPostgresDSN returns a DSN for connecting directly to PostgreSQL as the
+// cluster owner (DefaultPostgresUser). Used for pgctld-level test connections
+// that bypass multigateway (e.g. backup restore verification).
+func GetPostgresDSN(host string, port int, args ...string) string {
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=postgres %s",
+		host, port, constants.DefaultPostgresUser, TestPostgresPassword, strings.Join(args, " "))
+}
 
 // SetupFunc is a function that creates a ShardSetup for testing.
 // It receives a testing.T that can be used for logging during setup.
@@ -142,9 +160,6 @@ func RunTestMain(m *testing.M) int {
 
 	// Set orphan detection environment variable as baseline protection
 	os.Setenv("MULTIGRES_TEST_PARENT_PID", strconv.Itoa(os.Getpid()))
-
-	// Set PGPASSWORD to a known value so tests can authenticate
-	os.Setenv("PGPASSWORD", TestPostgresPassword)
 
 	// Initialize telemetry (no-op if OTEL environment variables aren't set)
 	tel := telemetry.NewTelemetry()

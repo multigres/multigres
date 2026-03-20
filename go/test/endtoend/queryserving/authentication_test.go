@@ -39,8 +39,7 @@ func TestMultiGateway_Authentication(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect as postgres (superuser) to create test users
-	adminConnStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	adminConnStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	adminDB, err := sql.Open("postgres", adminConnStr)
 	require.NoError(t, err)
 	defer adminDB.Close()

@@ -176,5 +176,8 @@ func (h *fakeHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	return nil
 }
 
+// ConnectionClosed handles connection cleanup.
+func (h *fakeHandler) ConnectionClosed(conn *server.Conn) {}
+
 // Ensure fakeHandler implements server.Handler.
 var _ server.Handler = (*fakeHandler)(nil)

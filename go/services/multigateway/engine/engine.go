@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -98,6 +99,40 @@ type IExecute interface {
 		portalInfo *preparedstatement.PortalInfo,
 		preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 	) (*query.StatementDescription, error)
+
+	// ConcludeTransaction concludes a transaction on reserved connections with COMMIT or ROLLBACK.
+	// Iterates over all shard states, calling ConcludeTransaction on each reserved connection.
+	// Returns the result of the COMMIT/ROLLBACK and clears shard state entries where the
+	// connection was fully released (remainingReasons == 0).
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   conn: Client connection (for user/session info)
+	//   state: Connection state containing reserved connections to conclude
+	//   conclusion: COMMIT or ROLLBACK
+	//   callback: Function called with the result of the COMMIT/ROLLBACK
+	ConcludeTransaction(
+		ctx context.Context,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+		conclusion multipoolerpb.TransactionConclusion,
+		callback func(context.Context, *sqltypes.Result) error,
+	) error
+
+	// ReleaseAllReservedConnections forcefully releases ALL reserved connections,
+	// regardless of reservation reason. Iterates all shard states and calls
+	// ReleaseReservedConnection on the multipooler for each one, then clears
+	// local shard state. Used during client disconnect cleanup.
+	//
+	// Parameters:
+	//   ctx: Context for cancellation and timeouts
+	//   conn: Client connection (for user/session info)
+	//   state: Connection state containing all reserved connections to release
+	ReleaseAllReservedConnections(
+		ctx context.Context,
+		conn *server.Conn,
+		state *handler.MultiGatewayConnectionState,
+	) error
 
 	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---
 	// These methods follow the same pattern as StreamExecute: they take tableGroup/shard

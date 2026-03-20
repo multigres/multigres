@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // poolerKey creates the store key for a pooler
@@ -43,16 +44,26 @@ func poolerKey(cell, name string) string {
 	})
 }
 
+// startWatcher starts a PoolerWatcher and registers Stop() as a cleanup function.
+func startWatcher(t *testing.T, pw *PoolerWatcher) {
+	t.Helper()
+	pw.Start()
+	t.Cleanup(pw.Stop)
+}
+
+// startEngine starts an Engine and registers Stop() as a cleanup function.
+func startEngine(t *testing.T, engine *Engine) {
+	t.Helper()
+	require.NoError(t, engine.Start())
+	t.Cleanup(engine.Stop)
+}
+
 func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cfg := config.NewTestConfig(
-		config.WithCell("zone1"),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
-	)
-
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
 	engine := NewEngine(
 		ts,
 		slog.Default(),
@@ -61,6 +72,11 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		&rpcclient.FakeClient{},
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
+	startEngine(t, engine)
+
+	poolerStoreIs := func(val int) func() bool {
+		return func() bool { return engine.poolerStore.Len() == val }
+	}
 
 	// Initial state: 2 poolers in different tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -72,8 +88,8 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg2", Shard: "0",
 	}))
 
-	// First refresh - should discover both
-	engine.refreshClusterMetadata()
+	// First watch event - should discover both
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "timed out waiting for 2 poolers")
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
@@ -87,8 +103,8 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg3", Shard: "0",
 	}))
 
-	// Second refresh - should discover new tablegroup's pooler
-	engine.refreshClusterMetadata()
+	// Second watch event - should discover new tablegroup's pooler
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(3)), "timed out waiting for 3 poolers")
 	require.Equal(t, 3, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler3"))
@@ -100,8 +116,8 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg1", Shard: "1",
 	}))
 
-	// Third refresh - should discover new shard's pooler
-	engine.refreshClusterMetadata()
+	// Third watch event - should discover new shard's pooler
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(4)), "timed out waiting for 4 poolers")
 	require.Equal(t, 4, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler4"))
@@ -112,8 +128,8 @@ func TestDiscovery_DatabaseLevelWatch(t *testing.T) {
 		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2",
 	}))
 
-	// Fourth refresh - removed pooler still in store (bookkeeping removes it later)
-	engine.refreshClusterMetadata()
+	// Fourth watch event - removed pooler still in store (bookkeeping removes it later)
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 4, engine.poolerStore.Len(), "store should still contain all poolers, bookkeeping handles removal")
 }
 
@@ -122,11 +138,7 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cfg := config.NewTestConfig(
-		config.WithCell("zone1"),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
-	)
-
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
 	engine := NewEngine(
 		ts,
 		slog.Default(),
@@ -135,6 +147,15 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 		&rpcclient.FakeClient{},
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
+	startEngine(t, engine)
+
+	poolerStoreIs := func(val int) func() bool {
+		return func() bool { return engine.poolerStore.Len() == val }
+	}
+
+	poolerStoreAtLeast := func(val int) func() bool {
+		return func() bool { return engine.poolerStore.Len() >= val }
+	}
 
 	// Initial state: poolers in tg1 and tg2
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -146,8 +167,9 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg2", Shard: "0",
 	}))
 
-	// First refresh - should only discover tg1
-	engine.refreshClusterMetadata()
+	// First watch event - should only discover tg1
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreAtLeast(1)), "timed out waiting for first pooler")
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 1, engine.poolerStore.Len())
 
 	_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
@@ -161,8 +183,8 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg1", Shard: "1",
 	}))
 
-	// Second refresh - should discover new shard in tg1
-	engine.refreshClusterMetadata()
+	// Second watch event - should discover new shard in tg1
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "timed out waiting for 2 poolers")
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler3"))
@@ -174,8 +196,8 @@ func TestDiscovery_TablegroupLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg3", Shard: "0",
 	}))
 
-	// Third refresh - should NOT discover new tablegroup
-	engine.refreshClusterMetadata()
+	// Third watch event - should NOT discover new tablegroup
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler4"))
@@ -187,11 +209,7 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cfg := config.NewTestConfig(
-		config.WithCell("zone1"),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
-	)
-
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
 	engine := NewEngine(
 		ts,
 		slog.Default(),
@@ -200,6 +218,15 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		&rpcclient.FakeClient{},
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
+	startEngine(t, engine)
+
+	poolerStoreIs := func(val int) func() bool {
+		return func() bool { return engine.poolerStore.Len() == val }
+	}
+
+	poolerStoreAtLeast := func(val int) func() bool {
+		return func() bool { return engine.poolerStore.Len() >= val }
+	}
 
 	// Initial state: poolers in different shards and tablegroups
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -215,8 +242,9 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg2", Shard: "0",
 	}))
 
-	// First refresh - should only discover tg1/shard0
-	engine.refreshClusterMetadata()
+	// First watch event - should only discover tg1/shard0
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreAtLeast(1)), "timed out waiting for first pooler")
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 1, engine.poolerStore.Len())
 
 	_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
@@ -232,8 +260,8 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg1", Shard: "0",
 	}))
 
-	// Second refresh - should discover new pooler in same shard
-	engine.refreshClusterMetadata()
+	// Second watch event - should discover new pooler in same shard
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "timed out waiting for 2 poolers")
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler4"))
@@ -245,8 +273,8 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg1", Shard: "2",
 	}))
 
-	// Third refresh - should NOT discover new shard
-	engine.refreshClusterMetadata()
+	// Third watch event - should NOT discover new shard
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler5"))
@@ -258,8 +286,8 @@ func TestDiscovery_ShardLevelWatch(t *testing.T) {
 		Database: "mydb", TableGroup: "tg3", Shard: "0",
 	}))
 
-	// Fourth refresh - should NOT discover new tablegroup
-	engine.refreshClusterMetadata()
+	// Fourth watch event - should NOT discover new tablegroup
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
 	require.Equal(t, 2, engine.poolerStore.Len())
 
 	_, ok = engine.poolerStore.Get(poolerKey("zone1", "pooler6"))
@@ -271,11 +299,7 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cfg := config.NewTestConfig(
-		config.WithCell("zone1"),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
-	)
-
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
 	engine := NewEngine(
 		ts,
 		slog.Default(),
@@ -284,6 +308,14 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 		&rpcclient.FakeClient{},
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
+	startEngine(t, engine)
+
+	poolerStoreDiscovered := func(val int) func() bool {
+		return func() bool {
+			_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
+			return ok
+		}
+	}
 
 	// Add initial pooler
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -292,15 +324,15 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 		Hostname: "host1",
 	}))
 
-	// First refresh - discover pooler
-	engine.refreshClusterMetadata()
-	require.Equal(t, 1, engine.poolerStore.Len())
+	// First watch event - discover pooler
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreDiscovered(1)), "expected pooler1 to be discovered")
 
 	poolerInfo, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
 	require.Equal(t, "host1", poolerInfo.MultiPooler.Hostname)
-	require.Nil(t, poolerInfo.LastSeen, "LastSeen should be nil (not yet health checked)")
-	require.False(t, poolerInfo.IsUpToDate, "IsUpToDate should be false")
+	require.Nil(t, poolerInfo.LastSeen, "LastSeen should be nil (not yet health checked successfully)")
+	// Note: IsUpToDate may already be true here - health workers run concurrently and set it
+	// to true even on a failed check (FakeClient returns an error but IsUpToDate is still set).
 
 	// Simulate health check by updating timestamps
 	now := timestamppb.Now()
@@ -319,9 +351,11 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	retrieved.MultiPooler.Hostname = "host2"
 	require.NoError(t, ts.UpdateMultiPooler(ctx, retrieved))
 
-	// Second refresh - should update MultiPooler but preserve timestamps
-	engine.refreshClusterMetadata()
-	require.Equal(t, 1, engine.poolerStore.Len())
+	// Watch event - should update MultiPooler but preserve timestamps
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool {
+		info, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
+		return ok && info.MultiPooler.Hostname == "host2"
+	}), "expected hostname to be updated to host2")
 
 	updatedInfo, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
@@ -342,11 +376,7 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cfg := config.NewTestConfig(
-		config.WithCell("zone1"),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
-	)
-
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
 	engine := NewEngine(
 		ts,
 		slog.Default(),
@@ -359,6 +389,11 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 		&rpcclient.FakeClient{},
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
+	startEngine(t, engine)
+
+	poolerStoreIs := func(val int) func() bool {
+		return func() bool { return engine.poolerStore.Len() == val }
+	}
 
 	// Add poolers for different watch targets
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
@@ -386,10 +421,12 @@ func TestDiscovery_MultipleWatchTargets(t *testing.T) {
 		Database: "db3", TableGroup: "tg1", Shard: "1", // Should NOT be discovered
 	}))
 
-	engine.refreshClusterMetadata()
+	// Wait for expected 4 poolers: pooler1, pooler2, pooler3, pooler5
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(4)), "expected 4 poolers in store after all poolers written")
 
-	// Should discover: pooler1, pooler2, pooler3, pooler5 (4 total)
-	require.Equal(t, 4, engine.poolerStore.Len())
+	// Sync to ensure all events (including filtered ones) have been processed
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
+	assert.Equal(t, 4, engine.poolerStore.Len(), "should discover exactly 4 poolers")
 
 	_, ok := engine.poolerStore.Get(poolerKey("zone1", "pooler1"))
 	require.True(t, ok)
@@ -410,11 +447,7 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	cfg := config.NewTestConfig(
-		config.WithCell("zone1"),
-		config.WithClusterMetadataRefreshTimeout(5*time.Second),
-	)
-
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
 	engine := NewEngine(
 		ts,
 		slog.Default(),
@@ -423,311 +456,75 @@ func TestDiscovery_EmptyTopology(t *testing.T) {
 		&rpcclient.FakeClient{},
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
+	startEngine(t, engine)
 
-	// Refresh with empty topology
-	engine.refreshClusterMetadata()
-	require.Equal(t, 0, engine.poolerStore.Len())
+	poolerStoreIs := func(val int) func() bool {
+		return func() bool { return engine.poolerStore.Len() == val }
+	}
 
-	// Add some poolers
+	// Sync to confirm watcher started and processed initial (empty) topology
+	require.NoError(t, engine.poolerWatcher.Sync(ctx))
+	assert.Equal(t, 0, engine.poolerStore.Len(), "store should be empty with empty topology")
+
+	// Add a pooler
 	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
 		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 		Database: "mydb", TableGroup: "tg1", Shard: "0",
 	}))
-	engine.refreshClusterMetadata()
-	require.Equal(t, 1, engine.poolerStore.Len())
+
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(1)), "expected 1 pooler after adding to topology")
 }
 
-// TestRefreshPoolersForTarget_BasicRefresh tests that refreshPoolersForTarget
-// correctly discovers and adds poolers to the store.
-func TestRefreshPoolersForTarget_BasicRefresh(t *testing.T) {
+// TestPoolerWatcher_DirectDiscovery tests PoolerWatcher in isolation, without going
+// through Engine. This verifies the watcher's own store-update and filtering logic
+// independently of the rest of the Engine.
+func TestPoolerWatcher_DirectDiscovery(t *testing.T) {
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
 
-	// Create in-memory topology
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	cfg := config.NewTestConfig(config.WithCell("zone1"))
+	poolerStore := store.NewPoolerStore(nil, slog.Default())
+	queue := NewQueue(slog.Default(), cfg)
+	watchTargets := []config.WatchTarget{{Database: "mydb", TableGroup: "tg1"}}
+	poolerWatcher := NewPoolerWatcher(ctx, ts, func() []config.WatchTarget { return watchTargets }, poolerStore, queue, slog.Default())
+	startWatcher(t, poolerWatcher)
 
-	// Add a multipooler to topology
-	mp := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler1",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+	poolerStoreAtLeast := func(val int) func() bool {
+		return func() bool { return poolerStore.Len() >= val }
 	}
-	err := ts.CreateMultiPooler(ctx, mp)
-	require.NoError(t, err)
 
-	engine := NewEngine(
-		ts,
-		logger,
-		cfg,
-		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
-		&rpcclient.FakeClient{},
-		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
-	)
-
-	// Refresh poolers for the target
-	count, err := engine.refreshPoolersForTarget(ctx, "db1", "tg1", "0", nil)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count, "should discover 1 pooler")
-
-	// Verify pooler was added to store
-	poolerID := poolerKey("cell1", "pooler1")
-	ph, ok := engine.poolerStore.Get(poolerID)
-	require.True(t, ok, "pooler should be in store")
-	assert.Equal(t, "db1", ph.MultiPooler.Database)
-	assert.Equal(t, "tg1", ph.MultiPooler.TableGroup)
-	assert.Equal(t, "0", ph.MultiPooler.Shard)
-	assert.False(t, ph.IsUpToDate, "new pooler should not be up-to-date yet")
-
-	// Verify pooler was queued for health check
-	assert.Equal(t, 1, engine.healthCheckQueue.QueueLen(), "pooler should be queued for health check")
-}
-
-// TestRefreshPoolersForTarget_PreservesHealthCheckData tests that refreshing
-// existing poolers preserves their health check data.
-func TestRefreshPoolersForTarget_PreservesHealthCheckData(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-
-	// Create in-memory topology
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-
-	// Add a multipooler to topology
-	mp := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler1",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
+	poolerStoreIs := func(val int) func() bool {
+		return func() bool { return poolerStore.Len() == val }
 	}
-	err := ts.CreateMultiPooler(ctx, mp)
-	require.NoError(t, err)
 
-	engine := NewEngine(
-		ts,
-		logger,
-		cfg,
-		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
-		&rpcclient.FakeClient{},
-		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
-	)
+	// Add a matching pooler and a non-matching pooler simultaneously
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
+		Database: "mydb", TableGroup: "tg1", Shard: "0",
+	}))
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
+		Database: "mydb", TableGroup: "tg2", Shard: "0", // filtered out
+	}))
 
-	// Pre-populate store with existing health check data
-	poolerID := poolerKey("cell1", "pooler1")
-	lastCheck := timestamppb.New(time.Now().Add(-5 * time.Minute))
-	lastSuccess := timestamppb.New(time.Now().Add(-6 * time.Minute))
-	lastSeen := timestamppb.New(time.Now().Add(-7 * time.Minute))
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreAtLeast(1)), "expected at least 1 pooler in store")
+	require.NoError(t, poolerWatcher.Sync(ctx))
+	assert.Equal(t, 1, poolerStore.Len(), "only tg1 pooler should be in the watcher's store")
 
-	existingHealth := &multiorchdatapb.PoolerHealthState{
-		MultiPooler:         mp,
-		LastCheckAttempted:  lastCheck,
-		LastCheckSuccessful: lastSuccess,
-		LastSeen:            lastSeen,
-		IsUpToDate:          true,
-		IsLastCheckValid:    true,
-	}
-	engine.poolerStore.Set(poolerID, existingHealth)
+	_, ok := poolerStore.Get(poolerKey("zone1", "pooler1"))
+	require.True(t, ok, "pooler1 in tg1 should be discovered")
+	_, ok = poolerStore.Get(poolerKey("zone1", "pooler2"))
+	require.False(t, ok, "pooler2 in tg2 should be filtered out by watcher")
 
-	// Refresh poolers (should update MultiPooler but preserve timestamps)
-	count, err := engine.refreshPoolersForTarget(ctx, "db1", "tg1", "0", nil)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
+	// Verify a new pooler discovered via watcher is queued for immediate health check
+	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+		Id:       &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler3"},
+		Database: "mydb", TableGroup: "tg1", Shard: "1",
+	}))
 
-	// Verify health check data was preserved (exact equality)
-	ph, ok := engine.poolerStore.Get(poolerID)
-	require.True(t, ok)
-	assert.True(t, lastCheck.AsTime().Equal(ph.LastCheckAttempted.AsTime()), "should preserve LastCheckAttempted")
-	assert.True(t, lastSuccess.AsTime().Equal(ph.LastCheckSuccessful.AsTime()), "should preserve LastCheckSuccessful")
-	assert.True(t, lastSeen.AsTime().Equal(ph.LastSeen.AsTime()), "should preserve LastSeen")
-	assert.True(t, ph.IsUpToDate, "should preserve IsUpToDate")
-	assert.True(t, ph.IsLastCheckValid, "should preserve IsLastCheckValid")
-
-	// Should not re-queue existing pooler
-	assert.Equal(t, 0, engine.healthCheckQueue.QueueLen(), "should not re-queue existing pooler")
-}
-
-// TestRefreshPoolersForTarget_IgnoresPoolers tests that poolers in the ignore
-// list are skipped during refresh.
-func TestRefreshPoolersForTarget_IgnoresPoolers(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-
-	// Create in-memory topology
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-
-	// Add two multipoolers to topology
-	mp1 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler1",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
-	}
-	err := ts.CreateMultiPooler(ctx, mp1)
-	require.NoError(t, err)
-
-	mp2 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler2",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_REPLICA,
-		Hostname:   "host2",
-	}
-	err = ts.CreateMultiPooler(ctx, mp2)
-	require.NoError(t, err)
-
-	engine := NewEngine(
-		ts,
-		logger,
-		cfg,
-		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
-		&rpcclient.FakeClient{},
-		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
-	)
-
-	// Refresh poolers, ignoring pooler1
-	poolersToIgnore := []string{poolerKey("cell1", "pooler1")}
-	count, err := engine.refreshPoolersForTarget(ctx, "db1", "tg1", "0", poolersToIgnore)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count, "should discover only 1 pooler (pooler2)")
-
-	// Verify only pooler2 was added
-	_, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler1"))
-	assert.False(t, ok, "pooler1 should be ignored")
-
-	ph2, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler2"))
-	require.True(t, ok, "pooler2 should be in store")
-	assert.Equal(t, "pooler2", ph2.MultiPooler.Id.Name)
-}
-
-// TestRefreshPoolersForTarget_FiltersToShard tests that refreshPoolersForTarget
-// only returns poolers matching the specified shard.
-func TestRefreshPoolersForTarget_FiltersToShard(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-
-	// Create in-memory topology
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-
-	// Add poolers in different shards
-	mp1 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler-shard0",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
-	}
-	err := ts.CreateMultiPooler(ctx, mp1)
-	require.NoError(t, err)
-
-	mp2 := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler-shard1",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "1",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host2",
-	}
-	err = ts.CreateMultiPooler(ctx, mp2)
-	require.NoError(t, err)
-
-	engine := NewEngine(
-		ts,
-		logger,
-		cfg,
-		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
-		&rpcclient.FakeClient{},
-		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
-	)
-
-	// Refresh only shard 0
-	count, err := engine.refreshPoolersForTarget(ctx, "db1", "tg1", "0", nil)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count, "should discover only poolers in shard 0")
-
-	// Verify only shard 0 pooler was added
-	_, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler-shard0"))
-	assert.True(t, ok, "shard 0 pooler should be in store")
-
-	_, ok = engine.poolerStore.Get(poolerKey("cell1", "pooler-shard1"))
-	assert.False(t, ok, "shard 1 pooler should not be in store")
-}
-
-// TestRefreshShardMetadata_Success tests the wrapper function for shard refresh.
-func TestRefreshShardMetadata_Success(t *testing.T) {
-	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
-
-	// Create in-memory topology
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-
-	// Add a multipooler to topology
-	mp := &clustermetadata.MultiPooler{
-		Id: &clustermetadata.ID{
-			Component: clustermetadata.ID_MULTIPOOLER,
-			Cell:      "cell1",
-			Name:      "pooler1",
-		},
-		Database:   "db1",
-		TableGroup: "tg1",
-		Shard:      "0",
-		Type:       clustermetadata.PoolerType_PRIMARY,
-		Hostname:   "host1",
-	}
-	err := ts.CreateMultiPooler(ctx, mp)
-	require.NoError(t, err)
-
-	engine := NewEngine(
-		ts,
-		logger,
-		cfg,
-		[]config.WatchTarget{{Database: "db1", TableGroup: "tg1", Shard: "0"}},
-		&rpcclient.FakeClient{},
-		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
-	)
-
-	// Refresh shard metadata
-	err = engine.refreshShardMetadata(ctx, commontypes.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}, nil)
-	require.NoError(t, err)
-
-	// Verify pooler was added
-	_, ok := engine.poolerStore.Get(poolerKey("cell1", "pooler1"))
-	assert.True(t, ok, "pooler should be in store after shard refresh")
+	require.True(t, waitForCondition(t, 5*time.Second, poolerStoreIs(2)), "expected pooler3 to be discovered")
+	require.True(t, waitForCondition(t, 5*time.Second, func() bool { return queue.QueueLen() > 0 }), "new pooler should be queued for health check")
 }
 
 // TestForceHealthCheckShardPoolers_ForcesPolls tests that forceHealthCheckShardPoolers

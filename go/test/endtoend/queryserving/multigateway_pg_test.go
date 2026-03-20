@@ -46,8 +46,7 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect to the multigateway
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=5",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "failed to open database connection")
 	defer db.Close()
@@ -198,8 +197,7 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	setup.SetupTest(t)
 
 	// Connect using pgx (which uses Extended Query Protocol by default)
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable")
 
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
@@ -541,5 +539,94 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 		err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
 		require.NoError(t, err, "connection should still work after error")
 		assert.Equal(t, 1, result)
+	})
+}
+
+// TestMultiGateway_DatabaseSQLTransactions tests explicit transactions using Go's
+// standard database/sql package (db.BeginTx). This reproduces the bug
+// where Go's database/sql driver sends BEGIN/COMMIT via the extended query protocol
+// (Parse/Bind/Execute messages), unlike the simple query protocol used by our
+// custom client.Conn in transaction_test.go.
+func TestMultiGateway_DatabaseSQLTransactions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping DatabaseSQLTransactions test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping cluster lifecycle tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	db, err := sql.Open("postgres", connStr)
+	require.NoError(t, err, "failed to open database connection")
+	defer db.Close()
+
+	// Force a single connection so all operations use the same backend connection.
+	db.SetMaxOpenConns(1)
+
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	err = db.PingContext(ctx)
+	require.NoError(t, err, "failed to ping database")
+
+	t.Run("BeginTx commit", func(t *testing.T) {
+		tableName := fmt.Sprintf("dbtx_commit_%d", time.Now().UnixNano())
+
+		_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)", tableName))
+		require.NoError(t, err, "failed to create table")
+		defer func() {
+			_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName)
+		}()
+
+		// database/sql sends BEGIN via extended query protocol (Parse/Bind/Execute).
+		tx, err := db.BeginTx(ctx, nil)
+		require.NoError(t, err, "BeginTx failed")
+
+		_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 1, "Alice")
+		require.NoError(t, err, "INSERT in transaction failed")
+
+		_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 2, "Bob")
+		require.NoError(t, err, "second INSERT in transaction failed")
+
+		err = tx.Commit()
+		require.NoError(t, err, "Commit failed")
+
+		// Verify data was committed
+		var count int
+		err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+		require.NoError(t, err, "failed to verify committed data")
+		assert.Equal(t, 2, count, "expected 2 rows after commit")
+	})
+
+	t.Run("BeginTx rollback", func(t *testing.T) {
+		tableName := fmt.Sprintf("dbtx_rollback_%d", time.Now().UnixNano())
+
+		_, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, name TEXT)", tableName))
+		require.NoError(t, err, "failed to create table")
+		defer func() {
+			_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName)
+		}()
+
+		// Insert initial data outside transaction
+		_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 1, "Alice")
+		require.NoError(t, err, "failed to insert initial data")
+
+		// Start transaction, insert, then rollback
+		tx, err := db.BeginTx(ctx, nil)
+		require.NoError(t, err, "BeginTx failed")
+
+		_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (id, name) VALUES ($1, $2)", tableName), 2, "Bob")
+		require.NoError(t, err, "INSERT in transaction failed")
+
+		err = tx.Rollback()
+		require.NoError(t, err, "Rollback failed")
+
+		// Verify only initial data exists (Bob was rolled back)
+		var count int
+		err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+		require.NoError(t, err, "failed to verify data after rollback")
+		assert.Equal(t, 1, count, "expected only 1 row after rollback (Alice)")
 	})
 }

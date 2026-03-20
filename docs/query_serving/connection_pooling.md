@@ -303,7 +303,7 @@ Example with globalRegularCapacity=400:
 
 **Bounds:**
 
-- **Minimum**: Configurable via `--connpool-min-capacity` (default: 5 connections per user)
+- **Minimum**: Configurable via `--connpool-min-capacity-per-user` (default: 10 connections per user)
 - **Maximum**: Full global capacity (single user can use everything)
 
 The minimum ensures that light users or new arrivals always have enough connections
@@ -510,7 +510,7 @@ Session variables set via `SET` commands affect connection routing:
 
 ## ConnectionPoolManager
 
-The `Manager` in `go/multipooler/connpoolmanager/` orchestrates all pool types,
+The `Manager` in `go/services/multipooler/connpoolmanager/` orchestrates all pool types,
 providing:
 
 1. **Per-User Pool Management** - Lazy creation of user pools on first request
@@ -525,7 +525,7 @@ providing:
 ### Usage
 
 ```go
-import "github.com/multigres/multigres/go/multipooler/connpoolmanager"
+import "github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 
 // Create config with viper registry
 cfg := connpoolmanager.NewConfig(reg)
@@ -585,14 +585,14 @@ The connection pool manager is configured via command-line flags (backed by vipe
 
 These flags control how pool capacities are distributed across users:
 
-| Flag                            | Default | Description                                    |
-| ------------------------------- | ------- | ---------------------------------------------- |
-| `--connpool-global-capacity`    | 100     | Total PostgreSQL connections to manage         |
-| `--connpool-reserved-ratio`     | 0.2     | Fraction of global capacity for reserved pools |
-| `--connpool-rebalance-interval` | 10s     | How often to run rebalancing                   |
-| `--connpool-demand-window`      | 30s     | Sliding window for peak demand tracking        |
-| `--connpool-inactive-timeout`   | 5m      | Remove user pools after this inactivity        |
-| `--connpool-min-capacity`       | 5       | Minimum connections per user (floor guarantee) |
+| Flag                               | Default | Description                                    |
+| ---------------------------------- | ------- | ---------------------------------------------- |
+| `--connpool-global-capacity`       | 100     | Total PostgreSQL connections to manage         |
+| `--connpool-reserved-ratio`        | 0.2     | Fraction of global capacity for reserved pools |
+| `--connpool-rebalance-interval`    | 10s     | How often to run rebalancing                   |
+| `--connpool-demand-window`         | 30s     | Sliding window for peak demand tracking        |
+| `--connpool-inactive-timeout`      | 5m      | Remove user pools after this inactivity        |
+| `--connpool-min-capacity-per-user` | 10      | Minimum connections per user (floor guarantee) |
 
 Derived values:
 
@@ -603,11 +603,18 @@ globalReservedCapacity = globalCapacity * reservedRatio
 
 ### Admin Pool Flags
 
-| Flag                        | Default    | Env Var                   | Description                            |
-| --------------------------- | ---------- | ------------------------- | -------------------------------------- |
-| `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`     | Admin pool user (PostgreSQL superuser) |
-| `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD` | Admin pool password                    |
-| `--connpool-admin-capacity` | 5          | -                         | Maximum admin connections              |
+| Flag                        | Default    | Env Var                                        | Description                                            |
+| --------------------------- | ---------- | ---------------------------------------------- | ------------------------------------------------------ |
+| `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`, `POSTGRES_USER`         | PostgreSQL superuser for admin and internal operations |
+| `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password                          |
+| `--connpool-admin-capacity` | 5          | -                                              | Maximum admin connections                              |
+
+`CONNPOOL_ADMIN_USER` takes precedence over `POSTGRES_USER`, and `CONNPOOL_ADMIN_PASSWORD`
+takes precedence over `POSTGRES_PASSWORD` when both are set.
+
+> **Deprecated:** `--connpool-admin-user`, `--connpool-admin-password`, `CONNPOOL_ADMIN_USER`,
+> and `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
+> Use `POSTGRES_USER` and `POSTGRES_PASSWORD` instead.
 
 ### Per-User Pool Flags (Timeouts Only)
 
@@ -627,8 +634,8 @@ demand. These flags control timeout behavior only:
 
 | Flag                             | Default | Description                                             |
 | -------------------------------- | ------- | ------------------------------------------------------- |
-| `--connpool-max-users`           | 0       | Maximum number of user pools (0 = unlimited)            |
 | `--connpool-settings-cache-size` | 1024    | Maximum number of unique settings combinations to cache |
+| `--connpool-dial-timeout`        | 5s      | Timeout for establishing new PostgreSQL connections     |
 
 **Note:** Connection settings (socket file, port, database) use the existing multipooler flags
 (`--socket-file`, `--pg-port`, `--database`) and are passed to the connection pool manager
@@ -643,7 +650,7 @@ multipooler \
   --connpool-rebalance-interval=10s \
   --connpool-demand-window=30s \
   --connpool-inactive-timeout=5m \
-  --connpool-min-capacity=5
+  --connpool-min-capacity-per-user=10
 ```
 
 With this configuration:

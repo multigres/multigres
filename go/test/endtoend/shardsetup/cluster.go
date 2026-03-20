@@ -27,12 +27,19 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
+)
+
+const (
+	// DefaultTestUser is the PostgreSQL user that tests use when connecting to
+	// multigateway or multipooler as a regular client.
+	DefaultTestUser = "postgres"
 )
 
 // MultipoolerInstance represents a multipooler instance, which is a pair of pgctld + multipooler processes.
@@ -74,6 +81,10 @@ type ShardSetup struct {
 
 	// PgBackRestCertPaths stores the paths to pgBackRest TLS certificates
 	PgBackRestCertPaths *local.PgBackRestCertPaths
+
+	// MultigatewayTLSCertPaths stores the paths to multigateway TLS certificates.
+	// Set when WithMultigatewayTLS() is used.
+	MultigatewayTLSCertPaths *MultigatewayTLSCertPaths
 
 	// BackupLocation stores backup configuration from topology
 	BackupLocation *clustermetadatapb.BackupLocation
@@ -204,14 +215,17 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 	// Allocate a port for pgBackRest server (one per multipooler)
 	pgbackrestPort := utils.GetFreePort(t)
 
+	// Allocate an HTTP port for pgctld health endpoints
+	pgctldHttpPort := utils.GetFreePort(t)
+
 	// Create pgctld instance
 	pgbackrestCertDir := filepath.Join(s.TempDir, "certs")
-	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
+	pgctld := CreatePgctldInstance(t, name, s.TempDir, grpcPort, pgPort, pgctldHttpPort, pgbackrestPort, pgbackrestCertDir, s.BackupLocation)
 
 	// Create multipooler instance with pgBackRest cert paths and port
 	// The name (e.g., "primary") is used as the service-id, combined with cell in the topology
 	multipooler := CreateMultipoolerProcessInstance(t, name, s.TempDir, multipoolerPort,
-		"localhost:"+strconv.Itoa(grpcPort), pgctld.DataDir, pgPort, s.EtcdClientAddr, s.CellName,
+		"localhost:"+strconv.Itoa(grpcPort), pgctld.PoolerDir, pgPort, s.EtcdClientAddr, s.CellName,
 		s.PgBackRestCertPaths, pgbackrestPort)
 
 	inst := &MultipoolerInstance{
@@ -226,7 +240,7 @@ func (s *ShardSetup) CreateMultipoolerInstance(t *testing.T, name string, grpcPo
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, httpPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -238,15 +252,16 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 
 	return &ProcessInstance{
 		Name:              name,
-		DataDir:           dataDir,
+		PoolerDir:         dataDir,
 		LogFile:           logFile,
 		GrpcPort:          grpcPort,
+		HttpPort:          httpPort,
 		PgPort:            pgPort,
 		Binary:            "pgctld",
 		PgBackRestPort:    pgbackrestPort,
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
-		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "PGPASSWORD="+TestPostgresPassword),
+		Environment:       append(os.Environ(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
 	}
 }
 
@@ -267,10 +282,10 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 		GrpcPort:    grpcPort,
 		PgPort:      pgPort,
 		PgctldAddr:  pgctldAddr,
-		DataDir:     pgctldDataDir,
+		PoolerDir:   pgctldDataDir,
 		EtcdAddr:    etcdAddr,
 		Binary:      "multipooler",
-		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5"),
+		Environment: append(os.Environ(), "PGCONNECT_TIMEOUT=5", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(pgctldDataDir, "pg_data")),
 	}
 
 	// Store pgBackRest cert paths struct and port for later use when starting multipooler
@@ -302,7 +317,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTar
 
 	instance := &ProcessInstance{
 		Name:                                name,
-		DataDir:                             orchDataDir,
+		PoolerDir:                           orchDataDir,
 		LogFile:                             logFile,
 		GrpcPort:                            grpcPort,
 		HttpPort:                            httpPort,
@@ -349,6 +364,12 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 		Environment: os.Environ(),
 	}
 
+	// Add TLS cert paths if multigateway TLS is enabled
+	if s.MultigatewayTLSCertPaths != nil {
+		inst.TLSCertFile = s.MultigatewayTLSCertPaths.ServerCertFile
+		inst.TLSKeyFile = s.MultigatewayTLSCertPaths.ServerKeyFile
+	}
+
 	s.Multigateway = inst
 	s.MultigatewayPgPort = pgPort
 
@@ -366,8 +387,7 @@ func (s *ShardSetup) CreateMultigatewayInstance(t *testing.T, name string, pgPor
 func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 	t.Helper()
 
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable connect_timeout=2",
-		s.MultigatewayPgPort, TestPostgresPassword)
+	connStr := GetTestUserDSN("localhost", s.MultigatewayPgPort, "sslmode=disable", "connect_timeout=2")
 
 	ctx := utils.WithTimeout(t, 60*time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -385,13 +405,16 @@ func (s *ShardSetup) WaitForMultigatewayQueryServing(t *testing.T) {
 				continue
 			}
 
-			var result int
+			// Verify both read and write paths work. SELECT 1 may succeed
+			// via a REPLICA before multigateway learns about the PRIMARY.
+			// CREATE TABLE forces routing to PRIMARY, confirming that
+			// multigateway has discovered the primary pooler.
 			queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			err = db.QueryRowContext(queryCtx, "SELECT 1").Scan(&result)
+			_, err = db.ExecContext(queryCtx, "CREATE TABLE IF NOT EXISTS _mgw_ready_check (x int); DROP TABLE IF EXISTS _mgw_ready_check")
 			cancel()
 			db.Close()
 
-			if err == nil && result == 1 {
+			if err == nil {
 				elapsed := time.Since(startTime)
 				t.Logf("Multigateway can execute queries (ready after %v)", elapsed)
 				return

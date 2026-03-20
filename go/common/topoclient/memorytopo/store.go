@@ -316,6 +316,22 @@ func (f *Factory) CloseWatches(cell, path string) {
 	cancelWatches(n)
 }
 
+// AddCell dynamically registers a new cell in the in-memory topology.
+// This enables tests to simulate cells appearing after server startup,
+// e.g. when multiorch registers cells after multigateway has already started.
+func (f *Factory) AddCell(ctx context.Context, ts topoclient.Store, cell string) error {
+	f.mu.Lock()
+	f.cells[cell] = f.newDirectory(cell, nil)
+	f.mu.Unlock()
+
+	cellInfo := &clustermetadatapb.Cell{
+		Name:            cell,
+		ServerAddresses: []string{fmt.Sprintf("localhost:%d", 2379+len(f.cells))},
+		Root:            "/multigres/" + cell,
+	}
+	return ts.CreateCell(ctx, cell, cellInfo)
+}
+
 // NewServerAndFactory returns a new MemoryTopo and the backing factory for all
 // the cells. It will create one cell for each parameter passed in.  It will log.Exit out
 // in case of a problem.

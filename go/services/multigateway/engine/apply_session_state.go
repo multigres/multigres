@@ -17,77 +17,161 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// ApplySessionState updates local session state after a SET/RESET command
-// executes successfully on PostgreSQL.
+// ApplySessionState handles SET/RESET commands by updating local session state only.
 //
-// This primitive does NOT execute queries - it only updates the local state
-// tracking. It should be composed after a Route primitive in a Sequence.
+// Neither SET nor RESET is routed to PostgreSQL. Both are applied locally and
+// return a synthetic CommandComplete response. The pool propagates these settings
+// to the backend connection on the next query via ApplySettings.
+//
+// Behaviour deviation from PostgreSQL:
+// SET commands are NOT validated against PostgreSQL. This means a client can SET
+// an invalid variable name or value without receiving an immediate error. The error
+// will surface on the next query when the pool tries to apply the setting to a
+// backend connection. The client must RESET the bad variable to recover. This
+// trade-off was chosen intentionally to keep the SET/RESET path simple. It may
+// be revisited in the future if stricter validation is needed.
+//
+// For RESET/RESET ALL:
+// The variable is removed from SessionSettings. On the next query, the merged
+// settings (SessionSettings overlaid on StartupParams) will fall back to the
+// startup parameter value, and the pool will apply the correct SET commands.
 type ApplySessionState struct {
-	VariableStmt *ast.VariableSetStmt // The SET/RESET statement from AST
-	Value        string               // Extracted value (for SET commands)
+	// VariableStmt is the SET/RESET statement from the AST.
+	VariableStmt *ast.VariableSetStmt
+
+	// Query is the original SQL string.
+	Query string
 }
 
 // NewApplySessionState creates a new ApplySessionState primitive.
-func NewApplySessionState(stmt *ast.VariableSetStmt, value string) *ApplySessionState {
+func NewApplySessionState(sql string, stmt *ast.VariableSetStmt) *ApplySessionState {
 	return &ApplySessionState{
 		VariableStmt: stmt,
-		Value:        value,
+		Query:        sql,
 	}
 }
 
-// StreamExecute updates the local session state based on the command type.
-func (a *ApplySessionState) StreamExecute(
+// StreamExecute handles the SET/RESET command.
+func (s *ApplySessionState) StreamExecute(
 	ctx context.Context,
-	exec IExecute,
-	conn *server.Conn,
+	_ IExecute,
+	_ *server.Conn,
 	state *handler.MultiGatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// Update local session state based on the command type
-	// Uses AST enums directly - no wrapper types needed
-	switch a.VariableStmt.Kind {
+	switch s.VariableStmt.Kind {
 	case ast.VAR_SET_VALUE:
-		// SET variable = value
-		state.SetSessionVariable(a.VariableStmt.Name, a.Value)
+		return s.executeSet(ctx, state, callback)
+	case ast.VAR_RESET, ast.VAR_RESET_ALL:
+		return s.executeReset(ctx, state, callback)
+	default:
+		return mterrors.NewFeatureNotSupported(fmt.Sprintf("SET/RESET kind %d is not supported", s.VariableStmt.Kind))
+	}
+}
 
+// executeSet handles SET commands: update local state and return synthetic response.
+// The value is NOT validated against PostgreSQL — see ApplySessionState doc comment.
+func (s *ApplySessionState) executeSet(
+	ctx context.Context,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	value := extractVariableValue(s.VariableStmt.Args)
+	state.SetSessionVariable(s.VariableStmt.Name, value)
+	return callback(ctx, &sqltypes.Result{
+		CommandTag: "SET",
+	})
+}
+
+// executeReset handles RESET/RESET ALL: update state, return synthetic response.
+func (s *ApplySessionState) executeReset(
+	ctx context.Context,
+	state *handler.MultiGatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	switch s.VariableStmt.Kind {
 	case ast.VAR_RESET:
 		// RESET variable
-		state.ResetSessionVariable(a.VariableStmt.Name)
+		state.ResetSessionVariable(s.VariableStmt.Name)
 
 	case ast.VAR_RESET_ALL:
-		// RESET ALL
 		state.ResetAllSessionVariables()
-
-		// VAR_SET_DEFAULT, VAR_SET_CURRENT, VAR_SET_MULTI are not tracked locally
-		// They are passed through to PostgreSQL only
+		// Also reset gateway-managed variables that live outside SessionSettings.
+		state.ResetStatementTimeout()
+	default:
+		return mterrors.NewFeatureNotSupported(fmt.Sprintf("RESET kind %d is not supported", s.VariableStmt.Kind))
 	}
 
-	// This primitive doesn't produce results - the previous Route primitive
-	// already streamed results to the callback. Just return success.
-	return nil
+	// Return synthetic CommandComplete
+	return callback(ctx, &sqltypes.Result{
+		CommandTag: "RESET",
+	})
 }
 
-// GetTableGroup returns empty string as this primitive doesn't target a tablegroup.
-func (a *ApplySessionState) GetTableGroup() string {
-	return "" // Doesn't target a tablegroup
+// GetTableGroup returns empty string — SET/RESET are local-only and don't target a tablegroup.
+func (s *ApplySessionState) GetTableGroup() string {
+	return ""
 }
 
-// GetQuery returns empty string as this primitive doesn't execute a query.
-func (a *ApplySessionState) GetQuery() string {
-	return "" // Doesn't execute a query
+// GetQuery returns the original SQL string.
+func (s *ApplySessionState) GetQuery() string {
+	return s.Query
 }
 
 // String returns a string representation for debugging.
-// Reuses AST's existing SqlString() method instead of reimplementing.
-func (a *ApplySessionState) String() string {
-	return fmt.Sprintf("ApplySessionState(%s)", a.VariableStmt.SqlString())
+func (s *ApplySessionState) String() string {
+	return fmt.Sprintf("ApplySessionState(%s)", s.VariableStmt.SqlString())
+}
+
+// extractVariableValue converts AST NodeList arguments to a string value.
+func extractVariableValue(args *ast.NodeList) string {
+	if args == nil || args.Len() == 0 {
+		return ""
+	}
+
+	var values []string
+	for _, arg := range args.Items {
+		switch v := arg.(type) {
+		case *ast.A_Const:
+			values = append(values, extractConstValue(v))
+		case *ast.String:
+			values = append(values, v.SVal)
+		case *ast.Integer:
+			values = append(values, strconv.Itoa(v.IVal))
+		default:
+			values = append(values, arg.SqlString())
+		}
+	}
+
+	return strings.Join(values, ", ")
+}
+
+// extractConstValue extracts string value from A_Const node.
+func extractConstValue(aConst *ast.A_Const) string {
+	if aConst == nil || aConst.Val == nil {
+		return ""
+	}
+
+	switch val := aConst.Val.(type) {
+	case *ast.String:
+		return val.SVal
+	case *ast.Integer:
+		return strconv.Itoa(val.IVal)
+	case *ast.Float:
+		return val.FVal
+	default:
+		return aConst.SqlString()
+	}
 }
 
 // Ensure ApplySessionState implements Primitive interface.

@@ -1001,9 +1001,12 @@ type PgRewindRequest struct {
 	// Perform a dry run without making changes (--dry-run)
 	DryRun bool `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	// Additional pg_rewind command line arguments
-	ExtraArgs     []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ExtraArgs []string `protobuf:"bytes,4,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	// Application name for replication connection (used with -R flag)
+	// This identifies the standby in pg_stat_replication and synchronous_standby_names
+	ApplicationName string `protobuf:"bytes,5,opt,name=application_name,json=applicationName,proto3" json:"application_name,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PgRewindRequest) Reset() {
@@ -1062,6 +1065,13 @@ func (x *PgRewindRequest) GetExtraArgs() []string {
 		return x.ExtraArgs
 	}
 	return nil
+}
+
+func (x *PgRewindRequest) GetApplicationName() string {
+	if x != nil {
+		return x.ApplicationName
+	}
+	return ""
 }
 
 type PgRewindResponse struct {
@@ -1181,7 +1191,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
 	"extra_args\x18\x03 \x03(\tR\textraArgs\"/\n" +
 	"\x13InitDataDirResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\x8b\x01\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xb6\x01\n" +
 	"\x0fPgRewindRequest\x12\x1f\n" +
 	"\vsource_host\x18\x01 \x01(\tR\n" +
 	"sourceHost\x12\x1f\n" +
@@ -1189,7 +1199,8 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"sourcePort\x12\x17\n" +
 	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x04 \x03(\tR\textraArgs\"D\n" +
+	"extra_args\x18\x04 \x03(\tR\textraArgs\x12)\n" +
+	"\x10application_name\x18\x05 \x01(\tR\x0fapplicationName\"D\n" +
 	"\x10PgRewindResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output*f\n" +

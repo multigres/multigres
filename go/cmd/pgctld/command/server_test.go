@@ -30,10 +30,19 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
-	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
+
+// testServiceConfig is the standard PgCtldServiceConfig used across service tests.
+var testServiceConfig = PgCtldServiceConfig{
+	Port:     5432,
+	User:     constants.DefaultPostgresUser,
+	Database: constants.DefaultPostgresDatabase,
+	Password: shardsetup.TestPostgresPassword,
+}
 
 func TestIntToInt32(t *testing.T) {
 	tests := []struct {
@@ -137,7 +146,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 			require.NoError(t, err)
 
 			resp, err := service.Start(context.Background(), tt.request)
@@ -161,7 +170,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 
 func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
 	t.Run("missing pooler-dir", func(t *testing.T) {
-		_, err := NewPgCtldService(testLogger(), 0, "", "", 0, "", "", 0, "", nil)
+		_, err := NewPgCtldService(testLogger(), PgCtldServiceConfig{}, 0, "", "", 0, "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
 	})
@@ -226,7 +235,7 @@ func TestPgCtldServiceStop(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 			require.NoError(t, err)
 
 			resp, err := service.Stop(context.Background(), tt.request)
@@ -291,7 +300,7 @@ func TestPgCtldServiceStatus(t *testing.T) {
 
 			_ = tt.setupDataDir(baseDir)
 
-			service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 			require.NoError(t, err)
 
 			resp, err := service.Status(context.Background(), tt.request)
@@ -320,7 +329,7 @@ func TestPgCtldServiceRestart(t *testing.T) {
 
 		poolerDir := baseDir
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
 		request := &pb.RestartRequest{
@@ -352,7 +361,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 		testutil.CreatePIDFile(t, dataDir, 12345)
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -373,7 +382,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
 
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -396,7 +405,8 @@ func TestPgCtldServiceVersion(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
 		request := &pb.VersionRequest{
@@ -424,7 +434,8 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{
@@ -446,7 +457,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		_ = testutil.CreateDataDir(t, baseDir, true)
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), 5432, "postgres", "postgres", 30, poolerDir, "localhost", 0, "", nil)
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{}
@@ -492,8 +503,10 @@ func TestGetPoolerDir(t *testing.T) {
 
 func TestPgCtldService_PgBackRestFields(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, t.TempDir(), "localhost", 0, "", nil)
+	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
 
 	// Verify service has pgBackRest management fields
@@ -503,7 +516,9 @@ func TestPgCtldService_PgBackRestFields(t *testing.T) {
 
 func TestPgCtldService_StatusMethods(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, t.TempDir(), "localhost", 0, "", nil)
+	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
+	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
 	defer service.Close()
 
@@ -530,28 +545,30 @@ func TestPgCtldService_StatusMethods(t *testing.T) {
 func TestPgCtldService_StartPgBackRest_ValidationErrors(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "", nil)
+	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
 	defer service.Close()
 
 	// Should fail when config doesn't exist
 	_, err = service.startPgBackRest(context.Background())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest.conf not found")
+	assert.Contains(t, err.Error(), "pgbackrest-server.conf not found")
 }
 
 func TestPgCtldService_ManagePgBackRest_Lifecycle(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "", nil)
+	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
 
 	// Create minimal config to prevent immediate failure
 	pgbackrestDir := filepath.Join(tmpDir, "pgbackrest")
 	require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
-	configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
+	configPath := filepath.Join(pgbackrestDir, "pgbackrest-server.conf")
 	require.NoError(t, os.WriteFile(configPath, []byte("[global]\n"), 0o644))
 
 	// Start management goroutine
@@ -575,8 +592,9 @@ func TestPgCtldService_ManagePgBackRest_Lifecycle(t *testing.T) {
 func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	tmpDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
 
-	service, err := NewPgCtldService(logger, 5432, "postgres", "postgres", 60, tmpDir, "localhost", 0, "", nil)
+	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
 	require.NoError(t, err)
 	defer service.Close()
 
@@ -594,91 +612,6 @@ func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
 	require.NotNil(t, resp.PgbackrestStatus)
 	assert.True(t, resp.PgbackrestStatus.Running)
 	assert.Equal(t, int32(5), resp.PgbackrestStatus.RestartCount)
-}
-
-func TestServerCommand_BackupConfigValidation(t *testing.T) {
-	tests := []struct {
-		name        string
-		backupType  string
-		backupPath  string
-		wantErr     bool
-		errContains string
-	}{
-		{
-			name:        "backup-type not set",
-			backupType:  "",
-			backupPath:  "/backup",
-			wantErr:     true,
-			errContains: "--backup-type is required",
-		},
-		{
-			name:        "backup-path not set",
-			backupType:  "s3",
-			backupPath:  "",
-			wantErr:     true,
-			errContains: "--backup-path is required",
-		},
-		{
-			name:       "both backup-type and backup-path set",
-			backupType: "filesystem",
-			backupPath: "/backup",
-			wantErr:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create a temporary directory for pooler-dir (required flag)
-			tmpDir := t.TempDir()
-
-			// Get root command and PgCtlCommand
-			rootCmd, pc := GetRootCommand()
-
-			// Set required pooler-dir
-			pc.poolerDir.Set(tmpDir)
-
-			// Create server command by adding it to root
-			AddServerCommand(rootCmd, pc)
-
-			// Find the server subcommand
-			serverCmd, _, err := rootCmd.Find([]string{"server"})
-			require.NoError(t, err)
-
-			// Get the PgCtldServerCmd from the command
-			// We need to create a new one with our test values
-			serverCmdImpl := &PgCtldServerCmd{
-				pgCtlCmd:   pc,
-				grpcServer: servenv.NewGrpcServer(pc.reg),
-				senv:       servenv.NewServEnvWithConfig(pc.reg, pc.lg, pc.vc, pc.telemetry),
-				backupType: viperutil.Configure(pc.reg, "backup.type.test", viperutil.Options[string]{
-					Default: "",
-				}),
-				backupPath: viperutil.Configure(pc.reg, "backup.path.test", viperutil.Options[string]{
-					Default: "",
-				}),
-				pgbackrestPort: viperutil.Configure(pc.reg, "pgbackrest-port.test", viperutil.Options[int]{
-					Default: 0,
-				}),
-				pgbackrestCertDir: viperutil.Configure(pc.reg, "pgbackrest-cert-dir.test", viperutil.Options[string]{
-					Default: "",
-				}),
-			}
-
-			// Set backup config values
-			serverCmdImpl.backupType.Set(tt.backupType)
-			serverCmdImpl.backupPath.Set(tt.backupPath)
-
-			// Run validation
-			err = serverCmdImpl.validateServerFlags(serverCmd, []string{})
-
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errContains)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
 }
 
 // testLogger returns a no-op logger for testing

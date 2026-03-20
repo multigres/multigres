@@ -791,5 +791,6 @@ func (f *FakeClient) Close() {
 }
 
 func (f *FakeClient) CloseTablet(pooler *clustermetadatapb.MultiPooler) {
-	// No-op for fake client
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("CloseTablet", poolerID)
 }

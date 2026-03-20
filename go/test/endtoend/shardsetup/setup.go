@@ -22,7 +22,9 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -52,6 +54,7 @@ type SetupConfig struct {
 	MultipoolerCount                    int
 	MultiOrchCount                      int
 	EnableMultigateway                  bool // Enable multigateway (opt-in, default: false)
+	EnableMultigatewayTLS               bool // Enable TLS for multigateway PostgreSQL listener
 	Database                            string
 	TableGroup                          string
 	Shard                               string
@@ -99,7 +102,7 @@ func WithCellName(cell string) SetupOption {
 }
 
 // WithDurabilityPolicy sets the durability policy for the database.
-// Default is "ANY_2".
+// Default is "AT_LEAST_2".
 func WithDurabilityPolicy(policy string) SetupOption {
 	return func(c *SetupConfig) {
 		c.DurabilityPolicy = policy
@@ -120,6 +123,15 @@ func WithoutInitialization() SetupOption {
 func WithMultigateway() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
+	}
+}
+
+// WithMultigatewayTLS enables TLS for the multigateway PostgreSQL listener.
+// Implies WithMultigateway(). TLS certificates are auto-generated during setup.
+func WithMultigatewayTLS() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.EnableMultigatewayTLS = true
 	}
 }
 
@@ -248,7 +260,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		TableGroup:       constants.DefaultTableGroup,
 		Shard:            constants.DefaultShard,
 		CellName:         "test-cell",
-		DurabilityPolicy: "ANY_2",
+		DurabilityPolicy: "AT_LEAST_2",
 	}
 
 	// Apply options
@@ -264,6 +276,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		attribute.String("shard", config.Shard),
 		attribute.String("cell", config.CellName),
 		attribute.Bool("enable.multigateway", config.EnableMultigateway),
+		attribute.Bool("enable.multigateway.tls", config.EnableMultigatewayTLS),
 		attribute.Bool("skip.initialization", config.SkipInitialization),
 	)
 
@@ -398,6 +411,11 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Start multigateway (if enabled) - MUST be after bootstrap so poolers are in topology
 	if config.EnableMultigateway {
+		// Generate TLS certificates for multigateway if TLS is enabled
+		if config.EnableMultigatewayTLS {
+			setup.generateMultigatewayTLSCerts(t)
+		}
+
 		// Allocate ports for multigateway
 		pgPort := utils.GetFreePort(t)
 		httpPort := utils.GetFreePort(t)
@@ -607,74 +625,83 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 			continue
 		}
 
-		// Check if node is initialized (can query postgres)
-		_, err = QueryStringValue(ctx, client.Pooler, "SELECT 1")
-		if err != nil {
-			client.Close()
-			poolerStatuses = append(poolerStatuses, name+": not_queryable")
+		// Try both the Status RPC and a postgres query independently — either can
+		// succeed without the other, and we want to report as much as possible.
+
+		// --- Manager Status RPC (works even when postgres is down) ---
+		var status *multipoolermanagerdatapb.Status
+		statusResp, statusErr := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		if statusErr == nil && statusResp.Status != nil {
+			status = statusResp.Status
+		}
+
+		// --- Postgres query ---
+		_, queryErr := QueryStringValue(ctx, client.Pooler, "SELECT 1")
+		queryable := queryErr == nil
+
+		client.Close()
+
+		// Build a status string from everything we know.
+		// Start with queryability, then layer in type/replication/action details.
+		if !queryable && status == nil {
+			poolerStatuses = append(poolerStatuses, name+": not_queryable, status_rpc_failed")
 			continue
 		}
 
-		// Check pooler type via Status RPC - must be explicit (not UNKNOWN)
-		statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil || statusResp.Status == nil {
-			client.Close()
-			poolerStatuses = append(poolerStatuses, name+": queryable, status_rpc_failed")
+		// Format active action suffix (present in every line when an action is running).
+		actionSuffix := ""
+		if status != nil && status.PostgresAction != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
+			actionSuffix = fmt.Sprintf(", action=%s(%s)", status.PostgresAction, status.PostgresActionDuration.AsDuration().Round(time.Second))
+		}
+
+		if !queryable {
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: not_queryable%s", name, actionSuffix))
 			continue
 		}
 
-		status := statusResp.Status
+		if status == nil {
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, status_rpc_failed%s", name, actionSuffix))
+			continue
+		}
+
 		isFullyInitialized := false
+		diag := FormatPoolerDiagnostics(status)
 
 		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
 			// Check that sync replication is configured with expected standbys
-			if status.PrimaryStatus == nil ||
-				status.PrimaryStatus.SyncReplicationConfig == nil ||
-				len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds) < expectedReplicaCount {
-				standbyCount := 0
-				if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
-					standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
-				}
-				t.Logf("checkBootstrapStatus: %s is PRIMARY but sync replication not ready (standbys=%d, expected=%d)",
-					name, standbyCount, expectedReplicaCount)
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (standbys=%d/%d)",
-					name, standbyCount, expectedReplicaCount))
+			standbyCount := 0
+			if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
+				standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
+			}
+			if standbyCount < expectedReplicaCount {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (%d/%d standbys)%s %s",
+					name, standbyCount, expectedReplicaCount, actionSuffix, diag))
 			} else {
 				primaryName = name
-				standbyCount := len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured (standbys=%d/%d)",
-					name, standbyCount, expectedReplicaCount))
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured%s %s",
+					name, actionSuffix, diag))
 			}
 
 		case clustermetadatapb.PoolerType_REPLICA:
 			// Check that primary_conn_info is configured
-			hasReplicationStatus := status.ReplicationStatus != nil
-			hasPrimaryConnInfo := hasReplicationStatus && status.ReplicationStatus.PrimaryConnInfo != nil
-			hasHost := hasPrimaryConnInfo && status.ReplicationStatus.PrimaryConnInfo.Host != ""
-
-			t.Logf("checkBootstrapStatus: %s is REPLICA - hasReplicationStatus=%v, hasPrimaryConnInfo=%v, hasHost=%v",
-				name, hasReplicationStatus, hasPrimaryConnInfo, hasHost)
-
-			if hasPrimaryConnInfo {
-				t.Logf("checkBootstrapStatus: %s PrimaryConnInfo.Host=%q, Port=%d",
-					name, status.ReplicationStatus.PrimaryConnInfo.Host, status.ReplicationStatus.PrimaryConnInfo.Port)
-			}
-
+			hasHost := status.ReplicationStatus != nil &&
+				status.ReplicationStatus.PrimaryConnInfo != nil &&
+				status.ReplicationStatus.PrimaryConnInfo.Host != ""
 			if !hasHost {
-				t.Logf("checkBootstrapStatus: %s is REPLICA but primary_conn_info not configured", name)
-				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_waiting")
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_waiting%s %s",
+					name, actionSuffix, diag))
 			} else {
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_configured")
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_configured%s %s",
+					name, actionSuffix, diag))
 			}
+
 		default:
-			poolerStatuses = append(poolerStatuses, name+": queryable, type=UNKNOWN")
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=UNKNOWN%s %s", name, actionSuffix, diag))
 			// UNKNOWN type means not fully initialized yet - don't count
 		}
-
-		client.Close()
 
 		if isFullyInitialized {
 			initializedCount++
@@ -701,7 +728,8 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		attribute.StringSlice("pooler.statuses", poolerStatuses),
 	)
 
-	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q", primaryName, initializedCount, len(setup.Multipoolers), latestBackupID)
+	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q [%s]",
+		primaryName, initializedCount, len(setup.Multipoolers), latestBackupID, strings.Join(poolerStatuses, " | "))
 
 	// Query multiorch instances for status (best-effort diagnostic logging)
 	logMultiOrchStatus(ctx, t, setup)
@@ -993,6 +1021,119 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	}
 }
 
+// ReinitializeCluster tears down the running cluster and brings up a fresh one.
+// It stops all processes (multigateway, multipooler, pgctld), removes PostgreSQL
+// data directories, restarts everything, and re-bootstraps via multiorch.
+// Use this between independent test suites that may leave the cluster in a
+// degraded state (e.g., PostgreSQL regression tests that crash connections).
+func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
+	t.Helper()
+
+	ctx := context.Background()
+	gracePeriod := 5 * time.Second
+
+	t.Logf("ReinitializeCluster: tearing down cluster...")
+
+	// 1. Stop multigateway (routes to multipoolers, stop first)
+	if s.Multigateway != nil {
+		s.Multigateway.TerminateGracefully(t, gracePeriod)
+		t.Logf("ReinitializeCluster: stopped multigateway")
+	}
+
+	// 2. Stop multiorch instances
+	for name, mo := range s.MultiOrchInstances {
+		if mo.IsRunning() {
+			mo.TerminateGracefully(t, gracePeriod)
+			t.Logf("ReinitializeCluster: stopped multiorch %s", name)
+		}
+	}
+
+	// 3. Stop multipooler + pgctld and remove PostgreSQL data.
+	// StopPostgres must be called BEFORE killing pgctld, otherwise
+	// the postgres process survives and holds the port.
+	for name, inst := range s.Multipoolers {
+		if inst.Multipooler != nil {
+			inst.Multipooler.TerminateGracefully(t, gracePeriod)
+			t.Logf("ReinitializeCluster: stopped multipooler %s", name)
+		}
+		if inst.Pgctld != nil {
+			inst.Pgctld.StopPostgres(t)
+			t.Logf("ReinitializeCluster: stopped postgres on %s", name)
+			inst.Pgctld.TerminateGracefully(t, gracePeriod)
+			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
+		}
+
+		// Remove ALL contents of the data directory so pgctld starts
+		// completely fresh. This clears pg_data (PostgreSQL data),
+		// pg_sockets (stale Unix sockets), pgbackrest (backup state),
+		// and any other state files.
+		dataDir := inst.Pgctld.PoolerDir
+		entries, err := os.ReadDir(dataDir)
+		if err != nil {
+			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
+		} else {
+			for _, entry := range entries {
+				entryPath := filepath.Join(dataDir, entry.Name())
+				if err := os.RemoveAll(entryPath); err != nil {
+					t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
+				}
+			}
+			t.Logf("ReinitializeCluster: cleared data directory %s", dataDir)
+		}
+	}
+
+	// 3b. Clear the shared backup repository so pgbackrest doesn't
+	// reference stale backups from the previous cluster.
+	backupRepoDir := filepath.Join(s.TempDir, "backup-repo")
+	if entries, err := os.ReadDir(backupRepoDir); err == nil {
+		for _, entry := range entries {
+			entryPath := filepath.Join(backupRepoDir, entry.Name())
+			if err := os.RemoveAll(entryPath); err != nil {
+				t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
+			}
+		}
+		t.Logf("ReinitializeCluster: cleared backup repo %s", backupRepoDir)
+	}
+
+	t.Logf("ReinitializeCluster: restarting cluster...")
+
+	// 4. Start pgctld + multipooler for all nodes
+	for name, inst := range s.Multipoolers {
+		if err := inst.Pgctld.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
+		}
+		if err := inst.Multipooler.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start multipooler %s: %v", name, err)
+		}
+		WaitForManagerReady(t, inst.Multipooler)
+		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
+	}
+
+	// 5. Start multigateway
+	if s.Multigateway != nil {
+		if err := s.Multigateway.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start multigateway: %v", err)
+		}
+		t.Logf("ReinitializeCluster: started multigateway")
+	}
+
+	// 6. Bootstrap via temporary multiorch
+	config := &SetupConfig{
+		Database:   "postgres",
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+		CellName:   s.CellName,
+	}
+	initializeWithMultiOrch(ctx, t, s, config)
+
+	// 7. Wait for multigateway to serve queries
+	if s.Multigateway != nil {
+		s.WaitForMultigatewayQueryServing(t)
+	}
+
+	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
+}
+
 // SetupTest provides test isolation by validating clean state and automatically
 // restoring baseline state at test cleanup.
 //
@@ -1127,10 +1268,13 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		// Ensure monitor is disabled (in case something during test re-enabled it)
 		s.disableMonitorOnAll(t, cleanupCtx)
 
-		// Validate cleanup worked
+		// Validate cleanup worked.
+		// Use a generous timeout: GUC values written by RestoreGUCs are already
+		// waited on inside that function, so this is a final sanity check that
+		// should pass quickly. The extra headroom guards against slow CI runners.
 		require.Eventually(t, func() bool {
 			return s.ValidateCleanState() == nil
-		}, 2*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
+		}, 15*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
 	})
 }
 
@@ -1184,7 +1328,7 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		if err == nil {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_standby_names", 0)
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_commit", 0)
-			_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+			ReloadConfig(ctx, t, client.Pooler, s.PrimaryName)
 			client.Close()
 			t.Logf("SetupTest: Cleared synchronous_standby_names on primary %s", s.PrimaryName)
 		}
@@ -1203,10 +1347,10 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		}
 
 		_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
-		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		ReloadConfig(ctx, t, client.Pooler, name)
 
-		// Wait for primary_conninfo to be cleared and WAL receiver to stop
-		// pg_reload_conf() is async, so we need to wait for changes to take effect
+		// Wait for the WAL receiver to stop. ReloadConfig has already confirmed
+		// primary_conninfo is cleared; this waits for postgres to act on it.
 		require.Eventually(t, func() bool {
 			connInfo, err := QueryStringValue(ctx, client.Pooler, "SHOW primary_conninfo")
 			if err != nil || connInfo != "" {
@@ -1288,9 +1432,8 @@ func (s *ShardSetup) GetMultipoolerID(name string) *clustermetadatapb.ID {
 	return makeMultipoolerID(inst.Multipooler.Cell, inst.Multipooler.Name)
 }
 
-// KillPostgres stops postgres cleanly on a node (simulates database failure).
-// Uses pgctld stop with fast mode for clean shutdown, allowing pg_rewind to work later.
-// Fast mode disconnects clients and shuts down cleanly (unlike immediate/SIGKILL).
+// KillPostgres kills postgres using SIGKILL on a node (simulates hard database crash).
+// This sends SIGKILL directly to the postgres process without clean shutdown.
 // The multipooler stays running to report the unhealthy status to multiorch.
 func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	t.Helper()
@@ -1301,20 +1444,56 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 		return // unreachable, but needed for linter
 	}
 
-	t.Logf("Stopping postgres on node %s using pgctld (fast mode)", name)
+	// Read the PID from postmaster.pid file
+	pgDataDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_data")
+	pidFile := filepath.Join(pgDataDir, "postmaster.pid")
 
-	// Use pgctld to stop postgres cleanly with fast mode
-	// Fast mode disconnects clients and shuts down cleanly (suitable for pg_rewind)
-	// Unlike smart mode (waits for clients) or immediate mode (like SIGKILL)
+	pidBytes, err := os.ReadFile(pidFile)
+	require.NoError(t, err, "Failed to read postmaster.pid for %s", name)
+
+	// The first line of postmaster.pid contains the PID
+	pidStr := strings.TrimSpace(strings.Split(string(pidBytes), "\n")[0])
+	pid, err := strconv.Atoi(pidStr)
+	require.NoError(t, err, "Failed to parse PID from postmaster.pid for %s", name)
+
+	t.Logf("Killing postgres on node %s (PID: %d) using SIGKILL", name, pid)
+
+	// Send SIGKILL to the postgres process
+	process, err := os.FindProcess(pid)
+	require.NoError(t, err, "Failed to find postgres process %d for %s", pid, name)
+
+	err = process.Signal(syscall.SIGKILL)
+	require.NoError(t, err, "Failed to kill postgres process %d for %s", pid, name)
+
+	t.Logf("Postgres killed with SIGKILL on %s - multipooler should detect failure", name)
+}
+
+// ShutdownPostgres gracefully shuts down postgres on the specified node using pgctld Stop RPC.
+// This is different from KillPostgres which uses SIGKILL for immediate termination.
+// Use this to test scenarios where postgres shuts down cleanly vs crash scenarios.
+func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) {
+	t.Helper()
+
+	inst := s.GetMultipoolerInstance(name)
+	require.NotNil(t, inst, "node %s not found", name)
+
+	t.Logf("Gracefully shutting down postgres on node %s via pgctld Stop RPC", name)
+
+	// Create pgctld client
 	client, err := NewPgctldClient(inst.Pgctld.GrpcPort)
 	require.NoError(t, err, "Failed to connect to pgctld for %s", name)
 	defer client.Close()
 
-	ctx := context.Background()
-	_, err = client.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"})
+	// Call Stop RPC with "fast" mode for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = client.Stop(ctx, &pgctldpb.StopRequest{
+		Mode: "fast",
+	})
 	require.NoError(t, err, "Failed to stop postgres on %s", name)
 
-	t.Logf("Postgres stopped cleanly on %s - multipooler should detect failure", name)
+	t.Logf("Postgres gracefully stopped on %s - multipooler should detect failure", name)
 }
 
 // baselineGucNames returns the GUC names to save/restore for baseline state.

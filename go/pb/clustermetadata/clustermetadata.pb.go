@@ -110,10 +110,6 @@ const (
 	// RESTORE is the status a server uses when restoring a backup, at
 	// startup time.  No queries can be served in RESTORE mode.
 	PoolerServingStatus_RESTORE PoolerServingStatus = 3
-	// SERVING_RDONLY is the status of a server in read-only mode.
-	// This is used during demotion when the server transitions from PRIMARY to REPLICA,
-	// or for read-only replicas. The server accepts connections but only serves read queries.
-	PoolerServingStatus_SERVING_RDONLY PoolerServingStatus = 5
 )
 
 // Enum value maps for PoolerServingStatus.
@@ -123,14 +119,12 @@ var (
 		1: "NOT_SERVING",
 		2: "BACKUP",
 		3: "RESTORE",
-		5: "SERVING_RDONLY",
 	}
 	PoolerServingStatus_value = map[string]int32{
-		"SERVING":        0,
-		"NOT_SERVING":    1,
-		"BACKUP":         2,
-		"RESTORE":        3,
-		"SERVING_RDONLY": 5,
+		"SERVING":     0,
+		"NOT_SERVING": 1,
+		"BACKUP":      2,
+		"RESTORE":     3,
 	}
 )
 
@@ -167,11 +161,15 @@ type QuorumType int32
 const (
 	// QUORUM_TYPE_UNKNOWN represents an unknown or uninitialized quorum type
 	QuorumType_QUORUM_TYPE_UNKNOWN QuorumType = 0
-	// QUORUM_TYPE_ANY_N requires any N nodes from discovered cohort
+	// Deprecated: use QUORUM_TYPE_AT_LEAST_N
 	QuorumType_QUORUM_TYPE_ANY_N QuorumType = 1
-	// QUORUM_TYPE_MULTI_CELL_ANY_N requires nodes from multiple cells (availability zones)
-	// with at least one node from each of the required cells
+	// Deprecated: use QUORUM_TYPE_MULTI_CELL_AT_LEAST_N
 	QuorumType_QUORUM_TYPE_MULTI_CELL_ANY_N QuorumType = 2
+	// QUORUM_TYPE_AT_LEAST_N requires at least N nodes from the discovered cohort to acknowledge
+	QuorumType_QUORUM_TYPE_AT_LEAST_N QuorumType = 3
+	// QUORUM_TYPE_MULTI_CELL_AT_LEAST_N requires nodes from multiple cells (availability zones)
+	// with at least one node from each of the required cells
+	QuorumType_QUORUM_TYPE_MULTI_CELL_AT_LEAST_N QuorumType = 4
 )
 
 // Enum value maps for QuorumType.
@@ -180,11 +178,15 @@ var (
 		0: "QUORUM_TYPE_UNKNOWN",
 		1: "QUORUM_TYPE_ANY_N",
 		2: "QUORUM_TYPE_MULTI_CELL_ANY_N",
+		3: "QUORUM_TYPE_AT_LEAST_N",
+		4: "QUORUM_TYPE_MULTI_CELL_AT_LEAST_N",
 	}
 	QuorumType_value = map[string]int32{
-		"QUORUM_TYPE_UNKNOWN":          0,
-		"QUORUM_TYPE_ANY_N":            1,
-		"QUORUM_TYPE_MULTI_CELL_ANY_N": 2,
+		"QUORUM_TYPE_UNKNOWN":               0,
+		"QUORUM_TYPE_ANY_N":                 1,
+		"QUORUM_TYPE_MULTI_CELL_ANY_N":      2,
+		"QUORUM_TYPE_AT_LEAST_N":            3,
+		"QUORUM_TYPE_MULTI_CELL_AT_LEAST_N": 4,
 	}
 )
 
@@ -778,7 +780,10 @@ type MultiPooler struct {
 	// Map of named ports. These are ports that the pooler exposes. Initially, this will only be gRPC
 	PortMap map[string]int32 `protobuf:"bytes,9,rep,name=port_map,json=portMap,proto3" json:"port_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	// PoolerDir is used by pgBackRest to compute the primary's data directory.
-	PoolerDir     string `protobuf:"bytes,10,opt,name=pooler_dir,json=poolerDir,proto3" json:"pooler_dir,omitempty"`
+	PoolerDir string `protobuf:"bytes,10,opt,name=pooler_dir,json=poolerDir,proto3" json:"pooler_dir,omitempty"`
+	// PgDataDir is the PostgreSQL data directory path (from the PGDATA environment variable).
+	// Used by multiadmin to compute the primary's data directory for pgBackRest.
+	PgDataDir     string `protobuf:"bytes,11,opt,name=pg_data_dir,json=pgDataDir,proto3" json:"pg_data_dir,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -883,6 +888,13 @@ func (x *MultiPooler) GetPoolerDir() string {
 	return ""
 }
 
+func (x *MultiPooler) GetPgDataDir() string {
+	if x != nil {
+		return x.PgDataDir
+	}
+	return ""
+}
+
 // MultiGateway represents metadata about a running multigateway component instance in the cluster.
 type MultiGateway struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -891,7 +903,10 @@ type MultiGateway struct {
 	// Fully qualified domain name of the host.
 	Hostname string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	// Map of named ports. Normally this should include postgres and grpc.
-	PortMap       map[string]int32 `protobuf:"bytes,3,rep,name=port_map,json=portMap,proto3" json:"port_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	PortMap map[string]int32 `protobuf:"bytes,3,rep,name=port_map,json=portMap,proto3" json:"port_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// pid_prefix is the 12-bit prefix encoded into PIDs sent to clients.
+	// Used for cross-gateway cancel request routing. Assigned at registration time.
+	PidPrefix     uint32 `protobuf:"varint,4,opt,name=pid_prefix,json=pidPrefix,proto3" json:"pid_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -945,6 +960,13 @@ func (x *MultiGateway) GetPortMap() map[string]int32 {
 		return x.PortMap
 	}
 	return nil
+}
+
+func (x *MultiGateway) GetPidPrefix() uint32 {
+	if x != nil {
+		return x.PidPrefix
+	}
+	return 0
 }
 
 // MultiOrch represents information about a running instance of multiorch.
@@ -1229,8 +1251,8 @@ type QuorumRule struct {
 	// quorum_type determines which quorum algorithm to use
 	QuorumType QuorumType `protobuf:"varint,1,opt,name=quorum_type,json=quorumType,proto3,enum=clustermetadata.QuorumType" json:"quorum_type,omitempty"`
 	// required_count: number of nodes/cells required
-	//   - For QUORUM_TYPE_ANY_N: number of nodes required from discovered cohort
-	//   - For QUORUM_TYPE_MULTI_CELL_ANY_N: number of distinct cells required,
+	//   - For QUORUM_TYPE_AT_LEAST_N: number of nodes required from discovered cohort
+	//   - For QUORUM_TYPE_MULTI_CELL_AT_LEAST_N: number of distinct cells required,
 	//     with at least one node from each cell
 	RequiredCount int32 `protobuf:"varint,2,opt,name=required_count,json=requiredCount,proto3" json:"required_count,omitempty"`
 	// Human-readable description
@@ -1333,7 +1355,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x04 \x01(\tR\tkeyPrefix\x12.\n" +
-	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\xf8\x03\n" +
+	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"\x98\x04\n" +
 	"\vMultiPooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1f\n" +
@@ -1347,14 +1369,17 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bport_map\x18\t \x03(\v2).clustermetadata.MultiPooler.PortMapEntryR\aportMap\x12\x1d\n" +
 	"\n" +
 	"pooler_dir\x18\n" +
-	" \x01(\tR\tpoolerDir\x1a:\n" +
+	" \x01(\tR\tpoolerDir\x12\x1e\n" +
+	"\vpg_data_dir\x18\v \x01(\tR\tpgDataDir\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xd2\x01\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +
 	"\fMultiGateway\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12E\n" +
-	"\bport_map\x18\x03 \x03(\v2*.clustermetadata.MultiGateway.PortMapEntryR\aportMap\x1a:\n" +
+	"\bport_map\x18\x03 \x03(\v2*.clustermetadata.MultiGateway.PortMapEntryR\aportMap\x12\x1d\n" +
+	"\n" +
+	"pid_prefix\x18\x04 \x01(\rR\tpidPrefix\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xcc\x01\n" +
@@ -1400,19 +1425,20 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aPRIMARY\x10\x01\x12\v\n" +
 	"\aREPLICA\x10\x02\x12\v\n" +
-	"\aDRAINED\x10\x03*f\n" +
+	"\aDRAINED\x10\x03*L\n" +
 	"\x13PoolerServingStatus\x12\v\n" +
 	"\aSERVING\x10\x00\x12\x0f\n" +
 	"\vNOT_SERVING\x10\x01\x12\n" +
 	"\n" +
 	"\x06BACKUP\x10\x02\x12\v\n" +
-	"\aRESTORE\x10\x03\x12\x12\n" +
-	"\x0eSERVING_RDONLY\x10\x05\"\x04\b\x04\x10\x04*^\n" +
+	"\aRESTORE\x10\x03*\xa1\x01\n" +
 	"\n" +
 	"QuorumType\x12\x17\n" +
 	"\x13QUORUM_TYPE_UNKNOWN\x10\x00\x12\x15\n" +
 	"\x11QUORUM_TYPE_ANY_N\x10\x01\x12 \n" +
-	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02*\xa2\x01\n" +
+	"\x1cQUORUM_TYPE_MULTI_CELL_ANY_N\x10\x02\x12\x1a\n" +
+	"\x16QUORUM_TYPE_AT_LEAST_N\x10\x03\x12%\n" +
+	"!QUORUM_TYPE_MULTI_CELL_AT_LEAST_N\x10\x04*\xa2\x01\n" +
 	"\x1cAsyncReplicationFallbackMode\x12+\n" +
 	"'ASYNC_REPLICATION_FALLBACK_MODE_UNKNOWN\x10\x00\x12)\n" +
 	"%ASYNC_REPLICATION_FALLBACK_MODE_ALLOW\x10\x01\x12*\n" +

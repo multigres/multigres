@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -28,12 +29,13 @@ type PgRewindResult struct {
 	Output  string
 }
 
-func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sourceServer, password string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
+func PgRewindWithResult(ctx context.Context, logger *slog.Logger, sourceServer, password string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
 	result := &PgRewindResult{}
+	dataDir := pgctld.PostgresDataDir()
 
 	args := []string{
 		"--source-server", sourceServer,
-		"--target-pgdata", poolerDir + "/pg_data",
+		"--target-pgdata", dataDir,
 	}
 	if dryRun {
 		args = append(args, "--dry-run")
@@ -44,7 +46,7 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sou
 		"command", "pg_rewind",
 		"args", args,
 		"source_server", sourceServer,
-		"target_pgdata", poolerDir+"/pg_data",
+		"target_pgdata", dataDir,
 		"dry_run", dryRun)
 
 	cmd := executil.Command(ctx, "pg_rewind", args...)

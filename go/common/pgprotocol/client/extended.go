@@ -55,22 +55,22 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 // BindAndExecute binds parameters to a prepared statement and executes it atomically.
 // This sends Bind → Execute → Sync in a single operation, ensuring the portal
 // is not cleared before execution (Sync closes the implicit transaction which clears portals).
-// stmtName is the prepared statement name - the portal will use the same name.
+// portalName is the name for the portal (cursor) created by Bind.
+// stmtName is the prepared statement name to bind against.
 // params are the parameter values.
 // paramFormats are format codes for parameters (0=text, 1=binary).
 // resultFormats are format codes for result columns (0=text, 1=binary).
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
-func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
 	c.bufmu.Lock()
 	defer c.bufmu.Unlock()
 
-	// Use the same name for portal as the statement for consistency.
-	if err := c.writeBind(stmtName, stmtName, params, paramFormats, resultFormats); err != nil {
+	if err := c.writeBind(portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		return false, fmt.Errorf("failed to write Bind: %w", err)
 	}
 
-	if err := c.writeExecute(stmtName, maxRows); err != nil {
+	if err := c.writeExecute(portalName, maxRows); err != nil {
 		return false, fmt.Errorf("failed to write Execute: %w", err)
 	}
 
@@ -454,7 +454,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			completed = false
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			return completed, firstErr
 
 		case protocol.MsgErrorResponse:
@@ -580,7 +580,7 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 			gotParseComplete = true
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return firstErr
 			}
@@ -628,7 +628,7 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 			gotCloseComplete = true
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return firstErr
 			}
@@ -672,7 +672,7 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 
 		switch msgType {
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			return firstErr
 
 		case protocol.MsgErrorResponse:
@@ -735,7 +735,7 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 			// No data to return (e.g., for non-SELECT statements).
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return nil, firstErr
 			}
@@ -872,7 +872,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			completed = false
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return false, firstErr
 			}
@@ -943,7 +943,7 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 			// No data to return (e.g., for non-SELECT statements).
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return nil, firstErr
 			}
@@ -1099,7 +1099,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			}
 
 		case protocol.MsgReadyForQuery:
-			c.txnStatus = body[0]
+			c.txnStatus = protocol.TransactionStatus(body[0])
 			if firstErr != nil {
 				return firstErr
 			}
