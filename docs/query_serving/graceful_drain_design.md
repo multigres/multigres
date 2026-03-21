@@ -7,7 +7,7 @@ from primary to replica), it must reject new queries immediately while
 allowing existing reserved connections — transactions, portals, COPY
 operations — to finish cleanly. Without graceful drain, a sudden
 cutover would abort in-flight transactions, causing client errors and
-potential data inconsistency.
+client-visible errors.
 
 Key capabilities:
 
@@ -34,8 +34,10 @@ not).
 
 PostgreSQL clients using transactions or extended query protocol
 expect that once a `BEGIN` succeeds, subsequent statements on that
-connection will execute until `COMMIT`/`ROLLBACK`. Abruptly rejecting
-mid-transaction queries violates this contract.
+connection will execute until `COMMIT`/`ROLLBACK`. While server
+crashes can also abort transactions (and clients must handle that),
+graceful drain minimizes unnecessary mid-transaction disruptions
+during planned state transitions like demotion.
 
 ## Architecture
 

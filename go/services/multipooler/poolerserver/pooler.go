@@ -115,10 +115,16 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType cluste
 	s.shuttingDown = true
 	s.mu.Unlock()
 
-	// Wait for in-flight connections to drain (best effort, bounded by gracePeriod).
+	// Wait for in-flight connections to drain.
+	// If gracePeriod > 0, the wait is bounded and reserved connections are force-closed on timeout.
+	// If gracePeriod == 0, the wait is unbounded (drain must complete before transition finishes).
 	if s.poolManager != nil {
-		drainCtx, cancel := context.WithTimeout(ctx, s.gracePeriod)
-		defer cancel()
+		drainCtx := ctx
+		if s.gracePeriod > 0 {
+			var cancel context.CancelFunc
+			drainCtx, cancel = context.WithTimeout(ctx, s.gracePeriod)
+			defer cancel()
+		}
 
 		if err := s.poolManager.WaitForDrain(drainCtx); err != nil {
 			s.logger.WarnContext(ctx, "Graceful drain did not complete within grace period, force-closing reserved connections",

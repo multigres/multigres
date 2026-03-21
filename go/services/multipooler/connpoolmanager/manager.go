@@ -487,6 +487,10 @@ func (m *Manager) lentAdd(n int64) {
 // WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
 func (m *Manager) WaitForDrain(ctx context.Context) error {
 	m.drainMu.Lock()
+	if m.lentCount == 0 {
+		m.drainMu.Unlock()
+		return nil
+	}
 	ch := m.zeroCh
 	m.drainMu.Unlock()
 

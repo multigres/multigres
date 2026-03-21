@@ -229,11 +229,6 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	delete(p.active, connID)
 	p.mu.Unlock()
 
-	p.killCount.Add(1)
-	if p.config.OnRelease != nil {
-		p.config.OnRelease()
-	}
-
 	// Kill the backend process.
 	if err := rc.Kill(ctx); err != nil {
 		p.logger.WarnContext(ctx, "failed to kill connection",
@@ -243,6 +238,11 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 
 	// Taint the connection - it's dead after kill.
 	rc.pooled.Taint()
+
+	// Release handles OnRelease, Recycle, and metrics. The CAS inside
+	// Release prevents double-release if an in-flight request also calls
+	// Release after Kill causes it to fail.
+	rc.Release(ReleaseKill)
 
 	p.logger.InfoContext(ctx, "connection killed",
 		"conn_id", connID,
