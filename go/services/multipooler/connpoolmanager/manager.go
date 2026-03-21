@@ -469,6 +469,10 @@ func (m *Manager) lentAdd(n int64) {
 	m.drainMu.Lock()
 	defer m.drainMu.Unlock()
 
+	if m.lentCount+n < 0 {
+		m.logger.Error("lentCount going negative, likely a bug in borrow/recycle or reserve/release callbacks",
+			"current", m.lentCount, "delta", n)
+	}
 	m.lentCount += n
 	if m.lentCount == 0 {
 		// Signal drain complete by closing the channel.

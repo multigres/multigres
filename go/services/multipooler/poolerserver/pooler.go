@@ -92,6 +92,9 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 // OnStateChange transitions the query service to match the new serving state.
 // Implements PoolerController interface.
 //
+// This method is only called by the StateManager, which serializes calls behind
+// a mutex. Concurrent calls are not possible or expected.
+//
 // For NOT_SERVING transitions, this performs a two-phase graceful drain:
 //  1. Set shuttingDown=true to reject new requests (existing reserved connections continue)
 //  2. Wait for in-flight connections to drain (up to gracePeriod)
