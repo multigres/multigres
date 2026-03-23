@@ -120,8 +120,8 @@ func (c *conn) LockNameWithTTL(ctx context.Context, dirPath, contents string, tt
 	return c.lockWithTTL(ctx, dirPath, contents, true, ttl)
 }
 
-// TryLockEphemeral is part of the topoclient.Conn interface.
-func (c *conn) TryLockEphemeral(ctx context.Context, key, contents string, ttl time.Duration) (topoclient.LockDescriptor, error) {
+// TryLockWithLease is part of the topoclient.Conn interface.
+func (c *conn) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (topoclient.LockDescriptor, error) {
 	return c.TryLockNameWithTTL(ctx, key, contents, ttl)
 }
 
@@ -251,8 +251,8 @@ func (ld *memoryTopoLockDescriptor) Unlock(ctx context.Context) error {
 	return ld.c.unlock(ctx, ld.dirPath)
 }
 
-// RevokeLockEphemeral is part of the topoclient.Conn interface.
-func (c *conn) RevokeLockEphemeral(ctx context.Context, key string) error {
+// RevokeLockWithLease is part of the topoclient.Conn interface.
+func (c *conn) RevokeLockWithLease(ctx context.Context, key string) error {
 	return c.forceUnlock(ctx, key)
 }
 

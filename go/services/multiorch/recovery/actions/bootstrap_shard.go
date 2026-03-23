@@ -46,12 +46,11 @@ const DefaultStatusRPCTimeout = 5 * time.Second
 // BootstrapShardAction handles bootstrap initialization of a new shard from scratch.
 // This action assumes all nodes in the cohort are empty (uninitialized).
 // It will:
-// 1. Acquire distributed lock for the shard
-// 2. Re-verify all nodes are still uninitialized
-// 3. Select the first reachable node as the primary
-// 4. Initialize it as an empty primary with term=1
-// 5. Create the durability policy in the database
-// 6. Initialize remaining nodes as standbys
+// 1. Re-verify all nodes are still uninitialized
+// 2. Select the first reachable node as the primary
+// 3. Initialize it as an empty primary with term=1
+// 4. Create the durability policy in the database
+// 5. Initialize remaining nodes as standbys
 type BootstrapShardAction struct {
 	config           *config.Config
 	rpcClient        rpcclient.MultiPoolerClient
@@ -103,36 +102,6 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 		"tablegroup", problem.ShardKey.TableGroup,
 		"shard", problem.ShardKey.Shard)
 
-	// Acquire distributed lock for this shard. A short TTL ensures the lock
-	// auto-expires if this orch crashes mid-bootstrap, allowing another orch
-	// to retry promptly.
-	const shardLockTTL = 60 * time.Second
-	a.logger.InfoContext(ctx, "acquiring recovery lock", "shard_key", problem.ShardKey.String())
-
-	ctx, unlock, err := a.topoStore.LockShard(
-		ctx,
-		problem.ShardKey,
-		"bootstrap recovery",
-		topoclient.WithTTL(shardLockTTL),
-	)
-	if err != nil {
-		a.logger.InfoContext(ctx, "failed to acquire lock, another recovery may be in progress",
-			"shard_key", problem.ShardKey.String(),
-			"error", err)
-		return err
-	}
-	defer func() {
-		var unlockErr error
-		unlock(&unlockErr)
-		if unlockErr != nil {
-			a.logger.WarnContext(ctx, "failed to release recovery lock",
-				"shard_key", problem.ShardKey.String(),
-				"error", unlockErr)
-		}
-	}()
-
-	a.logger.InfoContext(ctx, "acquired recovery lock", "shard_key", problem.ShardKey.String())
-
 	// Fetch cohort from pooler store
 	cohort := a.getCohort(problem.ShardKey)
 	if len(cohort) == 0 {
@@ -168,7 +137,7 @@ func (a *BootstrapShardAction) executeInner(ctx context.Context, problem types.P
 		"reachable_poolers", reachableCount,
 		"required_count", quorumRule.RequiredCount)
 
-	// Revalidate that bootstrap is still needed after acquiring lock.
+	// Revalidate that bootstrap is still needed before proceeding.
 	// Make fresh RPC calls to verify all nodes are still uninitialized.
 	// Don't rely on potentially stale store data.
 	needsBootstrap, err := a.verifyBootstrapNeeded(ctx, cohort)

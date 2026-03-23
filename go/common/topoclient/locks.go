@@ -181,7 +181,7 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 		lockDescriptor, err = ts.globalTopo.TryLockName(ctx, lt.Path(), j)
 	case NamedNonBlockingWithTTL:
 		lockOp = LockOpTryLockName
-		lockDescriptor, err = ts.globalTopo.TryLockEphemeral(ctx, lt.Path(), j, l.Options.ttl)
+		lockDescriptor, err = ts.globalTopo.TryLockWithLease(ctx, lt.Path(), j, l.Options.ttl)
 	default:
 		if l.Options.ttl != 0 {
 			lockOp = LockOpLockWithTTL

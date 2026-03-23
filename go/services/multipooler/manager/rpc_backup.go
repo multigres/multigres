@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
-	"github.com/multigres/multigres/go/common/backuplease"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -69,24 +68,23 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	// Acquire the distributed backup lease via steal protocol.
 	// If another pooler holds the lease, revoke it and acquire a new one.
 	// This ensures the most recent backup request always wins.
-	ctx, lease, err := backuplease.Steal(ctx, pm.topoClient, pm.shardKey(), pm.multipooler.Id.Name, "backup", pm.logger)
+	var backupID string
+	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "backup", pm.logger, func(ctx context.Context) error {
+		var backupErr error
+		backupID, backupErr = pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+		return backupErr
+	})
 	if err != nil {
 		return "", mterrors.Wrap(err, "failed to acquire backup lease")
 	}
-	defer lease.Release(ctx)
-
-	return pm.backupLocked(ctx, lease, forcePrimary, backupType, jobID, overrides)
+	return backupID, nil
 }
 
 // backupLocked performs a backup. Caller must hold the action lock and backup lease.
-func (pm *MultiPoolerManager) backupLocked(ctx context.Context, lease *backuplease.Lease, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return "", err
-	}
-
+func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
 	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
 		var err error
-		retBackupID, err = pm.backupLockedInner(ctx, lease, forcePrimary, backupType, jobID, overrides)
+		retBackupID, err = pm.backupLockedInner(ctx, forcePrimary, backupType, jobID, overrides)
 		return err
 	})
 	return retBackupID, retErr
@@ -94,7 +92,10 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, lease *backuplea
 
 // backupLockedInner performs the backup steps inside the parent "backup" span.
 // Caller must hold both the action lock and the backup lease.
-func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, lease *backuplease.Lease, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
+func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return "", err
+	}
 	if err := topoclient.AssertBackupLockHeld(ctx, pm.shardKey()); err != nil {
 		return "", mterrors.Wrap(err, "backup lease not held")
 	}
@@ -193,7 +194,7 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, lease *back
 	var output []byte
 	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(ctx context.Context) error {
 		var runErr error
-		output, runErr = backuplease.RunWithLease(ctx, lease, cmd, pm.logger)
+		output, runErr = runBackupCommand(ctx, cmd, pm.logger)
 		return runErr
 	})
 	if err != nil {

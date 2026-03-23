@@ -15,9 +15,12 @@
 package topoclient_test
 
 import (
+	"context"
+	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -25,6 +28,22 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/common/types"
 )
+
+func newTestStore(t *testing.T) topoclient.Store {
+	t.Helper()
+	ctx := t.Context()
+	config := topoclient.NewDefaultTopoConfig()
+	config.SetLockTimeout(100 * time.Millisecond)
+	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
+	t.Cleanup(func() { ts.Close() })
+	return ts
+}
+
+var testShardKey = types.ShardKey{
+	Database:   "testdb",
+	TableGroup: constants.DefaultTableGroup,
+	Shard:      "0",
+}
 
 func TestTryLockBackup(t *testing.T) {
 	ctx := t.Context()
@@ -131,4 +150,123 @@ func TestAssertBackupLockHeld(t *testing.T) {
 	// Clean up the lock descriptor
 	var unlockErr error
 	unlock(&unlockErr)
+}
+
+func TestWithBackupLease(t *testing.T) {
+	ts := newTestStore(t)
+	ctx := t.Context()
+	logger := slog.Default()
+
+	called := false
+	err := ts.WithBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+		called = true
+		require.NoError(t, topoclient.AssertBackupLockHeld(ctx, testShardKey))
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, called)
+
+	// Should be acquirable again after release
+	err = ts.WithBackupLease(ctx, testShardKey, "pooler-2", "backup", logger, func(ctx context.Context) error {
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestWithBackupLeaseFailsWhenLocked(t *testing.T) {
+	ts := newTestStore(t)
+	ctx := t.Context()
+	logger := slog.Default()
+
+	held := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- ts.WithBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+			close(held)
+			<-ctx.Done()
+			return nil
+		})
+	}()
+	<-held
+
+	// Second acquire should fail immediately
+	err := ts.WithBackupLease(ctx, testShardKey, "pooler-2", "backup", logger, func(ctx context.Context) error {
+		return nil
+	})
+	require.Error(t, err)
+
+	// Clean up: revoke so the goroutine finishes
+	require.NoError(t, ts.RevokeBackup(ctx, testShardKey))
+	<-done
+}
+
+func TestWithStolenBackupLease(t *testing.T) {
+	ts := newTestStore(t)
+	ctx := t.Context()
+	logger := slog.Default()
+
+	// Hold a lease in background with a short check interval
+	held := make(chan struct{})
+	done := make(chan error, 1)
+	acquire := func(ctx context.Context, action string) (context.Context, func(*error), error) {
+		return ts.TryLockBackup(ctx, testShardKey, action)
+	}
+	revoke := func(ctx context.Context) error { return ts.RevokeBackup(ctx, testShardKey) }
+	check := func(ctx context.Context) error { return topoclient.AssertBackupLockHeld(ctx, testShardKey) }
+	go func() {
+		done <- topoclient.WithLease(ctx, "backup by pooler-1", acquire, revoke, check, func(ctx context.Context) error {
+			close(held)
+			<-ctx.Done()
+			return context.Cause(ctx)
+		},
+			topoclient.WithLeaseCheckInterval(100*time.Millisecond),
+		)
+	}()
+	<-held
+
+	// Steal the lease
+	called := false
+	err := ts.WithStolenBackupLease(ctx, testShardKey, "pooler-2", "failover-backup", logger, func(ctx context.Context) error {
+		called = true
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, called)
+
+	// Original should have received ErrLeaseLost
+	err = <-done
+	assert.ErrorIs(t, err, topoclient.ErrLeaseLost)
+}
+
+func TestWithStolenBackupLeaseWhenNoLockExists(t *testing.T) {
+	ts := newTestStore(t)
+	ctx := t.Context()
+	logger := slog.Default()
+
+	// Steal when no lock exists should succeed (acquire directly)
+	called := false
+	err := ts.WithStolenBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+		called = true
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+func TestWithBackupLeaseDifferentShards(t *testing.T) {
+	ts := newTestStore(t)
+	ctx := t.Context()
+	logger := slog.Default()
+
+	shardKey2 := types.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "1"}
+
+	err := ts.WithBackupLease(ctx, testShardKey, "pooler-1", "backup", logger, func(ctx context.Context) error {
+		return nil
+	})
+	require.NoError(t, err)
+
+	err = ts.WithBackupLease(ctx, shardKey2, "pooler-1", "backup", logger, func(ctx context.Context) error {
+		return nil
+	})
+	require.NoError(t, err)
 }

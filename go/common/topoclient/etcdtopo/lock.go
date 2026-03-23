@@ -281,10 +281,10 @@ func (ld *etcdLockDescriptor) Unlock(ctx context.Context) error {
 	return nil
 }
 
-// TryLockEphemeral is part of the topoclient.Conn interface.
+// TryLockWithLease is part of the topoclient.Conn interface.
 // It uses an atomic compare-version=0 transaction to create a lease-backed key,
 // ensuring fail-fast semantics without a TOCTOU race.
-func (s *etcdtopo) TryLockEphemeral(ctx context.Context, key, contents string, ttl time.Duration) (topoclient.LockDescriptor, error) {
+func (s *etcdtopo) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (topoclient.LockDescriptor, error) {
 	ttlSeconds := int(topoclient.NamedLockTTL.Seconds())
 	if ttl > 0 {
 		ttlSeconds = int(ttl.Seconds())
@@ -317,7 +317,7 @@ func (s *etcdtopo) TryLockEphemeral(ctx context.Context, key, contents string, t
 		Commit()
 	if err != nil {
 		if _, rerr := s.cli.Revoke(context.TODO(), lease.ID); rerr != nil {
-			slog.InfoContext(ctx, "Revoke failed after TryLockEphemeral error", "error", rerr)
+			slog.InfoContext(ctx, "Revoke failed after TryLockWithLease error", "error", rerr)
 		}
 		return nil, convertError(err, key)
 	}
@@ -336,9 +336,9 @@ func (s *etcdtopo) TryLockEphemeral(ctx context.Context, key, contents string, t
 	}, nil
 }
 
-// RevokeLockEphemeral is part of the topoclient.Conn interface.
+// RevokeLockWithLease is part of the topoclient.Conn interface.
 // It forcefully removes the ephemeral lock at the given key by revoking its lease.
-func (s *etcdtopo) RevokeLockEphemeral(ctx context.Context, key string) error {
+func (s *etcdtopo) RevokeLockWithLease(ctx context.Context, key string) error {
 	fullKey := path.Join(s.root, key)
 
 	resp, err := s.cli.Get(ctx, fullKey)
@@ -355,9 +355,9 @@ func (s *etcdtopo) RevokeLockEphemeral(ctx context.Context, key string) error {
 	}
 
 	// Revoking the lease automatically deletes the ephemeral key, so a
-	// subsequent TryLockEphemeral on the same key will succeed.
+	// subsequent TryLockWithLease on the same key will succeed.
 	if _, err := s.cli.Revoke(ctx, leaseID); err != nil {
-		slog.WarnContext(ctx, "RevokeLockEphemeral: failed to revoke lease",
+		slog.WarnContext(ctx, "RevokeLockWithLease: failed to revoke lease",
 			"key", key,
 			"lease_id", leaseID,
 			"error", err)

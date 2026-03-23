@@ -158,14 +158,14 @@ func (m *mockConn) TryLockName(ctx context.Context, dirPath, contents string) (L
 	return &mockLockDescriptor{}, nil
 }
 
-func (m *mockConn) TryLockEphemeral(ctx context.Context, key, contents string, ttl time.Duration) (LockDescriptor, error) {
+func (m *mockConn) TryLockWithLease(ctx context.Context, key, contents string, ttl time.Duration) (LockDescriptor, error) {
 	if err := m.checkError(); err != nil {
 		return nil, err
 	}
 	return &mockLockDescriptor{}, nil
 }
 
-func (m *mockConn) RevokeLockEphemeral(ctx context.Context, key string) error {
+func (m *mockConn) RevokeLockWithLease(ctx context.Context, key string) error {
 	if err := m.checkError(); err != nil {
 		return err
 	}

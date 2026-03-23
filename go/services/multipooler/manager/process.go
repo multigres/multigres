@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backuplease
+package manager
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -28,36 +27,29 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// RunWithLease runs a command while monitoring the backup lease. If the lease
-// is lost (e.g., stolen), the process is terminated gracefully:
+// sigtermTimeout is how long to wait after sending SIGTERM before
+// escalating to SIGKILL.
+const sigtermTimeout = 5 * time.Second
+
+// runBackupCommand runs a command while monitoring the context. If the context
+// is cancelled (e.g., due to lease loss via topoclient.ErrLeaseLost, or parent
+// cancellation), the process is terminated gracefully:
 //  1. Send SIGTERM to give pgbackrest a chance to clean up partial writes
-//  2. Wait up to SIGTERMTimeout (5s) for the process to exit
+//  2. Wait up to sigtermTimeout (5s) for the process to exit
 //  3. Send SIGKILL if the process is still running
 //
 // This replaces exec.CommandContext's default behavior of sending SIGKILL
 // immediately on context cancellation.
 //
 // The cmd must NOT have been started yet — this function calls cmd.Start().
-func RunWithLease(
+func runBackupCommand(
 	ctx context.Context,
-	lease *Lease,
 	cmd *exec.Cmd,
 	logger *slog.Logger,
 ) ([]byte, error) {
 	// Set up process group so we can signal the entire group
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// Use a pipe-based approach to capture output without blocking
-	return startAndCapture(ctx, lease, cmd, logger)
-}
-
-// startAndCapture starts the command, captures output, and handles lease loss.
-func startAndCapture(
-	ctx context.Context,
-	lease *Lease,
-	cmd *exec.Cmd,
-	logger *slog.Logger,
-) ([]byte, error) {
 	// Capture combined output
 	outputPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -80,39 +72,34 @@ func startAndCapture(
 		outputCh <- outputResult{data: data, err: err}
 	}()
 
-	// Wait for either: command completion, context cancellation, or lease loss
+	// Wait for command completion or context cancellation
 	doneCh := make(chan error, 1)
 	go func() {
 		doneCh <- cmd.Wait()
 	}()
 
-	// Wait for command completion, context cancellation, or lease loss.
-	var reason error
 	select {
 	case waitErr := <-doneCh:
-		// Command completed normally (or with error)
 		result := <-outputCh
 		return result.data, waitErr
 	case <-ctx.Done():
-		reason = ctx.Err()
-	case <-lease.Lost():
-		reason = errors.New("backup aborted: lease lost")
+		reason := context.Cause(ctx)
+		if reason == nil {
+			reason = ctx.Err()
+		}
+		logger.WarnContext(ctx, "Terminating pgbackrest process",
+			"pid", cmd.Process.Pid, "reason", reason)
+		killErr := gracefulKill(ctx, cmd, logger)
+		result := <-outputCh
+		<-doneCh
+		if killErr != nil {
+			return result.data, fmt.Errorf("process killed (%w): %w", reason, killErr)
+		}
+		return result.data, reason
 	}
-
-	// Context cancelled or lease lost — kill the process gracefully.
-	logger.WarnContext(ctx, "Terminating pgbackrest process",
-		"pid", cmd.Process.Pid,
-		"reason", reason)
-	killErr := gracefulKill(ctx, cmd, logger)
-	result := <-outputCh
-	<-doneCh // wait for process to fully exit
-	if killErr != nil {
-		return result.data, fmt.Errorf("process killed (%w): %w", reason, killErr)
-	}
-	return result.data, reason
 }
 
-// gracefulKill sends SIGTERM, waits up to SIGTERMTimeout, then sends SIGKILL.
+// gracefulKill sends SIGTERM, waits up to sigtermTimeout, then sends SIGKILL.
 func gracefulKill(ctx context.Context, cmd *exec.Cmd, logger *slog.Logger) error {
 	// Detach from parent context so cleanup isn't cancelled mid-kill.
 	return telemetry.WithSpan(ctxutil.Detach(ctx), "backup-lease/process-cleanup", func(_ context.Context) error {
@@ -151,10 +138,10 @@ func gracefulKill(ctx context.Context, cmd *exec.Cmd, logger *slog.Logger) error
 		case <-exitCh:
 			logger.Info("pgbackrest process exited after SIGTERM", "pid", pid)
 			return nil
-		case <-time.After(SIGTERMTimeout):
+		case <-time.After(sigtermTimeout):
 			// Step 3: Escalate to SIGKILL
 			logger.Warn("pgbackrest process did not exit after SIGTERM, sending SIGKILL",
-				"pid", pid, "timeout", SIGTERMTimeout)
+				"pid", pid, "timeout", sigtermTimeout)
 			if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil {
 				logger.Warn("Failed to send SIGKILL", "pid", pid, "error", err)
 			}

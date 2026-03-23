@@ -117,7 +117,7 @@ func TestBackup_LeaseStealingOnConcurrentBackup(t *testing.T) {
 	primaryClient := createBackupClient(t, primary.Multipooler.GrpcPort)
 
 	// pg2-path override for standby backups
-	primaryPg2Path := filepath.Join(primary.Pgctld.DataDir, "pg_data")
+	primaryPg2Path := filepath.Join(primary.Pgctld.PoolerDir, "pg_data")
 	standbyOverrides := map[string]string{"pg2_path": primaryPg2Path}
 
 	// === Phase 1: Start first backup from standby (will be blocked in s3mock) ===

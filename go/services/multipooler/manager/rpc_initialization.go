@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/multigres/multigres/go/common/backuplease"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -204,15 +203,13 @@ func (pm *MultiPoolerManager) InitializeEmptyPrimary(ctx context.Context, req *m
 	}
 
 	// Create initial backup for standby initialization.
-	// Acquire a backup lease for the backup operation.
 	pm.logger.InfoContext(ctx, "Creating initial backup for standby initialization", "shard", pm.getShardID())
-	backupCtx, backupLease, err := backuplease.Acquire(ctx, pm.topoClient, pm.shardKey(), pm.multipooler.Id.Name, "initial-backup", pm.logger)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to acquire backup lease for initial backup")
-	}
-	defer backupLease.Release(backupCtx)
-	backupID, err := pm.backupLocked(backupCtx, backupLease, true, "full", "", nil)
-	if err != nil {
+	var backupID string
+	if err := pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "initial-backup", pm.logger, func(ctx context.Context) error {
+		var backupErr error
+		backupID, backupErr = pm.backupLocked(ctx, true, "full", "", nil)
+		return backupErr
+	}); err != nil {
 		return nil, mterrors.Wrap(err, "failed to create initial backup")
 	}
 	pm.logger.InfoContext(ctx, "Initial backup created", "backup_id", backupID)
@@ -534,31 +531,27 @@ archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
 // the same shard's backup repository concurrently.
 // Must be called after PostgreSQL is initialized and running.
 func (pm *MultiPoolerManager) initializePgBackRestStanza(ctx context.Context) error {
-	ctx, lease, err := backuplease.Acquire(ctx, pm.topoClient, pm.shardKey(), pm.multipooler.Id.Name, "stanza-create", pm.logger)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to acquire backup lease for stanza-create")
-	}
-	defer lease.Release(ctx)
+	return pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "stanza-create", pm.logger, func(ctx context.Context) error {
+		configPath, err := pm.pgBackRestConfig()
+		if err != nil {
+			return mterrors.Wrap(err, "failed to initialize pgbackrest")
+		}
 
-	configPath, err := pm.pgBackRestConfig()
-	if err != nil {
-		return mterrors.Wrap(err, "failed to initialize pgbackrest")
-	}
+		stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 
-	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+		cmd := exec.CommandContext(stanzaCtx, "pgbackrest",
+			"--stanza="+pm.stanzaName(),
+			"--config="+configPath,
+			"stanza-create")
 
-	cmd := exec.CommandContext(stanzaCtx, "pgbackrest",
-		"--stanza="+pm.stanzaName(),
-		"--config="+configPath,
-		"stanza-create")
+		output, err := safeCombinedOutput(cmd)
+		if err != nil {
+			return mterrors.New(mtrpcpb.Code_INTERNAL,
+				fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", pm.stanzaName(), err, output))
+		}
 
-	output, err := safeCombinedOutput(cmd)
-	if err != nil {
-		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to create pgbackrest stanza %s: %v\nOutput: %s", pm.stanzaName(), err, output))
-	}
-
-	pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", pm.stanzaName(), "config", configPath)
-	return nil
+		pm.logger.InfoContext(ctx, "pgbackrest stanza initialized successfully", "stanza", pm.stanzaName(), "config", configPath)
+		return nil
+	})
 }

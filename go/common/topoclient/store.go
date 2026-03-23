@@ -64,6 +64,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -218,6 +219,14 @@ type Store interface {
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.
 	RevokeBackup(ctx context.Context, shardKey types.ShardKey) error
+
+	// WithBackupLease acquires a backup lease, runs fn, and releases the lease when fn returns.
+	// See backup_lock.go for full documentation.
+	WithBackupLease(ctx context.Context, shardKey types.ShardKey, holderID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
+
+	// WithStolenBackupLease acquires a backup lease (stealing if necessary), runs fn, and releases.
+	// See backup_lock.go for full documentation.
+	WithStolenBackupLease(ctx context.Context, shardKey types.ShardKey, stealerID string, operation string, logger *slog.Logger, fn func(ctx context.Context) error) error
 
 	// GetRemoteOperationTimeout returns the configured timeout for remote operations.
 	// This should be used for RPCs and database operations that should use a shorter timeout than the parent context.
