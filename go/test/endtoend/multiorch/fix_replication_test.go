@@ -148,6 +148,10 @@ func TestFixReplication(t *testing.T) {
 
 	t.Log("First fix completed successfully, breaking replication again...")
 
+	// Disable recovery while we break replication and assert the broken state,
+	// preventing the background loop from racing against our assertions.
+	enableRecovery := setup.DisableRecovery(t, "multiorch")
+
 	// Break replication a second time to verify multiorch can fix it repeatedly
 	t.Logf("Breaking replication on %s via RPC (second time)...", replicaName)
 	breakReplication(t, replicaClient)
@@ -162,6 +166,8 @@ func TestFixReplication(t *testing.T) {
 	result, err = replicaClient.Pooler.ExecuteQuery(context.Background(), "SELECT COUNT(*) FROM fix_replication_test WHERE data = 'inserted_while_broken_2'", 1)
 	require.NoError(t, err, "should be able to query replica")
 	require.Equal(t, "0", string(result.Rows[0].Values[0]), "new data should NOT be visible on replica while replication is broken")
+
+	enableRecovery()
 
 	// Trigger recovery to detect and fix the broken replication
 	t.Log("Triggering recovery to detect and fix replication (second time)...")
@@ -193,6 +199,9 @@ func TestFixReplication(t *testing.T) {
 	// This tests the ReplicaNotInStandbyListAnalyzer
 	t.Log("Testing fix for replica not in standby list...")
 
+	// Disable recovery while we remove the replica and assert the broken state.
+	enableRecovery = setup.DisableRecovery(t, "multiorch")
+
 	// Remove replica from standby list (without breaking replication)
 	t.Logf("Removing replica %s from primary's standby list...", replicaName)
 	removeReplicaFromStandbyList(t, primaryClient, replicaName)
@@ -205,6 +214,8 @@ func TestFixReplication(t *testing.T) {
 	// Verify replication is still working (primary_conninfo should still be configured)
 	t.Log("Verifying replication is still working after standby list removal...")
 	verifyReplicationStreaming(t, replicaClient)
+
+	enableRecovery()
 
 	// Trigger recovery to add replica back to standby list
 	t.Log("Triggering recovery to add replica back to standby list...")
