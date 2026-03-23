@@ -437,9 +437,10 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Cancel the context to gracefully terminate all processes (multigateway, multiorch,
-	// multipoolers, pgctld, etcd). The executil package will handle SIGTERM → SIGKILL
-	// escalation with the default grace period (10s).
+	// Cancel the context to terminate all processes. Processes started directly with
+	// executil.Command will be killed. Processes wrapped in run_in_test.sh (etcd) are
+	// started with context.Background() and use a separate goroutine to detect context
+	// cancellation and call Stop() gracefully so the wrapper can clean up its child.
 	if s.cancel != nil {
 		s.cancel()
 	}

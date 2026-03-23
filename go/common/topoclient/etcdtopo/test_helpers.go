@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -30,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
@@ -152,8 +150,9 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *executil.Cmd
 	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
-	// Wrap etcd with run_in_test.sh to ensure cleanup if test process dies
-	cmd := executil.Command(t.Context(), "run_in_test.sh", "etcd",
+	// Wrap etcd with run_in_test.sh for orphan protection. Stops gracefully when
+	// the test context is cancelled so run_in_test.sh can terminate etcd cleanly.
+	cmd := utils.CommandWithOrphanProtection(t.Context(), "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
@@ -175,20 +174,6 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *executil.Cmd
 	defer cancel()
 	err = WaitForReady(ctx, clientAddr)
 	require.NoError(t, err, "etcd failed to become ready")
-
-	t.Cleanup(func() {
-		// Force kill if still running
-		// Use ctxutil.Detach since we're in cleanup after the test context is done
-		stopCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
-		stopErr, _ := cmd.Stop(stopCtx)
-		cancel()
-		if stopErr != nil {
-			slog.Error("executil.KillProcess() failed killing etcd", "error", stopErr)
-		}
-
-		// Additional cleanup: try to release the ports
-		time.Sleep(50 * time.Millisecond)
-	})
 
 	return clientAddr, cmd
 }

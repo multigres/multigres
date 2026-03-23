@@ -820,10 +820,9 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
-	// Wrap etcd with run_in_test to ensure cleanup if test process dies
-	// Use the passed context for process lifetime (ShardSetup.ctx).
-	// This context is cancelled in ShardSetup.Cleanup() to gracefully terminate etcd.
-	cmd := executil.Command(ctx, "run_in_test.sh", "etcd",
+	// Wrap etcd with run_in_test.sh for orphan protection. Stops gracefully when
+	// runningCtx is cancelled so run_in_test.sh can terminate etcd cleanly.
+	cmd := utils.CommandWithOrphanProtection(ctx, "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
