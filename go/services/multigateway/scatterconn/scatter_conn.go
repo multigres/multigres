@@ -201,6 +201,11 @@ func (sc *ScatterConn) StreamExecute(
 		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for transaction")
 
 		reservationOpts := protoutil.NewTransactionReservationOptions()
+		// If the session is pinned for temp tables, include the temp table reason
+		// so the connection survives COMMIT (only released when all reasons clear).
+		if state.SessionPinned {
+			reservationOpts.Reasons |= protoutil.ReasonTempTable
+		}
 		// Pass the original BEGIN query (e.g., "BEGIN ISOLATION LEVEL SERIALIZABLE")
 		// so the multipooler preserves transaction options instead of using plain "BEGIN".
 		if state.PendingBeginQuery != "" {
@@ -328,6 +333,9 @@ func (sc *ScatterConn) PortalStreamExecute(
 		sc.logger.DebugContext(ctx, "creating reserved connection with BEGIN for portal transaction")
 
 		reservationOpts := protoutil.NewTransactionReservationOptions()
+		if state.SessionPinned {
+			reservationOpts.Reasons |= protoutil.ReasonTempTable
+		}
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""
@@ -740,6 +748,9 @@ func (sc *ScatterConn) CopyInitiate(
 		// Deferred BEGIN: pass transaction reservation options so the executor
 		// executes BEGIN on the new connection before initiating COPY.
 		reservationOpts = protoutil.NewTransactionReservationOptions()
+		if state.SessionPinned {
+			reservationOpts.Reasons |= protoutil.ReasonTempTable
+		}
 		if state.PendingBeginQuery != "" {
 			reservationOpts.BeginQuery = state.PendingBeginQuery
 			state.PendingBeginQuery = ""
