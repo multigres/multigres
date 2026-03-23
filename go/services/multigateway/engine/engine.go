@@ -133,6 +133,7 @@ type IExecute interface {
 		ctx context.Context,
 		conn *server.Conn,
 		state *handler.MultiGatewayConnectionState,
+		sql string,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

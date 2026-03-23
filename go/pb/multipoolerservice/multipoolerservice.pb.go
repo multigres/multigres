@@ -1459,7 +1459,9 @@ type DiscardTempTablesRequest struct {
 	// caller_id identifies the caller
 	CallerId *mtrpc.CallerID `protobuf:"bytes,2,opt,name=caller_id,json=callerId,proto3" json:"caller_id,omitempty"`
 	// options must include reserved_connection_id to identify the connection
-	Options       *query.ExecuteOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
+	Options *query.ExecuteOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
+	// sql is the original SQL statement to execute (e.g., "DISCARD TEMP" or "DISCARD ALL").
+	Sql           string `protobuf:"bytes,4,opt,name=sql,proto3" json:"sql,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1513,6 +1515,13 @@ func (x *DiscardTempTablesRequest) GetOptions() *query.ExecuteOptions {
 		return x.Options
 	}
 	return nil
+}
+
+func (x *DiscardTempTablesRequest) GetSql() string {
+	if x != nil {
+		return x.Sql
+	}
+	return ""
 }
 
 // DiscardTempTablesResponse represents the response from discarding temp tables.

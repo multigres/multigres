@@ -587,6 +587,7 @@ func (sc *ScatterConn) DiscardTempTables(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultiGatewayConnectionState,
+	sql string,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.discard_temp_tables",
@@ -629,7 +630,7 @@ func (sc *ScatterConn) DiscardTempTables(
 			continue
 		}
 
-		result, reservedState, err := qs.DiscardTempTables(ctx, ss.Target, eo)
+		result, reservedState, err := qs.DiscardTempTables(ctx, ss.Target, sql, eo)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 			errs = append(errs, fmt.Errorf("discard temp tables failed for %s: %w", ss.Target, err))

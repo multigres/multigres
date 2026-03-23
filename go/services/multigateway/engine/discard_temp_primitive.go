@@ -17,6 +17,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -24,13 +25,15 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// DiscardTempPrimitive handles DISCARD TEMP statements.
+// DiscardTempPrimitive handles DISCARD TEMP and DISCARD ALL statements.
 //
 // When the session is pinned (has temp tables), it uses the dedicated
 // DiscardTempTables RPC to remove the temp table reservation reason on
-// the multipooler side. When the session is not pinned, it falls through
-// to a regular StreamExecute since DISCARD TEMP on an unpinned session
-// is harmless.
+// the multipooler side and sends the original SQL to PostgreSQL.
+// For DISCARD ALL, it also resets gateway-side session state (GUCs,
+// statement timeout) since PG resets those too.
+// When the session is not pinned, it falls through to a regular
+// StreamExecute since DISCARD on an unpinned session is harmless.
 type DiscardTempPrimitive struct {
 	// Query is the original SQL string (e.g., "DISCARD TEMP", "DISCARD ALL").
 	Query string
@@ -61,11 +64,25 @@ func (d *DiscardTempPrimitive) StreamExecute(
 		// Clear any deferred BEGIN — the session is being unpinned, so
 		// a pending transaction start should not carry over.
 		state.PendingBeginQuery = ""
-		return exec.DiscardTempTables(ctx, conn, state, callback)
+
+		err := exec.DiscardTempTables(ctx, conn, state, d.Query, callback)
+		if err != nil {
+			return err
+		}
+
+		// For DISCARD ALL, also reset gateway-side session state.
+		// PG's DISCARD ALL runs RESET ALL (clears GUCs) and DEALLOCATE ALL
+		// (drops prepared statements), so the gateway must stay in sync.
+		if d.isDiscardAll() {
+			state.ResetAllSessionVariables()
+			state.ResetStatementTimeout()
+		}
+
+		return nil
 	}
 
 	// Session is not pinned — just execute via regular path.
-	// DISCARD TEMP on an unpinned session is harmless.
+	// DISCARD on an unpinned session is harmless.
 	return exec.StreamExecute(ctx, conn, d.TableGroup, constants.DefaultShard, d.Query, state, callback)
 }
 
@@ -77,6 +94,11 @@ func (d *DiscardTempPrimitive) GetTableGroup() string {
 // GetQuery returns the SQL query.
 func (d *DiscardTempPrimitive) GetQuery() string {
 	return d.Query
+}
+
+// isDiscardAll returns true if the query is DISCARD ALL (case-insensitive).
+func (d *DiscardTempPrimitive) isDiscardAll() bool {
+	return strings.EqualFold(strings.TrimSpace(d.Query), "DISCARD ALL")
 }
 
 // String returns a description of the primitive for debugging.
