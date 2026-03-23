@@ -28,8 +28,11 @@ import (
 // canonical name to different queries. The PoolerConsolidator therefore
 // deduplicates purely by (query text, param types), ignoring incoming names.
 //
-// Per-postgres-connection state (which statements are prepared on which
-// connection) is tracked separately by connstate.ConnectionState.
+// Entries are never removed: in practice the set of unique (query, paramTypes)
+// pairs is bounded by the application's query surface, so the map does not
+// grow without bound. Per-postgres-connection state (which statements are
+// prepared on which connection) is tracked separately by
+// connstate.ConnectionState.
 type PoolerConsolidator struct {
 	mu     sync.Mutex
 	stmts  map[string]string // dedup key → canonical name
@@ -63,13 +66,15 @@ func (pc *PoolerConsolidator) CanonicalName(query string, paramTypes []uint32) s
 }
 
 // dedupKey builds a deduplication key from query text and param type OIDs.
+// The key is length-prefixed so that no query text can collide with the
+// separator/paramTypes suffix.
 func dedupKey(query string, paramTypes []uint32) string {
 	if len(paramTypes) == 0 {
 		return query
 	}
 	var b strings.Builder
+	fmt.Fprintf(&b, "%d:", len(query))
 	b.WriteString(query)
-	b.WriteByte(0) // null byte separator — cannot appear in valid SQL
 	for i, oid := range paramTypes {
 		if i > 0 {
 			b.WriteByte(',')

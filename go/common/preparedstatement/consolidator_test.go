@@ -276,9 +276,9 @@ func TestConsolidator_RemoveConnection_NonExistent(t *testing.T) {
 }
 
 // TestConsolidator_SameQueryDifferentParamTypes verifies that the
-// Consolidator incorrectly consolidates statements with the same query text
-// but different parameter types. PostgreSQL treats these as distinct prepared
-// statements (different plans, different type coercion).
+// Consolidator does not incorrectly consolidate statements with the same query
+// text but different parameter types. PostgreSQL treats these as distinct
+// prepared statements (different plans, different type coercion).
 func TestConsolidator_SameQueryDifferentParamTypes(t *testing.T) {
 	consolidator := NewConsolidator()
 
@@ -299,6 +299,35 @@ func TestConsolidator_SameQueryDifferentParamTypes(t *testing.T) {
 		"same query with different paramTypes should get different canonical names")
 	require.Equal(t, textOID, psi2.ParamTypes,
 		"psi2 should have TEXT param types, not INT4")
+}
+
+func TestConsolidator_RemoveSameQueryDifferentParamTypes(t *testing.T) {
+	consolidator := NewConsolidator()
+
+	query := "SELECT $1"
+	int4OID := []uint32{23}
+	textOID := []uint32{25}
+
+	psiInt4, err := consolidator.AddPreparedStatement(1, "s1", query, int4OID)
+	require.NoError(t, err)
+
+	psiText, err := consolidator.AddPreparedStatement(2, "s2", query, textOID)
+	require.NoError(t, err)
+	require.NotEqual(t, psiInt4.Name, psiText.Name)
+
+	// Remove the INT4 variant — the TEXT variant must survive.
+	consolidator.RemovePreparedStatement(1, "s1")
+
+	require.Nil(t, consolidator.GetPreparedStatementInfo(1, "s1"))
+	require.Equal(t, psiText, consolidator.GetPreparedStatementInfo(2, "s2"))
+
+	// The TEXT entry should still be in stmts.
+	_, exists := consolidator.stmts[dedupKey(query, textOID)]
+	require.True(t, exists)
+
+	// The INT4 entry should be gone.
+	_, exists = consolidator.stmts[dedupKey(query, int4OID)]
+	require.False(t, exists)
 }
 
 func TestConsolidator_Stats(t *testing.T) {
