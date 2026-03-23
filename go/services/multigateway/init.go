@@ -237,7 +237,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		return fmt.Errorf("buffer config: %w", err)
 	}
 	if mg.bufferConfig.Enabled.Get() {
-		mg.buffer = buffer.New(context.TODO(), mg.bufferConfig, logger)
+		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
 		// Stop buffering when the streaming health check detects a new primary.
 		// This ia a more reliable
 		// direct signal from the pooler's health stream.

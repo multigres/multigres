@@ -29,16 +29,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
-var (
-	// ErrNotServing is returned when a request is made while not serving.
-	// Uses MTF01 so the gateway's classifyError triggers failover buffering.
-	ErrNotServing = mterrors.MTF01.New()
-
-	// ErrShuttingDown is returned when a new request is made during graceful shutdown.
-	// Uses MTF01 so the gateway's classifyError triggers failover buffering.
-	ErrShuttingDown = mterrors.MTF01.New()
-)
-
 // QueryPoolerServer is the core pooler implementation for query serving.
 // It encapsulates the components required to manage query execution
 // (e.g. pooling, execution, transactions).
@@ -166,11 +156,11 @@ func (s *QueryPoolerServer) StartRequest(allowOnShutdown bool) error {
 	defer s.mu.Unlock()
 
 	if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING && !s.shuttingDown {
-		return ErrNotServing
+		return mterrors.MTF01.New()
 	}
 
 	if s.shuttingDown && !allowOnShutdown {
-		return ErrShuttingDown
+		return mterrors.MTF01.New()
 	}
 
 	return nil
