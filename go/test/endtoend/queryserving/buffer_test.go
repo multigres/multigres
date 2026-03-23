@@ -226,7 +226,18 @@ func TestBufferMultipleFailovers(t *testing.T) {
 		t.Skip("PostgreSQL binaries not found")
 	}
 
-	setup, cleanup := newBufferTestCluster(t)
+	// Use longer buffer timeouts than the single-failover tests. Consecutive
+	// failovers are slower because multiorch must detect the dead primary,
+	// run DemoteStalePrimary (pg_rewind), and restart it before the next
+	// failover can proceed. On CI this can exceed the default 10s window.
+	setup, cleanup := newBufferTestClusterWithConfig(t,
+		"--buffer-enabled",
+		"--buffer-window", "30s",
+		"--buffer-size", "1000",
+		"--buffer-max-failover-duration", "60s",
+		"--buffer-min-time-between-failovers", "0s",
+		"--buffer-drain-concurrency", "5",
+	)
 	defer cleanup()
 
 	gatewayDB := openGatewayDB(t, setup)
@@ -248,16 +259,13 @@ func TestBufferMultipleFailovers(t *testing.T) {
 		preSuccess, preFailed := validator.Stats()
 		t.Logf("Failover %d/%d: pre-stats %d successful, %d failed", i+1, numFailovers, preSuccess, preFailed)
 
-		oldPrimaryName := setup.PrimaryName
 		triggerFailover(t, setup)
 
-		// Wait for the old primary to recover as a replica before the next
-		// failover. After emergency demotion, multiorch must detect the dead
-		// primary, run DemoteStalePrimary (pg_rewind), and restart it as a
-		// replica. Without this, the next failover may not have enough
-		// eligible replicas to elect a new primary.
-		_ = oldPrimaryName
-		waitForClusterStable(t, setup, 60*time.Second)
+		// Wait for ALL nodes to be healthy (1 primary + N-1 replicas) before
+		// triggering the next failover. Without this, the next failover may
+		// start with insufficient healthy replicas, causing it to take longer
+		// and exceed the buffer window.
+		waitForClusterStable(t, setup, 90*time.Second)
 
 		// Wait for multiorch to fully settle — after our manual BeginTerm,
 		// multiorch detects the dead primary and runs its own recovery cycle
@@ -284,10 +292,26 @@ func TestBufferMultipleFailovers(t *testing.T) {
 // newBufferTestCluster creates a standard 3-node cluster with buffering enabled.
 func newBufferTestCluster(t *testing.T) (*shardsetup.ShardSetup, func()) {
 	t.Helper()
+	return newBufferTestClusterWithConfig(t,
+		"--buffer-enabled",
+		"--buffer-window", "10s",
+		"--buffer-size", "1000",
+		"--buffer-max-failover-duration", "20s",
+		"--buffer-min-time-between-failovers", "0s",
+		"--buffer-drain-concurrency", "5",
+	)
+}
+
+// newBufferTestClusterWithConfig creates a 3-node cluster with custom buffer flags.
+func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shardsetup.ShardSetup, func()) {
+	t.Helper()
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiOrchCount(3),
-		shardsetup.WithMultigatewayBuffering(),
+		shardsetup.WithMultigateway(),
+		func(c *shardsetup.SetupConfig) {
+			c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, bufferArgs...)
+		},
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithPrimaryFailoverGracePeriod("0s", "0s"),
@@ -389,44 +413,58 @@ func execPrepared(db *sql.DB, id int64) error {
 	return err
 }
 
-// waitForClusterStable polls until the cluster has a running primary and at
-// least one running replica. This ensures multiorch has finished recovery after
-// a failover and the cluster is ready for the next one.
+// waitForClusterStable polls until ALL nodes in the cluster are healthy:
+// exactly 1 primary and (N-1) replicas, all with postgres running and no
+// recovery action in progress. This is critical before triggering the next
+// failover — if the old primary hasn't fully recovered as a replica, the
+// next failover may have insufficient healthy replicas, making it slower
+// and more likely to exceed the buffer window.
 func waitForClusterStable(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) {
 	t.Helper()
 
+	expectedTotal := len(setup.Multipoolers)
+
 	require.Eventually(t, func() bool {
-		var hasPrimary bool
+		var primaryCount int
 		var replicaCount int
 
 		for _, inst := range setup.Multipoolers {
 			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
 			if err != nil {
-				continue
+				return false
 			}
 			resp, err := client.Manager.Status(
 				utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 			client.Close()
 			if err != nil {
-				continue
+				return false
 			}
 			s := resp.Status
 			if !s.IsInitialized || !s.PostgresRunning {
-				continue
+				return false
+			}
+			// Node must not be in the middle of a recovery action
+			// (e.g., STARTING, RESTORING_FROM_BACKUP after pg_rewind).
+			if s.PostgresAction != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
+				return false
 			}
 			switch s.PoolerType {
 			case clustermetadatapb.PoolerType_PRIMARY:
-				hasPrimary = true
+				primaryCount++
 			case clustermetadatapb.PoolerType_REPLICA:
 				replicaCount++
+			default:
+				// UNKNOWN or other type — node not ready.
+				return false
 			}
 		}
-		return hasPrimary && replicaCount >= 1
-	}, timeout, 2*time.Second, "cluster did not stabilize within %v", timeout)
+		return primaryCount == 1 && replicaCount == expectedTotal-1
+	}, timeout, 2*time.Second, "cluster did not stabilize: expected 1 primary + %d replicas within %v",
+		expectedTotal-1, timeout)
 
 	// Refresh so triggerFailover finds the correct primary.
 	setup.RefreshPrimary(t)
-	t.Logf("Cluster stable, primary: %s", setup.PrimaryName)
+	t.Logf("Cluster stable: all %d nodes healthy, primary: %s", expectedTotal, setup.PrimaryName)
 }
 
 // waitForMinWrites polls until at least minWrites successful writes have been recorded.
