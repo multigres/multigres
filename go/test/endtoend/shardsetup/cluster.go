@@ -19,7 +19,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -34,6 +33,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 const (
@@ -56,9 +56,14 @@ type ShardSetup struct {
 	TempDir        string
 	TempDirCleanup func()
 	EtcdClientAddr string
-	EtcdCmd        *exec.Cmd
+	EtcdCmd        *executil.Cmd
 	TopoServer     topoclient.Store
 	CellName       string
+
+	// Context for all processes started by this ShardSetup.
+	// Cancelled when Cleanup() is called to gracefully terminate all processes.
+	runningCtx context.Context
+	cancel     context.CancelFunc
 
 	// MultipoolerInstances indexed by name (e.g., "pooler-1", "pooler-2", "pooler-3")
 	Multipoolers map[string]*MultipoolerInstance
@@ -91,6 +96,12 @@ type ShardSetup struct {
 	// - Primary: synchronous_standby_names, synchronous_commit
 	// - Replicas: primary_conninfo
 	BaselineGucs map[string]map[string]string
+}
+
+// Context returns the running context for this setup, which is cancelled when Cleanup() is called.
+// Use this when starting processes that should live for the lifetime of the cluster.
+func (s *ShardSetup) Context() context.Context {
+	return s.runningCtx
 }
 
 // GetMultipoolerInstance returns a multipooler instance by name, or nil if not found.
@@ -426,37 +437,17 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		return
 	}
 
-	// Stop multigateway first (before multipoolers it routes to)
-	if s.Multigateway != nil {
-		s.Multigateway.Stop()
+	// Cancel the context to terminate all processes. Processes started directly with
+	// executil.Command will be killed. Processes wrapped in run_in_test.sh (etcd) are
+	// started with context.Background() and use a separate goroutine to detect context
+	// cancellation and call Stop() gracefully so the wrapper can clean up its child.
+	if s.cancel != nil {
+		s.cancel()
 	}
 
-	// Stop multiorch instances (they orchestrate the shard)
-	for _, mo := range s.MultiOrchInstances {
-		if mo != nil {
-			mo.Stop()
-		}
-	}
-
-	// Stop multipooler instances (multipooler, then pgctld)
-	for _, inst := range s.Multipoolers {
-		if inst.Multipooler != nil {
-			inst.Multipooler.Stop()
-		}
-		if inst.Pgctld != nil {
-			inst.Pgctld.Stop()
-		}
-	}
-
-	// Close topology server
+	// Close topology server (can do this immediately since context cancellation is async)
 	if s.TopoServer != nil {
 		s.TopoServer.Close()
-	}
-
-	// Stop etcd
-	if s.EtcdCmd != nil && s.EtcdCmd.Process != nil {
-		_ = s.EtcdCmd.Process.Kill()
-		_ = s.EtcdCmd.Wait()
 	}
 
 	// Clean up temp directory only if tests passed

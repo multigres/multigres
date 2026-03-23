@@ -17,7 +17,6 @@ package pgctld
 import (
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"testing"
 	"time"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // TestPgctldLiveEndpoint verifies that pgctld exposes an HTTP /live endpoint
@@ -48,7 +48,7 @@ func TestPgctldLiveEndpoint(t *testing.T) {
 	pgPort := utils.GetFreePort(t)
 
 	// Start pgctld server with HTTP port
-	cmd := exec.Command("pgctld",
+	cmd := executil.Command(t.Context(), "pgctld",
 		"server",
 		"--pooler-dir", tempDir,
 		"--grpc-port", strconv.Itoa(grpcPort),
@@ -61,10 +61,7 @@ func TestPgctldLiveEndpoint(t *testing.T) {
 	err := cmd.Start()
 	require.NoError(t, err, "pgctld should start")
 	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
+		_ = cmd.Wait()
 	})
 
 	// Wait for HTTP /live endpoint to return 200
