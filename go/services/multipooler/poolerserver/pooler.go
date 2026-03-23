@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
@@ -30,10 +31,12 @@ import (
 
 var (
 	// ErrNotServing is returned when a request is made while not serving.
-	ErrNotServing = errors.New("pooler is not serving")
+	// Uses MTF01 so the gateway's classifyError triggers failover buffering.
+	ErrNotServing = mterrors.MTF01.New()
 
 	// ErrShuttingDown is returned when a new request is made during graceful shutdown.
-	ErrShuttingDown = errors.New("pooler is shutting down")
+	// Uses MTF01 so the gateway's classifyError triggers failover buffering.
+	ErrShuttingDown = mterrors.MTF01.New()
 )
 
 // QueryPoolerServer is the core pooler implementation for query serving.

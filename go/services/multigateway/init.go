@@ -36,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
@@ -237,8 +238,16 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	}
 	if mg.bufferConfig.Enabled.Get() {
 		mg.buffer = buffer.New(context.TODO(), mg.bufferConfig, logger)
-		mg.poolerDiscovery.RegisterListener(buffer.NewBufferListener(mg.buffer))
-		logger.Info("Failover buffering enabled")
+		// Stop buffering when the streaming health check detects a new primary.
+		// This ia a more reliable
+		// direct signal from the pooler's health stream.
+		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
+			mg.buffer.StopBuffering(commontypes.ShardKey{
+				TableGroup: tableGroup,
+				Shard:      shard,
+			})
+		})
+		logger.InfoContext(ctx, "Failover buffering enabled")
 	}
 
 	// Initialize PoolerGateway for managing pooler connections
