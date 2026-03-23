@@ -113,7 +113,7 @@ type EtcdOptions struct {
 
 // StartEtcd starts an etcd subprocess with automatically allocated ports.
 // Returns the client address (which includes the port) and the process handle.
-func StartEtcd(t *testing.T) (string, *exec.Cmd) {
+func StartEtcd(t *testing.T) (string, *executil.Cmd) {
 	clientPort := utils.GetFreePort(t)
 	peerPort := utils.GetFreePort(t)
 	return StartEtcdWithOptions(t, EtcdOptions{
@@ -123,7 +123,7 @@ func StartEtcd(t *testing.T) (string, *exec.Cmd) {
 }
 
 // StartEtcdWithOptions starts an etcd subprocess with custom options, and waits for it to be ready.
-func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
+func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *executil.Cmd) {
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd not found in PATH")
@@ -153,7 +153,7 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
 	// Wrap etcd with run_in_test.sh to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	cmd := executil.Command(t.Context(), "run_in_test.sh", "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
@@ -177,30 +177,13 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	require.NoError(t, err, "etcd failed to become ready")
 
 	t.Cleanup(func() {
-		// Ensure the process is killed and cleaned up
-		if cmd.Process != nil {
-			// Try graceful shutdown first
-			if err := cmd.Process.Signal(os.Interrupt); err == nil {
-				// Wait a bit for graceful shutdown
-				time.Sleep(100 * time.Millisecond)
-			}
-
-			// Force kill if still running
-			// Use ctxutil.Detach since we're in cleanup after the test context is done
-			killCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
-			killErr, _ := executil.KillProcess(killCtx, cmd.Process)
-			cancel()
-			if killErr != nil {
-				slog.Error("executil.KillProcess() failed killing etcd", "error", killErr)
-			}
-
-			// Wait for process to finish
-			if err := cmd.Wait(); err != nil {
-				// Ignore "signal: killed" and "signal: interrupt" errors as they're expected
-				if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "signal: interrupt") {
-					slog.Error("cmd.Wait() failed killing etcd", "error", err)
-				}
-			}
+		// Force kill if still running
+		// Use ctxutil.Detach since we're in cleanup after the test context is done
+		stopCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
+		stopErr, _ := cmd.Stop(stopCtx)
+		cancel()
+		if stopErr != nil {
+			slog.Error("executil.KillProcess() failed killing etcd", "error", stopErr)
 		}
 
 		// Additional cleanup: try to release the ports

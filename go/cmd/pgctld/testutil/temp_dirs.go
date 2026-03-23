@@ -17,7 +17,6 @@ package testutil
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -100,21 +100,12 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	t.Helper()
 
 	// Start a background sleep process to get a real PID that will pass the isProcessRunning check
-	cmd := exec.Command("sleep", "3600")
+	cmd := executil.Command(utils.WithShortDeadline(t), "sleep", "3600")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start background sleep process: %v", err)
 	}
 
 	realPID := cmd.Process.Pid
-
-	// Register cleanup to kill the background process when test finishes
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, _ = executil.KillProcess(killCtx, cmd.Process)
-			cancel()
-		}
-	})
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
