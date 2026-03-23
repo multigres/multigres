@@ -49,6 +49,11 @@ type PoolerController interface {
 	// Returns error if the transition fails.
 	OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error
 
+	// StartRequest checks whether a new request should be admitted.
+	// During graceful shutdown, allowOnShutdown=true permits requests on
+	// existing reserved connections so in-flight transactions can complete.
+	StartRequest(allowOnShutdown bool) error
+
 	// IsServing returns true if the query service is currently serving requests.
 	IsServing() bool
 

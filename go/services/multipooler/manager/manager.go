@@ -245,8 +245,13 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// Consensus state is always available; it will be loaded when needed.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 
-	// Create the query service controller with the pool manager
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm)
+	// Create the query service controller with the pool manager.
+	// Get the drain grace period from connpool config (0 means use default).
+	var drainGracePeriod time.Duration
+	if config.ConnPoolConfig != nil {
+		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
+	}
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm, drainGracePeriod)
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.

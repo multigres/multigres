@@ -83,6 +83,18 @@ type UserPoolConfig struct {
 
 	// Logger for pool operations.
 	Logger *slog.Logger
+
+	// OnBorrow is called after a regular connection is borrowed from any pool (optional).
+	OnBorrow func()
+
+	// OnRecycle is called after a regular connection is returned to any pool (optional).
+	OnRecycle func()
+
+	// OnReserve is called after a new reserved connection is created (optional).
+	OnReserve func()
+
+	// OnRelease is called after a reserved connection is released or killed (optional).
+	OnRelease func()
 }
 
 // NewUserPool creates a new UserPool for the given user.
@@ -94,6 +106,14 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 		logger = slog.Default()
 	}
 	logger = logger.With("user", config.ClientConfig.User)
+
+	// Wire OnBorrow/OnRecycle callbacks into both regular and reserved pool configs.
+	if config.OnBorrow != nil {
+		config.RegularPoolConfig.OnBorrow = config.OnBorrow
+	}
+	if config.OnRecycle != nil {
+		config.RegularPoolConfig.OnRecycle = config.OnRecycle
+	}
 
 	// Create regular pool for this user
 	regularPool := regular.NewPool(ctx, &regular.PoolConfig{
@@ -110,6 +130,8 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 	reservedPool := reserved.NewPool(ctx, &reserved.PoolConfig{
 		InactivityTimeout: config.ReservedInactivityTimeout,
 		Logger:            logger,
+		OnReserve:         config.OnReserve,
+		OnRelease:         config.OnRelease,
 		RegularPoolConfig: &regular.PoolConfig{
 			ClientConfig:   config.ClientConfig,
 			ConnPoolConfig: config.ReservedPoolConfig,
@@ -226,6 +248,12 @@ func (p *UserPool) NewReservedConn(ctx context.Context, settings *connstate.Sett
 func (p *UserPool) GetReservedConn(connID int64) (*reserved.Conn, bool) {
 	p.touchActivity()
 	return p.reservedPool.Get(connID)
+}
+
+// CloseReservedConnections kills all active reserved connections.
+// Used during graceful shutdown when the drain grace period has expired.
+func (p *UserPool) CloseReservedConnections(ctx context.Context) int {
+	return p.reservedPool.KillAll(ctx)
 }
 
 // Close closes both regular and reserved pools.
