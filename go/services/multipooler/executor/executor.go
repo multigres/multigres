@@ -435,7 +435,6 @@ func (e *Executor) Describe(
 		return nil, err
 	}
 
-	// If portal is provided, we need to bind first, then describe
 	if portal != nil {
 		paramFormats := int32ToInt16Slice(portal.ParamFormats)
 		resultFormats := int32ToInt16Slice(portal.ResultFormats)
@@ -805,6 +804,14 @@ func (e *Executor) ReserveStreamExecute(
 	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
+	}
+
+	// Apply all reservation reasons to the reserved connection.
+	// BeginWithQuery below adds ReasonTransaction internally, but non-transaction
+	// reasons (e.g., temp_table) must be added explicitly so that buildReservedState
+	// returns the correct bitmask and DiscardTempTables can find the shard.
+	if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
+		reservedConn.AddReservationReason(nonBeginReasons)
 	}
 
 	// If this is a transaction reservation, execute BEGIN first.
