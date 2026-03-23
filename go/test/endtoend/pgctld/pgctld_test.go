@@ -205,14 +205,9 @@ timeout: 30
 
 		err := serverCmd.Start()
 		require.NoError(t, err)
-		defer func() {
-			if serverCmd.Process != nil {
-				killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				_, _ = executil.KillProcess(killCtx, serverCmd.Process)
-				cancel()
-				_ = serverCmd.Wait()
-			}
-		}()
+		t.Cleanup(func() {
+			_ = serverCmd.Wait()
+		})
 
 		deadline := time.Now().Add(20 * time.Second)
 		serverStarted := false
@@ -1238,11 +1233,8 @@ func TestOrphanDetectionWithRealPostgreSQL(t *testing.T) {
 	require.NoError(t, pgProcess.Signal(syscall.Signal(0)))
 
 	// Kill the pgctld server subprocess abruptly
-	killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	killErr, _ := executil.KillProcess(killCtx, serverCmd.Process)
-	cancel()
-	require.NoError(t, killErr)
-	_, _ = serverCmd.Process.Wait()
+	_, killed := serverCmd.Kill(utils.WithShortDeadline(t))
+	require.True(t, killed, "pgctld server should have been killed within deadline")
 
 	// TODO(dweitzman): Start a process using sleep command and use that PID for orphan detection
 
