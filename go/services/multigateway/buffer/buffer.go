@@ -220,7 +220,10 @@ func (b *Buffer) getOrCreateShardBuffer(key commontypes.ShardKey) *shardBuffer {
 }
 
 // enqueue adds a new entry to the global FIFO queue. If the buffer is full,
-// the oldest entry globally is evicted to make room.
+// the oldest entry globally is evicted to make room — even if it belongs to a
+// different shard that is closer to recovering. This is intentional: global FIFO
+// keeps the implementation simple and avoids per-shard capacity tracking. For the
+// common case (single-shard failover) there is no cross-shard interference.
 // Must NOT be called with b.mu held.
 func (b *Buffer) enqueue(shardKey commontypes.ShardKey) (*entry, error) {
 	b.mu.Lock()
