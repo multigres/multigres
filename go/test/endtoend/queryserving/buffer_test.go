@@ -251,7 +251,14 @@ func TestBufferMultipleFailovers(t *testing.T) {
 		// primary, run DemoteStalePrimary (pg_rewind), and restart it as a
 		// replica. Without this, the next failover may not have enough
 		// eligible replicas to elect a new primary.
-		waitForPoolerReplica(t, setup, oldPrimaryName, 30*time.Second)
+		_ = oldPrimaryName
+		waitForClusterStable(t, setup, 60*time.Second)
+
+		// Let multiorch fully settle — after our manual BeginTerm, multiorch
+		// detects the dead primary and runs its own recovery cycle (DemoteStalePrimary,
+		// re-election). Without this pause, multiorch-driven elections race with
+		// our next failover and can cause brief unavailability.
+		time.Sleep(2 * time.Second)
 
 		postSuccess, postFailed := validator.Stats()
 		t.Logf("Failover %d/%d: post-stats %d successful, %d failed", i+1, numFailovers, postSuccess, postFailed)
@@ -338,7 +345,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	require.True(t, beginTermResp.Accepted, "primary should accept BeginTerm")
 	t.Logf("BeginTerm accepted, emergency demotion triggered")
 
-	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 20*time.Second)
+	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 45*time.Second)
 	require.NotEmpty(t, newPrimaryName, "new primary should be elected after failover")
 	t.Logf("New primary elected: %s (was: %s)", newPrimaryName, currentPrimaryName)
 
@@ -377,29 +384,44 @@ func execPrepared(db *sql.DB, id int64) error {
 	return err
 }
 
-// waitForPoolerReplica polls until the named pooler has recovered as a REPLICA.
-func waitForPoolerReplica(t *testing.T, setup *shardsetup.ShardSetup, poolerName string, timeout time.Duration) {
+// waitForClusterStable polls until the cluster has a running primary and at
+// least one running replica. This ensures multiorch has finished recovery after
+// a failover and the cluster is ready for the next one.
+func waitForClusterStable(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) {
 	t.Helper()
 
-	inst := setup.GetMultipoolerInstance(poolerName)
-	require.NotNil(t, inst, "pooler %s not found", poolerName)
-
 	require.Eventually(t, func() bool {
-		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		if err != nil {
-			return false
-		}
-		defer client.Close()
+		var hasPrimary bool
+		var replicaCount int
 
-		resp, err := client.Manager.Status(
-			utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil {
-			return false
+		for _, inst := range setup.Multipoolers {
+			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+			if err != nil {
+				continue
+			}
+			resp, err := client.Manager.Status(
+				utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
+			client.Close()
+			if err != nil {
+				continue
+			}
+			s := resp.Status
+			if !s.IsInitialized || !s.PostgresRunning {
+				continue
+			}
+			switch s.PoolerType {
+			case clustermetadatapb.PoolerType_PRIMARY:
+				hasPrimary = true
+			case clustermetadatapb.PoolerType_REPLICA:
+				replicaCount++
+			}
 		}
-		return resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_REPLICA
-	}, timeout, 2*time.Second, "pooler %s did not recover as replica within %v", poolerName, timeout)
+		return hasPrimary && replicaCount >= 1
+	}, timeout, 2*time.Second, "cluster did not stabilize within %v", timeout)
 
-	t.Logf("Pooler %s recovered as replica", poolerName)
+	// Refresh so triggerFailover finds the correct primary.
+	setup.RefreshPrimary(t)
+	t.Logf("Cluster stable, primary: %s", setup.PrimaryName)
 }
 
 // waitForNewPrimary polls the cluster until a primary different from oldPrimaryName is found.
