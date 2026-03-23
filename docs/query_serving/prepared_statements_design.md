@@ -105,56 +105,85 @@ Each connection in the MultiPooler's pool must track:
 - Which prepared statements exist on that connection
 - The mapping between logical statement names and physical statement names
 
-## Prepared Statement Consolidator
+## Prepared Statement Consolidation
 
-Both MultiGateway and MultiPooler can use the same consolidation strategy to
-manage prepared statements efficiently.
+The gateway and pooler have different consolidation needs and use separate
+implementations.
 
-### Data Structure
+### Deduplication Key
+
+Both consolidators deduplicate by **(query text, parameter types)** — not
+query text alone. The same SQL with different type hints (e.g.,
+`SELECT $1` with `INT4` vs `TEXT`) produces different PostgreSQL prepared
+statements with different plans and type coercion, so they must be tracked
+separately.
+
+### Gateway Consolidator (`Consolidator`)
+
+The gateway consolidator maps `(connectionID, clientName) → canonical name`.
+It has real per-client connection IDs to namespace by.
 
 ```go
-type PreparedStatementConsolidator struct {
-    // Map from statement body to canonical prepared statement
-    Stmts map[string]*PreparedStatement
+type Consolidator struct {
+    // Map from (query, paramTypes) dedup key to canonical prepared statement
+    Stmts map[string]*PreparedStatementInfo
 
     // Map from connection ID and statement name to prepared statement reference
-    Incoming map[int]map[string]*PreparedStatement
-
-    // Map from prepared statement to its name on the underlying connection
-    Outgoing map[*PreparedStatement]string
+    Incoming map[uint32]map[string]*PreparedStatementInfo
 
     // Reference count: number of connections using each prepared statement
-    UsageCount map[*PreparedStatement]int
+    UsageCount map[*PreparedStatementInfo]int
 }
 ```
 
-### Algorithm
+**Algorithm** — when processing `PREPARE stmt1 AS body1` with `paramTypes`:
 
-When processing a PREPARE request like `PREPARE stmt1 AS body1`:
+1. **Check for existing statement**: Look up `dedupKey(body1, paramTypes)` in
+   `Stmts`
+2. **If exists**: increment usage count, store
+   `Incoming[connectionId]["stmt1"] = existingPS`
+3. **If not exists**: create a new canonical name (e.g., `stmt0`), store in
+   `Stmts`, initialize usage count, store incoming mapping
 
-1. **Check for existing statement**: Look up `body1` in the `Stmts` map
-2. **If exists**:
-   - Increment the usage count for the statement
-   - Store the mapping: `Incoming[connectionId]["stmt1"] = preparedStatement`
-   - Return the existing prepared statement
-3. **If not exists**:
-   - Create a new prepared statement on the underlying connection with a
-     unique name (e.g., `ppstmt1`)
-   - Store it in `Stmts[body1]`
-   - Store the outgoing name mapping:
-     `Outgoing[preparedStatement] = "ppstmt1"`
-   - Initialize usage count to 1
-   - Store the incoming mapping:
-     `Incoming[connectionId]["stmt1"] = preparedStatement`
+**Name translation**: clients use their own names (`stmt1`, `myquery`); the
+consolidator maps these to canonical names (`stmt0`, `stmt1`) shared across
+connections with the same query.
 
-### Name Translation
+### Pooler Consolidator (`PoolerConsolidator`)
 
-Since multiple clients may use different names for the same logical prepared
-statement:
+The pooler consolidator is intentionally simpler. It receives requests from
+multiple stateless gateway replicas, each of which independently assigns
+canonical names starting from `stmt0`. Since different gateways can assign
+the same name to different queries, the pooler **ignores incoming names
+entirely** and deduplicates purely by (query text, parameter types).
 
-- **Client-facing names**: Stored in the `Incoming` map (e.g., `stmt1`,
-  `myquery`)
-- **Backend names**: Stored in the `Outgoing` map (e.g., `ppstmt1`, `ppstmt2`)
+```go
+type PoolerConsolidator struct {
+    // Map from (query, paramTypes) dedup key to canonical name
+    Stmts map[string]string
+}
+```
 
-This allows clients to use their own naming conventions while sharing the
-underlying prepared statement.
+**Algorithm** — `CanonicalName(query, paramTypes) → name`:
+
+1. Compute `dedupKey(query, paramTypes)`
+2. If key exists in `Stmts`, return the existing canonical name
+3. Otherwise, generate a new name (e.g., `ppstmt0`), store it, return it
+
+The `ppstmt` prefix distinguishes pooler-level names from gateway-level names.
+
+Per-postgres-connection state (which statements are prepared on which backend
+connection) is tracked separately by `connstate.ConnectionState`, not by the
+consolidator.
+
+### Why Two Consolidators?
+
+The gateway consolidator needs per-connection name tracking, reference
+counting, and lifecycle management because it maps client-chosen names to
+shared canonical names across long-lived client connections.
+
+The pooler consolidator needs none of that — it just needs a stable
+`(query, paramTypes) → canonical name` mapping. Using the gateway
+consolidator at the pooler level with a shared `connId=0` caused name
+collisions when multiple gateway replicas sent the same canonical name
+for different queries.

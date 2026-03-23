@@ -275,6 +275,32 @@ func TestConsolidator_RemoveConnection_NonExistent(t *testing.T) {
 	consolidator.RemoveConnection(999)
 }
 
+// TestConsolidator_SameQueryDifferentParamTypes verifies that the
+// Consolidator incorrectly consolidates statements with the same query text
+// but different parameter types. PostgreSQL treats these as distinct prepared
+// statements (different plans, different type coercion).
+func TestConsolidator_SameQueryDifferentParamTypes(t *testing.T) {
+	consolidator := NewConsolidator()
+
+	query := "SELECT $1"
+	int4OID := []uint32{23} // INT4
+	textOID := []uint32{25} // TEXT
+
+	psi1, err := consolidator.AddPreparedStatement(1, "stmt1", query, int4OID)
+	require.NoError(t, err)
+	require.Equal(t, int4OID, psi1.ParamTypes)
+
+	// Same query, different param types on a different connection.
+	// These should NOT be consolidated — they are different prepared statements.
+	psi2, err := consolidator.AddPreparedStatement(2, "stmt2", query, textOID)
+	require.NoError(t, err)
+
+	require.NotEqual(t, psi1.Name, psi2.Name,
+		"same query with different paramTypes should get different canonical names")
+	require.Equal(t, textOID, psi2.ParamTypes,
+		"psi2 should have TEXT param types, not INT4")
+}
+
 func TestConsolidator_Stats(t *testing.T) {
 	consolidator := NewConsolidator()
 
