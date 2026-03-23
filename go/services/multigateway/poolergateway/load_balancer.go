@@ -144,9 +144,10 @@ func (lb *LoadBalancer) AddPooler(pooler *clustermetadatapb.MultiPooler) error {
 	return nil
 }
 
-// RemovePooler closes and removes the PoolerConnection for the given pooler ID.
+// RemovePooler closes and removes the PoolerConnection for the given pooler.
 // If no connection exists for this pooler, it is a no-op.
-func (lb *LoadBalancer) RemovePooler(poolerID string) {
+func (lb *LoadBalancer) RemovePooler(id *clustermetadatapb.ID) {
+	poolerID := poolerIDString(id)
 	lb.mu.Lock()
 	conn, exists := lb.connections[poolerID]
 	if !exists {
@@ -446,5 +447,5 @@ func (l *LoadBalancerListener) OnPoolerChanged(pooler *clustermetadatapb.MultiPo
 
 // OnPoolerRemoved implements multigateway.PoolerChangeListener.
 func (l *LoadBalancerListener) OnPoolerRemoved(pooler *clustermetadatapb.MultiPooler) {
-	l.lb.RemovePooler(poolerIDString(pooler.Id))
+	l.lb.RemovePooler(pooler.Id)
 }

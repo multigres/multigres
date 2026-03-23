@@ -72,7 +72,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	assert.Equal(t, 1, lb.ConnectionCount())
 
 	// Remove the pooler
-	lb.RemovePooler(topoclient.MultiPoolerIDString(pooler.Id))
+	lb.RemovePooler(pooler.Id)
 	assert.Equal(t, 0, lb.ConnectionCount())
 
 	// Removing non-existent pooler is a no-op
@@ -81,7 +81,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "nonexistent",
 	}
-	lb.RemovePooler(topoclient.MultiPoolerIDString(nonExistentID))
+	lb.RemovePooler(nonExistentID)
 	assert.Equal(t, 0, lb.ConnectionCount())
 }
 
@@ -251,10 +251,10 @@ func TestLoadBalancer_ConcurrentAddRemove(t *testing.T) {
 
 				// Spawn goroutine to remove this pooler
 				wg.Add(1)
-				go func(poolerID string) {
+				go func(poolerID *clustermetadatapb.ID) {
 					defer wg.Done()
 					lb.RemovePooler(poolerID)
-				}(topoclient.MultiPoolerIDString(pooler.Id))
+				}(pooler.Id)
 			}
 		}()
 	}
@@ -328,7 +328,7 @@ func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 			_ = lb.AddPooler(pooler)
 			// Small delay to increase chance of concurrent GetConnection calls
 			time.Sleep(time.Millisecond)
-			lb.RemovePooler(topoclient.MultiPoolerIDString(pooler.Id))
+			lb.RemovePooler(pooler.Id)
 		}()
 	}
 
@@ -644,7 +644,7 @@ func TestLoadBalancer_GetConnectionByID_AfterRemove(t *testing.T) {
 	assert.Equal(t, poolerID(pooler), conn.ID())
 
 	// Remove it
-	lb.RemovePooler(topoclient.MultiPoolerIDString(pooler.Id))
+	lb.RemovePooler(pooler.Id)
 
 	// Should not find it anymore
 	_, err = lb.GetConnectionByID(pooler.Id)
