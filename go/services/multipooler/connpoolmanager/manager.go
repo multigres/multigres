@@ -89,6 +89,12 @@ type Manager struct {
 	// Fair share allocators (created once in Open)
 	regularAllocator  *FairShareAllocator
 	reservedAllocator *FairShareAllocator
+
+	// Drain tracking: counts connections currently lent out across all pools.
+	// Used for graceful drain during state transitions (NOT_SERVING).
+	drainMu   sync.Mutex
+	lentCount int64
+	zeroCh    chan struct{}
 }
 
 // Open initializes the manager and creates the shared admin pool.
@@ -105,17 +111,24 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.connConfig = connConfig
 	emptyPools := make(map[string]*UserPool)
 	m.userPoolsSnapshot.Store(&emptyPools)
+
+	// Initialize zeroCh as closed: starts at zero lent connections (drained).
+	zeroCh := make(chan struct{})
+	close(zeroCh)
+	m.zeroCh = zeroCh
 	m.settingsCache = connstate.NewSettingsCache(m.config.SettingsCacheSize())
 	m.closed.Store(false)
 
 	// Build admin client config
-	adminClientConfig := m.buildClientConfig(m.config.AdminUser(), m.config.AdminPassword())
+	adminClientConfig := m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
 
 	// Build admin pool config
+	connectTimeout := 2 * m.config.DialTimeout()
 	adminPoolConfig := &connpool.Config{
-		Name:     "admin",
-		Capacity: m.config.AdminCapacity(),
-		Logger:   m.logger,
+		Name:           "admin",
+		Capacity:       m.config.AdminCapacity(),
+		ConnectTimeout: connectTimeout,
+		Logger:         m.logger,
 	}
 
 	// Create shared admin pool (used by all user pools for kill operations)
@@ -144,7 +157,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.startRebalancer()
 
 	m.logger.InfoContext(ctx, "connection pool manager opened",
-		"admin_user", m.config.AdminUser(),
+		"pg_user", m.config.PgUser(),
 		"admin_capacity", adminPoolConfig.Capacity,
 		"initial_user_capacity", initialUserPoolCapacity,
 		"settings_cache_size", m.config.SettingsCacheSize(),
@@ -159,12 +172,13 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // buildClientConfig creates a client.Config with the specified user and password.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
-		SocketFile: m.connConfig.SocketFile,
-		Host:       m.connConfig.Host,
-		Port:       m.connConfig.Port,
-		Database:   m.connConfig.Database,
-		User:       user,
-		Password:   password,
+		SocketFile:  m.connConfig.SocketFile,
+		Host:        m.connConfig.Host,
+		Port:        m.connConfig.Port,
+		Database:    m.connConfig.Database,
+		User:        user,
+		Password:    password,
+		DialTimeout: m.config.DialTimeout(),
 	}
 }
 
@@ -223,11 +237,19 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 	initialRegularCap := max(int64(float64(initialUserPoolCapacity)*(1-reservedRatio)), 1)
 	initialReservedCap := max(int64(float64(initialUserPoolCapacity)*reservedRatio), 1)
 
+	// Create drain tracking callbacks for this user pool.
+	// These are called on every borrow/recycle/reserve/release to track lent connections.
+	onBorrow := func() { m.lentAdd(1) }
+	onRecycle := func() { m.lentAdd(-1) }
+	onReserve := func() { m.lentAdd(1) }
+	onRelease := func() { m.lentAdd(-1) }
+
 	// Create new user pool with per-user pool names for metric cardinality.
 	// Note: Including username in pool names enables per-user monitoring but increases
 	// metric cardinality. If this becomes an issue with many users, we can make it configurable.
 	// Create new user pool with initial capacity. The rebalancer will adjust
 	// the capacity based on demand within a few seconds.
+	userConnectTimeout := 2 * m.config.DialTimeout()
 	pool, err := NewUserPool(ctx, &UserPoolConfig{
 		ClientConfig: m.buildClientConfig(user, ""), // Trust auth - no password
 		AdminPool:    m.adminPool,
@@ -236,6 +258,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 			Capacity:        initialRegularCap,
 			IdleTimeout:     m.config.UserRegularIdleTimeout(),
 			MaxLifetime:     m.config.UserRegularMaxLifetime(),
+			ConnectTimeout:  userConnectTimeout,
 			ConnectionCount: m.metrics.RegularConnCount(),
 			Logger:          m.logger,
 		},
@@ -244,6 +267,7 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 			Capacity:        initialReservedCap,
 			IdleTimeout:     m.config.UserReservedIdleTimeout(),
 			MaxLifetime:     m.config.UserReservedMaxLifetime(),
+			ConnectTimeout:  userConnectTimeout,
 			ConnectionCount: m.metrics.ReservedConnCount(),
 			Logger:          m.logger,
 		},
@@ -251,6 +275,10 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string) (*UserPoo
 		DemandWindow:              m.config.DemandWindow(),
 		RebalanceInterval:         m.config.RebalanceInterval(),
 		Logger:                    m.logger,
+		OnBorrow:                  onBorrow,
+		OnRecycle:                 onRecycle,
+		OnReserve:                 onReserve,
+		OnRelease:                 onRelease,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create user pool for %q: %w", user, err)
@@ -304,9 +332,9 @@ func (m *Manager) Close() {
 	m.logger.Info("connection pool manager closed")
 }
 
-// InternalUser returns the configured internal user for system queries.
-func (m *Manager) InternalUser() string {
-	return m.config.InternalUser()
+// PgUser returns the configured PostgreSQL user for system queries.
+func (m *Manager) PgUser() string {
+	return m.config.PgUser()
 }
 
 // --- Admin Pool Operations ---
@@ -315,7 +343,20 @@ func (m *Manager) InternalUser() string {
 // Admin connections are used for control plane operations like killing queries.
 // The caller must call Recycle() on the returned connection to return it to the pool.
 func (m *Manager) GetAdminConn(ctx context.Context) (admin.PooledConn, error) {
-	return m.adminPool.Get(ctx)
+	// Read adminPool under createMu to avoid a nil-pointer panic if Close() is
+	// racing with this call. Close() sets m.adminPool = nil while holding
+	// createMu, so a snapshot taken here is either the valid pool or nil.
+	//
+	// We do not use the defer pattern used in other methods because that would
+	// mean that we hold the mutex while calling Get() below. If the Get() call
+	// block waiting for I/O, no other action will be able to get a connection.
+	m.createMu.Lock()
+	adminPool := m.adminPool
+	m.createMu.Unlock()
+	if adminPool == nil {
+		return nil, errors.New("admin pool is closed")
+	}
+	return adminPool.Get(ctx)
 }
 
 // --- Regular Pool Operations ---
@@ -419,6 +460,66 @@ func (m *Manager) Stats() ManagerStats {
 type ManagerStats struct {
 	Admin     connpool.PoolStats       // Shared admin pool stats
 	UserPools map[string]UserPoolStats // Per-user pool stats
+}
+
+// lentAdd adjusts the lent connection count by n.
+// When the count transitions to zero, zeroCh is closed to unblock WaitForDrain.
+// When it transitions away from zero, a new zeroCh is created.
+func (m *Manager) lentAdd(n int64) {
+	m.drainMu.Lock()
+	defer m.drainMu.Unlock()
+
+	if m.lentCount+n < 0 {
+		m.logger.Error("lentCount going negative, likely a bug in borrow/recycle or reserve/release callbacks",
+			"current", m.lentCount, "delta", n)
+	}
+	m.lentCount += n
+	if m.lentCount == 0 {
+		// Signal drain complete by closing the channel.
+		select {
+		case <-m.zeroCh:
+			// Already closed, nothing to do.
+		default:
+			close(m.zeroCh)
+		}
+	} else if m.lentCount == n && n > 0 {
+		// Transitioned from 0 to positive: create a new open channel.
+		m.zeroCh = make(chan struct{})
+	}
+}
+
+// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
+func (m *Manager) WaitForDrain(ctx context.Context) error {
+	m.drainMu.Lock()
+	if m.lentCount == 0 {
+		m.drainMu.Unlock()
+		return nil
+	}
+	ch := m.zeroCh
+	m.drainMu.Unlock()
+
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// CloseReservedConnections kills all active reserved connections across all user pools.
+// Used after drain grace period expires to prevent reserved connections from being
+// used in a non-serving state.
+func (m *Manager) CloseReservedConnections(ctx context.Context) int {
+	pools := m.userPoolsSnapshot.Load()
+	if pools == nil {
+		return 0
+	}
+
+	total := 0
+	for _, pool := range *pools {
+		total += pool.CloseReservedConnections(ctx)
+	}
+	return total
 }
 
 // IsClosed returns whether the manager has been closed.

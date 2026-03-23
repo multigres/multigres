@@ -54,36 +54,47 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 		name          string
 		setupFunc     func(t *testing.T, pm *MultiPoolerManager, poolerDir string)
 		term          int64
-		expectError   bool
+		expectSuccess bool // true: must succeed (nil err, Success=true); false: must fail
 		errorContains string
 	}{
 		{
-			name: "initialize fresh pooler",
+			// The marker file exists → isInitialized() returns true → early return.
+			// pgctld is never called, so this succeeds without real postgres.
+			name: "idempotent - already has a backup",
 			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Fresh pooler - no setup needed
+				dataDir := filepath.Join(poolerDir, "pg_data")
+				markerDir := filepath.Join(dataDir, constants.MultigresMarkerDirectory)
+				require.NoError(t, os.MkdirAll(markerDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(markerDir, multigresInitMarker), []byte("initialized\n"), 0o644))
 			},
-			term:        1,
-			expectError: false,
+			term:          1,
+			expectSuccess: true,
 		},
 		{
-			name: "idempotent - already initialized",
-			setupFunc: func(t *testing.T, pm *MultiPoolerManager, poolerDir string) {
-				// Create data directory and multigres schema to simulate initialization
-				dataDir := filepath.Join(poolerDir, "pg_data")
-				require.NoError(t, os.MkdirAll(dataDir, 0o755))
-
-				// Mark as initialized by setting up the manager state
-				// In real scenario, database would have multigres schema
-			},
-			term:        1,
-			expectError: false,
+			// Term validation happens before any I/O, so pgctld is never called.
+			name:          "rejects invalid consensus term",
+			term:          2,
+			expectSuccess: false,
+			errorContains: "consensus term must be 1",
+		},
+		{
+			// A fresh (uninitialized) pooler passes term and idempotency checks,
+			// then reaches the first pgctld call (InitDataDir). Unit tests stop
+			// here because real pgctld/postgres are not available; the full success
+			// path is covered by the integration test.
+			name:          "initialize fresh pooler",
+			term:          1,
+			expectSuccess: false,
+			errorContains: "pgctld",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			poolerDir := t.TempDir()
+			t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
 
 			// Create test config with topology store that has backup location
 			database := "postgres"
@@ -110,19 +121,12 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			multiPooler.PortMap = map[string]int32{"postgres": 5432}
 			multiPooler.Database = database
 
-			config := &Config{
-				TopoClient: store,
-				// Note: pgctldClient is nil - operations that need it will fail gracefully
-			}
+			pm := NewTestMultiPoolerManager(t, multiPooler, &Config{TopoClient: store})
 
-			pm := NewTestMultiPoolerManager(t, multiPooler, config)
-
-			// Initialize consensus state
 			pm.consensusState = NewConsensusState(poolerDir, serviceID)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
 
-			// Set manager to ready state with backup config so checkReady() passes
 			backupConfig, err := backup.NewConfig(utils.FilesystemBackupLocation(backupLocation))
 			require.NoError(t, err)
 
@@ -132,41 +136,109 @@ func TestInitializeEmptyPrimary(t *testing.T) {
 			pm.topoLoaded = true
 			pm.mu.Unlock()
 
-			// Run setup function
 			if tt.setupFunc != nil {
 				tt.setupFunc(t, pm, poolerDir)
 			}
 
-			// Call InitializeEmptyPrimary
-			req := &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
+			resp, err := pm.InitializeEmptyPrimary(ctx, &multipoolermanagerdatapb.InitializeEmptyPrimaryRequest{
 				ConsensusTerm: tt.term,
-			}
+			})
 
-			resp, err := pm.InitializeEmptyPrimary(ctx, req)
-
-			if tt.expectError {
+			if tt.expectSuccess {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				assert.True(t, resp.Success)
+			} else {
 				require.Error(t, err)
+				assert.Nil(t, resp)
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			} else {
-				// Note: This will fail because pgctldClient is nil
-				// But we verify the error is expected
-				if err != nil {
-					// Expected error due to missing pgctld client
-					assert.Contains(t, err.Error(), "pgctld")
-				}
-				if resp != nil {
-					assert.True(t, resp.Success)
 				}
 			}
 		})
 	}
 }
 
+// TestIsInitialized verifies that isInitialized requires both the marker file and
+// multigres schema to be present. The marker file (MULTIGRES_INITIALIZED) is written
+// by setInitialized() only after the full bootstrap sequence completes:
+//   - Primary: initdb + multigres schema + pgBackRest stanza-create + backup
+//   - Replica:  restore from canonical backup + postgres started
+//
+// The marker file prevents false positives on crash-restart between schema creation
+// and backup completion. The schema check is a safety invariant: schema existence is
+// necessary (though not sufficient) for a node to be initialized.
+func TestIsInitialized(t *testing.T) {
+	t.Run("returns false when no data directory exists", func(t *testing.T) {
+		ctx := t.Context()
+		poolerDir := t.TempDir()
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+		}
+
+		assert.False(t, pm.isInitialized(ctx))
+	})
+
+	t.Run("returns false when data directory exists but marker file is absent", func(t *testing.T) {
+		ctx := t.Context()
+		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		// Simulate postgres having run initdb and created the multigres schema,
+		// but the full bootstrap sequence (backup) did not complete: no marker file.
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+		}
+
+		assert.False(t, pm.isInitialized(ctx))
+		// Cached state must not be poisoned.
+		assert.False(t, pm.initialized)
+	})
+
+	t.Run("returns true when marker file is present but postgres is unreachable; cache not set", func(t *testing.T) {
+		ctx := t.Context()
+		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		markerDir := filepath.Join(dataDir, constants.MultigresMarkerDirectory)
+		require.NoError(t, os.MkdirAll(markerDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(markerDir, multigresInitMarker), []byte("initialized\n"), 0o644))
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+		}
+
+		// Marker present, postgres unreachable → trust marker, return true.
+		assert.True(t, pm.isInitialized(ctx))
+		// Cache is NOT set since we could not confirm the schema; re-check on next call.
+		assert.False(t, pm.initialized)
+	})
+
+	t.Run("fast path: returns true when initialized is already cached", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		// No data directory at all, but in-memory cache is true.
+		pm := &MultiPoolerManager{
+			config:      &Config{},
+			multipooler: &clustermetadatapb.MultiPooler{PoolerDir: poolerDir},
+			initialized: true,
+		}
+
+		assert.True(t, pm.isInitialized(t.Context()))
+	})
+}
+
 func TestHelperMethods(t *testing.T) {
 	t.Run("hasDataDirectory", func(t *testing.T) {
 		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
 		multiPooler := &clustermetadatapb.MultiPooler{PoolerDir: poolerDir}
 		pm := &MultiPoolerManager{config: &Config{}, multipooler: multiPooler}
 
@@ -174,7 +246,6 @@ func TestHelperMethods(t *testing.T) {
 		assert.False(t, pm.hasDataDirectory())
 
 		// Create data directory with PG_VERSION file (simulating initialized postgres)
-		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
 		pgVersionFile := filepath.Join(dataDir, "PG_VERSION")
 		require.NoError(t, os.WriteFile(pgVersionFile, []byte("16"), 0o644))
@@ -212,6 +283,7 @@ func TestHelperMethods(t *testing.T) {
 		// Create data directory
 		dataDir := filepath.Join(poolerDir, "pg_data")
 		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
 
 		// Should succeed with valid directory
 		err := pm.removeDataDirectory()
@@ -229,6 +301,7 @@ func TestHelperMethods(t *testing.T) {
 func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
 
 	database := "postgres"
 	backupLocation := t.TempDir()
@@ -290,7 +363,7 @@ func TestInitializeEmptyPrimary_EventPoolerName(t *testing.T) {
 // MonitorPostgres Tests
 
 func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	pm := &MultiPoolerManager{
 		pgctldClient: nil, // pgctld unavailable
 	}
@@ -304,7 +377,7 @@ func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
 }
 
 func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create mock pgctld client
 	mockPgctld := &mockPgctldClient{
@@ -331,7 +404,7 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 }
 
 func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create mock pgctld client
 	mockPgctld := &mockPgctldClient{
@@ -354,7 +427,7 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 }
 
 func TestDiscoverPostgresState_Running(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create mock pgctld client
 	mockPgctld := &mockPgctldClient{
@@ -376,7 +449,7 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 }
 
 func TestDiscoverPostgresState_StatusError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create mock pgctld client that returns error
 	mockPgctld := &mockPgctldClient{
@@ -501,7 +574,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 }
 
 func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
@@ -521,7 +594,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 }
 
 func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
@@ -544,7 +617,7 @@ func TestTakeRemedialAction_PostgresRunning(t *testing.T) {
 }
 
 func TestTakeRemedialAction_StartPostgres(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{}
 
@@ -567,7 +640,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 }
 
 func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{
 		startError: assert.AnError,
@@ -594,7 +667,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 }
 
 func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pm := &MultiPoolerManager{
 		logger:     slog.Default(),
@@ -614,7 +687,7 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 }
 
 func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{}
 
@@ -654,7 +727,7 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 // The decision logic for type adjustment is tested in TestDetermineRemedialAction above.
 
 func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	poolerDir := t.TempDir()
 
 	pm := &MultiPoolerManager{
@@ -674,7 +747,7 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 }
 
 func TestHasCompleteBackups_NoBackups(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	poolerDir := t.TempDir()
 
 	pm := &MultiPoolerManager{
@@ -700,12 +773,12 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	}
 
 	// Acquire the action lock to block hasCompleteBackups
-	lockCtx, err := pm.actionLock.Acquire(context.Background(), "test-holder")
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-holder")
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
 	// Create a context with timeout for hasCompleteBackups call
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	// hasCompleteBackups should return false when it can't acquire lock
@@ -715,7 +788,7 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 }
 
 func TestStartPostgres_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{}
 
@@ -731,7 +804,7 @@ func TestStartPostgres_Success(t *testing.T) {
 }
 
 func TestStartPostgres_PgctldUnavailable(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	pm := &MultiPoolerManager{
 		pgctldClient: nil,
@@ -745,7 +818,7 @@ func TestStartPostgres_PgctldUnavailable(t *testing.T) {
 }
 
 func TestStartPostgres_StartFails(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{
 		startError: assert.AnError,
@@ -766,7 +839,7 @@ func TestStartPostgres_StartFails(t *testing.T) {
 // Integration Tests for MonitorPostgres
 
 func TestMonitorPostgres_WaitsForReady(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	readyChan := make(chan struct{})
 
@@ -800,7 +873,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 }
 
 func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	readyChan := make(chan struct{})
 	close(readyChan)
@@ -830,7 +903,7 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 }
 
 func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	readyChan := make(chan struct{})
 	close(readyChan)
@@ -857,7 +930,7 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 }
 
 func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	readyChan := make(chan struct{})
 	close(readyChan)

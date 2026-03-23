@@ -317,8 +317,8 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 
 // BindAndExecute binds parameters and executes atomically.
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
-func (c *Conn) BindAndExecute(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
-	return c.pooled.Conn.BindAndExecute(ctx, stmtName, params, paramFormats, resultFormats, maxRows, callback)
+func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+	return c.pooled.Conn.BindAndExecute(ctx, portalName, stmtName, params, paramFormats, resultFormats, maxRows, callback)
 }
 
 // BindAndDescribe binds parameters and describes the resulting portal.

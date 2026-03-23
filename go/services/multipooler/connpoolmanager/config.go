@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -50,13 +51,12 @@ type ConnectionConfig struct {
 // With per-user connection pools, each user gets their own RegularPool and ReservedPool.
 // Connections authenticate directly as the user via trust/peer authentication.
 type Config struct {
-	// --- Admin credential settings ---
-	// Admin credentials (postgres superuser) - used by shared AdminPool for kill operations
-	adminUser     viperutil.Value[string]
-	adminPassword viperutil.Value[string]
-
-	// Internal user for multipooler system queries (heartbeat, replication tracking)
-	internalUser viperutil.Value[string]
+	// --- PostgreSQL superuser credentials ---
+	// Used by the admin pool for kill operations and internal system queries
+	// (heartbeat, replication tracking).
+	// Configured via POSTGRES_USER / POSTGRES_PASSWORD environment variables.
+	pgUser     viperutil.Value[string]
+	pgPassword viperutil.Value[string]
 
 	// --- Pool sizing configuration ---
 
@@ -106,6 +106,14 @@ type Config struct {
 	// Minimum capacity per user ensures light users always have enough connections
 	// for burst demand that point-in-time sampling might miss.
 	minCapacityPerUser viperutil.Value[int64]
+
+	// dialTimeout is the timeout for establishing new PostgreSQL connections.
+	// Applied to net.Dialer.Timeout for all pool connections (admin, regular, reserved).
+	dialTimeout viperutil.Value[time.Duration]
+
+	// drainGracePeriod is how long to wait for in-flight connections to drain
+	// during a NOT_SERVING transition before force-closing reserved connections.
+	drainGracePeriod viperutil.Value[time.Duration]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -141,24 +149,25 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		// Set equal to initialUserPoolCapacity (10) so capacity isn't reduced
 		// below the initial value until there's actual resource pressure.
 		minCapacityPerUser int64 = 10
+
+		// Dial timeout for establishing new PostgreSQL connections.
+		dialTimeout = 5 * time.Second
+
+		// Drain grace period for NOT_SERVING transitions.
+		drainGracePeriod = 3 * time.Second
 	)
 
 	return &Config{
-		// Admin credential settings
-		adminUser: viperutil.Configure(reg, "connpool.admin.user", viperutil.Options[string]{
-			Default:  "postgres",
+		// PostgreSQL superuser credentials (also used for internal system queries)
+		pgUser: viperutil.Configure(reg, "connpool.pg.user", viperutil.Options[string]{
+			Default:  constants.DefaultPostgresUser,
 			FlagName: "connpool-admin-user",
-			EnvVars:  []string{"CONNPOOL_ADMIN_USER"},
+			EnvVars:  []string{"CONNPOOL_ADMIN_USER", constants.PgUserEnvVar},
 		}),
-		adminPassword: viperutil.Configure(reg, "connpool.admin.password", viperutil.Options[string]{
+		pgPassword: viperutil.Configure(reg, "connpool.pg.password", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "connpool-admin-password",
-			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD"},
-		}),
-		internalUser: viperutil.Configure(reg, "connpool.internal.user", viperutil.Options[string]{
-			Default:  "postgres",
-			FlagName: "connpool-internal-user",
-			EnvVars:  []string{"CONNPOOL_INTERNAL_USER"},
+			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar},
 		}),
 
 		// Admin pool (shared across all users)
@@ -224,15 +233,22 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  minCapacityPerUser,
 			FlagName: "connpool-min-capacity-per-user",
 		}),
+		dialTimeout: viperutil.Configure(reg, "connpool.dial-timeout", viperutil.Options[time.Duration]{
+			Default:  dialTimeout,
+			FlagName: "connpool-dial-timeout",
+		}),
+		drainGracePeriod: viperutil.Configure(reg, "connpool.drain-grace-period", viperutil.Options[time.Duration]{
+			Default:  drainGracePeriod,
+			FlagName: "connpool-drain-grace-period",
+		}),
 	}
 }
 
 // RegisterFlags registers all connection pool flags with the given FlagSet.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
-	// Admin credential flags
-	fs.String("connpool-admin-user", c.adminUser.Default(), "Admin pool user (PostgreSQL superuser for control operations)")
-	fs.String("connpool-admin-password", c.adminPassword.Default(), "Admin pool password (can also be set via CONNPOOL_ADMIN_PASSWORD env var)")
-	fs.String("connpool-internal-user", c.internalUser.Default(), "Internal user for multipooler system queries (heartbeat, replication tracking)")
+	// PostgreSQL superuser credentials
+	fs.String("connpool-admin-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (env: CONNPOOL_ADMIN_USER or POSTGRES_USER)")
+	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (env: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD)")
 
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
@@ -258,11 +274,12 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-demand-window", c.demandWindow.Default(), "Sliding window for peak demand tracking (should be multiple of rebalance-interval)")
 	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
 	fs.Int64("connpool-min-capacity-per-user", c.minCapacityPerUser.Default(), "Minimum connections per user (protects against aggressive capacity reduction for light users)")
+	fs.Duration("connpool-dial-timeout", c.dialTimeout.Default(), "Timeout for establishing new PostgreSQL connections")
+	fs.Duration("connpool-drain-grace-period", c.drainGracePeriod.Default(), "How long to wait for in-flight connections to drain during NOT_SERVING transitions before force-closing reserved connections")
 
 	viperutil.BindFlags(fs,
-		c.adminUser,
-		c.adminPassword,
-		c.internalUser,
+		c.pgUser,
+		c.pgPassword,
 		c.adminCapacity,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
@@ -276,24 +293,23 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.demandWindow,
 		c.inactiveTimeout,
 		c.minCapacityPerUser,
+		c.dialTimeout,
+		c.drainGracePeriod,
 	)
 }
 
 // --- Getters for individual values ---
 
-// AdminUser returns the configured admin pool user.
-func (c *Config) AdminUser() string {
-	return c.adminUser.Get()
+// PgUser returns the configured PostgreSQL superuser name.
+// Defaults to POSTGRES_USER environment variable.
+func (c *Config) PgUser() string {
+	return c.pgUser.Get()
 }
 
-// AdminPassword returns the configured admin pool password.
-func (c *Config) AdminPassword() string {
-	return c.adminPassword.Get()
-}
-
-// InternalUser returns the configured internal user for system queries.
-func (c *Config) InternalUser() string {
-	return c.internalUser.Get()
+// PgPassword returns the configured PostgreSQL superuser password.
+// Set via POSTGRES_PASSWORD environment variable.
+func (c *Config) PgPassword() string {
+	return c.pgPassword.Get()
 }
 
 // AdminCapacity returns the configured admin pool capacity.
@@ -364,6 +380,17 @@ func (c *Config) InactiveTimeout() time.Duration {
 // This ensures light users always have enough capacity for burst demand.
 func (c *Config) MinCapacityPerUser() int64 {
 	return c.minCapacityPerUser.Get()
+}
+
+// DialTimeout returns the timeout for establishing new PostgreSQL connections.
+func (c *Config) DialTimeout() time.Duration {
+	return c.dialTimeout.Get()
+}
+
+// DrainGracePeriod returns how long to wait for in-flight connections to drain
+// during NOT_SERVING transitions before force-closing reserved connections.
+func (c *Config) DrainGracePeriod() time.Duration {
+	return c.drainGracePeriod.Get()
 }
 
 // NewManager creates a new connection pool manager from this config.

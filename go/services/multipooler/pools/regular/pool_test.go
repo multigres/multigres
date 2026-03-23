@@ -72,7 +72,7 @@ func TestPool_GetWithSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept any SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
@@ -95,7 +95,7 @@ func TestPool_GetWithSettings(t *testing.T) {
 	pooled.Recycle()
 
 	// Verify SET was actually called.
-	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0, "SET command should have been called")
+	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0, "SET command should have been called")
 }
 
 func TestPool_Close(t *testing.T) {
@@ -207,7 +207,7 @@ func TestConn_ResetAllSettings(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET and RESET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 	server.AddQueryPattern(`RESET .+`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
@@ -233,7 +233,7 @@ func TestConn_ResetAllSettings(t *testing.T) {
 	pooled.Recycle()
 
 	// Verify both SET and RESET were actually called.
-	assert.Greater(t, server.GetPatternCalledNum(`SET SESSION .+ = .+`), 0, "SET command should have been called")
+	assert.Greater(t, server.GetPatternCalledNum(`SELECT pg_catalog\.set_config\(.+\)`), 0, "SET command should have been called")
 	assert.Greater(t, server.GetPatternCalledNum(`RESET .+`), 0, "RESET command should have been called")
 }
 
@@ -242,9 +242,9 @@ func TestConn_ApplySettings_ResetsRemovedVariables(t *testing.T) {
 	defer server.Close()
 
 	// Accept SET, individual RESET, and combined RESET+SET commands.
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 	server.AddQueryPattern(`RESET search_path`, &sqltypes.Result{})
-	server.AddQueryPattern(`RESET search_path; SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET search_path; SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -268,7 +268,7 @@ func TestConn_ApplySettings_ResetsRemovedVariables(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify RESET+SET was called for the combined command.
-	assert.Greater(t, server.GetPatternCalledNum(`RESET search_path; SET SESSION .+ = .+`), 0, "combined RESET+SET should have been called")
+	assert.Greater(t, server.GetPatternCalledNum(`RESET search_path; SELECT pg_catalog\.set_config\(.+\)`), 0, "combined RESET+SET should have been called")
 
 	// Verify tracked state is updated to desired.
 	assert.Equal(t, desired, pooled.Conn.Settings())
@@ -280,8 +280,8 @@ func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
-	server.AddQueryPattern(`RESET ALL`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -300,8 +300,8 @@ func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	err = pooled.Conn.ApplySettings(ctx, nil)
 	require.NoError(t, err)
 
-	// Verify RESET ALL was called.
-	assert.Greater(t, server.GetPatternCalledNum(`RESET ALL`), 0, "RESET ALL should have been called")
+	// Verify RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL was called.
+	assert.Greater(t, server.GetPatternCalledNum(`RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL`), 0, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL should have been called")
 
 	// Tracked state should be nil.
 	assert.Nil(t, pooled.Conn.Settings())
@@ -332,11 +332,48 @@ func TestConn_ApplySettings_NilDesiredNoopWhenClean(t *testing.T) {
 	pooled.Recycle()
 }
 
+func TestConn_ApplySettings_QuotesRemovedVariableNames(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	// Accept SET and RESET with quoted custom GUC name.
+	// QuoteQualifiedIdentifier("custom.My-Setting") → custom."My-Setting"
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
+	server.AddQueryPattern(`RESET custom\."My-Setting"; SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	initial := connstate.NewSettings(map[string]string{
+		"custom.My-Setting": "on",
+		"work_mem":          "256MB",
+	}, 0)
+
+	// Get connection with settings including a custom GUC that needs quoting.
+	pooled, err := pool.GetWithSettings(ctx, initial)
+	require.NoError(t, err)
+
+	// Apply desired state that removes the custom GUC.
+	desired := connstate.NewSettings(map[string]string{
+		"work_mem": "256MB",
+	}, 0)
+	err = pooled.Conn.ApplySettings(ctx, desired)
+	require.NoError(t, err)
+
+	// Verify the RESET used a properly quoted identifier.
+	assert.Greater(t, server.GetPatternCalledNum(`RESET custom\."My-Setting"; SELECT pg_catalog\.set_config\(.+\)`), 0,
+		"RESET should quote the custom GUC name")
+
+	pooled.Recycle()
+}
+
 func TestConn_ApplySettings_OverwritesExistingVariable(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	server.AddQueryPattern(`SET SESSION .+ = .+`, &sqltypes.Result{})
+	server.AddQueryPattern(`SELECT pg_catalog\.set_config\(.+\)`, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()

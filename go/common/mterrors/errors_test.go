@@ -236,7 +236,7 @@ func TestErrorf(t *testing.T) {
 }
 
 func innerMost() error {
-	return Wrap(io.ErrNoProgress, "oh noes")
+	return Wrap(io.ErrNoProgress, "oh no")
 }
 
 func middle() error {

@@ -61,11 +61,13 @@ import (
 // Maintenance Loop:
 //
 //	Keeps the engine's view of the cluster up-to-date and performs general maintenance tasks.
-//	Runs two types of operations at configurable intervals:
 //
-//	Cluster Metadata Refresh:
-//	- Queries all cells in the topology to find multipoolers that are part of the shards_to_watch
-//	- Reads database information for the shards being watched (this will contain durability policy information)
+//	Topology Discovery (event-driven via PoolerWatcher):
+//	- Watches the etcd cells/ directory to detect cell additions/removals
+//	- For each cell, watches the poolers/ directory for pooler changes
+//	- New poolers are added to the store and queued for immediate health check
+//	- Updated poolers have their MultiPooler metadata refreshed in the store
+//	- In-memory WatchTarget filtering (database/tablegroup/shard) is applied per event
 //
 //	Bookkeeping Tasks:
 //	- Forget unseen poolers (remove stale entries)
@@ -78,9 +80,9 @@ import (
 //
 //	The health check system uses a queue-based architecture with worker pools:
 //
-//	1. Discovery Phase (runs during cluster metadata refresh):
-//	   - When refreshClusterMetadata() discovers poolers from topology
-//	   - Newly discovered poolers (never health checked) are immediately queued
+//	1. Discovery Phase (driven by PoolerWatcher):
+//	   - When the watcher detects a new pooler in topology
+//	   - Newly discovered poolers are immediately queued for health check
 //	   - This ensures fast initial health check after discovery
 //
 //	2. Worker Pool (always running):
@@ -100,8 +102,8 @@ import (
 //	Health Check Queue Flow:
 //
 //	  ┌──────────────────────┐                  ┌──────────────────────┐
-//	  │  Metadata Refresh    │──new poolers  ─> │                      │
-//	  │  (periodic: 30s)     │                  │   Health Check       │
+//	  │  PoolerWatcher       │──new poolers  ─> │                      │
+//	  │  (event-driven)      │                  │   Health Check       │
 //	  └──────────────────────┘                  │   Queue              │
 //	                                            │   (deduplicates)     │
 //	  ┌──────────────────────┐                  │                      │
@@ -197,18 +199,16 @@ import (
 // The Engine requires:
 //   - watch-targets: List of database/tablegroup/shard targets to monitor
 //   - bookkeeping-interval: How often to run cleanup tasks (default: 1m)
-//   - cluster-metadata-refresh-interval: How often to refresh from topology (default: 15s)
-//   - cluster-metadata-refresh-timeout: Timeout for metadata refresh operation (default: 30s)
 //
 // Example:
 //
 //	engine := Engine(
-//	    "zone1",                          // cell
-//	    topoStore,                        // topology service
-//	    logger,                           // structured logger
-//	    []string{"postgres"},             // watch entire database
-//	    1*time.Minute,                    // bookkeeping interval
-//	    15*time.Second,                   // metadata refresh interval
+//	    topoStore,             // topology service
+//	    logger,                // structured logger
+//	    cfg,                   // configuration
+//	    watchTargets,          // database/tablegroup/shard targets to watch
+//	    rpcClient,             // RPC client for multipooler
+//	    coordinator,           // consensus coordinator
 //	)
 //	engine.Start()
 type Engine struct {
@@ -218,7 +218,7 @@ type Engine struct {
 	rpcClient rpcclient.MultiPoolerClient
 
 	// In-memory state store
-	poolerStore *store.PoolerHealthStore
+	poolerStore *store.PoolerStore
 
 	// Health check queue for concurrent pooler polling
 	healthCheckQueue *Queue
@@ -233,8 +233,10 @@ type Engine struct {
 	// Periodic runners for background tasks
 	bookkeepingRunner      *timer.PeriodicRunner
 	recoveryRunner         *timer.PeriodicRunner
-	metadataRefreshRunner  *timer.PeriodicRunner
 	healthCheckQueueRunner *timer.PeriodicRunner
+
+	// Watcher-based topology discovery
+	poolerWatcher *PoolerWatcher
 
 	// Cache for deduplication (prevents redundant health checks)
 	recentPollCache   map[string]time.Time
@@ -272,7 +274,7 @@ func NewEngine(
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.TODO())
 
-	poolerStore := store.NewProtoStore[string, *multiorchdatapb.PoolerHealthState]()
+	poolerStore := store.NewPoolerStore(rpcClient, logger)
 
 	engine := &Engine{
 		ts:                     ts,
@@ -287,7 +289,6 @@ func NewEngine(
 		cancel:                 cancel,
 		bookkeepingRunner:      timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
 		recoveryRunner:         timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
-		metadataRefreshRunner:  timer.NewPeriodicRunner(ctx, config.GetClusterMetadataRefreshInterval()),
 		healthCheckQueueRunner: timer.NewPeriodicRunner(ctx, config.GetPoolerHealthCheckInterval()),
 	}
 
@@ -328,6 +329,16 @@ func NewEngine(
 	engine.recoveryGracePeriodTracker = NewRecoveryGracePeriodTracker(engine.shutdownCtx, config,
 		WithLogger(logger))
 
+	// Create the watcher-based topology discovery.
+	engine.poolerWatcher = NewPoolerWatcher(
+		ctx,
+		ts,
+		engine.getWatchTargets,
+		poolerStore,
+		engine.healthCheckQueue,
+		logger,
+	)
+
 	return engine
 }
 
@@ -344,8 +355,6 @@ func (re *Engine) Start() error {
 		"cell", re.config.GetCell(),
 		"watch_targets", re.shardWatchTargets,
 		"bookkeeping_interval", re.config.GetBookkeepingInterval(),
-		"cluster_metadata_refresh_interval", re.config.GetClusterMetadataRefreshInterval(),
-		"cluster_metadata_refresh_timeout", re.config.GetClusterMetadataRefreshTimeout(),
 		"pooler_health_check_interval", re.config.GetPoolerHealthCheckInterval(),
 		"health_check_workers", re.config.GetHealthCheckWorkers(),
 	)
@@ -368,19 +377,6 @@ func (re *Engine) Start() error {
 		re.performRecoveryCycle()
 	}, nil)
 
-	// Start metadata refresh runner
-	re.metadataRefreshRunner.Start(func(ctx context.Context) {
-		// This interval is static today, but UpdateInterval keeps behavior consistent across runners.
-		newInterval := re.config.GetClusterMetadataRefreshInterval()
-		if re.metadataRefreshRunner.UpdateInterval(newInterval) {
-			re.logger.InfoContext(re.shutdownCtx, "cluster metadata refresh interval changed", "interval", newInterval)
-		}
-		re.refreshClusterMetadata()
-	}, func() { // OnStart callback
-		re.logger.Info("maintenance loop started")
-		re.refreshClusterMetadata()
-	})
-
 	// Start health check ticker runner
 	re.healthCheckQueueRunner.Start(func(ctx context.Context) {
 		newInterval := re.config.GetPoolerHealthCheckInterval()
@@ -391,6 +387,9 @@ func (re *Engine) Start() error {
 	}, func() { // OnStart callback
 		re.logger.Info("health check ticker loop started")
 	})
+
+	// Start watcher-based topology discovery.
+	re.poolerWatcher.Start()
 
 	re.logger.Info("recovery engine started successfully")
 	return nil
@@ -403,8 +402,8 @@ func (re *Engine) Stop() {
 	re.cancel()
 	re.bookkeepingRunner.Stop()
 	re.recoveryRunner.Stop()
-	re.metadataRefreshRunner.Stop()
 	re.healthCheckQueueRunner.Stop()
+	re.poolerWatcher.Stop()
 	re.wg.Wait()
 	re.logger.Info("recovery engine stopped")
 }
@@ -460,6 +459,14 @@ func (re *Engine) reloadConfigs() {
 // shardWatchTargetsEqual compares two ShardWatchTarget slices for equality.
 func shardWatchTargetsEqual(a, b []config.WatchTarget) bool {
 	return slices.Equal(a, b)
+}
+
+// getWatchTargets returns a snapshot of the current watch targets.
+// Used as the targets accessor for PoolerWatcher.
+func (re *Engine) getWatchTargets() []config.WatchTarget {
+	re.mu.Lock()
+	defer re.mu.Unlock()
+	return re.shardWatchTargets
 }
 
 // shardWatchTargetsToStrings converts ShardWatchTargets to their string representations.

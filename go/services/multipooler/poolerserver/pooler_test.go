@@ -16,14 +16,16 @@ package poolerserver
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 )
@@ -32,7 +34,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Creating with nil pool manager should work but executor will be nil
-	pooler := NewQueryPoolerServer(logger, nil, nil)
+	pooler := NewQueryPoolerServer(logger, nil, nil, nil, 0)
 
 	assert.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -45,7 +47,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 
 func TestIsHealthy_NotInitialized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil, nil)
+	pooler := NewQueryPoolerServer(logger, nil, nil, nil, 0)
 
 	// IsHealthy should fail since the pool manager is not initialized
 	err := pooler.IsHealthy()
@@ -56,99 +58,332 @@ func TestIsHealthy_NotInitialized(t *testing.T) {
 // mockPoolManager implements PoolManager for testing
 type mockPoolManager struct {
 	connpoolmanager.PoolManager // embed for default nil implementations
-	internalUser                string
 }
 
-func (m *mockPoolManager) InternalUser() string {
-	return m.internalUser
-}
-
-func TestNewQueryPoolerServer_CustomInternalUser(t *testing.T) {
+func TestNewQueryPoolerServer_WithPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	tests := []struct {
-		name         string
-		internalUser string
-	}{
-		{
-			name:         "default postgres user",
-			internalUser: "postgres",
-		},
-		{
-			name:         "custom replication user",
-			internalUser: "replication_user",
-		},
-		{
-			name:         "custom admin user",
-			internalUser: "multigres_admin",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := &mockPoolManager{
-				internalUser: tt.internalUser,
-			}
-
-			pooler := NewQueryPoolerServer(logger, mockMgr, nil)
-
-			require.NotNil(t, pooler)
-			assert.Equal(t, logger, pooler.logger)
-			assert.Equal(t, mockMgr, pooler.poolManager)
-
-			// Verify the executor was created with the correct internal user
-			exec, err := pooler.Executor()
-			require.NoError(t, err)
-			require.NotNil(t, exec)
-
-			// The executor should use the internal user from the pool manager
-			// We can verify this by checking the executor was created
-			// (the actual internal user value is private to the executor,
-			// but it's tested in executor/internal_user_test.go)
-		})
-	}
-}
-
-func TestNewQueryPoolerServer_InternalUserPassthrough(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-
-	// Verify that InternalUser() is called on the pool manager
-	customUser := "test_internal_user"
-	mockMgr := &mockPoolManager{
-		internalUser: customUser,
-	}
-
-	pooler := NewQueryPoolerServer(logger, mockMgr, nil)
+	mockMgr := &mockPoolManager{}
+	pooler := NewQueryPoolerServer(logger, mockMgr, nil, nil, 0)
 
 	require.NotNil(t, pooler)
+	assert.Equal(t, logger, pooler.logger)
+	assert.Equal(t, mockMgr, pooler.poolManager)
 
-	// The executor should have been created with the custom internal user
 	exec, err := pooler.Executor()
 	require.NoError(t, err)
 	require.NotNil(t, exec)
 }
 
-func TestExecutor_ReturnsMTF01WhenServingReadOnly(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	mockMgr := &mockPoolManager{internalUser: "postgres"}
+func newStartRequestTestServer() *QueryPoolerServer {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return &QueryPoolerServer{
+		logger:        logger,
+		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		gracePeriod:   3 * time.Second,
+	}
+}
 
-	pooler := NewQueryPoolerServer(logger, mockMgr, nil)
+func TestStartRequest_Serving(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 
-	// Transition to SERVING_RDONLY (planned failover)
-	err := pooler.SetServingType(context.Background(), clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
+	// Both allowOnShutdown=true and false should succeed when serving
+	err := s.StartRequest(false)
 	require.NoError(t, err)
 
-	// Executor should return MTF01 error
-	exec, err := pooler.Executor()
-	assert.Nil(t, exec)
+	err = s.StartRequest(true)
+	require.NoError(t, err)
+}
+
+func TestStartRequest_NotServing(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+
+	// Both should fail when not serving
+	err := s.StartRequest(false)
 	require.Error(t, err)
-	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
+	assert.ErrorIs(t, err, ErrNotServing)
 
-	// Transition back to SERVING — executor should work again
-	err = pooler.SetServingType(context.Background(), clustermetadatapb.PoolerServingStatus_SERVING)
-	require.NoError(t, err)
+	err = s.StartRequest(true)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotServing)
+}
 
-	exec, err = pooler.Executor()
+func TestStartRequest_ShuttingDown_NewRequestRejected(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.shuttingDown = true
+
+	// New requests (allowOnShutdown=false) should be rejected
+	err := s.StartRequest(false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrShuttingDown)
+}
+
+func TestStartRequest_ShuttingDown_ExistingReservedAllowed(t *testing.T) {
+	s := newStartRequestTestServer()
+	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	s.shuttingDown = true
+
+	// Existing reserved connections (allowOnShutdown=true) should be allowed
+	err := s.StartRequest(true)
 	require.NoError(t, err)
-	assert.NotNil(t, exec)
+}
+
+// drainMockPoolManager is a mock pool manager that supports drain tracking
+// via lentAdd/WaitForDrain, similar to connpoolmanager.Manager.
+type drainMockPoolManager struct {
+	connpoolmanager.PoolManager // embed for default nil implementations
+
+	mu        sync.Mutex
+	lentCount int64
+	zeroCh    chan struct{}
+
+	closeReservedCount int
+}
+
+func newDrainMockPoolManager() *drainMockPoolManager {
+	ch := make(chan struct{})
+	close(ch) // starts drained
+	return &drainMockPoolManager{zeroCh: ch}
+}
+
+func (m *drainMockPoolManager) lentAdd(n int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.lentCount += n
+	if m.lentCount == 0 {
+		select {
+		case <-m.zeroCh:
+		default:
+			close(m.zeroCh)
+		}
+	} else if m.lentCount == n && n > 0 {
+		m.zeroCh = make(chan struct{})
+	}
+}
+
+func (m *drainMockPoolManager) WaitForDrain(ctx context.Context) error {
+	m.mu.Lock()
+	ch := m.zeroCh
+	m.mu.Unlock()
+
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (m *drainMockPoolManager) CloseReservedConnections(ctx context.Context) int {
+	return m.closeReservedCount
+}
+
+func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return &QueryPoolerServer{
+		logger:        logger,
+		poolManager:   mock,
+		servingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		gracePeriod:   3 * time.Second,
+	}
+}
+
+// TestStartRequest_ShuttingDown_WithDrain tests the full drain lifecycle:
+// in-flight connections keep drain blocked, allowOnShutdown=false is rejected,
+// allowOnShutdown=true is allowed, and drain completes when connections return.
+func TestStartRequest_ShuttingDown_WithDrain(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	pooler := newTestPoolerWithDrain(mock)
+	pooler.gracePeriod = 5 * time.Second
+	ctx := t.Context()
+
+	// Transition to SERVING
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	// Simulate an in-flight connection to keep drain waiting
+	mock.lentAdd(1)
+
+	// Begin NOT_SERVING transition in background (will block on drain)
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	}()
+
+	// Wait for shuttingDown to be set
+	require.Eventually(t, func() bool {
+		pooler.mu.Lock()
+		defer pooler.mu.Unlock()
+		return pooler.shuttingDown
+	}, time.Second, 10*time.Millisecond)
+
+	// allowOnShutdown=false should fail during shutdown
+	err := pooler.StartRequest(false)
+	assert.ErrorIs(t, err, ErrShuttingDown)
+
+	// allowOnShutdown=true should succeed during shutdown
+	err = pooler.StartRequest(true)
+	assert.NoError(t, err)
+
+	// Return the in-flight connection to let drain complete
+	mock.lentAdd(-1)
+
+	select {
+	case <-drainDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain did not complete after in-flight connection returned")
+	}
+}
+
+// TestOnStateChange_WaitsForInflightRequests verifies that OnStateChange blocks
+// until all lent connections are returned before completing the NOT_SERVING transition.
+func TestOnStateChange_WaitsForInflightRequests(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	pooler := newTestPoolerWithDrain(mock)
+	pooler.gracePeriod = 5 * time.Second
+	ctx := t.Context()
+
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	// Simulate two in-flight connections
+	mock.lentAdd(1)
+	mock.lentAdd(1)
+
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	}()
+
+	// Drain should not complete while connections are in-flight
+	select {
+	case <-drainDone:
+		t.Fatal("drain should not complete with in-flight connections")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Return both connections
+	mock.lentAdd(-1)
+	mock.lentAdd(-1)
+
+	select {
+	case <-drainDone:
+		// Drain completed after all connections returned
+	case <-time.After(2 * time.Second):
+		t.Fatal("drain did not complete after all connections returned")
+	}
+
+	// Should be NOT_SERVING now
+	assert.False(t, pooler.IsServing())
+}
+
+// TestOnStateChange_GracePeriodExpires verifies that OnStateChange completes
+// after the grace period even if connections haven't drained.
+func TestOnStateChange_GracePeriodExpires(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	pooler := newTestPoolerWithDrain(mock)
+	pooler.gracePeriod = 100 * time.Millisecond
+	ctx := t.Context()
+
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	// Simulate a connection that will never return
+	mock.lentAdd(1)
+
+	start := time.Now()
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	}()
+
+	select {
+	case <-drainDone:
+		elapsed := time.Since(start)
+		assert.GreaterOrEqual(t, elapsed, 80*time.Millisecond, "should wait at least close to grace period")
+		assert.Less(t, elapsed, 2*time.Second, "should not wait much longer than grace period")
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not complete after grace period")
+	}
+
+	// Should be NOT_SERVING even though connection is still in-flight
+	assert.False(t, pooler.IsServing())
+
+	// Clean up
+	mock.lentAdd(-1)
+}
+
+// TestOnStateChange_BackToServing verifies the SERVING → NOT_SERVING → SERVING round-trip.
+func TestOnStateChange_BackToServing(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	pooler := newTestPoolerWithDrain(mock)
+	pooler.gracePeriod = 50 * time.Millisecond
+	ctx := t.Context()
+
+	// SERVING → NOT_SERVING → SERVING
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	assert.True(t, pooler.IsServing())
+
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	assert.False(t, pooler.IsServing())
+
+	// Transition back to SERVING
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	assert.True(t, pooler.IsServing())
+
+	// Requests should work again
+	err := pooler.StartRequest(false)
+	require.NoError(t, err)
+}
+
+// TestOnStateChange_ConcurrentRequests verifies drain behavior with many
+// concurrent simulated connections during a NOT_SERVING transition.
+func TestOnStateChange_ConcurrentRequests(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	pooler := newTestPoolerWithDrain(mock)
+	pooler.gracePeriod = 2 * time.Second
+	ctx := t.Context()
+
+	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	const numRequests = 50
+	var wg sync.WaitGroup
+	wg.Add(numRequests)
+
+	// Simulate many concurrent connections
+	for range numRequests {
+		go func() {
+			defer wg.Done()
+			if err := pooler.StartRequest(false); err != nil {
+				return
+			}
+			mock.lentAdd(1)
+			time.Sleep(50 * time.Millisecond)
+			mock.lentAdd(-1)
+		}()
+	}
+
+	// Give goroutines time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Transition to NOT_SERVING while connections are in-flight
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		_ = pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING)
+	}()
+
+	// Wait for all goroutines and drain to complete
+	wg.Wait()
+	select {
+	case <-drainDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not complete")
+	}
+
+	assert.False(t, pooler.IsServing())
 }

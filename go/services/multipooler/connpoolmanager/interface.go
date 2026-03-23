@@ -45,8 +45,8 @@ type PoolManager interface {
 	// Close shuts down all connection pools.
 	Close()
 
-	// InternalUser returns the configured internal user for system queries.
-	InternalUser() string
+	// PgUser returns the configured PostgreSQL user for system queries.
+	PgUser() string
 
 	// --- Admin Pool Operations ---
 
@@ -76,6 +76,17 @@ type PoolManager interface {
 	// and updates its tracked state. This is needed because reserved connections
 	// bypass the pool's normal ApplySettings mechanism.
 	ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error
+
+	// --- Drain ---
+
+	// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
+	// Used during graceful shutdown to wait for in-flight queries to complete.
+	WaitForDrain(ctx context.Context) error
+
+	// CloseReservedConnections kills all active reserved connections across all user pools.
+	// Used after drain grace period expires to prevent reserved connections from being
+	// used in a non-serving state.
+	CloseReservedConnections(ctx context.Context) int
 
 	// --- Stats ---
 

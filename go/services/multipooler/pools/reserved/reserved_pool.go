@@ -41,6 +41,12 @@ type PoolConfig struct {
 	// RegularPoolConfig is the configuration for the underlying regular pool.
 	// The reserved pool creates and manages this pool internally.
 	RegularPoolConfig *regular.PoolConfig
+
+	// OnReserve is called after a new reserved connection is created (optional).
+	OnReserve func()
+
+	// OnRelease is called after a reserved connection is released or killed (optional).
+	OnRelease func()
 }
 
 // Pool manages reserved connections with ID-based tracking.
@@ -174,6 +180,9 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings) (*Conn
 	p.mu.Unlock()
 
 	p.reserveCount.Add(1)
+	if p.config.OnReserve != nil {
+		p.config.OnReserve()
+	}
 
 	p.logger.DebugContext(ctx, "reserved connection created",
 		"conn_id", connID,
@@ -220,8 +229,6 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	delete(p.active, connID)
 	p.mu.Unlock()
 
-	p.killCount.Add(1)
-
 	// Kill the backend process.
 	if err := rc.Kill(ctx); err != nil {
 		p.logger.WarnContext(ctx, "failed to kill connection",
@@ -231,6 +238,11 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 
 	// Taint the connection - it's dead after kill.
 	rc.pooled.Taint()
+
+	// Release handles OnRelease, Recycle, and metrics. The CAS inside
+	// Release prevents double-release if an in-flight request also calls
+	// Release after Kill causes it to fail.
+	rc.Release(ReleaseKill)
 
 	p.logger.InfoContext(ctx, "connection killed",
 		"conn_id", connID,
@@ -246,6 +258,9 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 	p.mu.Unlock()
 
 	p.releaseCount.Add(1)
+	if p.config.OnRelease != nil {
+		p.config.OnRelease()
+	}
 
 	// Update metrics based on reason.
 	switch reason {
@@ -376,6 +391,26 @@ func (p *Pool) ForEachActive(fn func(connID int64, rc *Conn) bool) {
 			return
 		}
 	}
+}
+
+// KillAll kills all active reserved connections.
+// Used during graceful shutdown when the drain grace period has expired.
+func (p *Pool) KillAll(ctx context.Context) int {
+	p.mu.Lock()
+	ids := make([]int64, 0, len(p.active))
+	for id := range p.active {
+		ids = append(ids, id)
+	}
+	p.mu.Unlock()
+
+	for _, connID := range ids {
+		if err := p.KillConnection(ctx, connID); err != nil {
+			p.logger.WarnContext(ctx, "failed to kill connection during drain",
+				"conn_id", connID, "error", err)
+		}
+	}
+
+	return len(ids)
 }
 
 // KillTimedOut kills all connections that have exceeded their timeout.

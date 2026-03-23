@@ -15,10 +15,12 @@
 package heartbeat
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"time"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
@@ -59,8 +61,8 @@ func (rt *ReplTracker) HeartbeatReader() *Reader {
 	return rt.hr
 }
 
-// MakePrimary must be called if the database becomes a primary.
-func (rt *ReplTracker) MakePrimary() {
+// makePrimary transitions to primary mode: stops reader, starts writer.
+func (rt *ReplTracker) makePrimary() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -69,14 +71,25 @@ func (rt *ReplTracker) MakePrimary() {
 	rt.hw.Open()
 }
 
-// MakeNonPrimary must be called if the database becomes a non-primary (standby).
-func (rt *ReplTracker) MakeNonPrimary() {
+// makeNonPrimary transitions to standby mode: stops writer, starts reader.
+func (rt *ReplTracker) makeNonPrimary() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
 	rt.isPrimary = false
 	rt.hw.Close()
 	rt.hr.Open()
+}
+
+// OnStateChange transitions the heartbeat tracker based on the serving state.
+// Starts the heartbeat writer for (PRIMARY, SERVING), stops it otherwise.
+func (rt *ReplTracker) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+		rt.makePrimary()
+	} else {
+		rt.makeNonPrimary()
+	}
+	return nil
 }
 
 // Close closes ReplTracker.

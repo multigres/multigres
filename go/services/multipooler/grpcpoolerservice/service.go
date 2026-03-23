@@ -22,6 +22,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -54,6 +55,10 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 // StreamExecute executes a SQL query and streams the results back to the client.
 // This is the main execution method used by multigateway.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return err
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -109,6 +114,10 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return nil, err
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -146,6 +155,10 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 		return nil, status.Error(codes.Unavailable, "pooler not initialized")
 	}
 
+	if err := s.pooler.StartRequest(false); err != nil {
+		return nil, err
+	}
+
 	poolManager := s.pooler.PoolManager()
 	if poolManager == nil {
 		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
@@ -180,6 +193,10 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 // Describe returns metadata about a prepared statement or portal.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return nil, err
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -201,6 +218,10 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return err
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -269,7 +290,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer) error {
 	ctx := stream.Context()
 
-	// Receive INITIATE message
+	// Receive INITIATE message first so we can check reserved connection ID
 	req, err := stream.Recv()
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "failed to receive INITIATE: %v", err)
@@ -277,6 +298,10 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 
 	if req.Phase != multipoolerpb.CopyBidiExecuteRequest_INITIATE {
 		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
+	}
+
+	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
+		return err
 	}
 
 	// Get the executor from the pooler
@@ -432,6 +457,11 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 // ReserveStreamExecute creates a reserved connection and executes a query.
 // Based on ReservationOptions.Reason, may execute BEGIN before the query.
 func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_ReserveStreamExecuteServer) error {
+	// Always a new reservation, never allow during shutdown.
+	if err := s.pooler.StartRequest(false); err != nil {
+		return err
+	}
+
 	// Validate reservation reasons at the gRPC trust boundary.
 	if req.ReservationOptions != nil {
 		if err := protoutil.ValidateReasons(req.ReservationOptions.Reasons); err != nil {
@@ -476,6 +506,11 @@ func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExe
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
+	// Always on existing reserved connection, allow during shutdown.
+	if err := s.pooler.StartRequest(true); err != nil {
+		return nil, err
+	}
+
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
@@ -496,6 +531,11 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 
 // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
+	// Always on existing reserved connection, allow during shutdown.
+	if err := s.pooler.StartRequest(true); err != nil {
+		return nil, err
+	}
+
 	executor, err := s.pooler.Executor()
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
@@ -506,4 +546,72 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 	}
 
 	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil
+}
+
+// StreamPoolerHealth streams health updates to the client.
+// Sends an initial health state immediately, then updates when state changes.
+func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealthRequest, stream multipoolerpb.MultiPoolerService_StreamPoolerHealthServer) error {
+	ctx := stream.Context()
+
+	// Check if pooler is initialized
+	if s.pooler == nil {
+		return status.Error(codes.Unavailable, "pooler not initialized")
+	}
+
+	// Get the health provider
+	hp := s.pooler.HealthProvider()
+	if hp == nil {
+		return status.Error(codes.Unavailable, "health provider not initialized")
+	}
+
+	// Subscribe to health updates
+	initialState, healthChan, err := hp.SubscribeHealth(ctx)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to subscribe to health: %v", err)
+	}
+
+	// Send initial health state
+	if initialState != nil {
+		if err := stream.Send(healthStateToProto(initialState)); err != nil {
+			return err
+		}
+	}
+
+	// Stream updates until client disconnects or context is cancelled
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case state, ok := <-healthChan:
+			if !ok {
+				// Channel closed, stream ended
+				return nil
+			}
+			if err := stream.Send(healthStateToProto(state)); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// healthStateToProto converts internal health state to proto response.
+func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPoolerHealthResponse {
+	resp := &multipoolerpb.StreamPoolerHealthResponse{
+		Target:        state.Target,
+		PoolerId:      state.PoolerID,
+		ServingStatus: state.ServingStatus,
+	}
+
+	if state.PrimaryObservation != nil {
+		resp.PrimaryObservation = &multipoolerpb.PrimaryObservation{
+			PrimaryId:   state.PrimaryObservation.PrimaryID,
+			PrimaryTerm: state.PrimaryObservation.PrimaryTerm,
+		}
+	}
+
+	if state.RecommendedStalenessTimeout > 0 {
+		resp.RecommendedStalenessTimeout = durationpb.New(state.RecommendedStalenessTimeout)
+	}
+
+	return resp
 }

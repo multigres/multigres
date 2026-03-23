@@ -28,6 +28,8 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
@@ -419,13 +421,19 @@ func TestGRPCPortableConfig(t *testing.T) {
 	testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
 	t.Run("portable_config_with_different_ports", func(t *testing.T) {
+		// Set environment variables before creating service (NewPgCtldService reads PGDATA)
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(dataDir, "pg_data"))
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
 		// First, create a service with port 5432 and initialize
-		initialPort := 5432
 		service, err := command.NewPgCtldService(
 			slog.Default(),
-			initialPort,
-			"postgres",
-			"postgres",
+			command.PgCtldServiceConfig{
+				Port:     5432,
+				User:     constants.DefaultPostgresUser,
+				Database: constants.DefaultPostgresDatabase,
+				Password: shardsetup.TestPostgresPassword,
+			},
 			30,
 			dataDir,
 			"localhost",
@@ -434,10 +442,6 @@ func TestGRPCPortableConfig(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		// Set environment variables for the initialization
-		t.Setenv("PGDATA", dataDir)
-		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
-
 		// Initialize the data directory with the initial port
 		ctx := context.Background()
 		_, err = service.InitDataDir(ctx, &pb.InitDataDirRequest{})
@@ -445,12 +449,14 @@ func TestGRPCPortableConfig(t *testing.T) {
 
 		// Now try to create a service with a different port (5433)
 		// This should succeed because port is now passed as a CLI parameter, making configs portable
-		differentPort := 5433
 		service2, err := command.NewPgCtldService(
 			slog.Default(),
-			differentPort,
-			"postgres",
-			"postgres",
+			command.PgCtldServiceConfig{
+				Port:     5433,
+				User:     constants.DefaultPostgresUser,
+				Database: constants.DefaultPostgresDatabase,
+				Password: shardsetup.TestPostgresPassword,
+			},
 			30,
 			dataDir,
 			"localhost",
@@ -474,12 +480,20 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	// Create gRPC server
 	grpcServer := grpc.NewServer()
 
+	// Set environment variables before creating service (NewPgCtldService reads PGDATA)
+	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(dataDir, "pg_data"))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
 	// Create the pgctld service with mock environment
+	cfg := command.PgCtldServiceConfig{
+		Port:     5432,
+		User:     constants.DefaultPostgresUser,
+		Database: constants.DefaultPostgresDatabase,
+		Password: shardsetup.TestPostgresPassword,
+	}
 	service, err := command.NewPgCtldService(
 		slog.Default(),
-		5432,
-		"postgres",
-		"postgres",
+		cfg,
 		30,
 		dataDir,
 		"localhost",
@@ -488,9 +502,6 @@ func createTestGRPCServer(t *testing.T, dataDir, binDir string) (net.Listener, f
 	)
 
 	require.NoError(t, err)
-	// Set environment variables for the service
-	t.Setenv("PGDATA", dataDir)
-	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	// Register the service
 	pb.RegisterPgCtldServer(grpcServer, service)

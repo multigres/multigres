@@ -85,9 +85,21 @@ type Config struct {
 	LogWait         func(time.Time)
 	Logger          *slog.Logger
 
+	// ConnectTimeout bounds background connection attempts (replacement connections
+	// created during put, idle cleanup, and capacity increases). When non-zero,
+	// a derived context with this timeout is used instead of the unbounded pool.ctx.
+	// This prevents a hung dial from permanently consuming an active slot.
+	ConnectTimeout time.Duration
+
 	// OTel metrics instruments (optional, noop if not set).
 	// These are shared across all pools and created by the owner (e.g., connpoolmanager).
 	ConnectionCount ConnectionCount
+
+	// OnBorrow is called after a connection is borrowed from the pool (optional).
+	OnBorrow func()
+
+	// OnRecycle is called after a connection is returned to the pool (optional).
+	OnRecycle func()
 }
 
 // stackMask is the number of connection state stacks minus one;
@@ -151,8 +163,14 @@ type Pool[C Connection] struct {
 		idleTimeout atomic.Int64
 		// refreshInterval is how often to call the refresh check
 		refreshInterval atomic.Int64
+		// connectTimeout bounds background connection attempts to prevent pool starvation
+		connectTimeout time.Duration
 		// logWait is called every time a client must block waiting for a connection
 		logWait func(time.Time)
+		// onBorrow is called after a connection is borrowed from the pool
+		onBorrow func()
+		// onRecycle is called after a connection is returned to the pool
+		onRecycle func()
 	}
 
 	Metrics Metrics
@@ -176,7 +194,10 @@ func NewPool[C Connection](ctx context.Context, config *Config) *Pool[C] {
 	pool.config.maxLifetime.Store(config.MaxLifetime.Nanoseconds())
 	pool.config.idleTimeout.Store(config.IdleTimeout.Nanoseconds())
 	pool.config.refreshInterval.Store(config.RefreshInterval.Nanoseconds())
+	pool.config.connectTimeout = config.ConnectTimeout
 	pool.config.logWait = config.LogWait
+	pool.config.onBorrow = config.OnBorrow
+	pool.config.onRecycle = config.OnRecycle
 	pool.logger = config.Logger
 	if pool.logger == nil {
 		pool.logger = slog.Default()
@@ -450,10 +471,23 @@ func (pool *Pool[C]) GetWithSettings(ctx context.Context, settings *connstate.Se
 	return pool.getWithSettings(ctx, settings)
 }
 
+// connectionCtx returns a bounded context for connection operations (dial + startup).
+// When connectTimeout is configured, it returns a context with that timeout derived
+// from the given ctx. When zero, it returns ctx unchanged (backward compat).
+func (pool *Pool[C]) connectionCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if pool.config.connectTimeout > 0 {
+		return context.WithTimeout(ctx, pool.config.connectTimeout)
+	}
+	return ctx, func() {}
+}
+
 // put returns a connection to the pool. This is a private API.
 // Return connections to the pool by calling Pooled.Recycle.
 func (pool *Pool[C]) put(conn *Pooled[C]) {
 	pool.borrowed.Add(-1)
+	if pool.config.onRecycle != nil {
+		pool.config.onRecycle()
+	}
 	pool.requested.Add(-1) // Track demand: decrement on return
 	pool.otelConnectionCount.Add(pool.ctx, -1, pool.Name, dbconv.ClientConnectionStateUsed)
 
@@ -578,13 +612,16 @@ func (pool *Pool[D]) extendedMaxLifetime() time.Duration {
 }
 
 func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time.Duration) (err error) {
-	dbconn.Conn, err = pool.config.connect(ctx, pool.ctx)
+	connCtx, cancel := pool.connectionCtx(ctx)
+	defer cancel()
+
+	dbconn.Conn, err = pool.config.connect(connCtx, pool.ctx)
 	if err != nil {
 		return err
 	}
 
 	if settings := dbconn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
-		err = dbconn.Conn.ApplySettings(ctx, settings)
+		err = dbconn.Conn.ApplySettings(connCtx, settings)
 		if err != nil {
 			dbconn.Close()
 			return err
@@ -597,7 +634,10 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 }
 
 func (pool *Pool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
-	conn, err := pool.config.connect(ctx, pool.ctx)
+	connCtx, cancel := pool.connectionCtx(ctx)
+	defer cancel()
+
+	conn, err := pool.config.connect(connCtx, pool.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -671,6 +711,9 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	// best case: if there's a connection in the clean stack, return it right away
 	if conn := pool.pop(&pool.clean); conn != nil {
 		pool.borrowed.Add(1)
+		if pool.config.onBorrow != nil {
+			pool.config.onBorrow()
+		}
 		pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 		return conn, nil
 	}
@@ -720,6 +763,9 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 	}
 
 	pool.borrowed.Add(1)
+	if pool.config.onBorrow != nil {
+		pool.config.onBorrow()
+	}
 	pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 	return conn, nil
 }
@@ -810,6 +856,9 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	}
 
 	pool.borrowed.Add(1)
+	if pool.config.onBorrow != nil {
+		pool.config.onBorrow()
+	}
 	pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 	return conn, nil
 }
@@ -911,29 +960,29 @@ func (pool *Pool[C]) closeIdleResources(now time.Time) {
 		// besides the head. When clients pop from the stack, they'll immediately
 		// notice the expired connection and ignore it.
 		// see: timestamp.expired
+		var expiredCount int
 		s.ForEach(func(conn *Pooled[C]) bool {
 			if conn.timeUsed.expired(mono, timeout) {
 				pool.Metrics.idleClosed.Add(1)
 
 				conn.Close()
 				pool.closedConn()
-
-				// Try to open a new connection to replace the closed one
-				c, err := pool.getNew(pool.ctx)
-				if err != nil {
-					// If we couldn't open a new connection, just continue
-					return true
-				}
-
-				// Opening a new connection might have raced with other goroutines,
-				// so it's possible that we got back `nil` here
-				if c != nil {
-					// Return the new connection to the pool
-					pool.tryReturnConn(c)
-				}
+				expiredCount++
 			}
 			return true // continue iteration
 		})
+
+		// Create replacement connections AFTER ForEach releases the stack
+		// mutex. Calling getNew/tryReturnConn inside ForEach would deadlock:
+		// tryReturnConn may Push to the same stack whose mutex ForEach holds,
+		// and sync.Mutex is not reentrant.
+		for range expiredCount {
+			c, err := pool.getNew(pool.ctx)
+			if err != nil || c == nil {
+				return
+			}
+			pool.tryReturnConn(c)
+		}
 	}
 
 	for i := 0; i <= stackMask; i++ {

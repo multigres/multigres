@@ -38,16 +38,6 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// Helper function to setup a manager with a mock database
-// expectPrimaryStartupQueries adds expectations for queries that happen during PRIMARY manager startup.
-// The manager is created as a PRIMARY, so it checks pg_is_in_recovery() which returns false.
-// Note: Schema creation is now handled by multiorch during bootstrap initialization,
-// so we no longer expect CREATE SCHEMA or CREATE TABLE queries here.
-func expectPrimaryStartupQueries(m *mock.QueryService) {
-	// Heartbeat startup: checks if DB is primary (consumed once so test-specific patterns take precedence)
-	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-}
-
 // expectStandbyRevokeMocks sets up mock expectations for the standby revoke path:
 // receiver disconnect, wait for disconnect, and replay stabilization.
 func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
@@ -77,11 +67,6 @@ func expectStandbyRevokeMocks(m *mock.QueryService, lsn string) {
 	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
 	// Final queryReplicationStatus after stability confirmed
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
-}
-
-func expectStandbyStartupQueries(m *mock.QueryService) {
-	// Heartbeat startup: checks if DB is standby (consumed once so test-specific patterns take precedence)
-	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 }
 
 func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (*MultiPoolerManager, string) {
@@ -499,7 +484,7 @@ func TestBeginTerm(t *testing.T) {
 
 			// Create mock and set ALL expectations BEFORE starting the manager
 			mockQueryService := mock.NewQueryService()
-			expectPrimaryStartupQueries(mockQueryService)
+
 			tt.setupMocks(mockQueryService)
 
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
@@ -556,7 +541,7 @@ func TestBeginTerm(t *testing.T) {
 
 			// Create mock and set ALL expectations BEFORE starting the manager
 			mockQueryService := mock.NewQueryService()
-			expectPrimaryStartupQueries(mockQueryService)
+
 			tt.setupMocks(mockQueryService)
 
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
@@ -896,7 +881,7 @@ func TestCanReachPrimary(t *testing.T) {
 
 			// Create mock and set ALL expectations BEFORE starting the manager
 			mockQueryService := mock.NewQueryService()
-			expectPrimaryStartupQueries(mockQueryService)
+
 			tt.setupMock(mockQueryService)
 
 			pm, _ := setupManagerWithMockDB(t, mockQueryService)
@@ -1036,12 +1021,6 @@ func TestConsensusStatus(t *testing.T) {
 
 			// Create mock and set ALL expectations BEFORE starting the manager
 			mockQueryService := mock.NewQueryService()
-			// Use appropriate startup queries based on expected role
-			if tt.expectedRole == "replica" {
-				expectStandbyStartupQueries(mockQueryService)
-			} else {
-				expectPrimaryStartupQueries(mockQueryService)
-			}
 			tt.setupMock(mockQueryService)
 
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
@@ -1142,7 +1121,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
@@ -1194,7 +1173,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
@@ -1226,7 +1205,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 				// resetSynchronousReplication queries
 				m.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
-				m.AddQueryPatternOnce("ALTER SYSTEM SET synchronous_standby_names = ''", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("ALTER SYSTEM RESET synchronous_standby_names", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult(nil, nil)) // First pg_reload_conf call
 
 				// setPrimaryConnInfoLocked queries
@@ -1294,7 +1273,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 
 			// Set up mock query service
 			mockQueryService := mock.NewQueryService()
-			expectPrimaryStartupQueries(mockQueryService)
+
 			tt.setupQueryMock(mockQueryService)
 			pm.qsc = &mockPoolerController{queryService: mockQueryService}
 
@@ -1354,6 +1333,15 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, updatedPooler.Type,
 					"Pooler type should be updated to REPLICA in topology")
+
+				// Verify health streamer reports the new primary (source)
+				healthState := pm.healthStreamer.getState()
+				require.NotNil(t, healthState.PrimaryObservation,
+					"health streamer should have primary observation pointing to new primary after DemoteStalePrimary")
+				assert.Equal(t, sourcePooler.Id, healthState.PrimaryObservation.PrimaryID,
+					"primary observation should point to the source (new primary)")
+				assert.Equal(t, tt.requestTerm, healthState.PrimaryObservation.PrimaryTerm,
+					"primary observation term should match the consensus term from the request")
 			}
 
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())

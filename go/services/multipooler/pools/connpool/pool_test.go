@@ -516,3 +516,78 @@ func TestPoolSetCapacity_IncreaseUnblocksWaiters(t *testing.T) {
 	// Return the original connection
 	conn1.Recycle()
 }
+
+func TestPoolConnectTimeout_BoundsBackgroundConnNew(t *testing.T) {
+	// Verify that when ConnectTimeout is set, a slow connector is cancelled
+	// during background connection creation (the put(nil) / taint path).
+	connectTimeout := 100 * time.Millisecond
+
+	pool := NewPool[*mockConnection](context.Background(), &Config{
+		Name:           "test-timeout",
+		Capacity:       2,
+		MaxIdleCount:   2,
+		ConnectTimeout: connectTimeout,
+	})
+
+	var connectCalls atomic.Int64
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*mockConnection, error) {
+		call := connectCalls.Add(1)
+		if call > 1 {
+			// Second call (background replacement): block until ctx expires
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return newMockConnection(), nil
+	}, nil)
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	// Get a connection, then taint it so put() calls connNew(pool.ctx) in background
+	conn, err := pool.Get(ctx)
+	require.NoError(t, err)
+	conn.Taint()
+
+	// Wait for the background connNew to be attempted and cancelled by ConnectTimeout
+	time.Sleep(3 * connectTimeout)
+
+	// The pool should not be permanently starved — the active slot should be freed
+	assert.Equal(t, int64(0), pool.Active(), "active slot should be released after connect timeout")
+}
+
+func TestPoolConnectTimeout_BoundsConnReopen(t *testing.T) {
+	// Verify that ConnectTimeout bounds connReopen during max-lifetime recycling.
+	connectTimeout := 100 * time.Millisecond
+
+	pool := NewPool[*mockConnection](context.Background(), &Config{
+		Name:           "test-reopen-timeout",
+		Capacity:       1,
+		MaxIdleCount:   1,
+		MaxLifetime:    1 * time.Nanosecond, // Force immediate max-lifetime expiry
+		ConnectTimeout: connectTimeout,
+	})
+
+	var connectCalls atomic.Int64
+	pool.Open(func(ctx context.Context, poolCtx context.Context) (*mockConnection, error) {
+		call := connectCalls.Add(1)
+		if call > 1 {
+			// Reopen call: block until ctx expires
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return newMockConnection(), nil
+	}, nil)
+	defer pool.Close()
+
+	conn, err := pool.Get(context.Background())
+	require.NoError(t, err)
+
+	// Recycle triggers max-lifetime check → connReopen with a blocking connector
+	conn.Recycle()
+
+	// Wait for reopen to timeout
+	time.Sleep(3 * connectTimeout)
+
+	// The active slot should be released, not permanently consumed
+	assert.Equal(t, int64(0), pool.Active(), "active slot should be released after reopen timeout")
+}

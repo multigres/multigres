@@ -210,13 +210,13 @@ func (c *Coordinator) loadFromReplicasInParallel(ctx context.Context, replicas [
 
 // getDefaultQuorumRule returns a default majority quorum rule.
 // If cohortSize is provided and > 0, it calculates required_count as majority.
-// Otherwise, it returns ANY_N with required_count=2 as a safe default.
+// Otherwise, it returns AT_LEAST_N with required_count=2 as a safe default.
 func (c *Coordinator) getDefaultQuorumRule(ctx context.Context, cohortSize int) *clustermetadatapb.QuorumRule {
 	if cohortSize > 0 {
 		// Calculate majority
 		requiredCount := cohortSize/2 + 1
 		return &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: int32(requiredCount),
 			Description:   fmt.Sprintf("Default majority quorum (%d of %d nodes)", requiredCount, cohortSize),
 		}
@@ -224,20 +224,20 @@ func (c *Coordinator) getDefaultQuorumRule(ctx context.Context, cohortSize int) 
 
 	// Safe fallback
 	return &clustermetadatapb.QuorumRule{
-		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 		RequiredCount: 2,
-		Description:   "Default ANY_N quorum (2 nodes)",
+		Description:   "Default AT_LEAST_N quorum (2 nodes)",
 	}
 }
 
 // CreateDefaultPolicy creates a default durability policy in the given database.
 // This is useful for bootstrapping new shards.
 func (c *Coordinator) CreateDefaultPolicy(ctx context.Context, node *multiorchdatapb.PoolerHealthState, database string, policyName string) error {
-	// Create default ANY_N policy with required_count = 2
+	// Create default AT_LEAST_N policy with required_count = 2
 	quorumRule := &clustermetadatapb.QuorumRule{
-		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+		QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 		RequiredCount: 2,
-		Description:   "Default ANY_N quorum (2 nodes)",
+		Description:   "Default AT_LEAST_N quorum (2 nodes)",
 	}
 
 	// Call CreateDurabilityPolicy RPC

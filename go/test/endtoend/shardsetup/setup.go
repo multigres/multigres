@@ -102,7 +102,7 @@ func WithCellName(cell string) SetupOption {
 }
 
 // WithDurabilityPolicy sets the durability policy for the database.
-// Default is "ANY_2".
+// Default is "AT_LEAST_2".
 func WithDurabilityPolicy(policy string) SetupOption {
 	return func(c *SetupConfig) {
 		c.DurabilityPolicy = policy
@@ -277,7 +277,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		TableGroup:       constants.DefaultTableGroup,
 		Shard:            constants.DefaultShard,
 		CellName:         "test-cell",
-		DurabilityPolicy: "ANY_2",
+		DurabilityPolicy: "AT_LEAST_2",
 	}
 
 	// Apply options
@@ -631,74 +631,83 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 			continue
 		}
 
-		// Check if node is initialized (can query postgres)
-		_, err = QueryStringValue(ctx, client.Pooler, "SELECT 1")
-		if err != nil {
-			client.Close()
-			poolerStatuses = append(poolerStatuses, name+": not_queryable")
+		// Try both the Status RPC and a postgres query independently — either can
+		// succeed without the other, and we want to report as much as possible.
+
+		// --- Manager Status RPC (works even when postgres is down) ---
+		var status *multipoolermanagerdatapb.Status
+		statusResp, statusErr := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+		if statusErr == nil && statusResp.Status != nil {
+			status = statusResp.Status
+		}
+
+		// --- Postgres query ---
+		_, queryErr := QueryStringValue(ctx, client.Pooler, "SELECT 1")
+		queryable := queryErr == nil
+
+		client.Close()
+
+		// Build a status string from everything we know.
+		// Start with queryability, then layer in type/replication/action details.
+		if !queryable && status == nil {
+			poolerStatuses = append(poolerStatuses, name+": not_queryable, status_rpc_failed")
 			continue
 		}
 
-		// Check pooler type via Status RPC - must be explicit (not UNKNOWN)
-		statusResp, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil || statusResp.Status == nil {
-			client.Close()
-			poolerStatuses = append(poolerStatuses, name+": queryable, status_rpc_failed")
+		// Format active action suffix (present in every line when an action is running).
+		actionSuffix := ""
+		if status != nil && status.PostgresAction != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
+			actionSuffix = fmt.Sprintf(", action=%s(%s)", status.PostgresAction, status.PostgresActionDuration.AsDuration().Round(time.Second))
+		}
+
+		if !queryable {
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: not_queryable%s", name, actionSuffix))
 			continue
 		}
 
-		status := statusResp.Status
+		if status == nil {
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, status_rpc_failed%s", name, actionSuffix))
+			continue
+		}
+
 		isFullyInitialized := false
+		diag := FormatPoolerDiagnostics(status)
 
 		switch status.PoolerType {
 		case clustermetadatapb.PoolerType_PRIMARY:
 			// Check that sync replication is configured with expected standbys
-			if status.PrimaryStatus == nil ||
-				status.PrimaryStatus.SyncReplicationConfig == nil ||
-				len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds) < expectedReplicaCount {
-				standbyCount := 0
-				if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
-					standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
-				}
-				t.Logf("checkBootstrapStatus: %s is PRIMARY but sync replication not ready (standbys=%d, expected=%d)",
-					name, standbyCount, expectedReplicaCount)
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (standbys=%d/%d)",
-					name, standbyCount, expectedReplicaCount))
+			standbyCount := 0
+			if status.PrimaryStatus != nil && status.PrimaryStatus.SyncReplicationConfig != nil {
+				standbyCount = len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
+			}
+			if standbyCount < expectedReplicaCount {
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_waiting (%d/%d standbys)%s %s",
+					name, standbyCount, expectedReplicaCount, actionSuffix, diag))
 			} else {
 				primaryName = name
-				standbyCount := len(status.PrimaryStatus.SyncReplicationConfig.StandbyIds)
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured (standbys=%d/%d)",
-					name, standbyCount, expectedReplicaCount))
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=PRIMARY, sync_replication_configured%s %s",
+					name, actionSuffix, diag))
 			}
 
 		case clustermetadatapb.PoolerType_REPLICA:
 			// Check that primary_conn_info is configured
-			hasReplicationStatus := status.ReplicationStatus != nil
-			hasPrimaryConnInfo := hasReplicationStatus && status.ReplicationStatus.PrimaryConnInfo != nil
-			hasHost := hasPrimaryConnInfo && status.ReplicationStatus.PrimaryConnInfo.Host != ""
-
-			t.Logf("checkBootstrapStatus: %s is REPLICA - hasReplicationStatus=%v, hasPrimaryConnInfo=%v, hasHost=%v",
-				name, hasReplicationStatus, hasPrimaryConnInfo, hasHost)
-
-			if hasPrimaryConnInfo {
-				t.Logf("checkBootstrapStatus: %s PrimaryConnInfo.Host=%q, Port=%d",
-					name, status.ReplicationStatus.PrimaryConnInfo.Host, status.ReplicationStatus.PrimaryConnInfo.Port)
-			}
-
+			hasHost := status.ReplicationStatus != nil &&
+				status.ReplicationStatus.PrimaryConnInfo != nil &&
+				status.ReplicationStatus.PrimaryConnInfo.Host != ""
 			if !hasHost {
-				t.Logf("checkBootstrapStatus: %s is REPLICA but primary_conn_info not configured", name)
-				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_waiting")
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_waiting%s %s",
+					name, actionSuffix, diag))
 			} else {
 				isFullyInitialized = true
-				poolerStatuses = append(poolerStatuses, name+": queryable, type=REPLICA, primary_conn_info_configured")
+				poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=REPLICA, primary_conn_info_configured%s %s",
+					name, actionSuffix, diag))
 			}
+
 		default:
-			poolerStatuses = append(poolerStatuses, name+": queryable, type=UNKNOWN")
+			poolerStatuses = append(poolerStatuses, fmt.Sprintf("%s: queryable, type=UNKNOWN%s %s", name, actionSuffix, diag))
 			// UNKNOWN type means not fully initialized yet - don't count
 		}
-
-		client.Close()
 
 		if isFullyInitialized {
 			initializedCount++
@@ -725,7 +734,8 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		attribute.StringSlice("pooler.statuses", poolerStatuses),
 	)
 
-	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q", primaryName, initializedCount, len(setup.Multipoolers), latestBackupID)
+	t.Logf("checkBootstrapStatus: SUMMARY primary=%s initialized=%d/%d latest_backup=%q [%s]",
+		primaryName, initializedCount, len(setup.Multipoolers), latestBackupID, strings.Join(poolerStatuses, " | "))
 
 	// Query multiorch instances for status (best-effort diagnostic logging)
 	logMultiOrchStatus(ctx, t, setup)
@@ -1060,7 +1070,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// completely fresh. This clears pg_data (PostgreSQL data),
 		// pg_sockets (stale Unix sockets), pgbackrest (backup state),
 		// and any other state files.
-		dataDir := inst.Pgctld.DataDir
+		dataDir := inst.Pgctld.PoolerDir
 		entries, err := os.ReadDir(dataDir)
 		if err != nil {
 			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
@@ -1258,10 +1268,13 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 		// Ensure monitor is disabled (in case something during test re-enabled it)
 		s.disableMonitorOnAll(t, cleanupCtx)
 
-		// Validate cleanup worked
+		// Validate cleanup worked.
+		// Use a generous timeout: GUC values written by RestoreGUCs are already
+		// waited on inside that function, so this is a final sanity check that
+		// should pass quickly. The extra headroom guards against slow CI runners.
 		require.Eventually(t, func() bool {
 			return s.ValidateCleanState() == nil
-		}, 2*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
+		}, 15*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
 	})
 }
 
@@ -1315,7 +1328,7 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		if err == nil {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_standby_names", 0)
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_commit", 0)
-			_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+			ReloadConfig(ctx, t, client.Pooler, s.PrimaryName)
 			client.Close()
 			t.Logf("SetupTest: Cleared synchronous_standby_names on primary %s", s.PrimaryName)
 		}
@@ -1334,10 +1347,10 @@ func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
 		}
 
 		_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
-		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		ReloadConfig(ctx, t, client.Pooler, name)
 
-		// Wait for primary_conninfo to be cleared and WAL receiver to stop
-		// pg_reload_conf() is async, so we need to wait for changes to take effect
+		// Wait for the WAL receiver to stop. ReloadConfig has already confirmed
+		// primary_conninfo is cleared; this waits for postgres to act on it.
 		require.Eventually(t, func() bool {
 			connInfo, err := QueryStringValue(ctx, client.Pooler, "SHOW primary_conninfo")
 			if err != nil || connInfo != "" {
@@ -1432,7 +1445,7 @@ func (s *ShardSetup) KillPostgres(t *testing.T, name string) {
 	}
 
 	// Read the PID from postmaster.pid file
-	pgDataDir := filepath.Join(inst.Pgctld.DataDir, "pg_data")
+	pgDataDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_data")
 	pidFile := filepath.Join(pgDataDir, "postmaster.pid")
 
 	pidBytes, err := os.ReadFile(pidFile)

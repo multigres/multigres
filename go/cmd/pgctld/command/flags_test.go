@@ -19,7 +19,49 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/multigres/multigres/go/common/constants"
 )
+
+func TestPgDatabaseEnvVar(t *testing.T) {
+	t.Run("defaults to postgres when POSTGRES_DB not set", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Equal(t, constants.DefaultPostgresDatabase, pc.pgDatabase.Get())
+	})
+
+	t.Run("POSTGRES_DB env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgDatabaseEnvVar, "mydb")
+		_, pc := GetRootCommand()
+		assert.Equal(t, "mydb", pc.pgDatabase.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_DB env var", func(t *testing.T) {
+		t.Setenv(constants.PgDatabaseEnvVar, "envdb")
+		_, pc := GetRootCommand()
+		pc.pgDatabase.Set("flagdb")
+		assert.Equal(t, "flagdb", pc.pgDatabase.Get())
+	})
+}
+
+func TestPgInitdbArgsEnvVar(t *testing.T) {
+	t.Run("defaults to empty when POSTGRES_INITDB_ARGS not set", func(t *testing.T) {
+		_, pc := GetRootCommand()
+		assert.Equal(t, "", pc.pgInitdbArgs.Get())
+	})
+
+	t.Run("POSTGRES_INITDB_ARGS env var is used when flag not set", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbArgsEnvVar, "--locale-provider=icu")
+		_, pc := GetRootCommand()
+		assert.Equal(t, "--locale-provider=icu", pc.pgInitdbArgs.Get())
+	})
+
+	t.Run("flag overrides POSTGRES_INITDB_ARGS env var", func(t *testing.T) {
+		t.Setenv(constants.PgInitdbArgsEnvVar, "--locale-provider=icu")
+		_, pc := GetRootCommand()
+		pc.pgInitdbArgs.Set("--encoding=UTF-8")
+		assert.Equal(t, "--encoding=UTF-8", pc.pgInitdbArgs.Get())
+	})
+}
 
 func TestPgBackRestFlags(t *testing.T) {
 	// Test default values

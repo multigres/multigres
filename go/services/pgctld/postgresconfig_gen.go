@@ -24,6 +24,7 @@ import (
 	"text/template"
 
 	"github.com/multigres/multigres/config"
+	"github.com/multigres/multigres/go/common/constants"
 )
 
 // ExpandToAbsolutePath converts a relative path to an absolute path.
@@ -64,10 +65,10 @@ func GeneratePostgresServerConfig(poolerDir string, port int, pgUser string) (*P
 		return nil, fmt.Errorf("failed to expand pooler directory path: %w", err)
 	}
 	cnf := &PostgresServerConfig{}
-	cnf.Path = PostgresConfigFile(absPoolerDir)
-	cnf.DataDir = PostgresDataDir(absPoolerDir)
-	cnf.HbaFile = path.Join(PostgresDataDir(absPoolerDir), "pg_hba.conf")
-	cnf.IdentFile = path.Join(PostgresDataDir(absPoolerDir), "pg_ident.conf")
+	cnf.Path = PostgresConfigFile()
+	cnf.DataDir = PostgresDataDir()
+	cnf.HbaFile = path.Join(PostgresDataDir(), "pg_hba.conf")
+	cnf.IdentFile = path.Join(PostgresDataDir(), "pg_ident.conf")
 	cnf.Port = port
 	cnf.ListenAddresses = "localhost"
 	cnf.UnixSocketDirectories = PostgresSocketDir(absPoolerDir)
@@ -128,7 +129,7 @@ func LoadOrCreatePostgresServerConfig(poolerDir string, port int, pgUser string)
 		return nil, fmt.Errorf("failed to expand pooler directory path: %w", err)
 	}
 
-	configPath := PostgresConfigFile(absPoolerDir)
+	configPath := PostgresConfigFile()
 
 	// Check if config file already exists
 	if _, err := os.Stat(configPath); err == nil {
@@ -170,9 +171,9 @@ func (cnf *PostgresServerConfig) generateHbaFile() error {
 	return os.WriteFile(cnf.HbaFile, []byte(content), 0o644)
 }
 
-// PostgresDataDir returns the default location of the postgresql.conf file.
-func PostgresDataDir(poolerDir string) string {
-	return path.Join(poolerDir, "pg_data")
+// PostgresDataDir returns the PostgreSQL data directory from the PGDATA environment variable.
+func PostgresDataDir() string {
+	return os.Getenv(constants.PgDataDirEnvVar)
 }
 
 // PostgresSocketDir returns the default location of the PostgreSQL Unix sockets.
@@ -180,14 +181,9 @@ func PostgresSocketDir(poolerDir string) string {
 	return path.Join(poolerDir, "pg_sockets")
 }
 
-// PostgresConfigFile returns the default location of the postgresql.conf file.
-func PostgresConfigFile(poolerDir string) string {
-	return path.Join(PostgresDataDir(poolerDir), "postgresql.conf")
-}
-
-// PostgresPasswordFile returns the conventional location of the PostgreSQL password file.
-func PostgresPasswordFile(poolerDir string) string {
-	return path.Join(poolerDir, "pgpassword.txt")
+// PostgresConfigFile returns the location of the postgresql.conf file within PGDATA.
+func PostgresConfigFile() string {
+	return path.Join(PostgresDataDir(), "postgresql.conf")
 }
 
 // MakePostgresConf will substitute values in the template

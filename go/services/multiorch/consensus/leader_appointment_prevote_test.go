@@ -79,7 +79,7 @@ func setupDurabilityPolicyForPreVote(fakeClient *rpcclient.FakeClient, poolerKey
 		Policy: &clustermetadatapb.DurabilityPolicy{
 			PolicyName: "ANY_2",
 			QuorumRule: &clustermetadatapb.QuorumRule{
-				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: requiredCount,
 				Description:   "Any 2 poolers",
 			},
@@ -114,7 +114,7 @@ func TestPreVote(t *testing.T) {
 		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
 		proposedTerm := int64(6)
@@ -148,7 +148,7 @@ func TestPreVote(t *testing.T) {
 		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
 		proposedTerm := int64(11)
@@ -175,7 +175,7 @@ func TestPreVote(t *testing.T) {
 		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
 		proposedTerm := int64(6)
@@ -202,7 +202,7 @@ func TestPreVote(t *testing.T) {
 		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
 		proposedTerm := int64(1)
@@ -236,7 +236,7 @@ func TestPreVote(t *testing.T) {
 		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
 		proposedTerm := int64(6)
@@ -257,7 +257,7 @@ func TestPreVote(t *testing.T) {
 		}
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
 		proposedTerm := int64(6)
@@ -289,7 +289,7 @@ func TestPreVote(t *testing.T) {
 		setupDurabilityPolicyForPreVote(fakeClient, poolerKey, 2)
 
 		quorumRule := &clustermetadatapb.QuorumRule{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_ANY_N,
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 			RequiredCount: 2,
 		}
 		proposedTerm := int64(6)

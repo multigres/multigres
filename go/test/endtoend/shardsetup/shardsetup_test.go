@@ -228,7 +228,7 @@ func TestShardSetup_GUCModificationAndReset(t *testing.T) {
 		} else {
 			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM SET primary_conninfo = 'host=modified_host'", 0)
 		}
-		_, _ = client.Pooler.ExecuteQuery(ctx, "SELECT pg_reload_conf()", 0)
+		ReloadConfig(ctx, t, client.Pooler, name)
 		client.Close()
 		t.Logf("%s GUCs modified", name)
 	}

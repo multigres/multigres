@@ -21,8 +21,24 @@ import "time"
 // they represent different concepts that could diverge in the future.
 const (
 	// DefaultPostgresUser is the default PostgreSQL superuser name.
-	// This is the administrative user that owns the database cluster.
+	// This is the administrative user that owns the database cluster and is used
+	// by pgctld for all internal operations.
 	DefaultPostgresUser = "postgres"
+
+	// PgUserEnvVar is the environment variable for the PostgreSQL role used by pgctld.
+	PgUserEnvVar = "POSTGRES_USER"
+
+	// PgPasswordEnvVar is the environment variable for the PostgreSQL password.
+	PgPasswordEnvVar = "POSTGRES_PASSWORD" //nolint:gosec // This is an env var name, not a credential
+
+	// PgDatabaseEnvVar is the environment variable for the PostgreSQL database name.
+	PgDatabaseEnvVar = "POSTGRES_DB"
+
+	// PgDataDirEnvVar is the environment variable for the PostgreSQL data directory.
+	PgDataDirEnvVar = "PGDATA"
+
+	// PgInitdbArgsEnvVar is the environment variable for extra arguments passed to initdb.
+	PgInitdbArgsEnvVar = "POSTGRES_INITDB_ARGS"
 
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
@@ -30,6 +46,13 @@ const (
 
 	// PostgresExecutable is the name of the PostgreSQL server binary.
 	PostgresExecutable = "postgres"
+
+	// MultigresMarkerDirectory is the name of the directory used by pgctld to
+	// mark a PostgreSQL data directory as managed by pgctld. This is also where
+	// all marker files are stored, such as the file indicating that the cluster
+	// is in the process of being initialized. This directory is created inside
+	// the PostgreSQL data directory.
+	MultigresMarkerDirectory = "multigres"
 
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second

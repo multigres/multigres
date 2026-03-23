@@ -22,6 +22,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/multigres/multigres/go/services/pgctld"
 )
 
 // postgresAlreadyRunningPattern matches postgres error when it's already running
@@ -30,8 +32,8 @@ var postgresAlreadyRunningPattern = regexp.MustCompile(`lock file ".*" already e
 
 // isPostgresCleanlyStopped checks if PostgreSQL is in a clean shutdown state.
 // Returns true if state is "shut down" or "shut down in recovery", false otherwise.
-func isPostgresCleanlyStopped(ctx context.Context, poolerDir string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "pg_controldata", poolerDir+"/pg_data")
+func isPostgresCleanlyStopped(ctx context.Context) (bool, error) {
+	cmd := exec.CommandContext(ctx, "pg_controldata", pgctld.PostgresDataDir())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("pg_controldata failed: %w (output: %s)", err, string(output))
@@ -63,13 +65,13 @@ func extractClusterState(output string) string {
 
 // runCrashRecovery performs crash recovery in single-user mode.
 // This runs postgres --single to complete crash recovery, then exits cleanly.
-func runCrashRecovery(ctx context.Context, logger *slog.Logger, poolerDir string) error {
+func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Starting single-user crash recovery")
 
 	// Run postgres in single-user mode to perform crash recovery
 	// postgres --single starts in single-user mode, performs recovery, and exits on EOF
 	// Using /dev/null for stdin is simpler than pipe management
-	cmd := exec.CommandContext(ctx, "postgres", "--single", "-D", poolerDir+"/pg_data", "template1")
+	cmd := exec.CommandContext(ctx, "postgres", "--single", "-D", pgctld.PostgresDataDir(), "template1")
 
 	// Open /dev/null for stdin
 	devNull, err := os.Open("/dev/null")

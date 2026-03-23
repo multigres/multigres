@@ -66,18 +66,33 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	stmts []ast.Stmt,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
+	// recordTableMetrics emits per-table metrics for a single statement's ExecuteResult.
+	dbNamespace := conn.Database()
+	recordTableMetrics := func(result *ExecuteResult, stmt ast.Stmt) {
+		if result == nil {
+			return
+		}
+		opName := stmt.StatementType()
+		for _, t := range result.TablesUsed {
+			h.metrics.tableQueries.Add(ctx, dbNamespace, t, opName)
+		}
+	}
+
 	execute := func(stmt ast.Stmt) error {
 		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
 		defer cancel()
-		return h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt, callback)
+		result, err := h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt, callback)
+		recordTableMetrics(result, stmt)
+		return err
 	}
 	// silentExecute runs a statement without sending results to the client.
 	// Used for synthetic BEGIN/COMMIT/ROLLBACK injected by implicit transaction handling.
 	silentExecute := func(stmt ast.Stmt) error {
 		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
 		defer cancel()
-		return h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
+		_, err := h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
 			func(context.Context, *sqltypes.Result) error { return nil })
+		return err
 	}
 
 	// If already in a transaction, don't inject BEGIN at start
@@ -159,7 +174,7 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		var execErr error
 		if i == len(stmts)-1 && isImplicitTx {
 			stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, stmt)
-			execErr = h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
+			result, execErrInner := h.executor.StreamExecute(stmtCtx, conn, state, stmt.SqlString(), stmt,
 				func(ctx context.Context, result *sqltypes.Result) error {
 					if result.CommandTag != "" {
 						// Hold the CommandTag — we'll send it after a successful commit,
@@ -182,6 +197,8 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 					return callback(ctx, result)
 				},
 			)
+			recordTableMetrics(result, stmt)
+			execErr = execErrInner
 			cancel()
 		} else {
 			execErr = execute(stmt)

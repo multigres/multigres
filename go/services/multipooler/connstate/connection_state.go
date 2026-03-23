@@ -262,6 +262,20 @@ func (s *Settings) Bucket() uint32 {
 }
 
 // ApplyQuery returns the SQL to apply these settings to a connection.
+//
+// Uses pg_catalog.set_config() instead of SET SQL to correctly handle
+// list-valued GUCs (e.g. search_path, DateStyle). The SET SQL command
+// requires list elements to be individually quoted or unquoted:
+//
+//	SET search_path = 'temp_func_test, public'  -- WRONG: one schema "temp_func_test, public"
+//	SET search_path = temp_func_test, public     -- RIGHT: two schemas
+//
+// set_config() takes a flat string and PG's GUC machinery internally splits
+// it for GUC_LIST_INPUT variables. This is the same approach pg_dump uses
+// (see pg_dump.c: appendStringLiteralAH for search_path serialization).
+//
+// Single quotes in variable names and values are escaped by doubling them
+// to prevent SQL injection.
 func (s *Settings) ApplyQuery() string {
 	if s == nil || len(s.Vars) == 0 {
 		return ""
@@ -274,27 +288,29 @@ func (s *Settings) ApplyQuery() string {
 	}
 	sort.Strings(keys)
 
-	// Build apply query
+	// Build apply query using set_config() for correct list GUC handling.
 	var b strings.Builder
 	for i, k := range keys {
 		if i > 0 {
 			b.WriteString("; ")
 		}
-		b.WriteString("SET SESSION ")
-		b.WriteString(k)
-		b.WriteString(" = '")
-		b.WriteString(s.Vars[k])
-		b.WriteString("'")
+		b.WriteString("SELECT pg_catalog.set_config('")
+		b.WriteString(strings.ReplaceAll(k, "'", "''"))
+		b.WriteString("', '")
+		b.WriteString(strings.ReplaceAll(s.Vars[k], "'", "''"))
+		b.WriteString("', false)")
 	}
 	return b.String()
 }
 
 // ResetQuery returns the SQL to reset these settings on a connection.
+// Includes RESET ROLE and RESET SESSION AUTHORIZATION before RESET ALL
+// because PostgreSQL marks both with GUC_NO_RESET_ALL.
 func (s *Settings) ResetQuery() string {
 	if s == nil || len(s.Vars) == 0 {
 		return ""
 	}
-	return "RESET ALL"
+	return "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL"
 }
 
 // IsEmpty returns true if there are no variables set.

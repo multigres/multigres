@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 
 	"google.golang.org/grpc"
@@ -95,6 +96,7 @@ type MultiPoolerManager struct {
 	isOpen bool
 	// all fields other than Type and ServingStatus never change after initialization.
 	// They can be accessed without holding the lock.
+	// Type and ServingStatus are exclusively written by the StateManager.
 	multipooler     *clustermetadatapb.MultiPooler
 	state           ManagerState
 	stateError      error
@@ -132,11 +134,9 @@ type MultiPoolerManager struct {
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
-	// TODO: Implement async query serving state management system
-	// This should include: target state, current state, convergence goroutine,
-	// and state-specific handlers (setServing, setServingReadOnly, setNotServing, setDrained)
-	// See design discussion for full details.
-	queryServingState clustermetadatapb.PoolerServingStatus
+	// servingState coordinates serving state transitions across components
+	// (query service, heartbeat tracker) and updates the multipooler record.
+	servingState *StateManager
 
 	// The following three variables are for pgbackrest.
 	primaryPoolerID *clustermetadatapb.ID
@@ -145,6 +145,10 @@ type MultiPoolerManager struct {
 
 	// metrics holds OTel gauges for pgBackRest server health.
 	metrics *Metrics
+
+	// healthStreamer streams health state to subscribers.
+	// Owns all health-related state and provides typed update methods.
+	healthStreamer *healthStreamer
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -157,7 +161,7 @@ type promotionState struct {
 
 // demotionState tracks which parts of the demotion are complete
 type demotionState struct {
-	isServingReadOnly   bool   // PoolerServingStatus == SERVING_RDONLY (includes heartbeat stopped)
+	isNotServing        bool   // PoolerServingStatus == NOT_SERVING (includes heartbeat stopped)
 	isReplicaInTopology bool   // PoolerType == REPLICA
 	isReadOnly          bool   // default_transaction_read_only = on
 	finalLSN            string // Captured LSN before demotion
@@ -182,6 +186,9 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	}
 	if multiPooler.Id == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "MultiPooler.Id is required")
+	}
+	if _, err := generateApplicationName(multiPooler.Id); err != nil {
+		return nil, mterrors.Wrap(err, "invalid MultiPooler.Id")
 	}
 
 	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
@@ -224,11 +231,11 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 		state:                  ManagerStateStarting,
 		loadTimeout:            loadTimeout,
 		pgMonitorRetryInterval: monitorRetryInterval,
-		queryServingState:      clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		pgctldClient:           pgctldClient,
 		connPoolMgr:            connPoolMgr,
 		readyChan:              make(chan struct{}),
 		pgMonitor:              monitorRunner,
+		healthStreamer:         newHealthStreamer(logger, multiPooler.Id, multiPooler.TableGroup, multiPooler.Shard),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -238,8 +245,17 @@ func NewMultiPoolerManagerWithTimeout(logger *slog.Logger, multiPooler *clusterm
 	// Consensus state is always available; it will be loaded when needed.
 	pm.consensusState = NewConsensusState(pm.multipooler.PoolerDir, pm.serviceID)
 
-	// Create the query service controller with the pool manager
-	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id)
+	// Create the query service controller with the pool manager.
+	// Get the drain grace period from connpool config (0 means use default).
+	var drainGracePeriod time.Duration
+	if config.ConnPoolConfig != nil {
+		drainGracePeriod = config.ConnPoolConfig.DrainGracePeriod()
+	}
+	pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multiPooler.Id, pm, drainGracePeriod)
+
+	// Create the serving state manager with the query service and health streamer as initial components.
+	// The ReplTracker is registered later when heartbeat is started.
+	pm.servingState = NewStateManager(logger, pm.multipooler, pm.qsc, pm.healthStreamer)
 
 	// Register pgBackRest health metrics.
 	var metricsErr error
@@ -297,13 +313,6 @@ func (pm *MultiPoolerManager) execArgs(ctx context.Context, sql string, args ...
 // This operation is infallible - if connection pools fail to open, queries will fail
 // gracefully at query time rather than preventing the manager from opening.
 // Open is idempotent and safe to call multiple times.
-//
-// TODO:
-//   - Replace with proper state manager (like tm_state.go) that orchestrates
-//     state transitions and manages Open/Close lifecycle.
-//   - The replTracker is being Open/Close with a big hammer. A better approach
-//     is to call MakePrimary / MakeNonPrimary during state transitions.
-//     We can do this, once we introduce the proper state manager.
 func (pm *MultiPoolerManager) Open() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -321,6 +330,13 @@ func (pm *MultiPoolerManager) Open() {
 	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 
 	pm.isOpen = true
+
+	// Start health heartbeat goroutine and transition to SERVING.
+	// SetState notifies all components (query service, heartbeat, health streamer).
+	go pm.runHealthHeartbeat(pm.ctx, defaultHealthHeartbeatInterval)
+	if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+		pm.logger.ErrorContext(pm.ctx, "Failed to transition to SERVING on open", "error", err)
+	}
 }
 
 // Pause temporarily closes the manager for maintenance operations that require
@@ -366,6 +382,13 @@ func (pm *MultiPoolerManager) closeLocked(logMessage string) bool {
 		return false
 	}
 
+	// Transition to NOT_SERVING before closing resources. This notifies all
+	// components: query service rejects queries, heartbeat stops, health
+	// streamer broadcasts NOT_SERVING to subscribers.
+	if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+		pm.logger.Warn("Failed to transition to NOT_SERVING during close", "error", err)
+	}
+
 	pm.pgMonitor.Stop()
 	pm.closeConnectionsLocked()
 	pm.cancel()
@@ -374,26 +397,18 @@ func (pm *MultiPoolerManager) closeLocked(logMessage string) bool {
 	return true
 }
 
-// startHeartbeat starts the replication tracker and heartbeat writer if connected to a primary database
+// startHeartbeat starts the replication tracker and syncs it to the current serving state.
+// The heartbeat writer/reader mode is determined by the multipooler record (the source of truth),
+// not by querying the database directly. If the type later changes (e.g., via promotion or
+// topology load), StateManager.SetState will notify the replTracker.
 func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte, poolerID string) error {
 	// Create the replication tracker using the executor's InternalQueryService
 	pm.replTracker = heartbeat.NewReplTracker(pm.qsc.InternalQueryService(), pm.logger, shardID, poolerID, pm.config.HeartbeatIntervalMs)
 
-	// Check if we're connected to a primary
-	isPrimary, err := pm.isPrimary(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check if database is primary: %w", err)
-	}
-
-	if isPrimary {
-		pm.logger.InfoContext(ctx, "Starting heartbeat writer - connected to primary database")
-		pm.replTracker.MakePrimary()
-	} else {
-		pm.logger.InfoContext(ctx, "Not starting heartbeat writer - connected to standby database")
-		pm.replTracker.MakeNonPrimary()
-	}
-
-	return nil
+	// Register with StateManager and sync to current state. This ensures the
+	// heartbeat writer starts for PRIMARY or the reader starts for REPLICA,
+	// based on whatever state the StateManager currently holds.
+	return pm.servingState.RegisterAndSync(ctx, pm.replTracker)
 }
 
 // QueryServiceControl returns the query service controller.
@@ -572,15 +587,9 @@ func (pm *MultiPoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 	return nil
 }
 
-// checkPrimaryGuardrails verifies that the pooler is a PRIMARY and PostgreSQL is not in recovery mode
-// This is a common guardrail for primary-only operations
+// checkPrimaryGuardrails verifies that PostgreSQL is not in recovery mode.
+// This is the canonical guardrail for primary-only operations.
 func (pm *MultiPoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
-	// Guardrail: Check pooler type - only PRIMARY poolers can perform primary operations
-	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_PRIMARY, "Primary operation"); err != nil {
-		return err
-	}
-
-	// Guardrail: Check if the PostgreSQL instance is in standby mode
 	isInRecovery, err := pm.isInRecovery(ctx)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
@@ -632,6 +641,17 @@ func (pm *MultiPoolerManager) checkAndSetReady() {
 			// Already closed
 		default:
 			close(pm.readyChan)
+		}
+
+		// Set initial primary observation from loaded consensus state.
+		// Use GetInconsistentTerm (safe without action lock) to read the term.
+		if pm.consensusState != nil {
+			if term, _ := pm.consensusState.GetInconsistentTerm(); term != nil && term.GetPrimaryTerm() > 0 {
+				pm.healthStreamer.UpdatePrimaryObservation(&poolerserver.PrimaryObservation{
+					PrimaryID:   pm.serviceID,
+					PrimaryTerm: term.GetPrimaryTerm(),
+				})
+			}
 		}
 	}
 }
@@ -705,7 +725,7 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 			PoolerDir:     pm.multipooler.PoolerDir,
 			Pg1Port:       pgPort,
 			Pg1SocketPath: socketDir,
-			Pg1Path:       filepath.Join(pm.multipooler.PoolerDir, "pg_data"),
+			Pg1Path:       postgresDataDir(),
 		}, backupConfig)
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
@@ -718,6 +738,11 @@ func (pm *MultiPoolerManager) loadMultiPoolerFromTopo() {
 		pm.pgBackRestConfigPath = configPath
 		pm.topoLoaded = true
 		pm.mu.Unlock()
+
+		// Notify all components of the pooler type loaded from topology.
+		if err := pm.servingState.SetState(pm.ctx, pm.multipooler.Type, pm.multipooler.ServingStatus); err != nil {
+			pm.logger.Error("Failed to set state after topo load", "error", err)
+		}
 
 		// Note: restoring from backup (for replicas) happens in a separate goroutine
 
@@ -942,7 +967,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	pm.mu.Unlock()
 
 	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
-	state.isServingReadOnly = (servingStatus == clustermetadatapb.PoolerServingStatus_SERVING_RDONLY)
+	state.isNotServing = (servingStatus == clustermetadatapb.PoolerServingStatus_NOT_SERVING)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
 	isPrimary, err := pm.isPrimary(ctx)
@@ -960,7 +985,7 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
-		"is_serving_read_only", state.isServingReadOnly,
+		"is_not_serving", state.isNotServing,
 		"is_replica_in_topology", state.isReplicaInTopology,
 		"is_read_only", state.isReadOnly,
 		"is_primary", isPrimary,
@@ -970,50 +995,38 @@ func (pm *MultiPoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	return state, nil
 }
 
-// setServingReadOnly transitions the pooler to SERVING_RDONLY status
-// Note: the following code should be refactored to be async and work
-// a state transita desired state that the manager converges, makes
-// the pooler converge.
-// Similar to how ManagerState works today.
-// At the moment, setServingReadOnly means:
-// - The heartbeat writer is stopped.
-// - We update the topology serving state for the pooler record.
-// - TODO: QueryPooler should stop accepting write traffic.
-func (pm *MultiPoolerManager) setServingReadOnly(ctx context.Context, state *demotionState) error {
-	if state.isServingReadOnly {
-		pm.logger.InfoContext(ctx, "Already in SERVING_RDONLY state, skipping")
+// setNotServing transitions the pooler to NOT_SERVING status during demotion.
+// This uses the StateManager to coordinate:
+//   - Query service rejects all queries
+//   - Heartbeat writer is stopped
+//   - Multipooler record is updated
+//
+// After this, topology is synced to persist the state change.
+func (pm *MultiPoolerManager) setNotServing(ctx context.Context, state *demotionState) error {
+	if state.isNotServing {
+		pm.logger.InfoContext(ctx, "Already in NOT_SERVING state, skipping")
 		return nil
 	}
 
-	pm.logger.InfoContext(ctx, "Transitioning to SERVING_RDONLY")
+	pm.logger.InfoContext(ctx, "Transitioning to NOT_SERVING")
 
-	// Update local state first
+	// Use the serving state manager to transition components.
+	// This updates query service, heartbeat, and the multipooler record.
+	if err := pm.servingState.SetState(ctx, pm.multipooler.Type, clustermetadatapb.PoolerServingStatus_NOT_SERVING); err != nil {
+		return mterrors.Wrap(err, "failed to transition to NOT_SERVING")
+	}
+
+	// Sync to topology
 	pm.mu.Lock()
-	pm.multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
-	pm.queryServingState = clustermetadatapb.PoolerServingStatus_SERVING_RDONLY
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
-	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update serving status in topology", "error", err)
-		return mterrors.Wrap(err, "failed to transition to SERVING_RDONLY")
+		return mterrors.Wrap(err, "failed to sync NOT_SERVING to topology")
 	}
 
-	// Transition query service to reject queries during failover.
-	if pm.qsc != nil {
-		if err := pm.qsc.SetServingType(ctx, clustermetadatapb.PoolerServingStatus_SERVING_RDONLY); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to set query serving state", "error", err)
-		}
-	}
-
-	// Stop heartbeat writer
-	if pm.replTracker != nil {
-		pm.logger.InfoContext(ctx, "Stopping heartbeat writer")
-		pm.replTracker.MakeNonPrimary()
-	}
-
-	pm.logger.InfoContext(ctx, "Transitioned to SERVING_RDONLY successfully")
+	pm.logger.InfoContext(ctx, "Transitioned to NOT_SERVING successfully")
 	return nil
 }
 
@@ -1335,22 +1348,20 @@ func (pm *MultiPoolerManager) updateTopologyAfterPromotion(ctx context.Context, 
 	pm.logger.InfoContext(ctx, "Topology update needed")
 	pm.logger.InfoContext(ctx, "Updating pooler type in topology to PRIMARY")
 
-	// Update local state first
+	// Use the serving state manager to transition components (query service, heartbeat, health streamer)
+	// and update the multipooler record. The serving status stays SERVING during promotion.
+	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
+		return mterrors.Wrap(err, "failed to set serving state for promotion")
+	}
+
+	// Sync to topology
 	pm.mu.Lock()
-	pm.multipooler.Type = clustermetadatapb.PoolerType_PRIMARY
 	multiPoolerToSync := proto.Clone(pm.multipooler).(*clustermetadatapb.MultiPooler)
 	pm.mu.Unlock()
 
-	// Sync to topology
 	if err := pm.topoClient.RegisterMultiPooler(ctx, multiPoolerToSync, true); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to update pooler type in topology", "error", err)
 		return mterrors.Wrap(err, "promotion succeeded but failed to update topology")
-	}
-
-	// Update heartbeat tracker to primary mode
-	if pm.replTracker != nil {
-		pm.logger.InfoContext(ctx, "Updating heartbeat tracker to primary mode")
-		pm.replTracker.MakePrimary()
 	}
 
 	return nil
@@ -1658,12 +1669,18 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 
 	case remedialActionStartPostgres:
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
 		if err := pm.startPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
 		}
 
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
 		}
@@ -1690,7 +1707,7 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 
 // startPostgres starts PostgreSQL via pgctld
 func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgresSQL")
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL")
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}
@@ -1760,7 +1777,9 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		"backup_id", latestBackup.BackupId)
 
 	// Perform the restore
-	if err := pm.restoreFromBackupLocked(ctx, latestBackup.BackupId); err != nil {
+	if err := telemetry.WithSpan(ctx, "monitor-postgres-restore", func(ctx context.Context) error {
+		return pm.restoreFromBackupLocked(ctx, latestBackup.BackupId)
+	}); err != nil {
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 
