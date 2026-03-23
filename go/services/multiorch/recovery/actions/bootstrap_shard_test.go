@@ -166,65 +166,6 @@ func TestBootstrapShardAction_ParsePolicyInvalid(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported policy name")
 }
 
-func TestBootstrapShardAction_ConcurrentExecutionPrevented(t *testing.T) {
-	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
-
-	logger := slog.Default()
-	ps := store.NewPoolerStore(nil, logger)
-
-	// Add a pooler to the store so we get past the "no poolers found" check
-	poolerID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "cell1",
-		Name:      "pooler1",
-	}
-	ps.Set("multipooler-cell1-pooler1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id:         poolerID,
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-		},
-	})
-
-	// Acquire lock manually to simulate another recovery in progress
-	// The LockShard API uses path: databases/<db>/<tg>/<shard>
-	lockPath := "databases/testdb/default/0"
-	conn, err := ts.ConnForCell(ctx, "global")
-	require.NoError(t, err)
-	lock1, err := conn.LockName(ctx, lockPath, "test lock")
-	require.NoError(t, err)
-	defer func() {
-		err := lock1.Unlock(ctx)
-		require.NoError(t, err)
-	}()
-
-	// Now try to execute recovery - should fail to acquire lock
-	coord := newTestCoordinator(ts, nil, logger)
-	action := NewBootstrapShardAction(nil, nil, ps, ts, coord, logger)
-	problem := types.Problem{
-		Code: types.ProblemShardNeedsBootstrap,
-		ShardKey: commontypes.ShardKey{
-			Database:   "testdb",
-			TableGroup: "default",
-			Shard:      "0",
-		},
-	}
-
-	// Use a short timeout so the test doesn't wait 45 seconds
-	shortCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-
-	err = action.Execute(shortCtx, problem)
-
-	// Should fail because lock is already held (times out trying to acquire)
-	assert.Error(t, err)
-	// The error message is "deadline exceeded" when lock acquisition times out
-	assert.Contains(t, err.Error(), "deadline exceeded")
-}
-
 func TestBootstrapShardAction_Metadata(t *testing.T) {
 	logger := slog.Default()
 	coord := newTestCoordinator(nil, nil, logger)

@@ -187,12 +187,11 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	cmd := executil.Command(ctx, "pgbackrest", args...)
 
-	// Execute backup: if the context is cancelled (e.g., lease lost/stolen),
-	// executil sends SIGTERM → grace period → SIGKILL automatically.
+	// Execute backup with progress logging
 	var output []byte
-	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(_ context.Context) error {
+	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(ctx context.Context) error {
 		var runErr error
-		output, runErr = cmd.CombinedOutput()
+		output, runErr = pm.runLongCommand(ctx, cmd, "pgbackrest backup")
 		return runErr
 	})
 	if err != nil {
