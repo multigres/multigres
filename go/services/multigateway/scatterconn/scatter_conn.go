@@ -91,6 +91,14 @@ func (sc *ScatterConn) applyReservedState(
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
 		}
+		// If the destroyed connection had temp tables, clear the pin.
+		// The temp tables are irrecoverably lost with the backend session.
+		// Subsequent queries will use regular pooled connections and get
+		// "relation does not exist" if they reference the temp table,
+		// which is the correct PostgreSQL error for this situation.
+		if state.SessionPinned {
+			state.SessionPinned = false
+		}
 	} else {
 		state.SetReservedConnection(target, rs)
 	}
