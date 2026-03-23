@@ -98,6 +98,12 @@ type ShardSetup struct {
 	BaselineGucs map[string]map[string]string
 }
 
+// Context returns the running context for this setup, which is cancelled when Cleanup() is called.
+// Use this when starting processes that should live for the lifetime of the cluster.
+func (s *ShardSetup) Context() context.Context {
+	return s.runningCtx
+}
+
 // GetMultipoolerInstance returns a multipooler instance by name, or nil if not found.
 func (s *ShardSetup) GetMultipoolerInstance(name string) *MultipoolerInstance {
 	if s == nil || s.Multipoolers == nil {

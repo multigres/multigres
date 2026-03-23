@@ -177,7 +177,7 @@ func restoreAfterEmergencyDemotion(t *testing.T, setup *MultipoolerTestSetup, pg
 	// Step 3: Restart multipooler so it picks up the topology change
 	t.Logf("Restarting multipooler %s to pick up topology change...", multipoolerName)
 	multipooler.Stop()
-	err = multipooler.Start(restartCtx, t)
+	err = multipooler.Start(setup.Context(), t)
 	require.NoError(t, err, "Multipooler should restart successfully: %s", multipoolerName)
 
 	// Wait for manager to be ready
