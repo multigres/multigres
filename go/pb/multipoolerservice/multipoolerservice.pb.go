@@ -1461,6 +1461,8 @@ type DiscardTempTablesRequest struct {
 	// options must include reserved_connection_id to identify the connection
 	Options *query.ExecuteOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
 	// sql is the original SQL statement to execute (e.g., "DISCARD TEMP" or "DISCARD ALL").
+	// The multipooler sends this to PostgreSQL instead of hardcoding "DISCARD TEMP",
+	// so that DISCARD ALL correctly resets all session state on the backend.
 	Sql           string `protobuf:"bytes,4,opt,name=sql,proto3" json:"sql,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2063,11 +2065,12 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"conclusion\"\x86\x01\n" +
 	"\x1bConcludeTransactionResponse\x12*\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
-	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xa0\x01\n" +
+	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xb2\x01\n" +
 	"\x18DiscardTempTablesRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12,\n" +
 	"\tcaller_id\x18\x02 \x01(\v2\x0f.mtrpc.CallerIDR\bcallerId\x12/\n" +
-	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\"\x84\x01\n" +
+	"\aoptions\x18\x03 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\x12\x10\n" +
+	"\x03sql\x18\x04 \x01(\tR\x03sql\"\x84\x01\n" +
 	"\x19DiscardTempTablesResponse\x12*\n" +
 	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12;\n" +
 	"\x0ereserved_state\x18\x05 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\xa8\x01\n" +

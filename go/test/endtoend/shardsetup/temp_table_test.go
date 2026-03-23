@@ -118,7 +118,7 @@ func TestTempTable_StablePIDAfterMultipleQueries(t *testing.T) {
 	require.NoError(t, err)
 
 	pinnedPID := getBackendPID(t, conn)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		pid := getBackendPID(t, conn)
 		require.Equal(t, pinnedPID, pid, "PID must remain stable on query %d", i)
 	}
@@ -630,7 +630,7 @@ func TestTempTable_IndexOnTempTable(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert data and verify the index is usable.
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		_, err = conn.ExecContext(t.Context(), fmt.Sprintf("INSERT INTO tt_idx VALUES (%d, 'row_%d')", i, i))
 		require.NoError(t, err)
 	}
@@ -924,7 +924,7 @@ func TestTempTable_ShadowsPermanentTable(t *testing.T) {
 	require.NoError(t, err)
 
 	var src string
-	err = conn.QueryRowContext(t.Context(), fmt.Sprintf("SELECT src FROM %s", permTable)).Scan(&src)
+	err = conn.QueryRowContext(t.Context(), "SELECT src FROM "+permTable).Scan(&src)
 	require.NoError(t, err)
 	assert.Equal(t, "temporary", src, "temp table should shadow the permanent table")
 
@@ -932,7 +932,7 @@ func TestTempTable_ShadowsPermanentTable(t *testing.T) {
 	_, err = conn.ExecContext(t.Context(), "DISCARD TEMP")
 	require.NoError(t, err)
 
-	err = conn.QueryRowContext(t.Context(), fmt.Sprintf("SELECT src FROM %s", permTable)).Scan(&src)
+	err = conn.QueryRowContext(t.Context(), "SELECT src FROM "+permTable).Scan(&src)
 	require.NoError(t, err)
 	assert.Equal(t, "permanent", src, "after DISCARD TEMP, permanent table should be visible")
 }
