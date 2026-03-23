@@ -329,7 +329,8 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 }
 
 // TestPoolerWatcher_PoolerDeletedFromTopology verifies that deleting a pooler from topology
-// does not immediately remove it from the store; that is handled by bookkeeping.
+// does not immediately remove it from the store. Removal is deferred to bookkeeping so
+// that health-check state is preserved across transient topology blips (e.g. rolling restarts).
 func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	ctx := t.Context()
 
