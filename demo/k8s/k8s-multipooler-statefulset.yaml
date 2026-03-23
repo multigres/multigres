@@ -216,6 +216,8 @@ spec:
                   fieldPath: metadata.name
             - name: PGDATA
               value: /data/pg_data
+            - name: POSTGRES_PASSWORD
+              value: postgres
 
       volumes:
         # We have to give different mount points.
