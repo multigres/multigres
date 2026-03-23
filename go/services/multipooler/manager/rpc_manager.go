@@ -1166,13 +1166,6 @@ func (pm *MultiPoolerManager) DemoteStalePrimary(
 		return nil, mterrors.Wrap(err, "failed to update topology")
 	}
 
-	// Transition query service back to SERVING now that the node is a healthy replica.
-	// During emergency demotion, the state was set to NOT_SERVING. Now that recovery
-	// is complete, the replica should accept read queries again.
-	if err := pm.servingState.SetState(ctx, clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to set serving state to SERVING after demotion", "error", err)
-	}
-
 	pm.logger.InfoContext(ctx, "DemoteStalePrimary completed successfully",
 		"rewind_performed", rewindPerformed,
 		"lsn_position", finalLSN)
