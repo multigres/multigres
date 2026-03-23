@@ -650,9 +650,12 @@ func (c *Conn) handleParse() error {
 		if writeErr := c.writeError(mterrors.MTD04.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
-		if writeErr := c.writeReadyForQuery(); writeErr != nil {
-			return writeErr
-		}
+		// Do NOT send ReadyForQuery here. In the extended query protocol, the client
+		// pipelines Parse + Describe + Sync (or Parse + Bind + Execute + Sync).
+		// ReadyForQuery must only be sent in response to Sync. Sending it here would
+		// cause protocol desynchronization: pgx would read the premature ReadyForQuery
+		// and think the pipeline is done, but stale responses from subsequent messages
+		// (Describe, Sync) would corrupt the next query's response stream.
 		return c.flush()
 	}
 
@@ -744,9 +747,8 @@ func (c *Conn) handleBind() error {
 		if writeErr := c.writeError(mterrors.MTD05.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr
 		}
-		if writeErr := c.writeReadyForQuery(); writeErr != nil {
-			return writeErr
-		}
+		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
+		// ReadyForQuery is sent only in response to Sync.
 		return c.flush()
 	}
 
@@ -888,11 +890,12 @@ func (c *Conn) handleDescribe() error {
 		return c.flush()
 	}
 
-	// Send ParameterDescription if there are parameters.
-	if len(desc.Parameters) > 0 {
-		if err := c.writeParameterDescription(desc.Parameters); err != nil {
-			return fmt.Errorf("failed to write parameter description: %w", err)
-		}
+	// Always send ParameterDescription — PostgreSQL protocol requires it after
+	// Describe of type 'S', even when there are zero parameters. Skipping it
+	// would cause pgx (and other clients) to read the subsequent RowDescription
+	// or NoData message as ParameterDescription, desynchronizing the protocol.
+	if err := c.writeParameterDescription(desc.Parameters); err != nil {
+		return fmt.Errorf("failed to write parameter description: %w", err)
 	}
 
 	// Send RowDescription or NoData based on whether we have field info.
