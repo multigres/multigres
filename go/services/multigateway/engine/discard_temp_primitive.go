@@ -70,6 +70,11 @@ func (d *DiscardTempPrimitive) StreamExecute(
 			return err
 		}
 
+		// Unpin the session now that the RPC succeeded. This ensures
+		// correct behavior even if a later statement in a multi-statement
+		// batch fails (the handler's post-execution check is skipped on error).
+		state.SessionPinned = false
+
 		// For DISCARD ALL, also reset gateway-side session state.
 		// PG's DISCARD ALL runs RESET ALL (clears GUCs) and DEALLOCATE ALL
 		// (drops prepared statements), so the gateway must stay in sync.
