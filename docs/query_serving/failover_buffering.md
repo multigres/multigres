@@ -95,10 +95,10 @@ The gateway's `classifyError` determines whether an error should
 trigger buffering. Only PRIMARY queries are buffered, and only for
 two error codes:
 
-| Error | Source | Meaning |
-| ----- | ------ | ------- |
-| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover |
-| `25006` | PostgreSQL | `read_only_sql_transaction` — in-flight query hit a primary that has already been demoted |
+| Error   | Source                       | Meaning                                                                                   |
+| ------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover                                      |
+| `25006` | PostgreSQL                   | `read_only_sql_transaction` — in-flight query hit a primary that has already been demoted |
 
 All other errors pass through to the application.
 
@@ -166,24 +166,24 @@ This approach has several advantages:
 
 Several mechanisms prevent unbounded buffering:
 
-| Mechanism | Error | Trigger |
-| --------- | ----- | ------- |
-| Buffer full | `MTB01` | Global queue at capacity — oldest entry evicted |
-| Per-request window | `MTB02` | Individual request buffered longer than `Window` |
-| Max failover duration | `MTB02` | Entire shard buffered longer than `MaxFailoverDuration` |
-| Gateway shutdown | `MTB03` | Gateway is shutting down — all entries evicted |
-| Timing guard | (no buffer) | `MinTimeBetweenFailovers` not elapsed since last failover |
+| Mechanism             | Error       | Trigger                                                   |
+| --------------------- | ----------- | --------------------------------------------------------- |
+| Buffer full           | `MTB01`     | Global queue at capacity — oldest entry evicted           |
+| Per-request window    | `MTB02`     | Individual request buffered longer than `Window`          |
+| Max failover duration | `MTB02`     | Entire shard buffered longer than `MaxFailoverDuration`   |
+| Gateway shutdown      | `MTB03`     | Gateway is shutting down — all entries evicted            |
+| Timing guard          | (no buffer) | `MinTimeBetweenFailovers` not elapsed since last failover |
 
 ## Configuration
 
-| Flag | Default | Description |
-| ---- | ------- | ----------- |
-| `--buffer-enabled` | `false` | Enable failover buffering |
-| `--buffer-window` | `10s` | Max time a single request stays buffered |
-| `--buffer-size` | `1000` | Max total buffered requests (global across all shards) |
-| `--buffer-max-failover-duration` | `20s` | Force-stop buffering if failover exceeds this |
-| `--buffer-min-time-between-failovers` | `1m` | Min gap between failovers per shard |
-| `--buffer-drain-concurrency` | `1` | Parallel retries during drain phase |
+| Flag                                  | Default | Description                                            |
+| ------------------------------------- | ------- | ------------------------------------------------------ |
+| `--buffer-enabled`                    | `false` | Enable failover buffering                              |
+| `--buffer-window`                     | `10s`   | Max time a single request stays buffered               |
+| `--buffer-size`                       | `1000`  | Max total buffered requests (global across all shards) |
+| `--buffer-max-failover-duration`      | `20s`   | Force-stop buffering if failover exceeds this          |
+| `--buffer-min-time-between-failovers` | `1m`    | Min gap between failovers per shard                    |
+| `--buffer-drain-concurrency`          | `1`     | Parallel retries during drain phase                    |
 
 ## Testing
 
