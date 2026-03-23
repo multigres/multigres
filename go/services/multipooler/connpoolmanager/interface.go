@@ -17,6 +17,7 @@ package connpoolmanager
 import (
 	"context"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/services/multipooler/pools/admin"
 	"github.com/multigres/multigres/go/services/multipooler/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
@@ -47,6 +48,11 @@ type PoolManager interface {
 
 	// PgUser returns the configured PostgreSQL user for system queries.
 	PgUser() string
+
+	// ListenerClientConfig returns a client.Config for creating a dedicated
+	// PG connection (e.g., for LISTEN/NOTIFY shared listener).
+	// Uses the admin user credentials.
+	ListenerClientConfig() *client.Config
 
 	// --- Admin Pool Operations ---
 
