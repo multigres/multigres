@@ -55,7 +55,7 @@ func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clus
 
 func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Initially empty
 	assert.Equal(t, 0, lb.ConnectionCount())
@@ -72,7 +72,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	assert.Equal(t, 1, lb.ConnectionCount())
 
 	// Remove the pooler
-	lb.RemovePooler(pooler.Id)
+	lb.RemovePooler(topoclient.MultiPoolerIDString(pooler.Id))
 	assert.Equal(t, 0, lb.ConnectionCount())
 
 	// Removing non-existent pooler is a no-op
@@ -81,13 +81,13 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "nonexistent",
 	}
-	lb.RemovePooler(nonExistentID)
+	lb.RemovePooler(topoclient.MultiPoolerIDString(nonExistentID))
 	assert.Equal(t, 0, lb.ConnectionCount())
 }
 
 func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add a primary
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -106,7 +106,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add replicas in both cells
 	localReplica := createTestMultiPooler("local-replica", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
@@ -127,7 +127,7 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add primary only in remote cell
 	remotePrimary := createTestMultiPooler("remote-primary", "zone2", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -146,7 +146,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add a primary
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -165,7 +165,7 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add primaries for different shards
 	shard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -186,7 +186,7 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add both primary and replica
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -194,7 +194,7 @@ func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 	require.NoError(t, lb.AddPooler(primary))
 	require.NoError(t, lb.AddPooler(replica))
 
-	// Request with UNKNOWN type should default to PRIMARY
+	// Request with UNKNOWN type should default to primary
 	target := &query.Target{
 		TableGroup: constants.DefaultTableGroup,
 		Shard:      constants.DefaultShard,
@@ -202,12 +202,12 @@ func TestLoadBalancer_GetConnection_DefaultsToPrimary(t *testing.T) {
 	}
 	conn, err := lb.GetConnection(target)
 	require.NoError(t, err)
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type(), "Should default to PRIMARY")
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type(), "Should default to primary")
 }
 
 func TestLoadBalancer_Close(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add some poolers
 	pooler1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -224,7 +224,7 @@ func TestLoadBalancer_Close(t *testing.T) {
 
 func TestLoadBalancer_ConcurrentAddRemove(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	const numGoroutines = 10
 	const numPoolersPerGoroutine = 5
@@ -251,10 +251,10 @@ func TestLoadBalancer_ConcurrentAddRemove(t *testing.T) {
 
 				// Spawn goroutine to remove this pooler
 				wg.Add(1)
-				go func(poolerID *clustermetadatapb.ID) {
+				go func(poolerID string) {
 					defer wg.Done()
 					lb.RemovePooler(poolerID)
-				}(pooler.Id)
+				}(topoclient.MultiPoolerIDString(pooler.Id))
 			}
 		}()
 	}
@@ -269,7 +269,7 @@ func TestLoadBalancer_ConcurrentAddRemove(t *testing.T) {
 
 func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add stable poolers that won't be removed
 	const numStablePoolers = 5
@@ -328,7 +328,7 @@ func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 			_ = lb.AddPooler(pooler)
 			// Small delay to increase chance of concurrent GetConnection calls
 			time.Sleep(time.Millisecond)
-			lb.RemovePooler(pooler.Id)
+			lb.RemovePooler(topoclient.MultiPoolerIDString(pooler.Id))
 		}()
 	}
 
@@ -350,7 +350,7 @@ func TestLoadBalancer_ConcurrentGetConnection(t *testing.T) {
 
 func TestLoadBalancerListener(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 	listener := NewLoadBalancerListener(lb)
 
 	// OnPoolerChanged should add pooler
@@ -368,7 +368,7 @@ func TestLoadBalancerListener(t *testing.T) {
 // is evicted. This handles failover where the old crashed PRIMARY's record lingers.
 func TestLoadBalancerListener_NewPrimaryEvictsOldPrimary(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 	listener := NewLoadBalancerListener(lb)
 
 	oldPrimary := createTestMultiPooler("old-primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -393,7 +393,7 @@ func TestLoadBalancerListener_NewPrimaryEvictsOldPrimary(t *testing.T) {
 // only targets poolers on the same TableGroup/Shard combination.
 func TestLoadBalancerListener_EvictionOnlyAffectsSameShard(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 	listener := NewLoadBalancerListener(lb)
 
 	primaryShard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -424,7 +424,7 @@ func TestLoadBalancerListener_EvictionOnlyAffectsSameShard(t *testing.T) {
 // does not evict an existing PRIMARY.
 func TestLoadBalancerListener_ReplicaDoesNotEvict(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 	listener := NewLoadBalancerListener(lb)
 
 	primary := createTestMultiPooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -443,7 +443,7 @@ func TestLoadBalancerListener_ReplicaDoesNotEvict(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_MultipleReplicasSameCell(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add multiple replicas in the same cell
 	replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
@@ -472,7 +472,7 @@ func TestLoadBalancer_GetConnection_MultipleReplicasSameCell(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add a pooler
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -486,7 +486,7 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_EmptyTableGroup(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add a pooler for default tablegroup
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -499,12 +499,12 @@ func TestLoadBalancer_GetConnection_EmptyTableGroup(t *testing.T) {
 	}
 	_, err := lb.GetConnection(target)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no pooler found")
+	assert.Contains(t, err.Error(), "no primary cached for target")
 }
 
 func TestLoadBalancer_GetConnection_MultipleRemoteReplicas(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add replicas only in remote cells (no local replica)
 	remote1 := createTestMultiPooler("remote1", "zone2", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
@@ -529,7 +529,7 @@ func TestLoadBalancer_GetConnection_MultipleRemoteReplicas(t *testing.T) {
 
 func TestLoadBalancer_GetConnection_TablegroupMismatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add a pooler for default tablegroup
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -542,12 +542,12 @@ func TestLoadBalancer_GetConnection_TablegroupMismatch(t *testing.T) {
 	}
 	_, err := lb.GetConnection(target)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no pooler found")
+	assert.Contains(t, err.Error(), "no primary cached for target")
 }
 
 func TestLoadBalancer_GetConnection_ShardMismatch(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add pooler for shard 0
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -561,12 +561,12 @@ func TestLoadBalancer_GetConnection_ShardMismatch(t *testing.T) {
 	}
 	_, err := lb.GetConnection(target)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no pooler found")
+	assert.Contains(t, err.Error(), "no primary cached for target")
 }
 
 func TestLoadBalancer_GetConnection_MultiplePrimaries(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add multiple primaries (shouldn't happen in practice, but test the behavior)
 	primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -591,7 +591,7 @@ func TestLoadBalancer_GetConnection_MultiplePrimaries(t *testing.T) {
 
 func TestLoadBalancer_GetConnectionByID(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add multiple poolers
 	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -632,7 +632,7 @@ func TestLoadBalancer_GetConnectionByID(t *testing.T) {
 
 func TestLoadBalancer_GetConnectionByID_AfterRemove(t *testing.T) {
 	logger := slog.Default()
-	lb := NewLoadBalancer("zone1", logger)
+	lb := NewLoadBalancer(t.Context(), "zone1", logger)
 
 	// Add a pooler
 	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -644,7 +644,7 @@ func TestLoadBalancer_GetConnectionByID_AfterRemove(t *testing.T) {
 	assert.Equal(t, poolerID(pooler), conn.ID())
 
 	// Remove it
-	lb.RemovePooler(pooler.Id)
+	lb.RemovePooler(topoclient.MultiPoolerIDString(pooler.Id))
 
 	// Should not find it anymore
 	_, err = lb.GetConnectionByID(pooler.Id)

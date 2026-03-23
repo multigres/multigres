@@ -35,7 +35,7 @@ import (
 type PoolerWatcher struct {
 	cache   *topoclient.PoolerCache
 	targets func() []config.WatchTarget // live accessor, same as Engine.shardWatchTargets
-	store   *store.PoolerHealthStore
+	store   *store.PoolerStore
 	queue   *Queue
 	logger  *slog.Logger
 
@@ -48,7 +48,7 @@ func NewPoolerWatcher(
 	ctx context.Context,
 	topoStore topoclient.Store,
 	targets func() []config.WatchTarget,
-	poolerStore *store.PoolerHealthStore,
+	poolerStore *store.PoolerStore,
 	queue *Queue,
 	logger *slog.Logger,
 ) *PoolerWatcher {

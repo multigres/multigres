@@ -188,10 +188,11 @@ func (lb *LoadBalancer) GetConnection(target *query.Target) (*PoolerConnection, 
 
 	targetType := target.PoolerType
 
-	if targetType == clustermetadatapb.PoolerType_PRIMARY {
+	if targetType == clustermetadatapb.PoolerType_PRIMARY || targetType == clustermetadatapb.PoolerType_UNKNOWN {
 		// Use cached primary (populated by health stream callbacks).
 		// The health stream's PrimaryObservation is the authoritative source
 		// for primary identity — no type-based fallback.
+		// UNKNOWN target type defaults to the primary.
 		key := shardKey{tableGroup: target.TableGroup, shard: target.Shard}
 		if cached, ok := lb.cachedPrimaries[key]; ok {
 			return cached.conn, nil
