@@ -89,6 +89,11 @@ service MultiPoolerService {
   //
   // Each response contains the full health state (not incremental updates).
   rpc StreamPoolerHealth(StreamPoolerHealthRequest) returns (stream StreamPoolerHealthResponse);
+
+  // StreamNotifications opens a server-streaming RPC for async PG notifications.
+  // The gateway subscribes to notification channels on behalf of a client session.
+  // The pooler fans out notifications from its shared listener connection.
+  rpc StreamNotifications(StreamNotificationsRequest) returns (stream StreamNotificationsResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -438,4 +443,25 @@ message PrimaryObservation {
   // The primary never changes within a primary_term. Higher values indicate
   // more recent primary appointments.
   int64 primary_term = 2;
+}
+
+// StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.
+message StreamNotificationsRequest {
+  // target identifies the shard to listen on.
+  query.Target target = 1;
+
+  // channels is the list of channels to subscribe to initially.
+  repeated string channels = 2;
+}
+
+// StreamNotificationsResponse delivers a notification or warning from the shared listener.
+message StreamNotificationsResponse {
+  // notification contains the PG notification data.
+  query.PgNotification notification = 1;
+
+  // is_warning indicates this is a reconnect warning, not a real notification.
+  bool is_warning = 2;
+
+  // warning_message contains the warning text when is_warning is true.
+  string warning_message = 3;
 }

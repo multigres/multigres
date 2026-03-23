@@ -98,6 +98,9 @@ type Conn struct {
 	// backendKeyData is the secret key for this backend, used for cancellation.
 	backendKeyData uint32
 
+	// notifPush holds the async notification pusher state.
+	notifPush *notifPusher
+
 	// Startup parameters sent by the client.
 	user     string
 	database string
@@ -995,4 +998,93 @@ func (c *Conn) handleSync() error {
 	}
 
 	return c.flush()
+}
+
+// notifPusher holds state for async notification delivery.
+type notifPusher struct {
+	ch     chan *NotificationPayload
+	cancel context.CancelFunc
+}
+
+// NotificationPayload carries notification data for async delivery.
+type NotificationPayload struct {
+	PID     int32
+	Channel string
+	Payload string
+}
+
+// EnableAsyncNotifications starts a background goroutine that delivers
+// notifications from notifCh to the client socket. Must be called at most once.
+// Returns a channel that the caller should send notifications to.
+func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *NotificationPayload {
+	ch := make(chan *NotificationPayload, 256)
+	ctx, cancel := context.WithCancel(ctx)
+	c.notifPush = &notifPusher{ch: ch, cancel: cancel}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case notif, ok := <-ch:
+				if !ok {
+					return
+				}
+				c.startWriterBuffering()
+				c.bufMu.Lock()
+				if c.bufferedWriter == nil {
+					c.bufMu.Unlock()
+					return
+				}
+				err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload)
+				if err == nil {
+					err = c.bufferedWriter.Flush()
+				}
+				c.bufMu.Unlock()
+				if err != nil {
+					c.logger.Error("failed to push notification", "error", err)
+					return
+				}
+			}
+		}
+	}()
+
+	return ch
+}
+
+// StopAsyncNotifications stops the background notification pusher.
+func (c *Conn) StopAsyncNotifications() {
+	if c.notifPush != nil {
+		c.notifPush.cancel()
+		c.notifPush = nil
+	}
+}
+
+// writeNotificationResponseMsg writes a NotificationResponse without locking bufMu.
+// Caller must hold bufMu.
+func (c *Conn) writeNotificationResponseMsg(pid int32, channel, payload string) error {
+	// 'A' (NotificationResponse): int32 pid, string channel, string payload
+	msgLen := 4 + 4 + len(channel) + 1 + len(payload) + 1
+	if err := c.bufferedWriter.WriteByte(protocol.MsgNotificationResponse); err != nil {
+		return err
+	}
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, uint32(msgLen))
+	if _, err := c.bufferedWriter.Write(buf); err != nil {
+		return err
+	}
+	binary.BigEndian.PutUint32(buf, uint32(pid))
+	if _, err := c.bufferedWriter.Write(buf); err != nil {
+		return err
+	}
+	if _, err := c.bufferedWriter.WriteString(channel); err != nil {
+		return err
+	}
+	if err := c.bufferedWriter.WriteByte(0); err != nil {
+		return err
+	}
+	if _, err := c.bufferedWriter.WriteString(payload); err != nil {
+		return err
+	}
+	return c.bufferedWriter.WriteByte(0)
 }
