@@ -185,6 +185,10 @@ func (p *Planner) PlanPortal(
 	case ast.T_NotifyStmt:
 		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
 
+	case ast.T_DiscardStmt:
+		// DISCARD TEMP needs the DiscardTempPrimitive for reservation cleanup.
+		return p.Plan(portalInfo.PreparedStatementInfo.Query, stmt, conn)
+
 	default:
 		return nil, nil
 	}

@@ -37,7 +37,7 @@ func (p *Planner) planDiscardStmt(
 			"target", stmt.Target.String(),
 			"sql", sql)
 
-		primitive := engine.NewDiscardTempPrimitive(sql, p.defaultTableGroup)
+		primitive := engine.NewDiscardTempPrimitive(sql, p.defaultTableGroup, stmt.Target)
 		plan := engine.NewPlan(sql, primitive)
 
 		p.logger.Debug("created discard plan", "plan", plan.String())

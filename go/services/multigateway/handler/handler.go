@@ -196,8 +196,12 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 				"statement_count", len(asts))
 			for _, stmt := range asts {
 				stmtCtx, cancel := h.statementTimeoutCtx(ctx, st, stmt)
-				_, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
+				var result *ExecuteResult
+				result, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
 				cancel()
+				if result != nil {
+					tablesUsed = append(tablesUsed, result.TablesUsed...)
+				}
 				if err != nil {
 					break
 				}
@@ -220,15 +224,6 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 			if conn.TxnStatus() == protocol.TxnStatusInBlock {
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
-		}
-	}
-
-	// After successful execution, check if any statement was DISCARD TEMP/ALL
-	// to unpin the session. This must happen after execution so the multipooler
-	// has already removed the temp table reason.
-	if err == nil {
-		for _, a := range asts {
-			checkAndUnpinForDiscard(a, st)
 		}
 	}
 
@@ -380,11 +375,6 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
 		}
-	}
-
-	// After successful execution, check for DISCARD TEMP/ALL to unpin.
-	if err == nil {
-		checkAndUnpinForDiscard(astStmt, state)
 	}
 
 	execDuration := time.Since(execStart)

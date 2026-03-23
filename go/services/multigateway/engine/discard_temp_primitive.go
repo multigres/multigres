@@ -17,9 +17,9 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -40,13 +40,17 @@ type DiscardTempPrimitive struct {
 
 	// TableGroup is the target tablegroup for routing.
 	TableGroup string
+
+	// Mode is the discard target from the AST (DISCARD_TEMP or DISCARD_ALL).
+	Mode ast.DiscardMode
 }
 
 // NewDiscardTempPrimitive creates a new DiscardTempPrimitive.
-func NewDiscardTempPrimitive(sql, tableGroup string) *DiscardTempPrimitive {
+func NewDiscardTempPrimitive(sql, tableGroup string, mode ast.DiscardMode) *DiscardTempPrimitive {
 	return &DiscardTempPrimitive{
 		Query:      sql,
 		TableGroup: tableGroup,
+		Mode:       mode,
 	}
 }
 
@@ -78,7 +82,7 @@ func (d *DiscardTempPrimitive) StreamExecute(
 		// For DISCARD ALL, also reset gateway-side session state.
 		// PG's DISCARD ALL runs RESET ALL (clears GUCs) and DEALLOCATE ALL
 		// (drops prepared statements), so the gateway must stay in sync.
-		if d.isDiscardAll() {
+		if d.Mode == ast.DISCARD_ALL {
 			state.ResetAllSessionVariables()
 			state.ResetStatementTimeout()
 		}
@@ -99,11 +103,6 @@ func (d *DiscardTempPrimitive) GetTableGroup() string {
 // GetQuery returns the SQL query.
 func (d *DiscardTempPrimitive) GetQuery() string {
 	return d.Query
-}
-
-// isDiscardAll returns true if the query is DISCARD ALL (case-insensitive).
-func (d *DiscardTempPrimitive) isDiscardAll() bool {
-	return strings.EqualFold(strings.TrimSpace(d.Query), "DISCARD ALL")
 }
 
 // String returns a description of the primitive for debugging.

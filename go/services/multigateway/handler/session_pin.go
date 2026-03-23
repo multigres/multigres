@@ -41,24 +41,3 @@ func checkAndPinForTempTable(node ast.Stmt, state *MultiGatewayConnectionState) 
 		}
 	}
 }
-
-// checkAndUnpinForDiscard checks if an AST node is a DISCARD TEMP or
-// DISCARD ALL statement and unpins the session if so. This allows the
-// reserved connection to be released back to the pool once the multipooler
-// removes the temp table reason.
-func checkAndUnpinForDiscard(node ast.Stmt, state *MultiGatewayConnectionState) {
-	if !state.SessionPinned {
-		return
-	}
-
-	stmt, ok := node.(*ast.DiscardStmt)
-	if !ok {
-		return
-	}
-
-	// DISCARD TEMP and DISCARD ALL both drop temp tables.
-	// Per PostgreSQL docs, DISCARD ALL includes DISCARD TEMP.
-	if stmt.Target == ast.DISCARD_TEMP || stmt.Target == ast.DISCARD_ALL {
-		state.SessionPinned = false
-	}
-}
