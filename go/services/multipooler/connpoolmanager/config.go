@@ -110,6 +110,10 @@ type Config struct {
 	// dialTimeout is the timeout for establishing new PostgreSQL connections.
 	// Applied to net.Dialer.Timeout for all pool connections (admin, regular, reserved).
 	dialTimeout viperutil.Value[time.Duration]
+
+	// drainGracePeriod is how long to wait for in-flight connections to drain
+	// during a NOT_SERVING transition before force-closing reserved connections.
+	drainGracePeriod viperutil.Value[time.Duration]
 }
 
 // NewConfig creates a new Config with all connection pool settings
@@ -148,6 +152,9 @@ func NewConfig(reg *viperutil.Registry) *Config {
 
 		// Dial timeout for establishing new PostgreSQL connections.
 		dialTimeout = 5 * time.Second
+
+		// Drain grace period for NOT_SERVING transitions.
+		drainGracePeriod = 3 * time.Second
 	)
 
 	return &Config{
@@ -230,6 +237,10 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  dialTimeout,
 			FlagName: "connpool-dial-timeout",
 		}),
+		drainGracePeriod: viperutil.Configure(reg, "connpool.drain-grace-period", viperutil.Options[time.Duration]{
+			Default:  drainGracePeriod,
+			FlagName: "connpool-drain-grace-period",
+		}),
 	}
 }
 
@@ -264,6 +275,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
 	fs.Int64("connpool-min-capacity-per-user", c.minCapacityPerUser.Default(), "Minimum connections per user (protects against aggressive capacity reduction for light users)")
 	fs.Duration("connpool-dial-timeout", c.dialTimeout.Default(), "Timeout for establishing new PostgreSQL connections")
+	fs.Duration("connpool-drain-grace-period", c.drainGracePeriod.Default(), "How long to wait for in-flight connections to drain during NOT_SERVING transitions before force-closing reserved connections")
 
 	viperutil.BindFlags(fs,
 		c.pgUser,
@@ -282,6 +294,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.inactiveTimeout,
 		c.minCapacityPerUser,
 		c.dialTimeout,
+		c.drainGracePeriod,
 	)
 }
 
@@ -372,6 +385,12 @@ func (c *Config) MinCapacityPerUser() int64 {
 // DialTimeout returns the timeout for establishing new PostgreSQL connections.
 func (c *Config) DialTimeout() time.Duration {
 	return c.dialTimeout.Get()
+}
+
+// DrainGracePeriod returns how long to wait for in-flight connections to drain
+// during NOT_SERVING transitions before force-closing reserved connections.
+func (c *Config) DrainGracePeriod() time.Duration {
+	return c.drainGracePeriod.Get()
 }
 
 // NewManager creates a new connection pool manager from this config.

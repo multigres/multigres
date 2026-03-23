@@ -28,6 +28,14 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 )
 
+var (
+	// ErrNotServing is returned when a request is made while not serving.
+	ErrNotServing = errors.New("pooler is not serving")
+
+	// ErrShuttingDown is returned when a new request is made during graceful shutdown.
+	ErrShuttingDown = errors.New("pooler is shutting down")
+)
+
 // QueryPoolerServer is the core pooler implementation for query serving.
 // It encapsulates the components required to manage query execution
 // (e.g. pooling, execution, transactions).
@@ -48,13 +56,24 @@ type QueryPoolerServer struct {
 	poolerType     clustermetadatapb.PoolerType
 	servingStatus  clustermetadatapb.PoolerServingStatus
 	healthProvider HealthProvider
+
+	// shuttingDown is true during the graceful drain phase (between receiving
+	// NOT_SERVING and completing the transition). During this phase, new requests
+	// are rejected but existing reserved connections are allowed to finish.
+	shuttingDown bool
+
+	// gracePeriod is how long OnStateChange waits for in-flight connections to drain
+	// before force-closing reserved connections. Configured via --connpool-drain-grace-period.
+	gracePeriod time.Duration
 }
 
 // NewQueryPoolerServer creates a new QueryPoolerServer instance with the given pool manager
 // and health provider.
 // The pool manager must already be opened before calling this function.
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider) *QueryPoolerServer {
+// gracePeriod controls how long OnStateChange waits for in-flight connections to drain
+// during NOT_SERVING transitions before force-closing reserved connections.
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, healthProvider HealthProvider, gracePeriod time.Duration) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
 		exec = executor.NewExecutor(logger, poolManager, poolerID)
@@ -66,25 +85,90 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		executor:       exec,
 		servingStatus:  clustermetadatapb.PoolerServingStatus_NOT_SERVING,
 		healthProvider: healthProvider,
+		gracePeriod:    gracePeriod,
 	}
 }
 
 // OnStateChange transitions the query service to match the new serving state.
 // Implements PoolerController interface.
+//
+// This method is only called by the StateManager, which serializes calls behind
+// a mutex. Concurrent calls are not possible or expected.
+//
+// For NOT_SERVING transitions, this performs a two-phase graceful drain:
+//  1. Set shuttingDown=true to reject new requests (existing reserved connections continue)
+//  2. Wait for in-flight connections to drain (up to gracePeriod)
+//  3. Set servingStatus=NOT_SERVING
 func (s *QueryPoolerServer) OnStateChange(ctx context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
 		"pooler_type_from", s.poolerType, "pooler_type_to", poolerType,
 		"status_from", s.servingStatus, "status_to", servingStatus)
 	s.poolerType = poolerType
-	s.servingStatus = servingStatus
 
-	// TODO: Implement state-specific behavior:
-	// - (PRIMARY, SERVING): Accept reads + writes
-	// - (REPLICA, SERVING): Accept reads only
-	// - (*, NOT_SERVING): Reject all queries
+	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+		s.servingStatus = servingStatus
+		s.shuttingDown = false
+		s.mu.Unlock()
+		return nil
+	}
+
+	// NOT_SERVING: begin graceful drain
+	s.shuttingDown = true
+	s.mu.Unlock()
+
+	// Wait for in-flight connections to drain.
+	// If gracePeriod > 0, the wait is bounded and reserved connections are force-closed on timeout.
+	// If gracePeriod == 0, the wait is unbounded (drain must complete before transition finishes).
+	if s.poolManager != nil {
+		drainCtx := ctx
+		if s.gracePeriod > 0 {
+			var cancel context.CancelFunc
+			drainCtx, cancel = context.WithTimeout(ctx, s.gracePeriod)
+			defer cancel()
+		}
+
+		if err := s.poolManager.WaitForDrain(drainCtx); err != nil {
+			s.logger.WarnContext(ctx, "Graceful drain did not complete within grace period, force-closing reserved connections",
+				"grace_period", s.gracePeriod, "error", err)
+			// Force-close all reserved connections to prevent them from being used
+			// in a non-serving state. This kills backend processes and returns
+			// connections to the pool.
+			killed := s.poolManager.CloseReservedConnections(ctx)
+			if killed > 0 {
+				s.logger.WarnContext(ctx, "Force-closed reserved connections after drain timeout",
+					"killed", killed)
+			}
+		}
+	}
+
+	// Complete the transition
+	s.mu.Lock()
+	s.servingStatus = servingStatus
+	s.shuttingDown = false
+	s.mu.Unlock()
+
+	return nil
+}
+
+// StartRequest checks whether a new request should be admitted.
+// Returns nil if the request is allowed, or an error if it should be rejected.
+//
+// During graceful shutdown (shuttingDown=true), requests on existing reserved
+// connections (allowOnShutdown=true) are still admitted so that in-flight
+// transactions can complete. New reservations and fresh queries are rejected.
+func (s *QueryPoolerServer) StartRequest(allowOnShutdown bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING && !s.shuttingDown {
+		return ErrNotServing
+	}
+
+	if s.shuttingDown && !allowOnShutdown {
+		return ErrShuttingDown
+	}
 
 	return nil
 }

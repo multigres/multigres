@@ -45,6 +45,7 @@ func (m *mockPoolerController) IsServing() bool            { return true }
 func (m *mockPoolerController) OnStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) error {
 	return nil
 }
+func (m *mockPoolerController) StartRequest(bool) error                      { return nil }
 func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { return nil, nil }
 func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService {
 	return m.queryService
