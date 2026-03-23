@@ -184,17 +184,23 @@ func TestBackup_LeaseStealingOnConcurrentBackup(t *testing.T) {
 	require.NotEmpty(t, secondBackupID, "second backup should return a backup ID")
 	t.Logf("Second backup succeeded with ID: %s", secondBackupID)
 
-	// Verify the second backup is marked complete in metadata (query from primary)
-	jobCtx, jobCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer jobCancel()
-	jobResp, err := primaryClient.GetBackupByJobId(jobCtx, &multipoolermanagerdata.GetBackupByJobIdRequest{JobId: secondJobID})
-	require.NoError(t, err, "should be able to find second backup by job ID")
-	require.NotNil(t, jobResp.GetBackup(), "second backup should exist in metadata")
+	// Verify the second backup is marked complete in metadata (query from primary).
+	// Poll because pgbackrest metadata may not be immediately visible after completion.
+	var jobResp *multipoolermanagerdata.GetBackupByJobIdResponse
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var err error
+		jobResp, err = primaryClient.GetBackupByJobId(ctx, &multipoolermanagerdata.GetBackupByJobIdRequest{JobId: secondJobID})
+		return err == nil && jobResp.GetBackup() != nil
+	}, 30*time.Second, 1*time.Second, "second backup should exist in metadata")
 	assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, jobResp.Backup.Status,
 		"second backup should be marked COMPLETE")
 
 	// Verify the first backup is NOT marked complete (if it exists at all)
-	firstJobResp, err := standbyClient.GetBackupByJobId(jobCtx, &multipoolermanagerdata.GetBackupByJobIdRequest{JobId: firstJobID})
+	firstJobCtx, firstJobCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer firstJobCancel()
+	firstJobResp, err := standbyClient.GetBackupByJobId(firstJobCtx, &multipoolermanagerdata.GetBackupByJobIdRequest{JobId: firstJobID})
 	if err == nil && firstJobResp.GetBackup() != nil {
 		assert.NotEqual(t, multipoolermanagerdata.BackupMetadata_COMPLETE, firstJobResp.Backup.Status,
 			"first backup must not be marked COMPLETE")
