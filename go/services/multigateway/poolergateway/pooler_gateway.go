@@ -134,6 +134,10 @@ func (pg *PoolerGateway) withBuffering(
 				return bufErr
 			}
 			if retryDone != nil {
+				// defer is intentional here: retryDone signals the buffer's drain
+				// goroutine that the retry is complete, so it must run at function
+				// exit (after the operation finishes), not at loop iteration end.
+				// bufferedOnce ensures we only enter this block once per call.
 				defer retryDone()
 				bufferedOnce = true
 			}

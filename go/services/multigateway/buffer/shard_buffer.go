@@ -102,9 +102,10 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 	case stateDraining:
 		// Already draining — the new PRIMARY is available. Signal the caller
 		// to retry immediately. A recursive retry loop is unlikely because
-		// the LoadBalancer listener is registered before the BufferListener,
-		// so the new PRIMARY is already in the LoadBalancer by the time we
-		// reach here. It is bounded by context timeout in any case.
+		// the LoadBalancer updates its cached primary before invoking the
+		// onPrimaryServing callback that triggers StopBuffering, so the new
+		// PRIMARY is already routable by the time we reach here. It is
+		// bounded by context timeout in any case.
 		sb.mu.Unlock()
 		return func() {}, nil
 	case stateIdle:

@@ -70,16 +70,16 @@ func TestBufferPlannedFailover(t *testing.T) {
 	t.Logf("Starting continuous writes via multigateway (table: %s)...", validator.TableName())
 	validator.Start(t)
 
-	// Let writes accumulate before triggering failover.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for writes to accumulate before triggering failover.
+	waitForMinWrites(t, validator, 10, 10*time.Second)
 	preSuccess, preFailed := validator.Stats()
 	t.Logf("Pre-failover writes: %d successful, %d failed", preSuccess, preFailed)
 
 	// Trigger planned failover.
 	triggerFailover(t, setup)
 
-	// Let writes continue against the new primary for a bit.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for writes to resume on the new primary.
+	waitForWriteProgress(t, validator, 10*time.Second)
 
 	// Stop writes and check results.
 	validator.Stop()
@@ -185,16 +185,21 @@ func TestBufferTransactionsAndPreparedStatements(t *testing.T) {
 		go runPrepWorker()
 	}
 
-	// Let writes accumulate.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for writes to accumulate.
+	require.Eventually(t, func() bool {
+		return txnSuccess.Load() >= 10 && prepSuccess.Load() >= 10
+	}, 10*time.Second, 50*time.Millisecond, "writes should accumulate before failover")
 	t.Logf("Pre-failover: txn=%d/%d prep=%d/%d (success/failed)",
 		txnSuccess.Load(), txnFailed.Load(), prepSuccess.Load(), prepFailed.Load())
 
 	// Trigger planned failover.
 	triggerFailover(t, setup)
 
-	// Let writes continue against the new primary.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for writes to resume on the new primary.
+	preCount := txnSuccess.Load() + prepSuccess.Load()
+	require.Eventually(t, func() bool {
+		return (txnSuccess.Load() + prepSuccess.Load()) > preCount+5
+	}, 10*time.Second, 50*time.Millisecond, "writes should resume after failover")
 
 	close(stop)
 	wg.Wait()
@@ -254,11 +259,11 @@ func TestBufferMultipleFailovers(t *testing.T) {
 		_ = oldPrimaryName
 		waitForClusterStable(t, setup, 60*time.Second)
 
-		// Let multiorch fully settle — after our manual BeginTerm, multiorch
-		// detects the dead primary and runs its own recovery cycle (DemoteStalePrimary,
-		// re-election). Without this pause, multiorch-driven elections race with
-		// our next failover and can cause brief unavailability.
-		time.Sleep(2 * time.Second)
+		// Wait for multiorch to fully settle — after our manual BeginTerm,
+		// multiorch detects the dead primary and runs its own recovery cycle
+		// (DemoteStalePrimary, re-election). Verify writes are flowing before
+		// triggering the next failover.
+		waitForWriteProgress(t, validator, 30*time.Second)
 
 		postSuccess, postFailed := validator.Stats()
 		t.Logf("Failover %d/%d: post-stats %d successful, %d failed", i+1, numFailovers, postSuccess, postFailed)
@@ -422,6 +427,27 @@ func waitForClusterStable(t *testing.T, setup *shardsetup.ShardSetup, timeout ti
 	// Refresh so triggerFailover finds the correct primary.
 	setup.RefreshPrimary(t)
 	t.Logf("Cluster stable, primary: %s", setup.PrimaryName)
+}
+
+// waitForMinWrites polls until at least minWrites successful writes have been recorded.
+func waitForMinWrites(t *testing.T, v *shardsetup.WriterValidator, minWrites int, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		s, _ := v.Stats()
+		return s >= minWrites
+	}, timeout, 50*time.Millisecond, "expected at least %d successful writes", minWrites)
+}
+
+// waitForWriteProgress polls until new successful writes are observed, confirming
+// that the cluster is serving and writes are flowing. This replaces fixed time.Sleep
+// calls that could be too short under CI load or too long in the common case.
+func waitForWriteProgress(t *testing.T, v *shardsetup.WriterValidator, timeout time.Duration) {
+	t.Helper()
+	baseline, _ := v.Stats()
+	require.Eventually(t, func() bool {
+		s, _ := v.Stats()
+		return s > baseline+5
+	}, timeout, 50*time.Millisecond, "writes should progress beyond baseline of %d", baseline)
 }
 
 // waitForNewPrimary polls the cluster until a primary different from oldPrimaryName is found.

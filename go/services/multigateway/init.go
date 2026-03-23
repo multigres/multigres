@@ -239,8 +239,8 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if mg.bufferConfig.Enabled.Get() {
 		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
 		// Stop buffering when the streaming health check detects a new primary.
-		// This ia a more reliable
-		// direct signal from the pooler's health stream.
+		// This is a direct signal from the pooler's health stream — more reliable
+		// and lower latency than topology-based propagation via etcd.
 		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
 			mg.buffer.StopBuffering(commontypes.ShardKey{
 				TableGroup: tableGroup,

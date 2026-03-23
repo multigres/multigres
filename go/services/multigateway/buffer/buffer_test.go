@@ -28,7 +28,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	commontypes "github.com/multigres/multigres/go/common/types"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -532,80 +531,6 @@ func TestBufferDrainConcurrencyActuallyParallel(t *testing.T) {
 
 	assert.Equal(t, int32(numRequests), maxConcurrent.Load(),
 		"max concurrent drain should equal DrainConcurrency")
-}
-
-func TestBufferListenerOnPoolerChanged(t *testing.T) {
-	cfg := testConfig(t)
-	buf := New(context.Background(), cfg, testLogger())
-	defer buf.Shutdown()
-
-	listener := NewBufferListener(buf)
-
-	ctx := context.Background()
-	var wg sync.WaitGroup
-	var waitErr error
-
-	wg.Go(func() {
-		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
-		waitErr = err
-		if retryDone != nil {
-			retryDone()
-		}
-	})
-	waitForQueueLen(t, buf, 1)
-
-	// Simulate PRIMARY pooler appearing.
-	listener.OnPoolerChanged(&clustermetadatapb.MultiPooler{
-		TableGroup: "tg1",
-		Shard:      "shard1",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-	})
-
-	wg.Wait()
-	assert.NoError(t, waitErr)
-}
-
-func TestBufferListenerReplicaIgnored(t *testing.T) {
-	cfg := testConfig(t)
-	buf := New(context.Background(), cfg, testLogger())
-	defer buf.Shutdown()
-
-	listener := NewBufferListener(buf)
-
-	ctx := context.Background()
-	var wg sync.WaitGroup
-	var waitErr error
-
-	wg.Go(func() {
-		retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
-		waitErr = err
-		if retryDone != nil {
-			retryDone()
-		}
-	})
-	waitForQueueLen(t, buf, 1)
-
-	// REPLICA change should NOT stop buffering.
-	listener.OnPoolerChanged(&clustermetadatapb.MultiPooler{
-		TableGroup: "tg1",
-		Shard:      "shard1",
-		Type:       clustermetadatapb.PoolerType_REPLICA,
-	})
-
-	// OnPoolerChanged is synchronous — verify queue is unchanged.
-	buf.mu.Lock()
-	assert.Len(t, buf.queue, 1)
-	buf.mu.Unlock()
-
-	// Now send PRIMARY to actually drain.
-	listener.OnPoolerChanged(&clustermetadatapb.MultiPooler{
-		TableGroup: "tg1",
-		Shard:      "shard1",
-		Type:       clustermetadatapb.PoolerType_PRIMARY,
-	})
-
-	wg.Wait()
-	assert.NoError(t, waitErr)
 }
 
 func TestBufferDrainingSkipsNewRequests(t *testing.T) {
