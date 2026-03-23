@@ -15,15 +15,18 @@
 package testutil
 
 import (
+	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // TempDir creates a temporary directory for testing and returns a cleanup function
@@ -97,19 +100,12 @@ func CreatePIDFile(t *testing.T, dataDir string, pid int) {
 	t.Helper()
 
 	// Start a background sleep process to get a real PID that will pass the isProcessRunning check
-	cmd := exec.Command("sleep", "3600")
+	cmd := executil.Command(utils.WithShortDeadline(t), "sleep", "3600")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start background sleep process: %v", err)
 	}
 
 	realPID := cmd.Process.Pid
-
-	// Register cleanup to kill the background process when test finishes
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-	})
 	pidFile := filepath.Join(dataDir, "postmaster.pid")
 
 	content := []string{
@@ -185,9 +181,9 @@ func cleanupMockProcesses(t *testing.T, tempDir string) {
 				pidStr := strings.TrimSpace(lines[0])
 				if pid, parseErr := strconv.Atoi(pidStr); parseErr == nil {
 					// Try to kill the process (ignore errors since process might already be dead)
-					if process, findErr := os.FindProcess(pid); findErr == nil {
-						_ = process.Kill()
-					}
+					killCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_, _ = executil.KillPID(killCtx, pid)
+					cancel()
 				}
 			}
 		}

@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -33,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -185,16 +185,14 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 
 	args = append(args, "backup")
 
-	// Create command without CommandContext — lease-aware execution handles
-	// cancellation via SIGTERM instead of SIGKILL.
-	cmd := exec.Command("pgbackrest", args...)
+	cmd := executil.Command(ctx, "pgbackrest", args...)
 
-	// Execute backup with lease monitoring: if the lease is lost (stolen),
-	// the process gets SIGTERM → wait short period → SIGKILL.
+	// Execute backup: if the context is cancelled (e.g., lease lost/stolen),
+	// executil sends SIGTERM → grace period → SIGKILL automatically.
 	var output []byte
-	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(ctx context.Context) error {
+	err = telemetry.WithSpan(ctx, "backup/pgbackrest", func(_ context.Context) error {
 		var runErr error
-		output, runErr = runBackupCommand(ctx, cmd, pm.logger)
+		output, runErr = cmd.CombinedOutput()
 		return runErr
 	})
 	if err != nil {
@@ -218,7 +216,7 @@ func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimar
 	verifyCtx, verifyCancel := context.WithTimeout(ctx, backup.VerifyTimeout)
 	defer verifyCancel()
 
-	verifyCmd := exec.CommandContext(verifyCtx, "pgbackrest",
+	verifyCmd := executil.Command(verifyCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--set="+foundBackupID,
@@ -401,7 +399,7 @@ func (pm *MultiPoolerManager) executePgBackrestRestore(ctx context.Context, back
 
 	args = append(args, "restore")
 
-	cmd := exec.CommandContext(restoreCtx, "pgbackrest", args...)
+	cmd := executil.Command(restoreCtx, "pgbackrest", args...)
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
@@ -501,7 +499,7 @@ func (pm *MultiPoolerManager) listBackups(ctx context.Context) ([]*multipoolerma
 	queryCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(queryCtx, "pgbackrest",
+	cmd := executil.Command(queryCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -688,7 +686,7 @@ func (pm *MultiPoolerManager) validateBackupParams(backupType, configPath string
 // safeCombinedOutput executes a command and streams its output to avoid blocking.
 // This prevents deadlocks when commands produce large amounts of output that
 // would fill the internal pipe buffers. Returns combined stdout and stderr.
-func safeCombinedOutput(cmd *exec.Cmd) (string, error) {
+func safeCombinedOutput(cmd *executil.Cmd) (string, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -755,7 +753,7 @@ func (pm *MultiPoolerManager) findBackupByJobID(
 	infoCtx, cancel := context.WithTimeout(ctx, backup.InfoTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(infoCtx, "pgbackrest",
+	cmd := executil.Command(infoCtx, "pgbackrest",
 		"--stanza="+pm.stanzaName(),
 		"--config="+configPath,
 		"--output=json",
@@ -939,7 +937,7 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 // runLongCommand executes a long-running command with periodic progress logging.
 // Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
 // to ensure proper cleanup on context cancellation.
-func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *exec.Cmd, operationName string) ([]byte, error) {
+func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
 	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
 
 	startTime := time.Now()

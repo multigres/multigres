@@ -1,4 +1,4 @@
-// Copyright 2025 Supabase, Inc.
+// Copyright 2026 Supabase, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,11 +19,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // postgresAlreadyRunningPattern matches postgres error when it's already running
@@ -33,7 +33,7 @@ var postgresAlreadyRunningPattern = regexp.MustCompile(`lock file ".*" already e
 // isPostgresCleanlyStopped checks if PostgreSQL is in a clean shutdown state.
 // Returns true if state is "shut down" or "shut down in recovery", false otherwise.
 func isPostgresCleanlyStopped(ctx context.Context) (bool, error) {
-	cmd := exec.CommandContext(ctx, "pg_controldata", pgctld.PostgresDataDir())
+	cmd := executil.Command(ctx, "pg_controldata", pgctld.PostgresDataDir())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("pg_controldata failed: %w (output: %s)", err, string(output))
@@ -71,7 +71,7 @@ func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
 	// Run postgres in single-user mode to perform crash recovery
 	// postgres --single starts in single-user mode, performs recovery, and exits on EOF
 	// Using /dev/null for stdin is simpler than pipe management
-	cmd := exec.CommandContext(ctx, "postgres", "--single", "-D", pgctld.PostgresDataDir(), "template1")
+	cmd := executil.Command(ctx, "postgres", "--single", "-D", pgctld.PostgresDataDir(), "template1")
 
 	// Open /dev/null for stdin
 	devNull, err := os.Open("/dev/null")
@@ -80,7 +80,7 @@ func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer devNull.Close()
 
-	cmd.Stdin = devNull
+	cmd.SetStdin(devNull)
 
 	// Run the command and wait for completion
 	output, err := cmd.CombinedOutput()
