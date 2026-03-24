@@ -33,7 +33,7 @@ type Consolidator struct {
 	// Mutex to protect the fields
 	mu sync.Mutex
 
-	// Map from statement body to canonical prepared statement
+	// Map from (query, paramTypes) dedup key to canonical prepared statement
 	stmts map[string]*PreparedStatementInfo
 	// Map from connection ID and statement name to prepared statement reference
 	incoming map[uint32]map[string]*PreparedStatementInfo
@@ -132,8 +132,9 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		return nil, errors.New("Prepared statement with this name exists")
 	}
 
-	// Let's check if a prepared statement with this statement already exists.
-	existingPs, foundExisting := psc.stmts[queryStr]
+	// Let's check if a prepared statement with this (query, paramTypes) already exists.
+	key := dedupKey(queryStr, paramTypes)
+	existingPs, foundExisting := psc.stmts[key]
 	if foundExisting {
 		// We found an existing prepared statement, we should be using that.
 		psc.usageCount[existingPs] += 1
@@ -141,7 +142,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		return existingPs, nil
 	}
 
-	// We didn't find any existing prepared statement with this sql.
+	// We didn't find any existing prepared statement with this (query, paramTypes).
 	// Create a new one in our stmts list tracking unique prepared statements.
 	newName := fmt.Sprintf("stmt%d", psc.lastUsedID)
 	psc.lastUsedID += 1
@@ -150,7 +151,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		return nil, err
 	}
 
-	psc.stmts[queryStr] = newPS
+	psc.stmts[key] = newPS
 	psc.usageCount[newPS] += 1
 	psc.incoming[connId][name] = newPS
 	return newPS, nil
@@ -173,7 +174,7 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 	if exists {
 		psc.usageCount[psi] -= 1
 		if psc.usageCount[psi] == 0 {
-			delete(psc.stmts, psi.Query)
+			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))
 			delete(psc.usageCount, psi)
 		}
 		delete(psc.incoming[connId], name)
@@ -194,7 +195,7 @@ func (psc *Consolidator) RemoveConnection(connId uint32) {
 	for _, psi := range connStmts {
 		psc.usageCount[psi]--
 		if psc.usageCount[psi] == 0 {
-			delete(psc.stmts, psi.Query)
+			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))
 			delete(psc.usageCount, psi)
 		}
 	}
