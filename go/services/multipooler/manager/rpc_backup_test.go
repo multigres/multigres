@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/timer"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -507,7 +508,7 @@ func TestSafeCombinedOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := exec.Command(tt.command, tt.args...)
+			cmd := executil.Command(t.Context(), tt.command, tt.args...)
 			output, err := safeCombinedOutput(cmd)
 
 			if tt.expectError {
@@ -531,7 +532,7 @@ func TestSafeCombinedOutput_LargeOutput(t *testing.T) {
 	// Test with large output that could potentially fill the channel buffer
 	// Generate 200 lines (more than the 100-line buffer)
 	t.Run("Large output exceeding channel buffer", func(t *testing.T) {
-		cmd := exec.Command("sh", "-c", "for i in $(seq 1 200); do echo \"Line $i\"; done")
+		cmd := executil.Command(t.Context(), "sh", "-c", "for i in $(seq 1 200); do echo \"Line $i\"; done")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -543,7 +544,7 @@ func TestSafeCombinedOutput_LargeOutput(t *testing.T) {
 
 	// Test with very large output (thousands of lines)
 	t.Run("Very large output (1000 lines)", func(t *testing.T) {
-		cmd := exec.Command("sh", "-c", "for i in $(seq 1 1000); do echo \"Line $i\"; done")
+		cmd := executil.Command(t.Context(), "sh", "-c", "for i in $(seq 1 1000); do echo \"Line $i\"; done")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -561,7 +562,7 @@ func TestSafeCombinedOutput_LargeOutput(t *testing.T) {
 			echo "stderr line $i" >&2
 		done
 		`
-		cmd := exec.Command("sh", "-c", script)
+		cmd := executil.Command(t.Context(), "sh", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -577,7 +578,7 @@ func TestSafeCombinedOutput_LongLines(t *testing.T) {
 	t.Run("Very long single line", func(t *testing.T) {
 		// Generate a long string (10KB)
 		longString := strings.Repeat("a", 10*1024)
-		cmd := exec.Command("echo", longString)
+		cmd := executil.Command(t.Context(), "echo", longString)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -588,7 +589,7 @@ func TestSafeCombinedOutput_LongLines(t *testing.T) {
 	t.Run("Multiple long lines", func(t *testing.T) {
 		// Generate 10 lines of 5KB each
 		script := "for i in $(seq 1 10); do printf '%s\\n' \"$(printf 'x%.0s' {1..5000})\"; done"
-		cmd := exec.Command("bash", "-c", script)
+		cmd := executil.Command(t.Context(), "bash", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -604,7 +605,7 @@ func TestSafeCombinedOutput_RapidOutput(t *testing.T) {
 	// Test with very rapid output to stress-test the channel and goroutine coordination
 	t.Run("Rapid burst of output", func(t *testing.T) {
 		// Use yes command to generate rapid output, limited by head
-		cmd := exec.Command("sh", "-c", "yes 'rapid output line' | head -n 500")
+		cmd := executil.Command(t.Context(), "sh", "-c", "yes 'rapid output line' | head -n 500")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -625,7 +626,7 @@ func TestSafeCombinedOutput_InterleavedOutput(t *testing.T) {
 			echo "stderr $i" >&2
 		done
 		`
-		cmd := exec.Command("sh", "-c", script)
+		cmd := executil.Command(t.Context(), "sh", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -639,7 +640,7 @@ func TestSafeCombinedOutput_InterleavedOutput(t *testing.T) {
 
 func TestSafeCombinedOutput_EmptyStreams(t *testing.T) {
 	t.Run("Only stdout", func(t *testing.T) {
-		cmd := exec.Command("echo", "only stdout")
+		cmd := executil.Command(t.Context(), "echo", "only stdout")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -647,7 +648,7 @@ func TestSafeCombinedOutput_EmptyStreams(t *testing.T) {
 	})
 
 	t.Run("Only stderr", func(t *testing.T) {
-		cmd := exec.Command("sh", "-c", "echo 'only stderr' >&2")
+		cmd := executil.Command(t.Context(), "sh", "-c", "echo 'only stderr' >&2")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -655,7 +656,7 @@ func TestSafeCombinedOutput_EmptyStreams(t *testing.T) {
 	})
 
 	t.Run("Neither stdout nor stderr", func(t *testing.T) {
-		cmd := exec.Command("true")
+		cmd := executil.Command(t.Context(), "true")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -673,7 +674,7 @@ func TestSafeCombinedOutput_SlowProducer(t *testing.T) {
 			sleep 0.01
 		done
 		`
-		cmd := exec.Command("sh", "-c", script)
+		cmd := executil.Command(t.Context(), "sh", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -687,7 +688,7 @@ func TestSafeCombinedOutput_PipeCreationFailure(t *testing.T) {
 	// This is difficult to test directly, but we can test the code path
 	t.Run("Command execution after successful pipe setup", func(t *testing.T) {
 		// This tests that the function properly handles the happy path
-		cmd := exec.Command("echo", "test")
+		cmd := executil.Command(t.Context(), "echo", "test")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -705,7 +706,7 @@ func TestSafeCombinedOutput_StressTest(t *testing.T) {
 		(for i in $(seq 1 2000); do echo "stderr $i" >&2; done) &
 		wait
 		`
-		cmd := exec.Command("sh", "-c", script)
+		cmd := executil.Command(context.Background(), "sh", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -725,7 +726,7 @@ func TestSafeCombinedOutput_BinaryOutput(t *testing.T) {
 	// Test with binary output to ensure it doesn't break the scanner
 	t.Run("Binary-like output", func(t *testing.T) {
 		// Generate output with various characters
-		cmd := exec.Command("sh", "-c", "printf 'text\\x00with\\x00nulls\\n'")
+		cmd := executil.Command(context.Background(), "sh", "-c", "printf 'text\\x00with\\x00nulls\\n'")
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -736,7 +737,7 @@ func TestSafeCombinedOutput_BinaryOutput(t *testing.T) {
 
 func TestSafeCombinedOutput_CommandNotFound(t *testing.T) {
 	t.Run("Command does not exist", func(t *testing.T) {
-		cmd := exec.Command("this-command-definitely-does-not-exist-12345")
+		cmd := executil.Command(context.Background(), "this-command-definitely-does-not-exist-12345")
 		_, err := safeCombinedOutput(cmd)
 
 		require.Error(t, err)
@@ -757,7 +758,7 @@ P00   INFO: full backup size = 25.3MB
 P00   INFO: backup command end: completed successfully
 EOF
 		`
-		cmd := exec.Command("sh", "-c", script)
+		cmd := executil.Command(context.Background(), "sh", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -775,7 +776,7 @@ func TestSafeCombinedOutput_ConcurrentReads(t *testing.T) {
 		(seq 1 1000 | while read i; do echo "ERR$i" >&2; done) &
 		wait
 		`
-		cmd := exec.Command("sh", "-c", script)
+		cmd := executil.Command(context.Background(), "sh", "-c", script)
 		output, err := safeCombinedOutput(cmd)
 
 		require.NoError(t, err)
@@ -791,21 +792,21 @@ func TestSafeCombinedOutput_ConcurrentReads(t *testing.T) {
 func BenchmarkSafeCombinedOutput(b *testing.B) {
 	b.Run("Small output", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			cmd := exec.Command("echo", "hello world")
+			cmd := executil.Command(context.Background(), "echo", "hello world")
 			_, _ = safeCombinedOutput(cmd)
 		}
 	})
 
 	b.Run("Medium output (100 lines)", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			cmd := exec.Command("sh", "-c", "for i in $(seq 1 100); do echo \"Line $i\"; done")
+			cmd := executil.Command(context.Background(), "sh", "-c", "for i in $(seq 1 100); do echo \"Line $i\"; done")
 			_, _ = safeCombinedOutput(cmd)
 		}
 	})
 
 	b.Run("Large output (1000 lines)", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			cmd := exec.Command("sh", "-c", "for i in $(seq 1 1000); do echo \"Line $i\"; done")
+			cmd := executil.Command(context.Background(), "sh", "-c", "for i in $(seq 1 1000); do echo \"Line $i\"; done")
 			_, _ = safeCombinedOutput(cmd)
 		}
 	})
@@ -813,7 +814,7 @@ func BenchmarkSafeCombinedOutput(b *testing.B) {
 	b.Run("Mixed stdout and stderr", func(b *testing.B) {
 		script := "for i in $(seq 1 100); do echo \"stdout $i\"; echo \"stderr $i\" >&2; done"
 		for i := 0; i < b.N; i++ {
-			cmd := exec.Command("sh", "-c", script)
+			cmd := executil.Command(context.Background(), "sh", "-c", script)
 			_, _ = safeCombinedOutput(cmd)
 		}
 	})

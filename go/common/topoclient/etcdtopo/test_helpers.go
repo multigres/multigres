@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -30,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
@@ -111,7 +111,7 @@ type EtcdOptions struct {
 
 // StartEtcd starts an etcd subprocess with automatically allocated ports.
 // Returns the client address (which includes the port) and the process handle.
-func StartEtcd(t *testing.T) (string, *exec.Cmd) {
+func StartEtcd(t *testing.T) (string, *executil.Cmd) {
 	clientPort := utils.GetFreePort(t)
 	peerPort := utils.GetFreePort(t)
 	return StartEtcdWithOptions(t, EtcdOptions{
@@ -121,7 +121,7 @@ func StartEtcd(t *testing.T) (string, *exec.Cmd) {
 }
 
 // StartEtcdWithOptions starts an etcd subprocess with custom options, and waits for it to be ready.
-func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
+func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *executil.Cmd) {
 	// Check if etcd is available in PATH
 	_, err := exec.LookPath("etcd")
 	require.NoError(t, err, "etcd not found in PATH")
@@ -150,8 +150,9 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	peerAddr := fmt.Sprintf("http://localhost:%v", peerPort)
 	initialCluster := fmt.Sprintf("%v=%v", name, peerAddr)
 
-	// Wrap etcd with run_in_test.sh to ensure cleanup if test process dies
-	cmd := exec.Command("run_in_test.sh", "etcd",
+	// Wrap etcd with run_in_test.sh for orphan protection. Stops gracefully when
+	// the test context is cancelled so run_in_test.sh can terminate etcd cleanly.
+	cmd := utils.CommandWithOrphanProtection(t.Context(), "etcd",
 		"-name", name,
 		"-advertise-client-urls", clientAddr,
 		"-initial-advertise-peer-urls", peerAddr,
@@ -173,33 +174,6 @@ func StartEtcdWithOptions(t *testing.T, opts EtcdOptions) (string, *exec.Cmd) {
 	defer cancel()
 	err = WaitForReady(ctx, clientAddr)
 	require.NoError(t, err, "etcd failed to become ready")
-
-	t.Cleanup(func() {
-		// Ensure the process is killed and cleaned up
-		if cmd.Process != nil {
-			// Try graceful shutdown first
-			if err := cmd.Process.Signal(os.Interrupt); err == nil {
-				// Wait a bit for graceful shutdown
-				time.Sleep(100 * time.Millisecond)
-			}
-
-			// Force kill if still running
-			if err := cmd.Process.Kill(); err != nil {
-				slog.Error("cmd.Process.Kill() failed killing etcd", "error", err)
-			}
-
-			// Wait for process to finish
-			if err := cmd.Wait(); err != nil {
-				// Ignore "signal: killed" and "signal: interrupt" errors as they're expected
-				if !strings.Contains(err.Error(), "signal: killed") && !strings.Contains(err.Error(), "signal: interrupt") {
-					slog.Error("cmd.Wait() failed killing etcd", "error", err)
-				}
-			}
-		}
-
-		// Additional cleanup: try to release the ports
-		time.Sleep(50 * time.Millisecond)
-	})
 
 	return clientAddr, cmd
 }

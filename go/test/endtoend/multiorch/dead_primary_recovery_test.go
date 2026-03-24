@@ -752,11 +752,8 @@ func killMultipooler(t *testing.T, multipooler *shardsetup.MultipoolerInstance) 
 	pid := multipooler.Multipooler.Process.Process.Pid
 	t.Logf("Killing multipooler (PID %d) on %s", pid, multipooler.Name)
 
-	err := multipooler.Multipooler.Process.Process.Kill()
-	require.NoError(t, err, "Failed to kill multipooler process")
-
-	// Wait for the process to actually terminate
-	_ = multipooler.Multipooler.Process.Wait()
+	_, killed := multipooler.Multipooler.Process.Kill(utils.WithShortDeadline(t))
+	require.True(t, killed, "Failed to kill multipooler process within deadline")
 
 	t.Logf("Multipooler killed on %s - postgres should still be running", multipooler.Name)
 }

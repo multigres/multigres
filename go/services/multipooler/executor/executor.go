@@ -40,19 +40,19 @@ import (
 // It uses the connpoolmanager for per-user connection pool management and consolidates
 // prepared statements across connections to avoid redundant parsing.
 type Executor struct {
-	logger       *slog.Logger
-	poolManager  connpoolmanager.PoolManager
-	consolidator *preparedstatement.Consolidator
-	poolerID     *clustermetadatapb.ID
+	logger             *slog.Logger
+	poolManager        connpoolmanager.PoolManager
+	poolerConsolidator *preparedstatement.PoolerConsolidator
+	poolerID           *clustermetadatapb.ID
 }
 
 // NewExecutor creates a new Executor instance.
 func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID) *Executor {
 	return &Executor{
-		logger:       logger,
-		poolManager:  poolManager,
-		consolidator: preparedstatement.NewConsolidator(),
-		poolerID:     poolerID,
+		logger:             logger,
+		poolManager:        poolManager,
+		poolerConsolidator: preparedstatement.NewPoolerConsolidator(),
+		poolerID:           poolerID,
 	}
 }
 
@@ -426,21 +426,11 @@ func (e *Executor) Describe(
 }
 
 // ensurePrepared ensures the prepared statement is available on the connection.
-// It uses the consolidator to get a canonical statement name and checks the connection state
-// to avoid redundant parsing. Returns the canonical statement name to use.
+// It uses the PoolerConsolidator to get a canonical name by (query, paramTypes),
+// then checks the connection state to avoid redundant parsing.
+// Returns the canonical statement name to use.
 func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) (string, error) {
-	// We use connId 0 since we just need the canonical name mapping
-	// Get the canonical prepared statement info
-	psi := e.consolidator.GetPreparedStatementInfo(0, stmt.Name)
-	if psi == nil {
-		// Add to consolidator to get/create canonical name
-		var err error
-		psi, err = e.consolidator.AddPreparedStatement(0, stmt.Name, stmt.Query, stmt.ParamTypes)
-		if err != nil {
-			return "", fmt.Errorf("failed to consolidate prepared statement: %w", err)
-		}
-	}
-	canonicalName := psi.Name
+	canonicalName := e.poolerConsolidator.CanonicalName(stmt.Query, stmt.ParamTypes)
 
 	// Check if this connection already has the statement prepared
 	connState := conn.State()

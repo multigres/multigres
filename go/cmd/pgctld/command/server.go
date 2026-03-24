@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sync"
@@ -32,6 +31,8 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/ctxutil"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -234,7 +235,7 @@ type PgCtldService struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
-	pgBackRestCmd    *exec.Cmd
+	pgBackRestCmd    *executil.Cmd
 	pgBackRestStatus *pb.PgBackRestStatus
 	statusMu         sync.RWMutex
 	restartCount     int32
@@ -378,11 +379,11 @@ func (s *PgCtldService) Close() {
 	s.cancel()
 
 	// Kill pgBackRest process if running
-	if s.pgBackRestCmd != nil && s.pgBackRestCmd.Process != nil {
-		s.logger.Info("Terminating pgBackRest server", "pid", s.pgBackRestCmd.Process.Pid)
-		if err := s.pgBackRestCmd.Process.Kill(); err != nil {
-			s.logger.Warn("Failed to kill pgBackRest process", "error", err)
-		}
+	if s.pgBackRestCmd != nil {
+		s.logger.Info("Terminating pgBackRest server")
+		killCtx, killCancel := context.WithTimeout(ctxutil.Detach(s.ctx), 100*time.Millisecond)
+		_, _ = s.pgBackRestCmd.Stop(killCtx)
+		killCancel()
 	}
 
 	// Wait for goroutines to fully exit
@@ -392,7 +393,7 @@ func (s *PgCtldService) Close() {
 
 // startPgBackRest starts the pgBackRest TLS server process
 // Returns the command on success, or error on failure
-func (s *PgCtldService) startPgBackRest(ctx context.Context) (*exec.Cmd, error) {
+func (s *PgCtldService) startPgBackRest(ctx context.Context) (*executil.Cmd, error) {
 	configPath := s.pgbackrestServerConfigPath()
 
 	// Verify config exists
@@ -402,8 +403,8 @@ func (s *PgCtldService) startPgBackRest(ctx context.Context) (*exec.Cmd, error) 
 
 	// Build command: pgbackrest server
 	// Note: Config is passed via PGBACKREST_CONFIG environment variable
-	cmd := exec.CommandContext(ctx, "pgbackrest", "server")
-	cmd.Env = append(os.Environ(), "PGBACKREST_CONFIG="+configPath)
+	cmd := executil.Command(ctx, "pgbackrest", "server")
+	cmd.AddEnv("PGBACKREST_CONFIG=" + configPath)
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
@@ -431,7 +432,7 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 	r := retry.New(1*time.Second, 10*time.Second)
 
 	for {
-		var cmd *exec.Cmd
+		var cmd *executil.Cmd
 
 		// Try to start with retry policy (max 5 attempts)
 		for attempt, err := range r.Attempts(ctx) {
@@ -474,10 +475,10 @@ func (s *PgCtldService) managePgBackRest(ctx context.Context) {
 			s.logger.InfoContext(ctx, "pgBackRest exited, restarting", "restart_count", currentCount)
 
 		case <-ctx.Done():
-			// Shutdown requested, kill process
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill() // Ignore error - process may already be dead
-			}
+			// Shutdown requested, stop process
+			killCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), 5*time.Second)
+			_, _ = cmd.Stop(killCtx) // Ignore error - process may already be dead
+			cancel()
 			<-done // Wait for Wait() to complete
 			return
 		}

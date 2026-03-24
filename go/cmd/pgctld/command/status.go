@@ -19,13 +19,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/multigres/multigres/go/services/pgctld"
-	"github.com/multigres/multigres/go/tools/telemetry"
+	"github.com/multigres/multigres/go/tools/executil"
 
 	"github.com/spf13/cobra"
 )
@@ -204,28 +203,26 @@ func formatUptime(seconds int64) string {
 func isServerReadyWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) bool {
 	// Use Unix socket connection for pg_isready
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
-	cmd := exec.Command("pg_isready",
+
+	return executil.Command(ctx, "pg_isready",
 		"-h", socketDir,
 		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
-	)
-
-	return telemetry.RunCmd(ctx, cmd, true) == nil
+	).WithClientSpan().Run() == nil
 }
 
 func getServerVersionWithConfig(ctx context.Context, config *pgctld.PostgresCtlConfig) string {
 	// Use Unix socket connection for psql
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
-	cmd := exec.Command("psql",
+
+	output, err := executil.Command(ctx, "psql",
 		"-h", socketDir,
 		"-p", strconv.Itoa(config.Port), // Need port even for socket connections
 		"-U", config.User,
 		"-d", config.Database,
 		"-t", "-c", "SELECT version()",
-	)
-
-	output, err := telemetry.RunCmdOutput(ctx, cmd, true)
+	).WithClientSpan().Output()
 	if err != nil {
 		return ""
 	}
