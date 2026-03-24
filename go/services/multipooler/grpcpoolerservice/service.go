@@ -56,13 +56,13 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 // This is the main execution method used by multigateway.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
 	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Execute the query and stream results
@@ -115,13 +115,13 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 // otherwise StreamExecute should be used.
 func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
 	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, errors.New("executor not initialized")
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	// Execute the query
@@ -156,7 +156,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 	}
 
 	if err := s.pooler.StartRequest(false); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	poolManager := s.pooler.PoolManager()
@@ -194,13 +194,13 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
 	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, errors.New("executor not initialized")
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	// Call the executor's Describe method
@@ -219,13 +219,13 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
 	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Execute the portal and stream results
@@ -301,13 +301,13 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 	}
 
 	if err := s.pooler.StartRequest(req.Options.GetReservedConnectionId() > 0); err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Get the executor from the pooler
 	exec, err := s.pooler.Executor()
 	if err != nil {
-		return status.Errorf(codes.Unavailable, "executor not initialized: %v", err)
+		return mterrors.ToGRPC(err)
 	}
 
 	// Phase 1: INITIATE - Send COPY command and get reserved connection
@@ -459,7 +459,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_ReserveStreamExecuteServer) error {
 	// Always a new reservation, never allow during shutdown.
 	if err := s.pooler.StartRequest(false); err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Validate reservation reasons at the gRPC trust boundary.
@@ -472,7 +472,7 @@ func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExe
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return err
+		return mterrors.ToGRPC(err)
 	}
 
 	// Execute and stream results
@@ -508,13 +508,13 @@ func (s *poolerService) ReserveStreamExecute(req *multipoolerpb.ReserveStreamExe
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
 	// Always on existing reserved connection, allow during shutdown.
 	if err := s.pooler.StartRequest(true); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	// Get the executor from the pooler
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, errors.New("executor not initialized")
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	// Conclude the transaction
@@ -533,12 +533,12 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
 	// Always on existing reserved connection, allow during shutdown.
 	if err := s.pooler.StartRequest(true); err != nil {
-		return nil, err
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	executor, err := s.pooler.Executor()
 	if err != nil {
-		return nil, errors.New("executor not initialized")
+		return nil, mterrors.ToGRPC(err)
 	}
 
 	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {

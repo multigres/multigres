@@ -378,7 +378,7 @@ func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInFailedTransaction))
 	// Status should remain Failed
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
 }
@@ -441,7 +441,7 @@ func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *te
 	})
 
 	require.Error(t, err)
-	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInFailedTransaction))
 }
 
 // TestHandleQuery_ErrorInTransactionSetsAbortedState tests that a query error
@@ -505,7 +505,7 @@ func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	require.True(t, mterrors.IsError(err, mterrors.PgSSInFailedTransaction))
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInFailedTransaction))
 }
 
 // TestConnectionClosed_ReleasesReservedConnections tests that ConnectionClosed
