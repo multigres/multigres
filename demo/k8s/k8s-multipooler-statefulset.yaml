@@ -123,6 +123,7 @@ spec:
             - --pg-port=5432
             - --socket-file=/data/pg_sockets/.s.PGSQL.5432
             - --grpc-socket-file=/data/multipooler.sock
+            - --connpool-global-capacity=50
             - --service-map=grpc-pooler
             - --pgbackrest-cert-file=/certs/pgbackrest.crt
             - --pgbackrest-key-file=/certs/pgbackrest.key

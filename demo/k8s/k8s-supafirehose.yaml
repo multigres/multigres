@@ -38,10 +38,15 @@ spec:
             limits:
               memory: "2Gi"
               cpu: "2000m"
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - echo "1024 65535" > /proc/sys/net/ipv4/ip_local_port_range
           securityContext:
-            capabilities:
-              add:
-                - SYS_RESOURCE
+            privileged: true
 ---
 apiVersion: v1
 kind: Service
