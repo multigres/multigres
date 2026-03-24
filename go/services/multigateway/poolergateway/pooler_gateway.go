@@ -107,6 +107,17 @@ func NewPoolerGateway(
 // operation. Callers capture multi-return results via closure variables.
 // On retry, the loop iterates so inner runs against a fresh connection from
 // the new PRIMARY. Retries are capped at constants.MaxBufferingRetries.
+//
+// Callback safety on retry: inner receives a fresh PoolerConnection on each
+// attempt, so callers must not carry over connection-specific state between
+// retries. For streaming callbacks this is safe because the two error codes
+// that trigger buffering both fire before any data is streamed:
+//   - MTF01: returned by StartRequest() before query execution begins
+//   - 25006: returned by PostgreSQL at statement start before any output
+//
+// The gateway handler executes individual statements (not multi-statement
+// batches), so the callback is never invoked with partial results before a
+// buffer-triggering error.
 func (pg *PoolerGateway) withBuffering(
 	ctx context.Context,
 	target *query.Target,

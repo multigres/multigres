@@ -311,6 +311,11 @@ func (b *Buffer) drainEntriesForShard(shardKey commontypes.ShardKey) []*entry {
 			remaining = append(remaining, e)
 		}
 	}
+	// Nil out stale pointers in the tail of the backing array so drained
+	// entries can be garbage collected before the queue grows back.
+	for i := len(remaining); i < len(b.queue); i++ {
+		b.queue[i] = nil
+	}
 	b.queue = remaining
 	return drained
 }
