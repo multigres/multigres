@@ -124,8 +124,9 @@ func (s *etcdtopo) waitOnLastRev(ctx context.Context, cli *clientv3.Client, node
 
 // etcdLockDescriptor implements topoclient.LockDescriptor.
 type etcdLockDescriptor struct {
-	s       *etcdtopo
-	leaseID clientv3.LeaseID
+	s        *etcdtopo
+	leaseID  clientv3.LeaseID
+	kaCancel context.CancelFunc // cancels the KeepAlive context
 }
 
 // TryLock is part of the topoclient.Conn interface.
@@ -224,8 +225,15 @@ func (s *etcdtopo) lock(ctx context.Context, nodePath, contents string, ttl int)
 	if err != nil {
 		return nil, convertError(err, nodePath)
 	}
-	leaseKA, err := s.cli.KeepAlive(ctx, lease.ID)
+
+	// Use a dedicated context for KeepAlive so we can cancel it
+	// independently on error paths without waiting for ctx to be canceled.
+	kaCtx, kaCancel := context.WithCancel(ctx)
+
+	leaseKA, err := s.cli.KeepAlive(kaCtx, lease.ID)
 	if err != nil {
+		kaCancel()
+		s.revokeLease(ctx, lease.ID, nodePath)
 		return nil, convertError(err, nodePath)
 	}
 	go func() {
@@ -235,9 +243,16 @@ func (s *etcdtopo) lock(ctx context.Context, nodePath, contents string, ttl int)
 		}
 	}()
 
+	// cleanup cancels the KeepAlive goroutine and revokes the lease.
+	cleanup := func() {
+		kaCancel()
+		s.revokeLease(ctx, lease.ID, nodePath)
+	}
+
 	// Create an ephemeral node in the locks directory.
-	key, revision, err := s.newUniqueEphemeralKV(ctx, s.cli, lease.ID, nodePath, contents)
+	_, revision, err := s.newUniqueEphemeralKV(ctx, s.cli, lease.ID, nodePath, contents)
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
 
@@ -245,20 +260,24 @@ func (s *etcdtopo) lock(ctx context.Context, nodePath, contents string, ttl int)
 	for {
 		done, err := s.waitOnLastRev(ctx, s.cli, nodePath, revision)
 		if err != nil {
-			// We had an error waiting on the last node.
-			// Revoke our lease, this will delete the file.
-			if _, rerr := s.cli.Revoke(context.TODO(), lease.ID); rerr != nil {
-				slog.InfoContext(ctx, fmt.Sprintf("Revoke(%d) failed, may have left %v behind: %v", lease.ID, key, rerr))
-			}
+			cleanup()
 			return nil, err
 		}
 		if done {
 			// No more older nodes, we're it!
 			return &etcdLockDescriptor{
-				s:       s,
-				leaseID: lease.ID,
+				s:        s,
+				leaseID:  lease.ID,
+				kaCancel: kaCancel,
 			}, nil
 		}
+	}
+}
+
+// revokeLease attempts to revoke an etcd lease, logging on failure.
+func (s *etcdtopo) revokeLease(ctx context.Context, leaseID clientv3.LeaseID, nodePath string) {
+	if _, err := s.cli.Revoke(context.TODO(), leaseID); err != nil {
+		slog.InfoContext(ctx, "lease revoke failed", "leaseID", leaseID, "path", nodePath, "error", err)
 	}
 }
 
@@ -274,6 +293,10 @@ func (ld *etcdLockDescriptor) Check(ctx context.Context) error {
 
 // Unlock is part of the topoclient.LockDescriptor interface.
 func (ld *etcdLockDescriptor) Unlock(ctx context.Context) error {
+	// Cancel the KeepAlive goroutine first, then revoke the lease.
+	if ld.kaCancel != nil {
+		ld.kaCancel()
+	}
 	_, err := ld.s.cli.Revoke(ctx, ld.leaseID)
 	if err != nil {
 		return convertError(err, "lease")
