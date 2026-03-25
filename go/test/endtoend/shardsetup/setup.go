@@ -559,6 +559,9 @@ func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 
 // TriggerRecoveryNow triggers immediate recovery and blocks until all problems are resolved or timeout.
 // Automatically fails the test if any problems remain after timeout.
+//
+// Logs pooler diagnostics and multiorch status every 5 seconds while waiting, and dumps a final
+// cluster state snapshot if recovery times out, to aid flake investigation.
 func (s *ShardSetup) TriggerRecoveryNow(t *testing.T, orchName string, timeout time.Duration) {
 	t.Helper()
 
@@ -574,19 +577,55 @@ func (s *ShardSetup) TriggerRecoveryNow(t *testing.T, orchName string, timeout t
 	}
 	defer conn.Close()
 
+	var poolers []*MultipoolerInstance
+	for _, inst := range s.Multipoolers {
+		poolers = append(poolers, inst)
+	}
+
+	logClusterState := func() {
+		for _, r := range fetchPoolerStatuses(t, poolers) {
+			if r.Err != nil {
+				t.Logf("TriggerRecoveryNow: %s: fetch error: %v", r.Name, r.Err)
+			} else {
+				t.Logf("TriggerRecoveryNow: %s: %s", r.Name, FormatPoolerDiagnostics(r.Status))
+			}
+		}
+		logMultiOrchStatus(utils.WithShortDeadline(t), t, s, "TriggerRecoveryNow")
+	}
+
+	// Log cluster state every 5 seconds while the RPC is in flight.
+	stopLogging := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopLogging:
+				return
+			case <-t.Context().Done():
+				return
+			case <-ticker.C:
+				logClusterState()
+			}
+		}
+	}()
+
 	client := multiorchpb.NewMultiOrchServiceClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
 	t.Logf("Triggering recovery on multiorch '%s' (timeout=%s)", orchName, timeout)
 	resp, err := client.TriggerRecoveryNow(ctx, &multiorchpb.TriggerRecoveryNowRequest{})
+	close(stopLogging)
 	if err != nil {
 		t.Fatalf("TriggerRecoveryNow: gRPC call failed: %v", err)
 	}
 
 	if len(resp.RemainingProblemCodes) > 0 {
-		t.Fatalf("TriggerRecoveryNow: %d problems remain after timeout: %v",
-			len(resp.RemainingProblemCodes), resp.RemainingProblemCodes)
+		t.Logf("TriggerRecoveryNow: %d problems remain on '%s': %v — final cluster state:",
+			len(resp.RemainingProblemCodes), orchName, resp.RemainingProblemCodes)
+		logClusterState()
+		t.Fatalf("TriggerRecoveryNow: recovery did not complete within %s", timeout)
 	}
 
 	t.Logf("Recovery completed successfully on multiorch '%s' - all problems resolved", orchName)
@@ -871,7 +910,7 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		primaryName, initializedCount, len(setup.Multipoolers), latestBackupID, strings.Join(poolerStatuses, " | "))
 
 	// Query multiorch instances for status (best-effort diagnostic logging)
-	logMultiOrchStatus(ctx, t, setup)
+	logMultiOrchStatus(ctx, t, setup, "checkBootstrapStatus")
 
 	return primaryName, allInitialized
 }
@@ -1666,8 +1705,8 @@ func (s *ShardSetup) saveBaselineGucs(t *testing.T) {
 
 // logMultiOrchStatus queries each running multiorch and logs its view of the shard.
 // This includes pooler states and detected problems.
-// Best-effort diagnostic logging - failures don't fail the bootstrap check.
-func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup) {
+// Best-effort diagnostic logging - failures are logged but do not fail the test.
+func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, label string) {
 	t.Helper()
 
 	for name, inst := range setup.MultiOrchInstances {
@@ -1677,7 +1716,7 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup) {
 
 		client, err := NewMultiOrchClient(inst.GrpcPort)
 		if err != nil {
-			t.Logf("checkBootstrapStatus: multiorch %s: failed to connect: %v", name, err)
+			t.Logf("%s: multiorch %s: failed to connect: %v", label, name, err)
 			continue
 		}
 		defer client.Close()
@@ -1690,7 +1729,7 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup) {
 			Shard:      constants.DefaultShard,      // "0-inf" - must match multipooler registration
 		})
 		if err != nil {
-			t.Logf("checkBootstrapStatus: multiorch %s: RPC failed: %v", name, err)
+			t.Logf("%s: multiorch %s: RPC failed: %v", label, name, err)
 			continue
 		}
 
@@ -1709,7 +1748,7 @@ func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup) {
 			problemSummary += " " + formatProblemsCompact(resp.Problems)
 		}
 
-		t.Logf("checkBootstrapStatus: multiorch %s: %s, %s", name, poolerSummary, problemSummary)
+		t.Logf("%s: multiorch %s: %s, %s", label, name, poolerSummary, problemSummary)
 	}
 }
 

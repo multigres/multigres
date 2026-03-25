@@ -122,7 +122,7 @@ func TestFixReplication(t *testing.T) {
 	// Trigger recovery to fix the replication
 	// Use longer timeout for first recovery since multiorch needs to discover poolers
 	t.Log("Triggering recovery to fix replication...")
-	setup.TriggerRecoveryNow(t, "multiorch", 60*time.Second)
+	setup.TriggerRecoveryNow(t, "multiorch", 10*time.Second)
 
 	// Verify data IS now visible on replica after fix
 	t.Log("Verifying data IS now visible on replica after fix...")
@@ -171,7 +171,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Trigger recovery to detect and fix the broken replication
 	t.Log("Triggering recovery to detect and fix replication (second time)...")
-	setup.TriggerRecoveryNow(t, "multiorch", 60*time.Second)
+	setup.TriggerRecoveryNow(t, "multiorch", 10*time.Second)
 
 	// Verify new data IS now visible on replica after second fix
 	t.Log("Verifying new data IS now visible on replica after second fix...")
@@ -219,7 +219,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Trigger recovery to add replica back to standby list
 	t.Log("Triggering recovery to add replica back to standby list...")
-	setup.TriggerRecoveryNow(t, "multiorch", 30*time.Second)
+	setup.TriggerRecoveryNow(t, "multiorch", 10*time.Second)
 
 	// Verify replica is back in standby list
 	// Since TriggerRecoveryNow() blocks until problems are resolved, this should be true immediately
