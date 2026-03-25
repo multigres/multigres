@@ -344,6 +344,348 @@ func (x *PoolerHealth) GetLastCheck() *timestamppb.Timestamp {
 	return nil
 }
 
+type DisableRecoveryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisableRecoveryRequest) Reset() {
+	*x = DisableRecoveryRequest{}
+	mi := &file_multiorchservice_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisableRecoveryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisableRecoveryRequest) ProtoMessage() {}
+
+func (x *DisableRecoveryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisableRecoveryRequest.ProtoReflect.Descriptor instead.
+func (*DisableRecoveryRequest) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{4}
+}
+
+type DisableRecoveryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success indicates whether recovery was disabled
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// message provides additional context
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisableRecoveryResponse) Reset() {
+	*x = DisableRecoveryResponse{}
+	mi := &file_multiorchservice_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisableRecoveryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisableRecoveryResponse) ProtoMessage() {}
+
+func (x *DisableRecoveryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisableRecoveryResponse.ProtoReflect.Descriptor instead.
+func (*DisableRecoveryResponse) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DisableRecoveryResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *DisableRecoveryResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type EnableRecoveryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnableRecoveryRequest) Reset() {
+	*x = EnableRecoveryRequest{}
+	mi := &file_multiorchservice_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnableRecoveryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnableRecoveryRequest) ProtoMessage() {}
+
+func (x *EnableRecoveryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnableRecoveryRequest.ProtoReflect.Descriptor instead.
+func (*EnableRecoveryRequest) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{6}
+}
+
+type EnableRecoveryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success indicates whether recovery was enabled
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// message provides additional context
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnableRecoveryResponse) Reset() {
+	*x = EnableRecoveryResponse{}
+	mi := &file_multiorchservice_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnableRecoveryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnableRecoveryResponse) ProtoMessage() {}
+
+func (x *EnableRecoveryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnableRecoveryResponse.ProtoReflect.Descriptor instead.
+func (*EnableRecoveryResponse) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *EnableRecoveryResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *EnableRecoveryResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type GetRecoveryStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRecoveryStatusRequest) Reset() {
+	*x = GetRecoveryStatusRequest{}
+	mi := &file_multiorchservice_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRecoveryStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRecoveryStatusRequest) ProtoMessage() {}
+
+func (x *GetRecoveryStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRecoveryStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetRecoveryStatusRequest) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{8}
+}
+
+type GetRecoveryStatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// enabled indicates whether recovery is currently active
+	Enabled       bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRecoveryStatusResponse) Reset() {
+	*x = GetRecoveryStatusResponse{}
+	mi := &file_multiorchservice_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRecoveryStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRecoveryStatusResponse) ProtoMessage() {}
+
+func (x *GetRecoveryStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRecoveryStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetRecoveryStatusResponse) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetRecoveryStatusResponse) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+type TriggerRecoveryNowRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TriggerRecoveryNowRequest) Reset() {
+	*x = TriggerRecoveryNowRequest{}
+	mi := &file_multiorchservice_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TriggerRecoveryNowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TriggerRecoveryNowRequest) ProtoMessage() {}
+
+func (x *TriggerRecoveryNowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TriggerRecoveryNowRequest.ProtoReflect.Descriptor instead.
+func (*TriggerRecoveryNowRequest) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{10}
+}
+
+type TriggerRecoveryNowResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// remaining_problem_codes lists problem codes still detected (e.g., "REPLICA_NOT_REPLICATING")
+	RemainingProblemCodes []string `protobuf:"bytes,4,rep,name=remaining_problem_codes,json=remainingProblemCodes,proto3" json:"remaining_problem_codes,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *TriggerRecoveryNowResponse) Reset() {
+	*x = TriggerRecoveryNowResponse{}
+	mi := &file_multiorchservice_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TriggerRecoveryNowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TriggerRecoveryNowResponse) ProtoMessage() {}
+
+func (x *TriggerRecoveryNowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multiorchservice_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TriggerRecoveryNowResponse.ProtoReflect.Descriptor instead.
+func (*TriggerRecoveryNowResponse) Descriptor() ([]byte, []int) {
+	return file_multiorchservice_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *TriggerRecoveryNowResponse) GetRemainingProblemCodes() []string {
+	if x != nil {
+		return x.RemainingProblemCodes
+	}
+	return nil
+}
+
 var File_multiorchservice_proto protoreflect.FileDescriptor
 
 const file_multiorchservice_proto_rawDesc = "" +
@@ -379,9 +721,27 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\vpooler_type\x18\x04 \x01(\tR\n" +
 	"poolerType\x129\n" +
 	"\n" +
-	"last_check\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tlastCheck2e\n" +
+	"last_check\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tlastCheck\"\x18\n" +
+	"\x16DisableRecoveryRequest\"M\n" +
+	"\x17DisableRecoveryResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x17\n" +
+	"\x15EnableRecoveryRequest\"L\n" +
+	"\x16EnableRecoveryResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x1a\n" +
+	"\x18GetRecoveryStatusRequest\"5\n" +
+	"\x19GetRecoveryStatusResponse\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\"\x1b\n" +
+	"\x19TriggerRecoveryNowRequest\"T\n" +
+	"\x1aTriggerRecoveryNowResponse\x126\n" +
+	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes2\xe1\x03\n" +
 	"\x10MultiOrchService\x12Q\n" +
-	"\x0eGetShardStatus\x12\x1d.multiorch.ShardStatusRequest\x1a\x1e.multiorch.ShardStatusResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
+	"\x0eGetShardStatus\x12\x1d.multiorch.ShardStatusRequest\x1a\x1e.multiorch.ShardStatusResponse\"\x00\x12Z\n" +
+	"\x0fDisableRecovery\x12!.multiorch.DisableRecoveryRequest\x1a\".multiorch.DisableRecoveryResponse\"\x00\x12W\n" +
+	"\x0eEnableRecovery\x12 .multiorch.EnableRecoveryRequest\x1a!.multiorch.EnableRecoveryResponse\"\x00\x12`\n" +
+	"\x11GetRecoveryStatus\x12#.multiorch.GetRecoveryStatusRequest\x1a$.multiorch.GetRecoveryStatusResponse\"\x00\x12c\n" +
+	"\x12TriggerRecoveryNow\x12$.multiorch.TriggerRecoveryNowRequest\x1a%.multiorch.TriggerRecoveryNowResponse\"\x00B0Z.github.com/multigres/multigres/go/pb/multiorchb\x06proto3"
 
 var (
 	file_multiorchservice_proto_rawDescOnce sync.Once
@@ -395,29 +755,45 @@ func file_multiorchservice_proto_rawDescGZIP() []byte {
 	return file_multiorchservice_proto_rawDescData
 }
 
-var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_multiorchservice_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_multiorchservice_proto_goTypes = []any{
-	(*ShardStatusRequest)(nil),    // 0: multiorch.ShardStatusRequest
-	(*ShardStatusResponse)(nil),   // 1: multiorch.ShardStatusResponse
-	(*DetectedProblem)(nil),       // 2: multiorch.DetectedProblem
-	(*PoolerHealth)(nil),          // 3: multiorch.PoolerHealth
-	(*clustermetadata.ID)(nil),    // 4: clustermetadata.ID
-	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
+	(*ShardStatusRequest)(nil),         // 0: multiorch.ShardStatusRequest
+	(*ShardStatusResponse)(nil),        // 1: multiorch.ShardStatusResponse
+	(*DetectedProblem)(nil),            // 2: multiorch.DetectedProblem
+	(*PoolerHealth)(nil),               // 3: multiorch.PoolerHealth
+	(*DisableRecoveryRequest)(nil),     // 4: multiorch.DisableRecoveryRequest
+	(*DisableRecoveryResponse)(nil),    // 5: multiorch.DisableRecoveryResponse
+	(*EnableRecoveryRequest)(nil),      // 6: multiorch.EnableRecoveryRequest
+	(*EnableRecoveryResponse)(nil),     // 7: multiorch.EnableRecoveryResponse
+	(*GetRecoveryStatusRequest)(nil),   // 8: multiorch.GetRecoveryStatusRequest
+	(*GetRecoveryStatusResponse)(nil),  // 9: multiorch.GetRecoveryStatusResponse
+	(*TriggerRecoveryNowRequest)(nil),  // 10: multiorch.TriggerRecoveryNowRequest
+	(*TriggerRecoveryNowResponse)(nil), // 11: multiorch.TriggerRecoveryNowResponse
+	(*clustermetadata.ID)(nil),         // 12: clustermetadata.ID
+	(*timestamppb.Timestamp)(nil),      // 13: google.protobuf.Timestamp
 }
 var file_multiorchservice_proto_depIdxs = []int32{
-	2, // 0: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
-	3, // 1: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
-	4, // 2: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
-	5, // 3: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
-	4, // 4: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
-	5, // 5: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
-	0, // 6: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
-	1, // 7: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	2,  // 0: multiorch.ShardStatusResponse.problems:type_name -> multiorch.DetectedProblem
+	3,  // 1: multiorch.ShardStatusResponse.pooler_healths:type_name -> multiorch.PoolerHealth
+	12, // 2: multiorch.DetectedProblem.pooler_id:type_name -> clustermetadata.ID
+	13, // 3: multiorch.DetectedProblem.detected_at:type_name -> google.protobuf.Timestamp
+	12, // 4: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
+	13, // 5: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
+	0,  // 6: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
+	4,  // 7: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
+	6,  // 8: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
+	8,  // 9: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
+	10, // 10: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
+	1,  // 11: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
+	5,  // 12: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
+	7,  // 13: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
+	9,  // 14: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
+	11, // 15: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
+	11, // [11:16] is the sub-list for method output_type
+	6,  // [6:11] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_multiorchservice_proto_init() }
@@ -431,7 +807,7 @@ func file_multiorchservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multiorchservice_proto_rawDesc), len(file_multiorchservice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

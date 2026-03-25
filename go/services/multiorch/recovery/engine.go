@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
@@ -374,7 +375,7 @@ func (re *Engine) Start() error {
 		if re.recoveryRunner.UpdateInterval(newInterval) {
 			re.logger.InfoContext(re.shutdownCtx, "recovery cycle interval changed", "interval", newInterval)
 		}
-		re.performRecoveryCycle()
+		re.performRecoveryCycle(ctx)
 	}, nil)
 
 	// Start health check ticker runner
@@ -537,21 +538,116 @@ func (re *Engine) IsWatchingShard(database, tableGroup, shard string) bool {
 // GetPoolerHealthForShard returns health information for all poolers in a shard.
 // Thread-safe for concurrent access from gRPC handlers.
 func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []*multiorchdatapb.PoolerHealthState {
-	var poolers []*multiorchdatapb.PoolerHealthState
+	return re.poolerStore.FindPoolersInShard(commontypes.ShardKey{
+		Database:   database,
+		TableGroup: tableGroup,
+		Shard:      shard,
+	})
+}
 
-	re.poolerStore.Range(func(_ string, pooler *multiorchdatapb.PoolerHealthState) bool {
-		if pooler == nil || pooler.MultiPooler == nil {
-			return true // continue
+// DisableRecovery stops the recovery loop and waits for in-flight actions to complete.
+// When this returns, no recovery actions are running and no new ones will start.
+// Intended for testing scenarios where manual control over recovery is needed.
+func (re *Engine) DisableRecovery() {
+	re.logger.Warn("Disabling recovery - no automatic repairs will occur")
+	re.recoveryRunner.Stop()
+}
+
+// EnableRecovery resumes the recovery loop.
+func (re *Engine) EnableRecovery() {
+	re.recoveryRunner.Start(func(ctx context.Context) {
+		re.performRecoveryCycle(ctx)
+	}, func() {
+		re.logger.Info("Enabling recovery - automatic repairs will resume")
+	},
+	)
+}
+
+// IsRecoveryEnabled returns whether the recovery loop is currently running.
+func (re *Engine) IsRecoveryEnabled() bool {
+	return re.recoveryRunner.Running()
+}
+
+// TriggerRecoveryNow immediately executes recovery operations and blocks until
+// no problems remain or the timeout is reached.
+//
+// This method:
+// 1. Force health checks all poolers to get fresh state
+// 2. Runs recovery cycles repeatedly until no problems are detected
+// 3. Returns when either: (a) no problems remain, or (b) timeout
+func (re *Engine) TriggerRecoveryNow(ctx context.Context) ([]DetectedProblemData, error) {
+	re.logger.InfoContext(ctx, "TriggerRecoveryNow: forcing immediate recovery execution")
+
+	// Force health check all poolers to get fresh state
+	re.logger.DebugContext(ctx, "TriggerRecoveryNow: forcing health checks on all poolers")
+	re.forceHealthCheckAllShardPoolers(ctx)
+
+	// Create channel to wait for first cycle completion
+	cycleDone := make(chan error, 1)
+
+	// Ensure recovery is running with immediate execution and wait for first cycle.
+	// StartWithOptions returns true if we started it (was stopped).
+	wasStarted := re.recoveryRunner.StartWithOptions(
+		func(ctx context.Context) {
+			re.performRecoveryCycle(ctx)
+		},
+		timer.WithFastStart(),
+		timer.WithAfterNextFullCycle(cycleDone),
+	)
+
+	if wasStarted {
+		re.logger.DebugContext(ctx, "Temporarily enabled recovery for TriggerRecoveryNow")
+		// If we started it, stop it when we're done
+		defer re.recoveryRunner.Stop()
+	}
+
+	// Wait for first cycle to complete before polling
+	select {
+	case <-cycleDone:
+		// First cycle done, proceed to polling
+	case <-ctx.Done():
+		// Timeout before first cycle completed
+	}
+
+	// Poll until all problems are resolved or timeout
+	for {
+		problems := re.collectDetectedProblemsData()
+		if ctx.Err() != nil || len(problems) == 0 {
+			return problems, ctx.Err()
 		}
 
-		if pooler.MultiPooler.Database == database &&
-			pooler.MultiPooler.TableGroup == tableGroup &&
-			pooler.MultiPooler.Shard == shard {
-			poolers = append(poolers, pooler)
+		// Brief sleep to avoid tight loop (100ms for faster convergence)
+		select {
+		case <-ctx.Done():
+			return re.collectDetectedProblemsData(), ctx.Err()
+		case <-time.After(100 * time.Millisecond):
 		}
+	}
+}
 
-		return true // continue
+// forceHealthCheckAllShardPoolers forces health checks on all poolers across all shards.
+func (re *Engine) forceHealthCheckAllShardPoolers(ctx context.Context) {
+	// Collect unique shards from pooler store
+	shards := make(map[commontypes.ShardKey]bool)
+	re.poolerStore.Range(func(_ string, poolerHealth *multiorchdatapb.PoolerHealthState) bool {
+		if poolerHealth != nil && poolerHealth.MultiPooler != nil {
+			shards[commontypes.ShardKey{
+				Database:   poolerHealth.MultiPooler.Database,
+				TableGroup: poolerHealth.MultiPooler.TableGroup,
+				Shard:      poolerHealth.MultiPooler.Shard,
+			}] = true
+		}
+		return true
 	})
 
-	return poolers
+	// Force health check each shard in parallel
+	var wg sync.WaitGroup
+	for shardKey := range shards {
+		wg.Add(1)
+		go func(key commontypes.ShardKey) {
+			defer wg.Done()
+			re.forceHealthCheckShardPoolers(ctx, key, nil /* poolersToIgnore */)
+		}(shardKey)
+	}
+	wg.Wait()
 }
