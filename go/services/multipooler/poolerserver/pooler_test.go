@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 )
@@ -100,14 +101,14 @@ func TestStartRequest_NotServing(t *testing.T) {
 	s := newStartRequestTestServer()
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
 
-	// Both should fail when not serving
+	// Both should fail when not serving with MTF01 (triggers gateway buffering)
 	err := s.StartRequest(false)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotServing)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 
 	err = s.StartRequest(true)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotServing)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 }
 
 func TestStartRequest_ShuttingDown_NewRequestRejected(t *testing.T) {
@@ -118,7 +119,7 @@ func TestStartRequest_ShuttingDown_NewRequestRejected(t *testing.T) {
 	// New requests (allowOnShutdown=false) should be rejected
 	err := s.StartRequest(false)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrShuttingDown)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 }
 
 func TestStartRequest_ShuttingDown_ExistingReservedAllowed(t *testing.T) {
@@ -223,7 +224,7 @@ func TestStartRequest_ShuttingDown_WithDrain(t *testing.T) {
 
 	// allowOnShutdown=false should fail during shutdown
 	err := pooler.StartRequest(false)
-	assert.ErrorIs(t, err, ErrShuttingDown)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "expected MTF01 error, got: %v", err)
 
 	// allowOnShutdown=true should succeed during shutdown
 	err = pooler.StartRequest(true)

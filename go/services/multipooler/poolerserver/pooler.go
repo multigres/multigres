@@ -22,18 +22,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
-)
-
-var (
-	// ErrNotServing is returned when a request is made while not serving.
-	ErrNotServing = errors.New("pooler is not serving")
-
-	// ErrShuttingDown is returned when a new request is made during graceful shutdown.
-	ErrShuttingDown = errors.New("pooler is shutting down")
 )
 
 // QueryPoolerServer is the core pooler implementation for query serving.
@@ -163,11 +156,11 @@ func (s *QueryPoolerServer) StartRequest(allowOnShutdown bool) error {
 	defer s.mu.Unlock()
 
 	if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING && !s.shuttingDown {
-		return ErrNotServing
+		return mterrors.MTF01.New()
 	}
 
 	if s.shuttingDown && !allowOnShutdown {
-		return ErrShuttingDown
+		return mterrors.MTF01.New()
 	}
 
 	return nil
@@ -218,6 +211,10 @@ func (s *QueryPoolerServer) StartServiceForTests() error {
 // Executor returns the executor instance for use by gRPC service handlers.
 // Implements PoolerController interface.
 // Returns error if the pooler is not initialized.
+//
+// Note: Callers must call StartRequest() before Executor() to check serving state.
+// StartRequest returns MTF01 when not serving or shutting down, which the gateway
+// uses to trigger failover buffering.
 func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

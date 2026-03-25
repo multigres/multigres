@@ -67,6 +67,10 @@ type LoadBalancer struct {
 	// cachedPrimaries maps shard key to the cached primary connection.
 	// Updated by onPoolerHealthUpdate when health streams report PrimaryObservation.
 	cachedPrimaries map[shardKey]*cachedPrimary
+
+	// onPrimaryServing is called when a new primary is detected via health stream.
+	// Used to stop failover buffering for the shard. May be nil.
+	onPrimaryServing func(tableGroup, shard string)
 }
 
 // NewLoadBalancer creates a new LoadBalancer.
@@ -78,6 +82,14 @@ func NewLoadBalancer(ctx context.Context, localCell string, logger *slog.Logger)
 		connections:     make(map[string]*PoolerConnection),
 		cachedPrimaries: make(map[shardKey]*cachedPrimary),
 	}
+}
+
+// SetOnPrimaryServing sets a callback invoked when a new primary is detected
+// via the streaming health check. This is used to stop failover buffering
+// when a new primary becomes available, replacing the topology-based approach.
+// Must be called before any poolers are added.
+func (lb *LoadBalancer) SetOnPrimaryServing(fn func(tableGroup, shard string)) {
+	lb.onPrimaryServing = fn
 }
 
 // AddPooler creates a new PoolerConnection for the given pooler.
@@ -310,6 +322,12 @@ func (lb *LoadBalancer) onPoolerHealthUpdate(conn *PoolerConnection) {
 			"shard", key.shard,
 			"primary_id", primaryID,
 			"term", term)
+
+		// Notify that a new primary is available — this stops failover buffering
+		// for the shard.
+		if lb.onPrimaryServing != nil {
+			lb.onPrimaryServing(key.tableGroup, key.shard)
+		}
 	}
 }
 

@@ -76,7 +76,9 @@
 package executil
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"sync"
@@ -218,25 +220,20 @@ func (c *Cmd) finalizeEnv() {
 	c.Cmd.Env = append(c.Cmd.Env, c.extraEnv...)
 }
 
-// Start starts the command without waiting for it to complete.
+// watchContext starts a background goroutine that monitors the parent context
+// for cancellation and gracefully terminates the process if it is cancelled.
 //
-// If the parent context is cancelled, the process will be terminated with
-// SIGTERM followed by SIGKILL after the default grace period.
-//
-// Note: WithClientSpan() has no effect on Start() since the span cannot be
-// ended until Wait() is called. Use Run() for client span support.
-func (c *Cmd) Start() error {
-	c.finalizeEnv()
-	if err := c.Cmd.Start(); err != nil {
-		return err
-	}
-
+// Must be called after c.Cmd.Start() succeeds. If called before, a
+// cancelled context fires Terminate() while c.Process is still nil, so
+// SIGTERM is a no-op and c.terminated is closed — the process then starts
+// and runs indefinitely with no watcher.
+func (c *Cmd) watchContext() {
 	// Watch for parent context cancellation
 	go func() {
 		select {
 		case <-c.parentCtx.Done():
-			// Parent context cancelled - terminate with default grace period
-			// Fresh context needed; parent context is cancelled
+			// Parent context cancelled - terminate with default grace period.
+			// Fresh context needed; parent context is cancelled.
 			termCtx, termCancel := context.WithTimeout(ctxutil.Detach(c.parentCtx), c.defaultGracePeriod)
 			_, exited := c.Terminate(termCtx)
 			termCancel()
@@ -252,7 +249,21 @@ func (c *Cmd) Start() error {
 			// Process exited naturally, nothing to do
 		}
 	}()
+}
 
+// Start starts the command without waiting for it to complete.
+//
+// If the parent context is cancelled, the process will be terminated with
+// SIGTERM followed by SIGKILL after the default grace period.
+//
+// Note: WithClientSpan() has no effect on Start() since the span cannot be
+// ended until Wait() is called. Use Run() for client span support.
+func (c *Cmd) Start() error {
+	c.finalizeEnv()
+	if err := c.Cmd.Start(); err != nil {
+		return err
+	}
+	c.watchContext()
 	return nil
 }
 
@@ -378,8 +389,10 @@ func (c *Cmd) Run() error {
 		_, span := tracer.Start(c.parentCtx, c.Cmd.Path)
 		defer span.End()
 	}
-	c.finalizeEnv()
-	return c.Cmd.Run()
+	if err := c.Start(); err != nil {
+		return err
+	}
+	return c.Wait()
 }
 
 // Output runs the command and returns its stdout.
@@ -390,8 +403,27 @@ func (c *Cmd) Output() ([]byte, error) {
 		_, span := tracer.Start(c.parentCtx, c.Cmd.Path)
 		defer span.End()
 	}
-	c.finalizeEnv()
-	return c.Cmd.Output()
+	if c.Cmd.Stdout != nil {
+		return nil, errors.New("exec: Stdout already set")
+	}
+	var stdout bytes.Buffer
+	c.Cmd.Stdout = &stdout
+	captureStderr := c.Cmd.Stderr == nil
+	var stderr bytes.Buffer
+	if captureStderr {
+		c.Cmd.Stderr = &stderr
+	}
+	err := c.Start()
+	if err == nil {
+		err = c.Wait()
+	}
+	if err != nil && captureStderr {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			ee.Stderr = stderr.Bytes()
+		}
+	}
+	return stdout.Bytes(), err
 }
 
 // CombinedOutput runs the command and returns its combined stdout and stderr.
@@ -402,6 +434,18 @@ func (c *Cmd) CombinedOutput() ([]byte, error) {
 		_, span := tracer.Start(c.parentCtx, c.Cmd.Path)
 		defer span.End()
 	}
-	c.finalizeEnv()
-	return c.Cmd.CombinedOutput()
+	if c.Cmd.Stdout != nil {
+		return nil, errors.New("exec: Stdout already set")
+	}
+	if c.Cmd.Stderr != nil {
+		return nil, errors.New("exec: Stderr already set")
+	}
+	var buf bytes.Buffer
+	c.Cmd.Stdout = &buf
+	c.Cmd.Stderr = &buf
+	err := c.Start()
+	if err == nil {
+		err = c.Wait()
+	}
+	return buf.Bytes(), err
 }
