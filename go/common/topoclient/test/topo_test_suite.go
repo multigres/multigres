@@ -35,57 +35,48 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topoc
 	ts = factory()
 	checkLock(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkLock completed") // DEBUG: remove after CI investigation
 
 	t.Log("=== (Lock) checkTryLock")
 	ts = factory()
 	checkTryLock(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkTryLock completed") // DEBUG: remove after CI investigation
 
 	t.Log("=== (Lock) checkLockName")
 	ts = factory()
 	checkLockName(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkLockName completed") // DEBUG: remove after CI investigation
 
 	t.Log("=== (Lock) checkLockNameWithTTL")
 	ts = factory()
 	checkLockNameWithTTL(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkLockNameWithTTL completed") // DEBUG: remove after CI investigation
 
 	t.Log("=== (Lock) checkTryLockName")
 	ts = factory()
 	checkTryLockName(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkTryLockName completed") // DEBUG: remove after CI investigation
 
 	// Directory is part of the Directory API.
 	t.Log("=== (Directory) checkDirectory")
 	ts = factory()
 	checkDirectory(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkDirectory completed") // DEBUG: remove after CI investigation
 
 	// Watch and WatchRecursive are part of the Watch API.
 	t.Log("=== (Watch) checkWatch")
 	ts = factory()
 	checkWatch(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkWatch completed") // DEBUG: remove after CI investigation
 
 	t.Log("=== (Watch) checkWatchInterrupt")
 	ts = factory()
 	checkWatchInterrupt(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkWatchInterrupt completed") // DEBUG: remove after CI investigation
 
 	ts = factory()
 	t.Log("=== (Watch) checkWatchRecursive")
 	checkWatchRecursive(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkWatchRecursive completed") // DEBUG: remove after CI investigation
 
 	// File is part of the File API.
 
@@ -93,11 +84,9 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topoc
 	ts = factory()
 	checkFile(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkFile completed") // DEBUG: remove after CI investigation
 
 	ts = factory()
 	t.Log("=== checkList")
 	checkList(t, ctx, ts)
 	_ = ts.Close()
-	t.Log("DEBUG: checkList completed") // DEBUG: remove after CI investigation
 }
