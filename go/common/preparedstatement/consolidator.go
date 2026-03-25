@@ -17,6 +17,7 @@ package preparedstatement
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/multigres/multigres/go/common/parser"
@@ -133,6 +134,12 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 	// the case where Parse succeeds (adding to consolidator) but the subsequent
 	// Describe fails — the client retries Parse with the same name.
 	if existing, exists := psc.incoming[connId][name]; exists && name != "" {
+		slog.Debug("replacing existing prepared statement",
+			"connId", connId,
+			"name", name,
+			"oldQuery", existing.Query,
+			"newQuery", queryStr,
+		)
 		psc.usageCount[existing]--
 		if psc.usageCount[existing] == 0 {
 			delete(psc.stmts, existing.Query)
