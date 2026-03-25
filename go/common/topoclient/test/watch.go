@@ -29,6 +29,35 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
+// watchTimeout is the maximum time to wait for a watch event in tests.
+// This prevents tests from hanging indefinitely if etcd watch events
+// are delayed (e.g., under CI load).
+const watchTimeout = 30 * time.Second
+
+// receiveWatchData reads from a watch channel with a timeout.
+func receiveWatchData(t *testing.T, changes <-chan *topoclient.WatchData) (*topoclient.WatchData, bool) {
+	t.Helper()
+	select {
+	case wd, ok := <-changes:
+		return wd, ok
+	case <-time.After(watchTimeout):
+		require.Fail(t, "timed out waiting for watch event")
+		return nil, false
+	}
+}
+
+// receiveWatchDataRecursive reads from a recursive watch channel with a timeout.
+func receiveWatchDataRecursive(t *testing.T, changes <-chan *topoclient.WatchDataRecursive) (*topoclient.WatchDataRecursive, bool) {
+	t.Helper()
+	select {
+	case wd, ok := <-changes:
+		return wd, ok
+	case <-time.After(watchTimeout):
+		require.Fail(t, "timed out waiting for recursive watch event")
+		return nil, false
+	}
+}
+
 // waitForInitialValue waits for the initial value of
 // databases/test_database/Database to appear, and match the
 // provided database.
@@ -153,7 +182,7 @@ func checkWatch(t *testing.T, ctx context.Context, ts topoclient.Store) {
 	// but eventually. The API specifies it is possible to get duplicate
 	// notifications.
 	for {
-		wd, ok := <-changes
+		wd, ok := receiveWatchData(t, changes)
 		if !ok {
 			require.Fail(t, "watch channel unexpectedly closed")
 		}
@@ -183,7 +212,7 @@ func checkWatch(t *testing.T, ctx context.Context, ts topoclient.Store) {
 	// The API specifies it is possible to get duplicate
 	// notifications.
 	for {
-		wd, ok := <-changes
+		wd, ok := receiveWatchData(t, changes)
 		if !ok {
 			require.Fail(t, "watch channel unexpectedly closed")
 		}
@@ -206,7 +235,7 @@ func checkWatch(t *testing.T, ctx context.Context, ts topoclient.Store) {
 	}
 
 	// now the channel should be closed
-	if wd, ok := <-changes; ok {
+	if wd, ok := receiveWatchData(t, changes); ok {
 		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
 }
@@ -235,7 +264,7 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topoclient.Store)
 
 	// Make sure we get the topoclient.ErrInterrupted notification eventually.
 	for {
-		wd, ok := <-changes
+		wd, ok := receiveWatchData(t, changes)
 		if !ok {
 			require.Fail(t, "watch channel unexpectedly closed")
 		}
@@ -258,7 +287,7 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topoclient.Store)
 	}
 
 	// Now the channel should be closed.
-	if wd, ok := <-changes; ok {
+	if wd, ok := receiveWatchData(t, changes); ok {
 		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
 
@@ -305,7 +334,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 	// but eventually. The API specifies it is possible to get duplicate
 	// notifications.
 	for {
-		wd, ok := <-changes
+		wd, ok := receiveWatchDataRecursive(t, changes)
 		if !ok {
 			require.Fail(t, "watch channel unexpectedly closed")
 		}
@@ -335,7 +364,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 	// The API specifies it is possible to get duplicate
 	// notifications.
 	for {
-		wd, ok := <-changes
+		wd, ok := receiveWatchDataRecursive(t, changes)
 		if !ok {
 			require.Fail(t, "watch channel unexpectedly closed")
 		}
@@ -365,7 +394,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 
 	// Make sure we get the topoclient.ErrInterrupted notification eventually.
 	for {
-		wd, ok := <-changes
+		wd, ok := receiveWatchDataRecursive(t, changes)
 		if !ok {
 			require.Fail(t, "watch channel unexpectedly closed")
 		}
@@ -388,7 +417,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 	}
 
 	// Now the channel should be closed.
-	if wd, ok := <-changes; ok {
+	if wd, ok := receiveWatchDataRecursive(t, changes); ok {
 		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
 
