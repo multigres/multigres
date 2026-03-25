@@ -16,7 +16,6 @@ package manager
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -963,20 +962,7 @@ func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 		}
 	}()
 
-	// Use Start() + Wait() instead of CombinedOutput() so that executil's
-	// context monitoring goroutine is active. This ensures the process
-	// receives SIGTERM when the context is cancelled (e.g., lease stolen).
-	// CombinedOutput() bypasses context monitoring.
-	var outputBuf bytes.Buffer
-	cmd.Cmd.Stdout = &outputBuf
-	cmd.Cmd.Stderr = &outputBuf
-	err := cmd.Start()
-	if err != nil {
-		cancelLog()
-		return nil, fmt.Errorf("failed to start command: %w", err)
-	}
-	err = cmd.Wait()
-	output := outputBuf.Bytes()
+	output, err := cmd.CombinedOutput()
 
 	cancelLog()
 

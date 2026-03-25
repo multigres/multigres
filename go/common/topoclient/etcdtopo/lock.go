@@ -247,7 +247,7 @@ func (s *etcdtopo) lock(ctx context.Context, nodePath, contents string, ttl int)
 		if err != nil {
 			// We had an error waiting on the last node.
 			// Revoke our lease, this will delete the file.
-			if _, rerr := s.cli.Revoke(context.TODO(), lease.ID); rerr != nil {
+			if _, rerr := s.cli.Revoke(ctx, lease.ID); rerr != nil {
 				slog.InfoContext(ctx, fmt.Sprintf("Revoke(%d) failed, may have left %v behind: %v", lease.ID, key, rerr))
 			}
 			return nil, err
@@ -316,7 +316,7 @@ func (s *etcdtopo) TryLockWithLease(ctx context.Context, key, contents string, t
 		Then(clientv3.OpPut(fullKey, contents, clientv3.WithLease(lease.ID))).
 		Commit()
 	if err != nil {
-		if _, rerr := s.cli.Revoke(context.TODO(), lease.ID); rerr != nil {
+		if _, rerr := s.cli.Revoke(ctx, lease.ID); rerr != nil {
 			slog.InfoContext(ctx, "Revoke failed after TryLockWithLease error", "error", rerr)
 		}
 		return nil, convertError(err, key)
@@ -324,7 +324,7 @@ func (s *etcdtopo) TryLockWithLease(ctx context.Context, key, contents string, t
 	if !txnresp.Succeeded {
 		// Key already exists — another holder has the lock. So, we revoke our
 		// own lease.
-		if _, rerr := s.cli.Revoke(context.TODO(), lease.ID); rerr != nil {
+		if _, rerr := s.cli.Revoke(ctx, lease.ID); rerr != nil {
 			slog.InfoContext(ctx, "Revoke failed after lock contention", "error", rerr)
 		}
 		return nil, topoclient.NewError(topoclient.NodeExists, "lock already exists at key "+key)
