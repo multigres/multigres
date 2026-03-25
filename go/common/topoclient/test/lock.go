@@ -52,7 +52,9 @@ func checkLock(t *testing.T, ctx context.Context, ts topoclient.Store) {
 
 func checkLockTimeout(ctx context.Context, t *testing.T, conn topoclient.Conn) {
 	databasePath := path.Join(topoclient.DatabasesPath, "test_database")
+	t.Log("DEBUG: checkLockTimeout Lock starting") // DEBUG: remove after CI investigation
 	lockDescriptor, err := conn.Lock(ctx, databasePath, "")
+	t.Log("DEBUG: checkLockTimeout Lock completed") // DEBUG: remove after CI investigation
 	require.NoError(t, err, "Lock failed")
 
 	// We have the lock, list the database directory.
@@ -98,7 +100,9 @@ func checkLockTimeout(ctx context.Context, t *testing.T, conn topoclient.Conn) {
 	err = lockDescriptor.Check(ctx)
 	assert.NoError(t, err, "Check() failed")
 
+	t.Log("DEBUG: checkLockTimeout Unlock starting") // DEBUG: remove after CI investigation
 	err = lockDescriptor.Unlock(ctx)
+	t.Log("DEBUG: checkLockTimeout Unlock completed") // DEBUG: remove after CI investigation
 	require.NoError(t, err, "Unlock() failed")
 
 	// test we can't unlock again
@@ -124,7 +128,9 @@ func checkLockUnblocks(ctx context.Context, t *testing.T, conn topoclient.Conn) 
 	}()
 
 	// Lock the database.
+	t.Log("DEBUG: checkLockUnblocks Lock starting") // DEBUG: remove after CI investigation
 	lockDescriptor2, err := conn.Lock(ctx, databasePath, "")
+	t.Log("DEBUG: checkLockUnblocks Lock completed") // DEBUG: remove after CI investigation
 	require.NoError(t, err, "Lock(test_database) failed")
 
 	// unblock the go routine so it starts waiting
@@ -133,12 +139,16 @@ func checkLockUnblocks(ctx context.Context, t *testing.T, conn topoclient.Conn) 
 	// sleep for a while so we're sure the go routine is blocking
 	time.Sleep(timeUntilLockIsTaken)
 
+	t.Log("DEBUG: checkLockUnblocks Unlock starting") // DEBUG: remove after CI investigation
 	err = lockDescriptor2.Unlock(ctx)
+	t.Log("DEBUG: checkLockUnblocks Unlock completed") // DEBUG: remove after CI investigation
 	require.NoError(t, err, "Unlock(test_database) failed")
 
+	t.Log("DEBUG: checkLockUnblocks waiting for goroutine") // DEBUG: remove after CI investigation
 	timeout := time.After(10 * time.Second)
 	select {
 	case <-finished:
+		t.Log("DEBUG: checkLockUnblocks goroutine finished") // DEBUG: remove after CI investigation
 	case <-timeout:
 		require.Fail(t, "Unlock(test_database) timed out")
 	}
@@ -152,7 +162,9 @@ func checkLockName(t *testing.T, ctx context.Context, ts topoclient.Store) {
 
 	// Use a non-existent path since LockName doesn't require it to exist
 	lockPath := "test_lock_name_path"
+	t.Log("DEBUG: checkLockName LockName starting") // DEBUG: remove after CI investigation
 	lockDescriptor, err := conn.LockName(ctx, lockPath, "")
+	t.Log("DEBUG: checkLockName LockName completed") // DEBUG: remove after CI investigation
 	require.NoError(t, err, "LockName failed")
 
 	// We should not be able to take the same named lock again
@@ -192,7 +204,9 @@ func checkLockNameWithTTL(t *testing.T, ctx context.Context, ts topoclient.Store
 
 	// Test with custom TTL (1 hour)
 	customTTL := 1 * time.Hour
+	t.Log("DEBUG: checkLockNameWithTTL LockNameWithTTL starting") // DEBUG: remove after CI investigation
 	lockDescriptor, err := conn.LockNameWithTTL(ctx, lockPath, "", customTTL)
+	t.Log("DEBUG: checkLockNameWithTTL LockNameWithTTL completed") // DEBUG: remove after CI investigation
 	require.NoError(t, err, "LockNameWithTTL failed")
 
 	// We should not be able to take the same named lock again

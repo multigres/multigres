@@ -152,6 +152,7 @@ func checkWatch(t *testing.T, ctx context.Context, ts topoclient.Store) {
 	// Make sure we get the watch data, maybe not as first notice,
 	// but eventually. The API specifies it is possible to get duplicate
 	// notifications.
+	t.Log("DEBUG: checkWatch waiting for update notification") // DEBUG: remove after CI investigation
 	for {
 		wd, ok := <-changes
 		if !ok {
@@ -174,6 +175,7 @@ func checkWatch(t *testing.T, ctx context.Context, ts topoclient.Store) {
 		}
 		assert.Contains(t, []string{"test_database", "test_database_new"}, got.Name, "got unknown Database: %v", got)
 	}
+	t.Log("DEBUG: checkWatch got update notification") // DEBUG: remove after CI investigation
 
 	// remove the database
 	err = ts.DeleteDatabase(ctx, "test_database", false)
@@ -182,6 +184,7 @@ func checkWatch(t *testing.T, ctx context.Context, ts topoclient.Store) {
 	// Make sure we get the ErrNoNode notification eventually.
 	// The API specifies it is possible to get duplicate
 	// notifications.
+	t.Log("DEBUG: checkWatch waiting for deletion notification") // DEBUG: remove after CI investigation
 	for {
 		wd, ok := <-changes
 		if !ok {
@@ -204,11 +207,14 @@ func checkWatch(t *testing.T, ctx context.Context, ts topoclient.Store) {
 		}
 		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
+	t.Log("DEBUG: checkWatch got deletion notification") // DEBUG: remove after CI investigation
 
 	// now the channel should be closed
+	t.Log("DEBUG: checkWatch waiting for channel close") // DEBUG: remove after CI investigation
 	if wd, ok := <-changes; ok {
 		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
+	t.Log("DEBUG: checkWatch channel closed") // DEBUG: remove after CI investigation
 }
 
 // checkWatchInterrupt tests we can interrupt a watch.
@@ -228,12 +234,15 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topoclient.Store)
 	}
 
 	// Start watching, it should work.
+	t.Log("DEBUG: checkWatchInterrupt waitForInitialValue starting") // DEBUG: remove after CI investigation
 	changes, cancel := waitForInitialValue(t, conn, database)
+	t.Log("DEBUG: checkWatchInterrupt waitForInitialValue completed") // DEBUG: remove after CI investigation
 
 	// Now cancel the watch.
 	cancel()
 
 	// Make sure we get the topoclient.ErrInterrupted notification eventually.
+	t.Log("DEBUG: checkWatchInterrupt waiting for interrupted notification") // DEBUG: remove after CI investigation
 	for {
 		wd, ok := <-changes
 		if !ok {
@@ -256,11 +265,14 @@ func checkWatchInterrupt(t *testing.T, ctx context.Context, ts topoclient.Store)
 		}
 		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
+	t.Log("DEBUG: checkWatchInterrupt got interrupted notification") // DEBUG: remove after CI investigation
 
 	// Now the channel should be closed.
+	t.Log("DEBUG: checkWatchInterrupt waiting for channel close") // DEBUG: remove after CI investigation
 	if wd, ok := <-changes; ok {
 		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
+	t.Log("DEBUG: checkWatchInterrupt channel closed") // DEBUG: remove after CI investigation
 
 	// And calling cancel() again should just work.
 	cancel()
@@ -285,7 +297,9 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 	}
 
 	// start watching again, it should work
+	t.Log("DEBUG: checkWatchRecursive waitForInitialValueRecursive starting") // DEBUG: remove after CI investigation
 	changes, secondCancel, err := waitForInitialValueRecursive(t, conn, database)
+	t.Log("DEBUG: checkWatchRecursive waitForInitialValueRecursive completed") // DEBUG: remove after CI investigation
 	if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoImplementation}) {
 		// Skip the rest if there's no implementation
 		t.Logf("%T does not support WatchRecursive()", conn)
@@ -304,6 +318,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 	// Make sure we get the watch data, maybe not as first notice,
 	// but eventually. The API specifies it is possible to get duplicate
 	// notifications.
+	t.Log("DEBUG: checkWatchRecursive waiting for update notification") // DEBUG: remove after CI investigation
 	for {
 		wd, ok := <-changes
 		if !ok {
@@ -326,6 +341,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 		}
 		assert.Contains(t, []string{"test_database", "test_database_new"}, got.Name, "got unknown Database: %v", got)
 	}
+	t.Log("DEBUG: checkWatchRecursive got update notification") // DEBUG: remove after CI investigation
 
 	// remove the database
 	err = ts.DeleteDatabase(ctx, "test_database", false)
@@ -334,6 +350,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 	// Make sure we get the ErrNoNode notification eventually.
 	// The API specifies it is possible to get duplicate
 	// notifications.
+	t.Log("DEBUG: checkWatchRecursive waiting for deletion notification") // DEBUG: remove after CI investigation
 	for {
 		wd, ok := <-changes
 		if !ok {
@@ -357,6 +374,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 		}
 		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
+	t.Log("DEBUG: checkWatchRecursive got deletion notification") // DEBUG: remove after CI investigation
 
 	// We now have to stop watching. This doesn't automatically
 	// happen for recursive watches on a single file since others
@@ -364,6 +382,7 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 	secondCancel()
 
 	// Make sure we get the topoclient.ErrInterrupted notification eventually.
+	t.Log("DEBUG: checkWatchRecursive waiting for interrupted notification") // DEBUG: remove after CI investigation
 	for {
 		wd, ok := <-changes
 		if !ok {
@@ -386,11 +405,14 @@ func checkWatchRecursive(t *testing.T, ctx context.Context, ts topoclient.Store)
 		}
 		require.Equal(t, "test_database_new", got.Name, "got unknown Database waiting for deletion: %v", got)
 	}
+	t.Log("DEBUG: checkWatchRecursive got interrupted notification") // DEBUG: remove after CI investigation
 
 	// Now the channel should be closed.
+	t.Log("DEBUG: checkWatchRecursive waiting for channel close") // DEBUG: remove after CI investigation
 	if wd, ok := <-changes; ok {
 		require.Fail(t, "got unexpected event after error: %v", wd)
 	}
+	t.Log("DEBUG: checkWatchRecursive channel closed") // DEBUG: remove after CI investigation
 
 	// And calling cancel() again should just work.
 	secondCancel()
