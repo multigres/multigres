@@ -225,6 +225,33 @@ func (pm *MultiPoolerManager) executeRevoke(ctx context.Context, term int64, res
 			"last_replay_lsn", status.LastReplayLsn)
 	}
 
+	// Always capture timeline ID after WAL positions are frozen.
+	// Retained for observability only; does not affect candidate selection.
+	timelineID, err := pm.getTimelineID(ctx)
+	if err != nil {
+		pm.logger.WarnContext(ctx, "Failed to get timeline ID during revoke; observability data will be incomplete",
+			"term", term, "error", err)
+	} else {
+		response.WalPosition.TimelineId = timelineID
+		pm.logger.InfoContext(ctx, "Captured timeline ID for observability",
+			"term", term, "timeline_id", timelineID)
+	}
+
+	// Capture the highest consensus term replicated to this node, plus the cohort
+	// that was active at that point. The coordinator uses leadership_term as
+	// the primary criterion: a node that has seen a higher term has applied more
+	// of the agreed WAL history (the history write uses RemoteOperationTimeout,
+	// so sync standbys are guaranteed to have acknowledged it).
+	if rec, err := pm.currentLeadershipRecord(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to get leadership term during revoke; candidate selection may be suboptimal",
+			"term", term, "error", err)
+	} else if rec != nil {
+		response.WalPosition.LeadershipTerm = rec.TermNumber
+		response.WalPosition.CohortMembers = rec.CohortMembers
+		pm.logger.InfoContext(ctx, "Captured leadership term for candidate selection",
+			"term", term, "leadership_term", rec.TermNumber)
+	}
+
 	return nil
 }
 

@@ -497,6 +497,168 @@ func TestInsertLeadershipHistory(t *testing.T) {
 	}
 }
 
+func TestQueryLeadershipHistory(t *testing.T) {
+	t.Run("returns records ordered newest first", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+		leaderID := "zone1_leader-1"
+		coordID := "zone1_coordinator-1"
+		walPos := "0/1234567"
+		operation := "promotion"
+		createdAt := "2026-03-24 09:00:17.000000+00"
+
+		mockQueryService.AddQueryPatternOnce(
+			"SELECT id, term_number, event_type",
+			mock.MakeQueryResult(
+				[]string{
+					"id", "term_number", "event_type", "leader_id", "coordinator_id",
+					"wal_position", "operation", "reason", "cohort_members", "accepted_members", "created_at",
+				},
+				[][]any{
+					{
+						int64(2), int64(2), "promotion", leaderID, coordID, walPos, operation,
+						"manual failover", `["zone1_pooler-2","zone1_pooler-3"]`, `["zone1_pooler-2"]`, createdAt,
+					},
+					{
+						int64(1), int64(1), "replication_config", leaderID, coordID, nil, "configure",
+						"initial bootstrap", `["zone1_pooler-1","zone1_pooler-2"]`, nil, createdAt,
+					},
+				},
+			),
+		)
+
+		records, err := pm.queryLeadershipHistory(t.Context(), 10)
+		require.NoError(t, err)
+		require.Len(t, records, 2)
+
+		// First record: term 2 (newest)
+		assert.Equal(t, int64(2), records[0].ID)
+		assert.Equal(t, int64(2), records[0].TermNumber)
+		assert.Equal(t, "promotion", records[0].EventType)
+		require.NotNil(t, records[0].LeaderID)
+		assert.Equal(t, leaderID, *records[0].LeaderID)
+		require.NotNil(t, records[0].WALPosition)
+		assert.Equal(t, walPos, *records[0].WALPosition)
+		require.NotNil(t, records[0].Operation)
+		assert.Equal(t, operation, *records[0].Operation)
+		assert.Equal(t, "manual failover", records[0].Reason)
+		assert.Equal(t, []string{"zone1_pooler-2", "zone1_pooler-3"}, records[0].CohortMembers)
+		assert.Equal(t, []string{"zone1_pooler-2"}, records[0].AcceptedMembers)
+
+		// Second record: term 1, nullable fields are nil
+		assert.Equal(t, int64(1), records[1].TermNumber)
+		assert.Nil(t, records[1].WALPosition)
+		assert.Nil(t, records[1].AcceptedMembers)
+		assert.NoError(t, mockQueryService.ExpectationsWereMet())
+	})
+
+	t.Run("returns empty slice when no records exist", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+		mockQueryService.AddQueryPatternOnce(
+			"SELECT id, term_number, event_type",
+			mock.MakeQueryResult(
+				[]string{
+					"id", "term_number", "event_type", "leader_id", "coordinator_id",
+					"wal_position", "operation", "reason", "cohort_members", "accepted_members", "created_at",
+				},
+				[][]any{},
+			),
+		)
+
+		records, err := pm.queryLeadershipHistory(t.Context(), 10)
+		require.NoError(t, err)
+		assert.Empty(t, records)
+		assert.NoError(t, mockQueryService.ExpectationsWereMet())
+	})
+
+	t.Run("propagates query error", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+		mockQueryService.AddQueryPatternOnceWithError(
+			"SELECT id, term_number, event_type",
+			errors.New("connection refused"),
+		)
+
+		_, err := pm.queryLeadershipHistory(t.Context(), 10)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to query leadership history")
+		assert.NoError(t, mockQueryService.ExpectationsWereMet())
+	})
+}
+
+func TestCurrentLeadershipRecord(t *testing.T) {
+	t.Run("returns the record with the highest term_number", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+		leaderID := "zone1_leader-2"
+		coordID := "zone1_coordinator-1"
+		walPos := "0/5000000"
+		operation := "promotion"
+		createdAt := "2026-03-24 09:00:17.000000+00"
+
+		mockQueryService.AddQueryPatternOnce(
+			"SELECT id, term_number, event_type",
+			mock.MakeQueryResult(
+				[]string{
+					"id", "term_number", "event_type", "leader_id", "coordinator_id",
+					"wal_position", "operation", "reason", "cohort_members", "accepted_members", "created_at",
+				},
+				[][]any{
+					{
+						int64(5), int64(3), "promotion", leaderID, coordID, walPos, operation,
+						"failover", `["zone1_pooler-2","zone1_pooler-3"]`, `["zone1_pooler-2"]`, createdAt,
+					},
+				},
+			),
+		)
+
+		record, err := pm.currentLeadershipRecord(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, record)
+		assert.Equal(t, int64(5), record.ID)
+		assert.Equal(t, int64(3), record.TermNumber)
+		assert.Equal(t, "promotion", record.EventType)
+		require.NotNil(t, record.LeaderID)
+		assert.Equal(t, leaderID, *record.LeaderID)
+		assert.NoError(t, mockQueryService.ExpectationsWereMet())
+	})
+
+	t.Run("returns nil when table is empty", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+		mockQueryService.AddQueryPatternOnce(
+			"SELECT id, term_number, event_type",
+			mock.MakeQueryResult(
+				[]string{
+					"id", "term_number", "event_type", "leader_id", "coordinator_id",
+					"wal_position", "operation", "reason", "cohort_members", "accepted_members", "created_at",
+				},
+				[][]any{},
+			),
+		)
+
+		record, err := pm.currentLeadershipRecord(t.Context())
+		require.NoError(t, err)
+		assert.Nil(t, record)
+		assert.NoError(t, mockQueryService.ExpectationsWereMet())
+	})
+
+	t.Run("propagates query error", func(t *testing.T) {
+		pm, mockQueryService := newTestManagerWithMock(constants.DefaultTableGroup, constants.DefaultShard)
+
+		mockQueryService.AddQueryPatternOnceWithError(
+			"SELECT id, term_number, event_type",
+			errors.New("connection refused"),
+		)
+
+		_, err := pm.currentLeadershipRecord(t.Context())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to query leadership history")
+		assert.NoError(t, mockQueryService.ExpectationsWereMet())
+	})
+}
+
 func TestInsertReplicationConfigHistory(t *testing.T) {
 	tests := []struct {
 		name          string

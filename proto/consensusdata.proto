@@ -37,6 +37,25 @@ message WALPosition {
 
   // Timestamp when this position was recorded
   google.protobuf.Timestamp timestamp = 4;
+
+  // PostgreSQL timeline ID from pg_control_checkpoint().
+  // Retained for observability and as a secondary safety check during candidate
+  // selection (see leadership_term).
+  int64 timeline_id = 5;
+
+  // Term number from the most recent multigres.leadership_history record, read
+  // after WAL replay stabilizes during revoke. Used as the primary criterion for
+  // candidate selection: a node that has replicated a higher consensus term has
+  // applied more of the agreed WAL history, regardless of LSN.
+  // LSN is used as a tiebreaker only when both term and timeline are equal.
+  // 0 if the leadership_history table is empty (e.g. pre-bootstrap).
+  int64 leadership_term = 6;
+
+  // Cohort members from the most recent multigres.leadership_history record
+  // (application-name strings, same encoding as the table's cohort_members JSONB
+  // column). Empty if the table is empty. Allows the coordinator to see which
+  // cohort was active on each standby at the time of its last leadership event.
+  repeated string cohort_members = 7;
 }
 
 // Action type for BeginTerm operations

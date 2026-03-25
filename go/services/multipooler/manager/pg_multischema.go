@@ -333,6 +333,88 @@ func (pm *MultiPoolerManager) insertDurabilityPolicy(ctx context.Context, policy
 	return nil
 }
 
+// LeadershipHistoryRecord represents a row in the multigres.leadership_history table.
+type LeadershipHistoryRecord struct {
+	ID              int64
+	TermNumber      int64
+	EventType       string
+	LeaderID        *string
+	CoordinatorID   *string
+	WALPosition     *string
+	Operation       *string
+	Reason          string
+	CohortMembers   []string
+	AcceptedMembers []string
+	CreatedAt       time.Time
+}
+
+// queryLeadershipHistory returns the most recent leadership history records ordered
+// by term number descending (newest first). limit controls the maximum number of
+// records returned.
+func (pm *MultiPoolerManager) queryLeadershipHistory(ctx context.Context, limit int) ([]LeadershipHistoryRecord, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	result, err := pm.queryArgs(queryCtx, `
+		SELECT id, term_number, event_type, leader_id, coordinator_id,
+		       wal_position, operation, reason, cohort_members, accepted_members, created_at
+		FROM multigres.leadership_history
+		ORDER BY term_number DESC, id DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to query leadership history")
+	}
+
+	records := make([]LeadershipHistoryRecord, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		var rec LeadershipHistoryRecord
+		var cohortJSON string
+		var acceptedJSONPtr *string
+		if err := executor.ScanRow(row,
+			&rec.ID,
+			&rec.TermNumber,
+			&rec.EventType,
+			&rec.LeaderID,
+			&rec.CoordinatorID,
+			&rec.WALPosition,
+			&rec.Operation,
+			&rec.Reason,
+			&cohortJSON,
+			&acceptedJSONPtr,
+			&rec.CreatedAt,
+		); err != nil {
+			return nil, mterrors.Wrap(err, "failed to scan leadership history row")
+		}
+
+		if err := json.Unmarshal([]byte(cohortJSON), &rec.CohortMembers); err != nil {
+			return nil, mterrors.Wrap(err, "failed to unmarshal cohort_members")
+		}
+		if acceptedJSONPtr != nil {
+			if err := json.Unmarshal([]byte(*acceptedJSONPtr), &rec.AcceptedMembers); err != nil {
+				return nil, mterrors.Wrap(err, "failed to unmarshal accepted_members")
+			}
+		}
+
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
+// currentLeadershipRecord returns the single most recent record in
+// multigres.leadership_history, determined by the highest term_number.
+// Returns nil if the table is empty.
+func (pm *MultiPoolerManager) currentLeadershipRecord(ctx context.Context) (*LeadershipHistoryRecord, error) {
+	records, err := pm.queryLeadershipHistory(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	return &records[0], nil
+}
+
 // insertHistoryRecord inserts a record into the leadership_history table.
 // This is used for both promotion events and replication config changes.
 // This operation uses the remote-operation-timeout and will fail if it cannot complete within

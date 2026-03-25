@@ -125,103 +125,133 @@ func (c *Coordinator) discoverMaxTerm(cohort []*multiorchdatapb.PoolerHealthStat
 	return maxTerm, nil
 }
 
+// walPositionLSN extracts and parses the most relevant LSN from a WALPosition.
+// For a primary node CurrentLsn is used; for a standby, LastReceiveLsn.
+// Returns (0, false) when pos is nil, both LSN fields are empty, or the string
+// cannot be parsed.
+func walPositionLSN(pos *consensusdatapb.WALPosition) (pglogrepl.LSN, bool) {
+	if pos == nil {
+		return 0, false
+	}
+
+	// Get either the CurrentLsn (for primaries) or LastReceiveLsn (for
+	// standbys). Both field may be empty if the server is not a primary or
+	// standby, or if the pooler hasn't fully initialized and fetched WAL
+	// position yet.
+	lsnStr := pos.CurrentLsn
+	if lsnStr == "" {
+		lsnStr = pos.LastReceiveLsn
+	}
+
+	// If both LSN fields are empty, we consider the WAL position invalid for
+	// selection purposes.
+	if lsnStr == "" {
+		return 0, false
+	}
+
+	lsn, err := pglogrepl.ParseLSN(lsnStr)
+	if err != nil {
+		return 0, false
+	}
+
+	return lsn, true
+}
+
 // selectCandidate chooses the best candidate from recruited poolers.
 //
-// WAL positions are captured after REVOKE (demote/pause), so they reflect
-// the final state and won't advance further.
+// WAL positions are captured after REVOKE (demote/pause), so they reflect the
+// final state and won't advance further.
 //
 // Selection Strategy (per generalized consensus):
 //
-// The framework (https://multigres.com/blog/generalized-consensus-part7) requires
-// choosing the timeline with the "latest decision" - meaning the most recent
-// term/coordinator that wrote to it.
+// Two-level ordering: leadership_term → LSN.
 //
-// Current Implementation (INCORRECT for multiple failures):
-//   - We currently select based on highest LSN. This works for simple failover
-//     scenarios with a single timeline.
-//   - However, when there are CONFLICTING TIMELINES from multiple failures,
-//     LSN alone cannot determine which timeline is most recent.
-//   - Problem: LSN measures bytes written, not logical progression.
-//     Example: Term 5 writes a large transaction (LSN 1000), Term 6 writes
-//     a small transaction (LSN 500). LSN would incorrectly choose Term 5's
-//     abandoned timeline over Term 6's. It will incorrectly propagate LSN from Term 5.
+// 1. Highest leadership_term (primary criterion).
 //
-// Why use Timestamps? (Next Steps)
-//   - We follow the "timestamp way" proposal from the blogpost (Part 7).
-//   - We use the timestamp of the most recent transaction commit to
-//     disambiguate conflicting timelines.
-//   - This provides logical ordering across conflicting timelines.
-//   - Limitation: Relies on clock synchronization (we accept theoretical
-//     clock skew for now).
-//   - TODO: Update selectCandidate to use timestamps
+//	Each promotion and replication-config change writes a record to
+//	multigres.leadership_history with the current consensus term, using
+//	RemoteOperationTimeout so synchronous standbys acknowledge the write
+//	before the primary returns. The most recent term_number in a standby's
+//	local leadership_history therefore reflects how far through the agreed
+//	consensus history that standby has replicated. A standby with a higher
+//	leadership_term has definitively applied more of the cluster's
+//	committed WAL history than one with a lower term.
 //
-// Why *NOT* use PrimaryTerm?
-//   - We track PrimaryTerm at the pooler/coordinator level (which term the
-//     coordinator is operating in).
-//   - But we DON'T track which term each individual WAL transaction belongs to.
-//   - Without per-transaction term numbers embedded in WAL, we can't determine
-//     which transactions came from which term when comparing conflicting logs.
+//	A stranded standby that diverged before a term-N promotion write was
+//	replicated may accumulate a numerically larger LSN (e.g. a large
+//	transaction written just before its primary crashed), but its
+//	leadership_term will be lower, correctly excluding it.
 //
-// Future Enhancement:
-//   - Once we implement two-phase sync, our API will be able to infer
-//     which term was associated with a WAL transaction.
-//   - Then we can use: highest term first, then highest LSN within that term
-//   - This eliminates reliance on timestamps and clock assumptions
+//	Falls back to 0 when leadership_history is empty (pre-bootstrap), in
+//	which case the secondary criteria (LSN) determine the winner.
+//
+// 2. Highest LSN (secondary tiebreaker).
+//
+//	When terms are identical, LSN measures genuine progress
+//	within the same history, so the node with the highest LSN is selected.
+//
+// Example (why LSN-only is wrong):
+//
+//	mp1: term=1, LSN=0/5000000  ← stranded, high LSN, old term
+//	mp2: term=2, LSN=0/3000000  ← current term
+//
+// LSN-only would incorrectly elect mp1. Term-first correctly elects mp2.
 func (c *Coordinator) selectCandidate(ctx context.Context, recruited []recruitmentResult) (*multiorchdatapb.PoolerHealthState, error) {
 	if len(recruited) == 0 {
 		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
 			"no recruited poolers available for candidate selection")
 	}
 
-	var bestCandidate *multiorchdatapb.PoolerHealthState
+	var bestRecruit *recruitmentResult
 	var bestLSN pglogrepl.LSN
 
-	for _, r := range recruited {
-		// Extract LSN from WAL position
-		// For primary: use current_lsn, for standby: use last_receive_lsn
-		lsnStr := ""
-		if r.walPosition != nil {
-			if r.walPosition.CurrentLsn != "" {
-				lsnStr = r.walPosition.CurrentLsn
-			} else if r.walPosition.LastReceiveLsn != "" {
-				lsnStr = r.walPosition.LastReceiveLsn
-			}
-		}
+	for i := range recruited {
+		r := &recruited[i]
 
-		// Skip poolers with no WAL position data
-		if lsnStr == "" {
-			c.logger.InfoContext(ctx, "Skipping recruited pooler with empty WAL position",
+		lsn, ok := walPositionLSN(r.walPosition)
+		if !ok {
+			c.logger.WarnContext(ctx, "Skipping recruited pooler with missing or invalid WAL position",
 				"pooler", r.pooler.MultiPooler.Id.Name)
 			continue
 		}
 
-		// Parse and validate LSN
-		lsn, err := pglogrepl.ParseLSN(lsnStr)
-		if err != nil {
-			c.logger.WarnContext(ctx, "Invalid LSN format for recruited pooler, skipping",
-				"pooler", r.pooler.MultiPooler.Id.Name,
-				"lsn", lsnStr,
-				"error", err)
-			continue
+		var leadershipTerm int64
+		if r.walPosition != nil {
+			leadershipTerm = r.walPosition.LeadershipTerm
 		}
 
-		// Select node with highest LSN
-		if bestCandidate == nil || lsn > bestLSN {
-			bestCandidate = r.pooler
+		var bestLeadershipTerm int64
+		if bestRecruit != nil && bestRecruit.walPosition != nil {
+			bestLeadershipTerm = bestRecruit.walPosition.LeadershipTerm
+		}
+
+		// Select by: highest leadership_term, then highest LSN.
+		if bestRecruit == nil ||
+			leadershipTerm > bestLeadershipTerm ||
+			(leadershipTerm == bestLeadershipTerm && lsn > bestLSN) {
+			bestRecruit = r
 			bestLSN = lsn
 		}
 	}
 
-	if bestCandidate == nil {
+	if bestRecruit == nil {
 		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE,
 			"no valid candidate found among recruited poolers - all have empty or invalid WAL positions")
 	}
 
+	// Log candidate selection details for observability. timeline_id is printed
+	// for debugging purposes but does not factor into selection criteria.
+	var timelineID int64
+	if bestRecruit.walPosition != nil {
+		timelineID = bestRecruit.walPosition.TimelineId
+	}
 	c.logger.InfoContext(ctx, "Selected candidate from recruited nodes",
-		"pooler", bestCandidate.MultiPooler.Id.Name,
+		"pooler", bestRecruit.pooler.MultiPooler.Id.Name,
+		"leadership_term", bestRecruit.walPosition.GetLeadershipTerm(),
+		"timeline_id", timelineID,
 		"lsn", bestLSN)
 
-	return bestCandidate, nil
+	return bestRecruit.pooler, nil
 }
 
 // selectCandidateFromRecruited chooses the best candidate from recruited nodes based on WAL position.
