@@ -22,28 +22,24 @@ import (
 
 // planDiscardStmt creates a plan for DISCARD statements.
 //
-// For DISCARD TEMP and DISCARD ALL, uses DiscardTempPrimitive which handles
-// removing the temp table reservation reason on the multipooler side and
-// sending the original SQL to PostgreSQL. DISCARD ALL includes DISCARD TEMP
-// per PostgreSQL documentation, so both need the reservation cleanup.
-// Other DISCARD variants (PLANS, SEQUENCES) fall through to planDefault.
+// For DISCARD TEMP, uses DiscardTempPrimitive which handles removing the
+// temp table reservation reason on the multipooler side.
+// All other variants (ALL, PLANS, SEQUENCES) fall through to planDefault.
 func (p *Planner) planDiscardStmt(
 	sql string,
 	stmt *ast.DiscardStmt,
 	conn *server.Conn,
 ) (*engine.Plan, error) {
-	if stmt.Target == ast.DISCARD_TEMP || stmt.Target == ast.DISCARD_ALL {
-		p.logger.Debug("planning discard statement",
-			"target", stmt.Target.String(),
-			"sql", sql)
+	if stmt.Target == ast.DISCARD_TEMP {
+		p.logger.Debug("planning discard temp statement", "sql", sql)
 
-		primitive := engine.NewDiscardTempPrimitive(sql, p.defaultTableGroup, stmt.Target)
+		primitive := engine.NewDiscardTempPrimitive(sql, p.defaultTableGroup)
 		plan := engine.NewPlan(sql, primitive)
 
-		p.logger.Debug("created discard plan", "plan", plan.String())
+		p.logger.Debug("created discard temp plan", "plan", plan.String())
 		return plan, nil
 	}
 
-	// DISCARD PLANS, DISCARD SEQUENCES — route to PostgreSQL.
+	// DISCARD ALL, DISCARD PLANS, DISCARD SEQUENCES — route to PostgreSQL.
 	return p.planDefault(sql, conn)
 }

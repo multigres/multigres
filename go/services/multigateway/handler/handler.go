@@ -194,17 +194,21 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		if st.SessionPinned {
 			h.logger.DebugContext(ctx, "executing multi-statement batch on pinned session",
 				"statement_count", len(asts))
+			var allTablesUsed []string
 			for _, stmt := range asts {
 				stmtCtx, cancel := h.statementTimeoutCtx(ctx, st, stmt)
-				var result *ExecuteResult
-				result, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
+				var stmtResult *ExecuteResult
+				stmtResult, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
 				cancel()
-				if result != nil {
-					tablesUsed = append(tablesUsed, result.TablesUsed...)
+				if stmtResult != nil {
+					allTablesUsed = append(allTablesUsed, stmtResult.TablesUsed...)
 				}
 				if err != nil {
 					break
 				}
+			}
+			if len(allTablesUsed) > 0 {
+				result = &ExecuteResult{TablesUsed: allTablesUsed}
 			}
 		} else {
 			h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",

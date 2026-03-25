@@ -19,38 +19,31 @@ import (
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// DiscardTempPrimitive handles DISCARD TEMP and DISCARD ALL statements.
+// DiscardTempPrimitive handles DISCARD TEMP statements.
 //
 // When the session is pinned (has temp tables), it uses the dedicated
 // DiscardTempTables RPC to remove the temp table reservation reason on
 // the multipooler side and sends the original SQL to PostgreSQL.
-// For DISCARD ALL, it also resets gateway-side session state (GUCs,
-// statement timeout) since PG resets those too.
 // When the session is not pinned, it falls through to a regular
-// StreamExecute since DISCARD on an unpinned session is harmless.
+// StreamExecute since DISCARD TEMP on an unpinned session is harmless.
 type DiscardTempPrimitive struct {
-	// Query is the original SQL string (e.g., "DISCARD TEMP", "DISCARD ALL").
+	// Query is the original SQL string (e.g., "DISCARD TEMP").
 	Query string
 
 	// TableGroup is the target tablegroup for routing.
 	TableGroup string
-
-	// Mode is the discard target from the AST (DISCARD_TEMP or DISCARD_ALL).
-	Mode ast.DiscardMode
 }
 
 // NewDiscardTempPrimitive creates a new DiscardTempPrimitive.
-func NewDiscardTempPrimitive(sql, tableGroup string, mode ast.DiscardMode) *DiscardTempPrimitive {
+func NewDiscardTempPrimitive(sql, tableGroup string) *DiscardTempPrimitive {
 	return &DiscardTempPrimitive{
 		Query:      sql,
 		TableGroup: tableGroup,
-		Mode:       mode,
 	}
 }
 
@@ -79,19 +72,11 @@ func (d *DiscardTempPrimitive) StreamExecute(
 		// batch fails (the handler's post-execution check is skipped on error).
 		state.SessionPinned = false
 
-		// For DISCARD ALL, also reset gateway-side session state.
-		// PG's DISCARD ALL runs RESET ALL (clears GUCs) and DEALLOCATE ALL
-		// (drops prepared statements), so the gateway must stay in sync.
-		if d.Mode == ast.DISCARD_ALL {
-			state.ResetAllSessionVariables()
-			state.ResetStatementTimeout()
-		}
-
 		return nil
 	}
 
 	// Session is not pinned — just execute via regular path.
-	// DISCARD on an unpinned session is harmless.
+	// DISCARD TEMP on an unpinned session is harmless.
 	return exec.StreamExecute(ctx, conn, d.TableGroup, constants.DefaultShard, d.Query, state, callback)
 }
 

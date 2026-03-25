@@ -186,8 +186,9 @@ func TestTempTable_DiscardTempUnpins(t *testing.T) {
 	assert.Error(t, err, "temp table should not exist after DISCARD TEMP")
 }
 
-// TestTempTable_DiscardAllUnpins verifies DISCARD ALL unpins the session.
-func TestTempTable_DiscardAllUnpins(t *testing.T) {
+// TestTempTable_DiscardAllDropsTempTables verifies DISCARD ALL drops temp tables.
+// The session stays pinned (DISCARD ALL handling is out of scope for temp table pinning).
+func TestTempTable_DiscardAllDropsTempTables(t *testing.T) {
 	skipIfShort(t)
 	setup := getSharedSetup(t)
 	conn := openMultigatewayConn(t, setup)
