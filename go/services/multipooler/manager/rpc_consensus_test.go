@@ -126,6 +126,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService) (
 	// Create PG_VERSION file to mark it as initialized
 	err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 	require.NoError(t, err)
+	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 
 	// Initialize consensus state
 	pm.mu.Lock()
@@ -487,10 +488,10 @@ func TestBeginTerm(t *testing.T) {
 
 			tt.setupMocks(mockQueryService)
 
-			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService)
 
 			// Initialize term on disk
-			err := setConsensusTerm(tmpDir, tt.initialTerm)
+			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
@@ -526,7 +527,7 @@ func TestBeginTerm(t *testing.T) {
 			}
 
 			// Verify persisted state (acceptance should be persisted even if revoke fails)
-			persistedTerm, err := getConsensusTerm(tmpDir)
+			persistedTerm, err := pm.consensusState.getConsensusTerm()
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedTerm, persistedTerm.TermNumber)
 			assert.Equal(t, tt.expectedAcceptedTermFromCoordinator, persistedTerm.AcceptedTermFromCoordinatorId.GetName())
@@ -547,7 +548,7 @@ func TestBeginTerm(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
 
 			// Initialize term on disk
-			err := setConsensusTerm(tmpDir, tt.initialTerm)
+			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load into consensus state
@@ -557,13 +558,11 @@ func TestBeginTerm(t *testing.T) {
 
 			// Make filesystem read-only to simulate save failure
 			if tt.makeFilesystemReadOnly {
-				pgDataDir := tmpDir + "/pg_data"
-				consensusDir := pgDataDir + "/consensus"
-				err := os.Chmod(consensusDir, 0o555)
+				err := os.Chmod(tmpDir, 0o555)
 				require.NoError(t, err)
 				// Restore permissions after test
 				t.Cleanup(func() {
-					_ = os.Chmod(consensusDir, 0o755)
+					_ = os.Chmod(tmpDir, 0o755)
 				})
 			}
 
@@ -603,7 +602,7 @@ func TestBeginTerm(t *testing.T) {
 				assert.Equal(t, tt.expectedMemoryLeader, memoryLeader, "Memory leader should be unchanged after save failure")
 
 				// Verify disk is unchanged
-				loadedTerm, loadErr := getConsensusTerm(tmpDir)
+				loadedTerm, loadErr := pm.consensusState.getConsensusTerm()
 				require.NoError(t, loadErr)
 				assert.Equal(t, tt.expectedMemoryTerm, loadedTerm.TermNumber, "Disk term should match initial state after save failure")
 				if tt.expectedMemoryLeader != "" {
@@ -736,6 +735,7 @@ func TestUpdateTermAndAcceptCandidate(t *testing.T) {
 			// Create PG_VERSION file to mark it as initialized
 			err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 			require.NoError(t, err)
+			t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 
 			cs := NewConsensusState(poolerDir, serviceID)
 			_, err = cs.Load()
@@ -1023,10 +1023,10 @@ func TestConsensusStatus(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			tt.setupMock(mockQueryService)
 
-			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService)
+			pm, _ := setupManagerWithMockDB(t, mockQueryService)
 
 			// Initialize term on disk
-			err := setConsensusTerm(tmpDir, tt.initialTerm)
+			err := pm.consensusState.setConsensusTerm(tt.initialTerm)
 			require.NoError(t, err)
 
 			// Load term into consensus state if term should be in memory
@@ -1262,6 +1262,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			require.NoError(t, err)
 			err = os.WriteFile(pgDataDir+"/PG_VERSION", []byte("18\n"), 0o644)
 			require.NoError(t, err)
+			t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 
 			config := &Config{
 				TopoClient: ts,
@@ -1288,7 +1289,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			pm.consensusState = NewConsensusState(tmpDir, serviceID)
 			pm.mu.Unlock()
 
-			err = setConsensusTerm(tmpDir, tt.initialTerm)
+			err = pm.consensusState.setConsensusTerm(tt.initialTerm)
 			require.NoError(t, err)
 			_, err = pm.consensusState.Load()
 			require.NoError(t, err)
@@ -1320,7 +1321,7 @@ func TestDemoteStalePrimary_UpdatesConsensusTerm(t *testing.T) {
 			}
 
 			// Verify consensus term was updated correctly
-			persistedTerm, err := getConsensusTerm(tmpDir)
+			persistedTerm, err := pm.consensusState.getConsensusTerm()
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFinalConsensusTerm, persistedTerm.TermNumber,
 				"Consensus term should be %d but got %d", tt.expectedFinalConsensusTerm, persistedTerm.TermNumber)
