@@ -125,7 +125,7 @@ func (s *MultiOrchServer) GetRecoveryStatus(_ context.Context, _ *multiorchpb.Ge
 
 // TriggerRecoveryNow immediately executes recovery cycles until no problems remain
 // or the request context times out. Returns problem codes that remain unresolved.
-func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, _ *multiorchpb.TriggerRecoveryNowRequest) (*multiorchpb.TriggerRecoveryNowResponse, error) {
+func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, req *multiorchpb.TriggerRecoveryNowRequest) (*multiorchpb.TriggerRecoveryNowResponse, error) {
 	deadline, hasDeadline := ctx.Deadline()
 	if !hasDeadline {
 		var cancel context.CancelFunc
@@ -141,7 +141,11 @@ func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, _ *multiorchpb
 		}
 	}
 
-	remainingProblems, err := s.engine.TriggerRecoveryNow(ctx)
+	if req.MaxCycles > 1 {
+		return nil, status.Errorf(codes.InvalidArgument, "max_cycles must be 0 (unlimited) or 1 (single cycle), got %d", req.MaxCycles)
+	}
+
+	remainingProblems, err := s.engine.TriggerRecoveryNow(ctx, req.MaxCycles)
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("recovery trigger failed: %v", err))
 	}
