@@ -36,13 +36,13 @@ func multigresDataDir() string {
 }
 
 // consensusTermPath returns the path to the consensus term file
-func consensusTermPath(poolerDir string) string {
-	return filepath.Join(poolerDir, "pg_data", "consensus", "consensus_term.json")
+func (cs *ConsensusState) consensusTermPath() string {
+	return filepath.Join(cs.poolerDir, constants.ConsensusTermFile)
 }
 
 // getConsensusTerm retrieves the current consensus term information from disk
-func getConsensusTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm, error) {
-	termPath := consensusTermPath(poolerDir)
+func (cs *ConsensusState) getConsensusTerm() (*multipoolermanagerdatapb.ConsensusTerm, error) {
+	termPath := cs.consensusTermPath()
 
 	// Check if consensus term file exists
 	if _, err := os.Stat(termPath); os.IsNotExist(err) {
@@ -66,14 +66,8 @@ func getConsensusTerm(poolerDir string) (*multipoolermanagerdatapb.ConsensusTerm
 }
 
 // setConsensusTerm saves the consensus term information to disk
-func setConsensusTerm(poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) error {
-	termPath := consensusTermPath(poolerDir)
-	consensusDir := filepath.Dir(termPath)
-
-	// Ensure consensus directory exists
-	if err := os.MkdirAll(consensusDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create consensus directory: %w", err)
-	}
+func (cs *ConsensusState) setConsensusTerm(term *multipoolermanagerdatapb.ConsensusTerm) error {
+	termPath := cs.consensusTermPath()
 
 	// Marshal protobuf to JSON
 	data, err := protojson.MarshalOptions{
@@ -95,5 +89,24 @@ func setConsensusTerm(poolerDir string, term *multipoolermanagerdatapb.Consensus
 		return fmt.Errorf("failed to rename consensus term file: %w", err)
 	}
 
+	return nil
+}
+
+// DeleteTermFile removes the consensus term file from disk and resets the
+// in-memory state to uninitialized (term 0, no accepted coordinator).
+// Called after a pgBackRest restore so the node re-joins consensus from
+// scratch; the cluster's current term will be propagated by multiorch on
+// first contact via BeginTerm.
+// If the file does not exist this is a no-op. Returns an error only if
+// the file exists but cannot be removed.
+func (cs *ConsensusState) DeleteTermFile() error {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	if err := os.Remove(cs.consensusTermPath()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete consensus term file after restore: %w", err)
+	}
+
+	cs.term = &multipoolermanagerdatapb.ConsensusTerm{}
 	return nil
 }

@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
@@ -45,13 +44,8 @@ import (
 // setTermForTest writes the consensus term file directly for testing.
 func setTermForTest(t *testing.T, poolerDir string, term *multipoolermanagerdatapb.ConsensusTerm) {
 	t.Helper()
-	data, err := protojson.Marshal(term)
-	require.NoError(t, err, "failed to marshal term")
-	// Write to the correct path: {poolerDir}/pg_data/consensus/consensus_term.json
-	consensusDir := filepath.Join(poolerDir, "pg_data", "consensus")
-	require.NoError(t, os.MkdirAll(consensusDir, 0o755), "failed to create consensus dir")
-	termPath := filepath.Join(consensusDir, "consensus_term.json")
-	require.NoError(t, os.WriteFile(termPath, data, 0o644), "failed to write term file")
+	cs := NewConsensusState(poolerDir, nil)
+	require.NoError(t, cs.setConsensusTerm(term), "failed to write term file")
 }
 
 // addDatabaseToTopo creates a database in the topology with a backup location
@@ -379,6 +373,7 @@ func createPgDataDir(t *testing.T, poolerDir string) {
 	pgDataDir := filepath.Join(poolerDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 }
 
 // setupPromoteTestManager creates a manager configured as a REPLICA for promotion tests.
@@ -421,6 +416,7 @@ func setupPromoteTestManager(t *testing.T, mockQueryService *mock.QueryService) 
 	pgDataDir := filepath.Join(tmpDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 
 	multipooler.PoolerDir = tmpDir
 
@@ -1087,6 +1083,7 @@ func TestPromote_TopologyUpdateFailureDoesNotFailPromotion(t *testing.T) {
 	pgDataDir := filepath.Join(tmpDir, "pg_data")
 	require.NoError(t, os.MkdirAll(pgDataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(pgDataDir, "PG_VERSION"), []byte("16"), 0o644))
+	t.Setenv(constants.PgDataDirEnvVar, pgDataDir)
 	multipooler.PoolerDir = tmpDir
 
 	config := &Config{

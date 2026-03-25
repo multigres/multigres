@@ -301,13 +301,14 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:          "Zero cached term rejects (uninitialized)",
-			currentTerm:   0,
-			requestTerm:   5,
-			force:         false,
-			expectError:   true,
-			expectedCode:  mtrpcpb.Code_FAILED_PRECONDITION,
-			errorContains: "not initialized",
+			// Term 0 means uninitialized (consensus_term.json not yet written, e.g. on a fresh
+			// standby after poolerDir was wiped by a restore). A positive request term is
+			// accepted and initializes the local term.
+			name:        "Zero cached term accepts higher request term (initializes standby)",
+			currentTerm: 0,
+			requestTerm: 5,
+			force:       false,
+			expectError: false,
 		},
 	}
 
@@ -330,7 +331,8 @@ func TestValidateAndUpdateTerm(t *testing.T) {
 				initialTerm := &multipoolermanagerdatapb.ConsensusTerm{
 					TermNumber: tt.currentTerm,
 				}
-				require.NoError(t, setConsensusTerm(poolerDir, initialTerm))
+				setupCS := NewConsensusState(poolerDir, nil)
+				require.NoError(t, setupCS.setConsensusTerm(initialTerm))
 			}
 
 			// Create the database in topology with backup location
