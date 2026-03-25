@@ -16,7 +16,9 @@ package executil
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -384,5 +386,120 @@ func TestCommand_CombinedOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, "stderr") {
 		t.Error("expected stderr in combined output")
+	}
+}
+
+func TestCommand_Output_StderrInExitError(t *testing.T) {
+	ctx := context.Background()
+
+	// Command that writes to stderr then exits non-zero
+	cmd := Command(ctx, "sh", "-c", "echo error_output >&2; exit 1")
+	_, err := cmd.Output()
+	if err == nil {
+		t.Fatal("expected non-zero exit error")
+	}
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected *exec.ExitError, got %T: %v", err, err)
+	}
+	if !strings.Contains(string(exitErr.Stderr), "error_output") {
+		t.Errorf("expected stderr in ExitError.Stderr, got: %q", exitErr.Stderr)
+	}
+}
+
+func TestCommand_Run_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := CommandWithGracePeriod(ctx, 100*time.Millisecond, "sleep", "10")
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("expected error from terminated process")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Run() did not return after context cancellation")
+	}
+}
+
+func TestCommand_Output_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// "exec sleep" replaces the shell with sleep so no child process keeps
+	// the stdout pipe open after SIGTERM, which would block Wait().
+	cmd := CommandWithGracePeriod(ctx, 100*time.Millisecond, "sh", "-c", "echo out; echo err >&2; exec sleep 10")
+
+	type result struct {
+		out []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, err := cmd.Output()
+		done <- result{out, err}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case r := <-done:
+		if r.err == nil {
+			t.Error("expected error from terminated process")
+		}
+		// echo completes before exec sleep, so its output should be in the pipe buffer
+		if !strings.Contains(string(r.out), "out") {
+			t.Errorf("expected stdout in output, got: %q", r.out)
+		}
+		// Output() only captures stdout, not stderr
+		if strings.Contains(string(r.out), "err") {
+			t.Errorf("expected no stderr in output, got: %q", r.out)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Output() did not return after context cancellation")
+	}
+}
+
+func TestCommand_CombinedOutput_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// "exec sleep" replaces the shell with sleep so no child process keeps
+	// the stdout/stderr pipe open after SIGTERM, which would block Wait().
+	cmd := CommandWithGracePeriod(ctx, 100*time.Millisecond, "sh", "-c", "echo out; echo err >&2; exec sleep 10")
+
+	type result struct {
+		out []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, err := cmd.CombinedOutput()
+		done <- result{out, err}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case r := <-done:
+		if r.err == nil {
+			t.Error("expected error from terminated process")
+		}
+		// echo completes before exec sleep, so its output should be in the pipe buffer
+		if !strings.Contains(string(r.out), "out") {
+			t.Errorf("expected stdout in combined output, got: %q", r.out)
+		}
+		if !strings.Contains(string(r.out), "err") {
+			t.Errorf("expected stderr in combined output, got: %q", r.out)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("CombinedOutput() did not return after context cancellation")
 	}
 }
