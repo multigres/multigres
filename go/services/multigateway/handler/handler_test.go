@@ -201,9 +201,10 @@ func TestPreparedStatementHandling(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, desc)
 
-	// 3. Duplicate named statement fails
+	// 3. Re-parsing with the same name replaces (matches PostgreSQL behavior).
+	// This is needed when Parse succeeds but Describe fails — the client retries.
 	err = handler.HandleParse(ctx, conn, "stmt1", "SELECT 2", nil)
-	require.Error(t, err)
+	require.NoError(t, err)
 
 	// 4. Unnamed statements can be overwritten
 	err = handler.HandleParse(ctx, conn, "", "SELECT 1", nil)

@@ -17,6 +17,7 @@ package preparedstatement
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/multigres/multigres/go/common/parser"
@@ -127,9 +128,24 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		psc.incoming[connId] = make(map[string]*PreparedStatementInfo)
 	}
 
-	// If the name is non-empty, and a prepared statement for this name already exists on the connection, we throw an error.
-	if _, exists := psc.incoming[connId][name]; exists && name != "" {
-		return nil, errors.New("Prepared statement with this name exists")
+	// If the name is non-empty and a prepared statement for this name already exists
+	// on the connection, replace it. This matches PostgreSQL behavior where re-parsing
+	// with an existing name replaces the old statement. This is necessary to handle
+	// the case where Parse succeeds (adding to consolidator) but the subsequent
+	// Describe fails — the client retries Parse with the same name.
+	if existing, exists := psc.incoming[connId][name]; exists && name != "" {
+		slog.Debug("replacing existing prepared statement",
+			"connId", connId,
+			"name", name,
+			"oldQuery", existing.Query,
+			"newQuery", queryStr,
+		)
+		psc.usageCount[existing]--
+		if psc.usageCount[existing] == 0 {
+			delete(psc.stmts, existing.Query)
+			delete(psc.usageCount, existing)
+		}
+		delete(psc.incoming[connId], name)
 	}
 
 	// Let's check if a prepared statement with this (query, paramTypes) already exists.

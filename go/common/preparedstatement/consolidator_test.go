@@ -61,17 +61,29 @@ func TestConsolidator_ConsolidatesDuplicateQueries(t *testing.T) {
 	require.Equal(t, 2, consolidator.usageCount[psi1])
 }
 
-func TestConsolidator_DuplicateNameOnSameConnectionReturnsError(t *testing.T) {
+func TestConsolidator_DuplicateNameOnSameConnectionReplaces(t *testing.T) {
 	consolidator := NewConsolidator()
 	connID := uint32(1)
 
-	_, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
+	psi1, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 1", nil)
 	require.NoError(t, err)
+	require.Equal(t, "SELECT 1", psi1.Query)
 
-	// Try to add another statement with the same name on the same connection
-	_, err = consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 2", nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Prepared statement with this name exists")
+	// Re-adding with the same name should replace (matches PostgreSQL behavior).
+	// This handles the case where Parse succeeds but Describe fails —
+	// the client retries Parse with the same name.
+	psi2, err := consolidator.AddPreparedStatement(connID, "stmt1", "SELECT 2", nil)
+	require.NoError(t, err)
+	require.Equal(t, "SELECT 2", psi2.Query)
+
+	// The old query should be cleaned up
+	_, exists := consolidator.stmts["SELECT 1"]
+	require.False(t, exists)
+
+	// The new query should be present
+	got := consolidator.GetPreparedStatementInfo(connID, "stmt1")
+	require.NotNil(t, got)
+	require.Equal(t, "SELECT 2", got.Query)
 }
 
 func TestConsolidator_EmptyNameAllowsDuplicates(t *testing.T) {
