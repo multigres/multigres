@@ -322,31 +322,26 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// Set consensus term after restore.
-	// If the cluster is at a higher term,
-	// validateAndUpdateTerm will automatically update our term when multiorch fixes replication.
-	var term int64 = 0
-	if err := telemetry.WithSpan(ctx, "restore/reload-consensus-term", func(ctx context.Context) error {
+	// Delete the consensus term file after restore.
+	//
+	// The term file lives outside PGDATA and is not included in the backup, so
+	// its on-disk value may be ahead of what the restored PGDATA participated in.
+	// Deleting it resets the node to term 0; multiorch will advance the term to
+	// the current cluster value on first contact via BeginTerm.
+	//
+	// TODO: Revisit this when we restore backups for other reasons than to
+	// bootstrap a new node, e.g. point-in-time recovery for an existing node.
+	if err := telemetry.WithSpan(ctx, "restore/reset-consensus-term", func(ctx context.Context) error {
 		if pm.consensusState != nil {
-			pm.logger.InfoContext(ctx, "Loading consensus term that was restored from backup")
-			pm.loadConsensusTermFromDisk()
-			term = pm.consensusState.term.TermNumber
-
-			// Clear primary_term from backup since this is a standby restore
-			// The backup may contain a non-zero primary_term if it was taken from a primary
-			if err := pm.consensusState.SetPrimaryTerm(ctx, 0, false /* force */); err != nil {
-				return mterrors.Wrap(err, "failed to clear primary_term after restore")
+			pm.logger.InfoContext(ctx, "Deleting consensus term file after restore; node will re-join consensus from term 0")
+			if err := pm.consensusState.DeleteTermFile(); err != nil {
+				return mterrors.Wrap(err, "failed to delete consensus term file after restore")
 			}
 		}
 		pm.healthStreamer.UpdatePrimaryObservation(nil)
-
 		return nil
 	}); err != nil {
 		return err
-	}
-
-	if term == 0 {
-		pm.logger.ErrorContext(ctx, "MonitorPostgres: term is uninitialized even after restore")
 	}
 
 	if err := telemetry.WithSpan(ctx, "restore/reopen-pooler", func(ctx context.Context) error {

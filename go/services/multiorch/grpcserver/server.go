@@ -16,7 +16,10 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -93,6 +96,64 @@ func (s *MultiOrchServer) GetShardStatus(
 	}
 
 	return resp, nil
+}
+
+// DisableRecovery stops the recovery loop and waits for in-flight actions to complete.
+func (s *MultiOrchServer) DisableRecovery(_ context.Context, _ *multiorchpb.DisableRecoveryRequest) (*multiorchpb.DisableRecoveryResponse, error) {
+	s.engine.DisableRecovery()
+	return &multiorchpb.DisableRecoveryResponse{
+		Success: true,
+		Message: "recovery disabled",
+	}, nil
+}
+
+// EnableRecovery resumes the recovery loop.
+func (s *MultiOrchServer) EnableRecovery(_ context.Context, _ *multiorchpb.EnableRecoveryRequest) (*multiorchpb.EnableRecoveryResponse, error) {
+	s.engine.EnableRecovery()
+	return &multiorchpb.EnableRecoveryResponse{
+		Success: true,
+		Message: "recovery enabled",
+	}, nil
+}
+
+// GetRecoveryStatus returns whether recovery is currently enabled or disabled.
+func (s *MultiOrchServer) GetRecoveryStatus(_ context.Context, _ *multiorchpb.GetRecoveryStatusRequest) (*multiorchpb.GetRecoveryStatusResponse, error) {
+	return &multiorchpb.GetRecoveryStatusResponse{
+		Enabled: s.engine.IsRecoveryEnabled(),
+	}, nil
+}
+
+// TriggerRecoveryNow immediately executes recovery cycles until no problems remain
+// or the request context times out. Returns problem codes that remain unresolved.
+func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, _ *multiorchpb.TriggerRecoveryNowRequest) (*multiorchpb.TriggerRecoveryNowResponse, error) {
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	} else {
+		// Subtract 200ms from deadline to allow time for response overhead.
+		timeout := time.Until(deadline) - 200*time.Millisecond
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+	}
+
+	remainingProblems, err := s.engine.TriggerRecoveryNow(ctx)
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("recovery trigger failed: %v", err))
+	}
+
+	problemCodes := make([]string, 0, len(remainingProblems))
+	for _, p := range remainingProblems {
+		problemCodes = append(problemCodes, p.AnalysisType)
+	}
+
+	return &multiorchpb.TriggerRecoveryNowResponse{
+		RemainingProblemCodes: problemCodes,
+	}, nil
 }
 
 // buildPoolerHealthList creates pooler health snapshots for the requested shard.

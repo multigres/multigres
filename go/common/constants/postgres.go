@@ -54,6 +54,10 @@ const (
 	// the PostgreSQL data directory.
 	MultigresMarkerDirectory = "multigres"
 
+	// ConsensusTermFile is the name of the file used to persist the consensus term
+	// for a multipooler instance. It is stored under the pooler directory.
+	ConsensusTermFile = "consensus_term.json"
+
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second
 )

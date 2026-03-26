@@ -1101,6 +1101,82 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 	})
 }
 
+// TestPopulatePrimaryInfo_PicksHighestPrimaryTerm verifies that when two primaries transiently
+// coexist (e.g. during failover), the replica's analysis references the one with the higher
+// PrimaryTerm — not an arbitrary one from non-deterministic map iteration.
+func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
+	ps := store.NewPoolerStore(nil, slog.Default())
+
+	newPrimaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "new-primary",
+	}
+	stalePrimaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "stale-primary",
+	}
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica-1",
+	}
+
+	shardConfig := func(id *clustermetadatapb.ID) *clustermetadatapb.MultiPooler {
+		return &clustermetadatapb.MultiPooler{
+			Id: id, Database: "testdb", TableGroup: "default", Shard: "0",
+			Type: clustermetadatapb.PoolerType_PRIMARY,
+		}
+	}
+
+	// New (correct) primary: higher PrimaryTerm, postgres running.
+	ps.Set("multipooler-cell1-new-primary", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:       shardConfig(newPrimaryID),
+		PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+		IsLastCheckValid:  true,
+		IsPostgresRunning: true,
+		LastSeen:          timestamppb.Now(),
+		ConsensusTerm:     &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 11, PrimaryTerm: 6},
+		ConsensusStatus:   &consensusdatapb.StatusResponse{CurrentTerm: 11},
+	})
+
+	// Stale primary: lower PrimaryTerm, postgres NOT running (just came back after being killed).
+	ps.Set("multipooler-cell1-stale-primary", &multiorchdatapb.PoolerHealthState{
+		MultiPooler:       shardConfig(stalePrimaryID),
+		PoolerType:        clustermetadatapb.PoolerType_PRIMARY,
+		IsLastCheckValid:  true,
+		IsPostgresRunning: false,
+		LastSeen:          timestamppb.Now(),
+		ConsensusTerm:     &multipoolermanagerdatapb.ConsensusTerm{TermNumber: 10, PrimaryTerm: 5},
+		ConsensusStatus:   &consensusdatapb.StatusResponse{CurrentTerm: 10},
+	})
+
+	// Replica.
+	ps.Set("multipooler-cell1-replica-1", &multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{
+			Id: replicaID, Database: "testdb", TableGroup: "default", Shard: "0",
+			Type: clustermetadatapb.PoolerType_REPLICA,
+		},
+		PoolerType:       clustermetadatapb.PoolerType_REPLICA,
+		IsLastCheckValid: true,
+		LastSeen:         timestamppb.Now(),
+	})
+
+	generator := NewAnalysisGenerator(ps)
+	analysis, err := generator.GenerateAnalysisForPooler("multipooler-cell1-replica-1")
+	require.NoError(t, err)
+
+	// The replica's analysis must point to the new (correct) primary, not the stale one.
+	// If it pointed to the stale primary (postgres dead), PrimaryReachable would be false
+	// and PrimaryIsDeadAnalyzer would falsely trigger a new election.
+	require.NotNil(t, analysis.PrimaryPoolerID)
+	assert.Equal(t, "new-primary", analysis.PrimaryPoolerID.Name,
+		"should pick primary with highest PrimaryTerm")
+	assert.True(t, analysis.PrimaryReachable,
+		"primary must appear reachable when new primary has postgres running")
+}
+
 func TestDetectOtherPrimary(t *testing.T) {
 	// Test the multiple primaries detection logic
 	t.Run("single other primary detected", func(t *testing.T) {

@@ -17,6 +17,7 @@ package shardsetup
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,26 @@ import (
 
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
+
+// checkPoolerCondition evaluates condition for each pooler once. Returns nil if all
+// poolers satisfy the condition, or a slice of failure lines (one per failing pooler)
+// with the reason and FormatPoolerDiagnostics output.
+func checkPoolerCondition(t *testing.T, poolers []*MultipoolerInstance, condition func(name string, s *multipoolermanagerdatapb.Status) (bool, string)) []string {
+	t.Helper()
+	statuses := fetchPoolerStatuses(t, poolers)
+	var failures []string
+	for _, r := range statuses {
+		if r.Err != nil {
+			failures = append(failures, fmt.Sprintf("%s: fetch error: %v", r.Name, r.Err))
+			continue
+		}
+		met, reason := condition(r.Name, r.Status)
+		if !met {
+			failures = append(failures, fmt.Sprintf("%s: %s %s", r.Name, reason, FormatPoolerDiagnostics(r.Status)))
+		}
+	}
+	return failures
+}
 
 // PoolerStatusResult holds the fetched status for one pooler instance.
 // Status is nil and Err is non-nil if the fetch failed.
@@ -109,22 +130,29 @@ func EventuallyPoolerCondition(
 ) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		statuses := fetchPoolerStatuses(t, poolers)
-		allMet := true
-		for _, r := range statuses {
-			if r.Err != nil {
-				t.Logf("%s: fetch error: %v", r.Name, r.Err)
-				allMet = false
-				continue
-			}
-			met, reason := condition(r.Name, r.Status)
-			if !met {
-				t.Logf("%s: %s %s", r.Name, reason, FormatPoolerDiagnostics(r.Status))
-				allMet = false
-			}
+		failures := checkPoolerCondition(t, poolers, condition)
+		for _, f := range failures {
+			t.Log(f)
 		}
-		return allMet
+		return len(failures) == 0
 	}, timeout, tick, msgAndArgs...)
+}
+
+// RequirePoolerCondition fetches status for each pooler once and immediately fails the
+// test if any pooler does not satisfy condition. Diagnostics for all failing poolers are
+// included in the failure message. Use this after TriggerRecoveryNow or similar operations
+// that guarantee the condition is already met — no polling needed.
+func RequirePoolerCondition(
+	t *testing.T,
+	poolers []*MultipoolerInstance,
+	condition func(name string, s *multipoolermanagerdatapb.Status) (bool, string),
+	msgAndArgs ...any,
+) {
+	t.Helper()
+	failures := checkPoolerCondition(t, poolers, condition)
+	if len(failures) > 0 {
+		require.Fail(t, strings.Join(failures, "\n"), msgAndArgs...)
+	}
 }
 
 // FormatPoolerDiagnostics returns a compact diagnostic string for a pooler status,

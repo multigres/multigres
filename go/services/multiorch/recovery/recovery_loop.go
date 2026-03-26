@@ -34,8 +34,8 @@ import (
 )
 
 // performRecoveryCycle runs one cycle of problem detection and recovery.
-func (re *Engine) performRecoveryCycle() {
-	ctx, span := telemetry.Tracer().Start(re.shutdownCtx, "recovery/cycle")
+func (re *Engine) performRecoveryCycle(ctx context.Context) {
+	ctx, span := telemetry.Tracer().Start(ctx, "recovery/cycle")
 	defer span.End()
 
 	// Create generator - this builds the poolersByTG map once
@@ -96,6 +96,10 @@ func (re *Engine) performRecoveryCycle() {
 		}(shardKey, shardProblems)
 	}
 	wg.Wait()
+
+	// Check for dynamic interval changes
+	newInterval := re.config.GetRecoveryCycleInterval()
+	re.recoveryRunner.UpdateInterval(newInterval)
 }
 
 // groupProblemsByShard groups problems by their shard.

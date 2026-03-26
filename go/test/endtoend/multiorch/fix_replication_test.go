@@ -119,9 +119,10 @@ func TestFixReplication(t *testing.T) {
 	t.Log("Starting multiorch to detect and fix replication...")
 	setup.StartMultiOrchs(t.Context(), t)
 
-	// Wait for multiorch to detect and fix the replication
-	t.Log("Waiting for multiorch to detect and fix replication...")
-	waitForReplicationFixed(t, replicaClient, 10*time.Second)
+	// Trigger recovery to fix the replication
+	// Use longer timeout for first recovery since multiorch needs to discover poolers
+	t.Log("Triggering recovery to fix replication...")
+	setup.TriggerRecoveryNow(t, "multiorch", 10*time.Second)
 
 	// Verify data IS now visible on replica after fix
 	t.Log("Verifying data IS now visible on replica after fix...")
@@ -140,18 +141,16 @@ func TestFixReplication(t *testing.T) {
 	}, 5*time.Second, 500*time.Millisecond, "data should replicate to replica after fix")
 
 	// Verify replica was added to primary's synchronous standby list
+	// Since TriggerRecoveryNow() blocks until problems are resolved, this should be true immediately
 	t.Log("Verifying replica is in primary's synchronous standby list...")
-	require.Eventually(t, func() bool {
-		return isReplicaInStandbyList(t, primaryClient, replicaName)
-	}, 10*time.Second, 1*time.Second, "replica should be added to primary's synchronous standby list")
+	require.True(t, isReplicaInStandbyList(t, primaryClient, replicaName),
+		"replica should be in primary's synchronous standby list after TriggerRecoveryNow")
 
 	t.Log("First fix completed successfully, breaking replication again...")
 
-	// Stop multiorch before breaking replication again
-	t.Log("Stopping multiorch before breaking replication again...")
-	multiorch := setup.GetMultiOrch("multiorch")
-	require.NotNil(t, multiorch, "multiorch instance should exist")
-	multiorch.Stop()
+	// Disable recovery while we break replication and assert the broken state,
+	// preventing the background loop from racing against our assertions.
+	enableRecovery := setup.DisableRecovery(t, "multiorch")
 
 	// Break replication a second time to verify multiorch can fix it repeatedly
 	t.Logf("Breaking replication on %s via RPC (second time)...", replicaName)
@@ -168,14 +167,11 @@ func TestFixReplication(t *testing.T) {
 	require.NoError(t, err, "should be able to query replica")
 	require.Equal(t, "0", string(result.Rows[0].Values[0]), "new data should NOT be visible on replica while replication is broken")
 
-	// Start multiorch again - it should detect and fix the broken replication
-	t.Log("Starting multiorch to detect and fix replication (second time)...")
-	err = multiorch.Start(t.Context(), t)
-	require.NoError(t, err, "should be able to restart multiorch")
+	enableRecovery()
 
-	// Wait for multiorch to detect and fix the replication again
-	t.Log("Waiting for multiorch to detect and fix replication (second time)...")
-	waitForReplicationFixed(t, replicaClient, 60*time.Second)
+	// Trigger recovery to detect and fix the broken replication
+	t.Log("Triggering recovery to detect and fix replication (second time)...")
+	setup.TriggerRecoveryNow(t, "multiorch", 10*time.Second)
 
 	// Verify new data IS now visible on replica after second fix
 	t.Log("Verifying new data IS now visible on replica after second fix...")
@@ -194,39 +190,42 @@ func TestFixReplication(t *testing.T) {
 	}, 5*time.Second, 500*time.Millisecond, "new data should replicate to replica after second fix")
 
 	// Verify replica is still in primary's synchronous standby list after second fix
+	// Since TriggerRecoveryNow() blocks until problems are resolved, this should be true immediately
 	t.Log("Verifying replica is in primary's synchronous standby list (after second fix)...")
-	require.Eventually(t, func() bool {
-		return isReplicaInStandbyList(t, primaryClient, replicaName)
-	}, 10*time.Second, 1*time.Second, "replica should be in primary's synchronous standby list after second fix")
+	require.True(t, isReplicaInStandbyList(t, primaryClient, replicaName),
+		"replica should be in primary's synchronous standby list after second TriggerRecoveryNow")
 
 	// Test case: Replica not in standby list (but replication is working)
 	// This tests the ReplicaNotInStandbyListAnalyzer
 	t.Log("Testing fix for replica not in standby list...")
-	// Start multiorch again - it should detect and fix the broken replication
-	multiorch.Stop()
+
+	// Disable recovery while we remove the replica and assert the broken state.
+	enableRecovery = setup.DisableRecovery(t, "multiorch")
 
 	// Remove replica from standby list (without breaking replication)
-	// Note: multiorch may re-add it very quickly, so we just verify:
-	// 1. The removal RPC succeeds
-	// 2. Multiorch ensures the replica is back in the list
-	// 3. Replication continues working throughout
 	t.Logf("Removing replica %s from primary's standby list...", replicaName)
 	removeReplicaFromStandbyList(t, primaryClient, replicaName)
+
+	// Verify replica was actually removed
+	t.Log("Verifying replica was removed from standby list...")
+	require.False(t, isReplicaInStandbyList(t, primaryClient, replicaName),
+		"replica should not be in standby list after removal")
 
 	// Verify replication is still working (primary_conninfo should still be configured)
 	t.Log("Verifying replication is still working after standby list removal...")
 	verifyReplicationStreaming(t, replicaClient)
 
-	t.Log("Starting multiorch to detect and fix replication (second time)...")
-	err = multiorch.Start(t.Context(), t)
-	require.NoError(t, err, "should be able to restart multiorch")
+	enableRecovery()
 
-	// Multiorch should detect the missing standby and add it back
-	// (it may already be back due to fast detection)
-	t.Log("Verifying multiorch maintains replica in standby list...")
-	require.Eventually(t, func() bool {
-		return isReplicaInStandbyList(t, primaryClient, replicaName)
-	}, 5*time.Second, 1*time.Second, "multiorch should maintain replica in primary's synchronous standby list")
+	// Trigger recovery to add replica back to standby list
+	t.Log("Triggering recovery to add replica back to standby list...")
+	setup.TriggerRecoveryNow(t, "multiorch", 10*time.Second)
+
+	// Verify replica is back in standby list
+	// Since TriggerRecoveryNow() blocks until problems are resolved, this should be true immediately
+	t.Log("Verifying replica is back in standby list...")
+	require.True(t, isReplicaInStandbyList(t, primaryClient, replicaName),
+		"replica should be back in standby list after TriggerRecoveryNow")
 
 	// Verify replication is still working after fix
 	t.Log("Verifying replication is still working after standby list fix...")
@@ -338,7 +337,6 @@ func isReplicaInStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerC
 }
 
 // removeReplicaFromStandbyList removes the replica from the primary's synchronous standby list.
-// It verifies the replica is no longer in the list before returning.
 func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.MultipoolerClient, replicaName string) {
 	t.Helper()
 
@@ -358,46 +356,4 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 	})
 	require.NoError(t, err, "UpdateSynchronousStandbyList (remove) should succeed")
 	t.Logf("Removed replica %s from standby list via RPC", replicaName)
-
-	// Verify the replica is no longer in the standby list
-	require.Eventually(t, func() bool {
-		return !isReplicaInStandbyList(t, primaryClient, replicaName)
-	}, 5*time.Second, 1*time.Second, "replica should not be in standby list after removal")
-}
-
-// waitForReplicationFixed polls until multiorch fixes the replication
-func waitForReplicationFixed(t *testing.T, client *shardsetup.MultipoolerClient, timeout time.Duration) {
-	t.Helper()
-
-	require.Eventually(t, func() bool {
-		ctx := utils.WithTimeout(t, 5*time.Second)
-
-		resp, err := client.Manager.StandbyReplicationStatus(ctx, &multipoolermanagerdatapb.StandbyReplicationStatusRequest{})
-		if err != nil {
-			t.Logf("Error checking replication status: %v", err)
-			return false
-		}
-
-		if resp.Status == nil {
-			t.Log("Waiting for replication fix... (status is nil)")
-			return false
-		}
-
-		// Check if primary_conninfo is configured again
-		if resp.Status.PrimaryConnInfo == nil || resp.Status.PrimaryConnInfo.Host == "" {
-			t.Log("Waiting for replication fix... (primary_conninfo not yet configured)")
-			return false
-		}
-
-		// Check if we're receiving WAL again
-		if resp.Status.LastReceiveLsn == "" {
-			t.Logf("Waiting for replication fix... (primary_conninfo=%s, but not yet receiving WAL)",
-				resp.Status.PrimaryConnInfo.Host)
-			return false
-		}
-
-		t.Logf("Replication fixed: primary_host=%s, last_receive_lsn=%s",
-			resp.Status.PrimaryConnInfo.Host, resp.Status.LastReceiveLsn)
-		return true
-	}, timeout, 2*time.Second, "Multiorch should fix replication within timeout")
 }

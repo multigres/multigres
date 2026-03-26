@@ -241,23 +241,23 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						}
 						return statusResp.Status.PostgresRunning
 					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
-					t.Logf("Term after restore: %d (expected: 1)", restoredTerm)
-					assert.Equal(t, int64(1), restoredTerm, "Term should be restored to backup's original value (1)")
+					t.Logf("Term after restore: %d (expected: 0)", restoredTerm)
+					assert.Equal(t, int64(0), restoredTerm, "Term should be reset to 0 after restore (stale term file is deleted)")
 
-					// Verify primary_term was cleared after restore
+					// Verify primary_term is 0 after restore
 					statusCtx = utils.WithShortDeadline(t)
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
 					require.NotNil(t, statusResp.Status.ConsensusTerm, "ConsensusTerm should not be nil after restore")
 					assert.Equal(t, int64(0), statusResp.Status.ConsensusTerm.PrimaryTerm,
-						"primary_term should be cleared to 0 after restore (standby restore)")
+						"primary_term should be 0 after restore")
 
 					// Configure replication after restore
 					setPrimaryReq := &multipoolermanagerdata.SetPrimaryConnInfoRequest{
 						Primary:               primary,
 						StartReplicationAfter: true,
 						StopReplicationBefore: false,
-						CurrentTerm:           restoredTerm, // Use the term we just verified from backup
+						CurrentTerm:           restoredTerm, // Term is 0 after restore; Force allows multiorch to advance it
 						Force:                 true,         // Force reconfiguration after restore
 					}
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)

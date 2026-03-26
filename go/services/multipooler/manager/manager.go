@@ -765,14 +765,6 @@ func (pm *MultiPoolerManager) validateAndUpdateTerm(ctx context.Context, request
 		return fmt.Errorf("failed to get current term: %w", err)
 	}
 
-	// Check if consensus term has been initialized (term 0 means uninitialized)
-	if currentTerm == 0 {
-		pm.logger.ErrorContext(ctx, "Consensus term not initialized",
-			"service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus term not initialized, must be set via BeginTerm (use force=true to bypass)")
-	}
-
 	// If request term == current term: ACCEPT (same term, execute)
 	// If request term < current term: REJECT (stale request)
 	// If request term > current term: UPDATE term and ACCEPT (new term discovered)

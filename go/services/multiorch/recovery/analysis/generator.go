@@ -341,21 +341,30 @@ func (g *AnalysisGenerator) populatePrimaryInfo(
 		return
 	}
 
-	// Find the primary in the same shard
+	// Find the primary with the highest PrimaryTerm in the same shard.
+	// During a failover, two primaries may transiently coexist: the stale old primary
+	// (postgres dead) and the newly elected one (postgres running). Selecting by
+	// PrimaryTerm ensures we always use the most recently elected primary, preventing
+	// PrimaryIsDeadAnalyzer from falsely triggering on the stale one.
 	var primary *multiorchdatapb.PoolerHealthState
+	var highestPrimaryTerm int64
 	for _, pooler := range poolers {
 		if pooler == nil || pooler.MultiPooler == nil || pooler.MultiPooler.Id == nil {
 			continue
 		}
 
-		// Look for primary in same shard - check health check type
-		// Nodes are never created with topology type PRIMARY
 		if pooler.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
 			continue
 		}
 
-		primary = pooler
-		break
+		var primaryTerm int64
+		if pooler.ConsensusTerm != nil {
+			primaryTerm = pooler.ConsensusTerm.PrimaryTerm
+		}
+		if primary == nil || primaryTerm > highestPrimaryTerm {
+			primary = pooler
+			highestPrimaryTerm = primaryTerm
+		}
 	}
 
 	if primary == nil {
