@@ -148,10 +148,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
 
-	appName, err := generateApplicationName(pm.serviceID)
-	if err != nil {
-		return err
-	}
+	appName := pm.servicePoolerID
 
 	// Optionally stop replication before making changes
 	if stopReplicationBefore {
@@ -168,7 +165,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	database := pm.multipooler.Database
 	pm.mu.Unlock()
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, database, string(appName))
+		host, port, database, appName.appName)
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
@@ -419,7 +416,7 @@ func (pm *MultiPoolerManager) configureSynchronousReplicationLocked(ctx context.
 	if err := pm.insertHistoryRecord(ctx,
 		term.GetPrimaryTerm(),
 		"replication_config",
-		"", nil, "", // leaderID, coordinatorID, walPosition
+		pm.servicePoolerID, nil, "", // leaderID, coordinatorID, walPosition
 		"configure",
 		"ConfigureSynchronousReplication called",
 		standbyNames,
@@ -475,10 +472,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 	}
 
 	// Pre-compute history fields before acquiring the lock.
-	leaderID, err := generateApplicationName(pm.serviceID)
-	if err != nil {
-		return err
-	}
+	leaderID := pm.servicePoolerID
 
 	ctx, err = pm.actionLock.Acquire(ctx, "UpdateSynchronousStandbyList")
 	if err != nil {
@@ -514,7 +508,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// Convert current config IDs to application names for set operations.
 	// These IDs were previously validated and written by us, so this cannot fail in practice.
-	currentApplicationNames, err := standbyIDsToAppNames(syncConfig.StandbyIds)
+	currentApplicationNames, err := toPoolerIDs(syncConfig.StandbyIds)
 	if err != nil {
 		return err
 	}
@@ -527,7 +521,7 @@ func (pm *MultiPoolerManager) UpdateSynchronousStandbyList(ctx context.Context, 
 
 	// === Apply Operation ===
 
-	var updatedStandbys []applicationName
+	var updatedStandbys []poolerID
 	switch operation {
 	case multipoolermanagerdatapb.StandbyUpdateOperation_STANDBY_UPDATE_OPERATION_ADD:
 		updatedStandbys = applyAddOperation(currentApplicationNames, requestedApplicationNames)
@@ -825,20 +819,20 @@ func (pm *MultiPoolerManager) GetFollowers(ctx context.Context) (*multipoolerman
 	// Build the response with all configured standbys
 	followers := make([]*multipoolermanagerdatapb.FollowerInfo, 0, len(syncConfig.StandbyIds))
 	for _, standbyID := range syncConfig.StandbyIds {
-		appName, err := generateApplicationName(standbyID)
-		if err != nil {
+		pid, pidErr := newPoolerID(standbyID)
+		if pidErr != nil {
 			// We're in a suspicious state since this follower can't be represented in Postgres,
 			// but it seems better to return a blank ApplicationName than to fail this entire request.
-			pm.logger.WarnContext(ctx, "Could not generate application name for follower", "follower_id", standbyID, "error", err)
+			pm.logger.WarnContext(ctx, "Could not generate application name for follower", "follower_id", standbyID, "error", pidErr)
 		}
 
 		followerInfo := &multipoolermanagerdatapb.FollowerInfo{
 			FollowerId:      standbyID,
-			ApplicationName: string(appName),
+			ApplicationName: pid.appName,
 		}
 
 		// Check if this standby is currently connected
-		if stats, connected := connectedMap[string(appName)]; connected {
+		if stats, connected := connectedMap[pid.appName]; connected {
 			followerInfo.IsConnected = true
 			followerInfo.ReplicationStats = stats
 		} else {
@@ -1188,15 +1182,12 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, consensusTerm int64, 
 	}
 
 	// Pre-compute names before acquiring the lock, so we fail fast on bad arguments.
-	leaderID, err := generateApplicationName(pm.serviceID)
+	leaderID := pm.servicePoolerID
+	cohortMembers, err := toPoolerIDs(cohortMemberIDs)
 	if err != nil {
 		return nil, err
 	}
-	cohortMembers, err := standbyIDsToAppNames(cohortMemberIDs)
-	if err != nil {
-		return nil, err
-	}
-	acceptedMembers, err := standbyIDsToAppNames(acceptedMemberIDs)
+	acceptedMembers, err := toPoolerIDs(acceptedMemberIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1610,11 +1601,8 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
-	// Generate application name for replication connection
-	appName, err := generateApplicationName(pm.serviceID)
-	if err != nil {
-		return false, err
-	}
+	// Get application name for replication connection
+	pid := pm.servicePoolerID
 
 	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run (may do crash recovery)",
 		"source_host", sourceHost, "source_port", sourcePort)
@@ -1624,7 +1612,7 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		SourceHost:      sourceHost,
 		SourcePort:      sourcePort,
 		DryRun:          true,
-		ApplicationName: string(appName),
+		ApplicationName: pid.appName,
 	}
 	dryRunResp, err := pm.pgctldClient.PgRewind(ctx, dryRunReq)
 	if err != nil {
@@ -1642,7 +1630,7 @@ func (pm *MultiPoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			SourceHost:      sourceHost,
 			SourcePort:      sourcePort,
 			DryRun:          false,
-			ApplicationName: string(appName),
+			ApplicationName: pid.appName,
 			ExtraArgs:       []string{"-R"},
 		}
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
