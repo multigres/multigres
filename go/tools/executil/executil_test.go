@@ -386,3 +386,77 @@ func TestCommand_CombinedOutput(t *testing.T) {
 		t.Error("expected stderr in combined output")
 	}
 }
+
+func TestCommand_WithProcessGroup_KillsChildren(t *testing.T) {
+	// Start a command that spawns a child process (simulating make → pg_regress).
+	// Cancel the context and verify the entire tree is killed.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// sh spawns a "sleep 60" child; both should be killed on cancel.
+	cmd := Command(ctx, "sh", "-c", "sleep 60 & wait").WithProcessGroup().SetWaitDelay(10 * time.Second)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() failed: %v", err)
+	}
+
+	// Give the child process time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel context — should SIGTERM then SIGKILL the process group
+	cancel()
+
+	// Wait should return promptly (not hang on orphaned grandchild pipes)
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case <-done:
+		// Success — process tree was killed
+	case <-time.After(15 * time.Second):
+		t.Fatal("Wait() hung — grandchild processes likely not killed")
+	}
+}
+
+func TestCommand_WithProcessGroup_Run(t *testing.T) {
+	// Verify Run() returns when context is cancelled in process group mode.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cmd := Command(ctx, "sleep", "60").WithProcessGroup().SetWaitDelay(10 * time.Second)
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+
+	// Give the process time to start
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(15 * time.Second):
+		t.Fatal("Run() did not return after context cancellation")
+	}
+}
+
+func TestCommand_WithProcessGroup_RunSuccess(t *testing.T) {
+	// Verify Run() works normally (no cancel) in process group mode.
+	ctx := context.Background()
+	cmd := Command(ctx, "echo", "hello").WithProcessGroup().SetWaitDelay(10 * time.Second)
+
+	if err := cmd.Run(); err != nil {
+		t.Errorf("expected success, got: %v", err)
+	}
+}
+
+func TestCommand_WithProcessGroup_NoEffectWithoutFlag(t *testing.T) {
+	// Verify that commands without WithProcessGroup() behave unchanged.
+	ctx := context.Background()
+	cmd := Command(ctx, "echo", "hello")
+
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("cmd.Output() failed: %v", err)
+	}
+	if !strings.Contains(string(output), "hello") {
+		t.Errorf("unexpected output: %q", output)
+	}
+}

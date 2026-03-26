@@ -109,6 +109,8 @@ type Cmd struct {
 	defaultGracePeriod time.Duration
 	extraEnv           []string
 	clientSpan         bool
+	processGroup       bool          // If true, signals target the process group, not just the direct child.
+	waitDelay          time.Duration // Max time to wait for I/O after process exit in process group mode.
 
 	// Termination coordination
 	terminateOnce sync.Once
@@ -201,6 +203,32 @@ func (c *Cmd) WithClientSpan() *Cmd {
 	return c
 }
 
+// WithProcessGroup starts the command in its own process group and sends
+// signals to the entire group instead of just the direct child. This ensures
+// that grandchildren (e.g. make → pg_regress → psql) are terminated when the
+// parent context is cancelled.
+//
+// When enabled:
+//   - The child process is started with Setpgid: true
+//   - Terminate() sends SIGTERM to the process group (negative PID)
+//   - Kill() sends SIGKILL to the process group
+//   - Run() uses Start()+Wait() internally to enable context-based termination
+//
+// Callers should also call SetWaitDelay() to prevent hangs from grandchildren
+// holding pipes open after the group leader exits.
+func (c *Cmd) WithProcessGroup() *Cmd {
+	c.processGroup = true
+	return c
+}
+
+// SetWaitDelay sets the maximum time Run()/Wait() will wait for I/O goroutines
+// to finish after the process exits. This prevents hangs when child processes
+// inherit stdout/stderr pipes and outlive the parent.
+func (c *Cmd) SetWaitDelay(d time.Duration) *Cmd {
+	c.waitDelay = d
+	return c
+}
+
 // finalizeEnv prepares cmd.Env before execution, including trace propagation.
 func (c *Cmd) finalizeEnv() {
 	// Add TRACEPARENT if context has a valid span
@@ -227,6 +255,16 @@ func (c *Cmd) finalizeEnv() {
 // ended until Wait() is called. Use Run() for client span support.
 func (c *Cmd) Start() error {
 	c.finalizeEnv()
+	if c.processGroup {
+		if c.Cmd.SysProcAttr == nil {
+			c.Cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		} else {
+			c.Cmd.SysProcAttr.Setpgid = true
+		}
+		if c.waitDelay > 0 {
+			c.Cmd.WaitDelay = c.waitDelay
+		}
+	}
 	if err := c.Cmd.Start(); err != nil {
 		return err
 	}
@@ -293,7 +331,11 @@ func (c *Cmd) Terminate(ctx context.Context) (error, bool) {
 	c.terminateOnce.Do(func() {
 		close(c.terminated)
 		if c.Process != nil {
-			_ = c.Process.Signal(syscall.SIGTERM)
+			if c.processGroup {
+				_ = syscall.Kill(-c.Process.Pid, syscall.SIGTERM)
+			} else {
+				_ = c.Process.Signal(syscall.SIGTERM)
+			}
 		}
 	})
 
@@ -322,7 +364,11 @@ func (c *Cmd) Terminate(ctx context.Context) (error, bool) {
 func (c *Cmd) Kill(ctx context.Context) (error, bool) {
 	// Send SIGKILL
 	if c.Process != nil {
-		_ = c.Process.Kill()
+		if c.processGroup {
+			_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+		} else {
+			_ = c.Process.Kill()
+		}
 	}
 
 	// Ensure Wait() is running in background.
@@ -373,10 +419,21 @@ func (c *Cmd) Stop(ctx context.Context) (error, bool) {
 // Run starts the command and waits for it to complete.
 // If WithClientSpan() was called, an OpenTelemetry span is created around
 // the command execution.
+//
+// In process group mode (WithProcessGroup), Run uses Start()+Wait() internally
+// so that context cancellation triggers graceful group termination.
 func (c *Cmd) Run() error {
 	if c.clientSpan {
 		_, span := tracer.Start(c.parentCtx, c.Cmd.Path)
 		defer span.End()
+	}
+	if c.processGroup {
+		// Start()+Wait() activates the context-watcher goroutine that
+		// handles SIGTERM→SIGKILL escalation for the process group.
+		if err := c.Start(); err != nil {
+			return err
+		}
+		return c.Wait()
 	}
 	c.finalizeEnv()
 	return c.Cmd.Run()
