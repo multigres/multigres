@@ -101,6 +101,7 @@ func (p *Planner) Plan(
 	}
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
+	plan.Type = primitiveName(plan.Primitive)
 	return plan, nil
 }
 
@@ -165,4 +166,27 @@ func (p *Planner) SetDefaultTableGroup(tableGroup string) {
 // GetDefaultTableGroup returns the current default tablegroup.
 func (p *Planner) GetDefaultTableGroup() string {
 	return p.defaultTableGroup
+}
+
+// primitiveName returns a short string identifying the primitive type.
+// Used for observability (span attributes and query logs).
+func primitiveName(p engine.Primitive) string {
+	switch p.(type) {
+	case *engine.Route:
+		return engine.PlanTypeRoute
+	case *engine.TransactionPrimitive:
+		return engine.PlanTypeTransaction
+	case *engine.CopyStatement:
+		return engine.PlanTypeCopyStatement
+	case *engine.ApplySessionState:
+		return engine.PlanTypeApplySessionState
+	case *engine.GatewaySessionState:
+		return engine.PlanTypeGatewaySessionState
+	case *engine.GatewayShowVariable:
+		return engine.PlanTypeGatewayShowVariable
+	case *engine.Sequence:
+		return engine.PlanTypeSequence
+	default:
+		return engine.PlanTypeUnknown
+	}
 }

@@ -68,6 +68,7 @@ type SetupConfig struct {
 	S3BackupRegion                      string   // S3 region
 	S3BackupEndpoint                    string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 	MultigatewayExtraArgs               []string // Extra CLI flags for multigateway (e.g., buffer config)
+	OTelCollectorEndpoint               string   // OTLP HTTP endpoint for multigateway span export (empty = disabled)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -174,6 +175,16 @@ func WithMultigatewayBuffering() SetupOption {
 			"--buffer-min-time-between-failovers", "0s",
 			"--buffer-drain-concurrency", "5",
 		)
+	}
+}
+
+// WithOTelExport configures the multigateway to export traces to the given
+// OTLP HTTP endpoint. Use with NewTestOTLPCollector to capture spans in tests.
+// Implies WithMultigateway().
+func WithOTelExport(endpoint string) SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultigateway = true
+		c.OTelCollectorEndpoint = endpoint
 	}
 }
 
@@ -443,6 +454,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		// Create multigateway instance (doesn't start it)
 		mgw := setup.CreateMultigatewayInstance(t, "multigateway", pgPort, httpPort, grpcPort)
 		mgw.ExtraArgs = config.MultigatewayExtraArgs
+
+		// Configure OTel trace export if an endpoint was provided.
+		if config.OTelCollectorEndpoint != "" {
+			mgw.Environment = append(mgw.Environment,
+				"OTEL_TRACES_EXPORTER=otlp",
+				"OTEL_EXPORTER_OTLP_ENDPOINT="+config.OTelCollectorEndpoint,
+				"OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
+				"OTEL_TRACES_SAMPLER=always_on",
+			)
+		}
 		t.Logf("Created multigateway instance: PG=%d, HTTP=%d, gRPC=%d", pgPort, httpPort, grpcPort)
 
 		// Start multigateway (waits for Status RPC ready)

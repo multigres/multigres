@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -78,16 +79,20 @@ func (e *Executor) StreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	// Step 1: Plan the query (now with AST for better analysis)
+	planStart := time.Now()
 	plan, err := e.planner.Plan(queryStr, astStmt, conn)
+	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
 			"query", queryStr,
 			"error", err)
-		return nil, err
+		return &handler.ExecuteResult{PlanTime: planTime}, err
 	}
 
 	result := &handler.ExecuteResult{
 		TablesUsed: plan.TablesUsed,
+		PlanType:   plan.Type,
+		PlanTime:   planTime,
 	}
 
 	e.logger.DebugContext(ctx, "query plan created",
@@ -132,24 +137,33 @@ func (e *Executor) PortalStreamExecute(
 	// variables like statement_timeout, RESET ALL). PlanPortal returns a non-nil plan
 	// only for statements that the gateway handles locally; all other statements are
 	// sent to the multipooler via PortalStreamExecute with the portal's bound parameters.
+	planStart := time.Now()
 	plan, err := e.planner.PlanPortal(portalInfo, conn)
+	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query planning failed",
 			"query", portalInfo.PreparedStatementInfo.Query,
 			"error", err)
-		return nil, err
+		return &handler.ExecuteResult{PlanTime: planTime}, err
 	}
 	if plan != nil {
 		e.logger.DebugContext(ctx, "executing portal plan locally",
 			"plan", plan.String())
 		err = plan.StreamExecute(ctx, e.exec, conn, state, callback)
-		return &handler.ExecuteResult{TablesUsed: plan.TablesUsed}, err
+		return &handler.ExecuteResult{
+			TablesUsed: plan.TablesUsed,
+			PlanType:   plan.Type,
+			PlanTime:   planTime,
+		}, err
 	}
 
 	err = e.exec.PortalStreamExecute(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, maxRows, callback)
 	// Extract tables from the AST even when there's no plan (most extended protocol queries).
+	// PlanType is Route since unplanned portals go directly to PostgreSQL.
 	result := &handler.ExecuteResult{
 		TablesUsed: ast.ExtractTablesUsed(portalInfo.PreparedStatementInfo.AstStmt()),
+		PlanType:   engine.PlanTypeRoute,
+		PlanTime:   planTime,
 	}
 	return result, err
 }

@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +52,8 @@ func (m *trackingMockExecutor) StreamExecute(
 	idx := m.callCount
 	m.callCount++
 	if m.errOnCallIndex >= 0 && idx == m.errOnCallIndex {
-		return nil, m.errToReturn
+		// Return partial result with PlanTime, matching real executor behavior.
+		return &ExecuteResult{PlanTime: time.Microsecond}, m.errToReturn
 	}
 	// Call the callback with a result that includes a CommandTag,
 	// mimicking real executor behavior.
@@ -104,8 +106,10 @@ func parseStmts(t *testing.T, sql string) []ast.Stmt {
 
 // newTestHandler creates a MultiGatewayHandler with the given mock executor.
 func newTestHandler(executor Executor) *MultiGatewayHandler {
+	metrics, _ := NewHandlerMetrics()
 	return &MultiGatewayHandler{
 		executor: executor,
+		metrics:  metrics,
 	}
 }
 

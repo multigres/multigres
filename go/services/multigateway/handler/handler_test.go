@@ -20,6 +20,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +43,8 @@ type mockExecutor struct {
 
 func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	if m.streamExecuteErr != nil {
-		return nil, m.streamExecuteErr
+		// Return partial result with PlanTime, matching real executor behavior.
+		return &ExecuteResult{PlanTime: time.Microsecond}, m.streamExecuteErr
 	}
 	// Return a simple test result
 	err := callback(ctx, &sqltypes.Result{
