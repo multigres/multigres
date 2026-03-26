@@ -261,16 +261,7 @@ func TestBufferMultipleFailovers(t *testing.T) {
 
 		triggerFailover(t, setup)
 
-		// Wait for ALL nodes to be healthy (1 primary + N-1 replicas) before
-		// triggering the next failover. Without this, the next failover may
-		// start with insufficient healthy replicas, causing it to take longer
-		// and exceed the buffer window.
-		waitForClusterStable(t, setup, 90*time.Second)
-
-		// Wait for multiorch to fully settle — after our manual BeginTerm,
-		// multiorch detects the dead primary and runs its own recovery cycle
-		// (DemoteStalePrimary, re-election). Verify writes are flowing before
-		// triggering the next failover.
+		// Verify writes are flowing before triggering the next failover.
 		waitForWriteProgress(t, validator, 30*time.Second)
 
 		postSuccess, postFailed := validator.Stats()
@@ -374,12 +365,14 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	require.True(t, beginTermResp.Accepted, "primary should accept BeginTerm")
 	t.Logf("BeginTerm accepted, emergency demotion triggered")
 
-	newPrimaryName := waitForNewPrimary(t, setup, currentPrimaryName, 45*time.Second)
-	require.NotEmpty(t, newPrimaryName, "new primary should be elected after failover")
-	t.Logf("New primary elected: %s (was: %s)", newPrimaryName, currentPrimaryName)
+	// Trigger immediate recovery to elect a new primary and fully stabilize the cluster.
+	setup.TriggerRecoveryNow(t, "multiorch", 90*time.Second)
 
-	// Update setup so callers see the new primary.
-	setup.PrimaryName = newPrimaryName
+	newPrimary := setup.RefreshPrimary(t)
+	require.NotNil(t, newPrimary, "new primary should be elected after failover")
+	require.NotEqual(t, currentPrimaryName, newPrimary.Name,
+		"new primary should differ from old primary %s", currentPrimaryName)
+	t.Logf("New primary elected: %s (was: %s)", newPrimary.Name, currentPrimaryName)
 }
 
 // execTransaction runs a single INSERT inside a BEGIN/COMMIT transaction.
@@ -413,60 +406,6 @@ func execPrepared(db *sql.DB, id int64) error {
 	return err
 }
 
-// waitForClusterStable polls until ALL nodes in the cluster are healthy:
-// exactly 1 primary and (N-1) replicas, all with postgres running and no
-// recovery action in progress. This is critical before triggering the next
-// failover — if the old primary hasn't fully recovered as a replica, the
-// next failover may have insufficient healthy replicas, making it slower
-// and more likely to exceed the buffer window.
-func waitForClusterStable(t *testing.T, setup *shardsetup.ShardSetup, timeout time.Duration) {
-	t.Helper()
-
-	expectedTotal := len(setup.Multipoolers)
-
-	require.Eventually(t, func() bool {
-		var primaryCount int
-		var replicaCount int
-
-		for _, inst := range setup.Multipoolers {
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				return false
-			}
-			resp, err := client.Manager.Status(
-				utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
-			if err != nil {
-				return false
-			}
-			s := resp.Status
-			if !s.IsInitialized || !s.PostgresRunning {
-				return false
-			}
-			// Node must not be in the middle of a recovery action
-			// (e.g., STARTING, RESTORING_FROM_BACKUP after pg_rewind).
-			if s.PostgresAction != multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED {
-				return false
-			}
-			switch s.PoolerType {
-			case clustermetadatapb.PoolerType_PRIMARY:
-				primaryCount++
-			case clustermetadatapb.PoolerType_REPLICA:
-				replicaCount++
-			default:
-				// UNKNOWN or other type — node not ready.
-				return false
-			}
-		}
-		return primaryCount == 1 && replicaCount == expectedTotal-1
-	}, timeout, 2*time.Second, "cluster did not stabilize: expected 1 primary + %d replicas within %v",
-		expectedTotal-1, timeout)
-
-	// Refresh so triggerFailover finds the correct primary.
-	setup.RefreshPrimary(t)
-	t.Logf("Cluster stable: all %d nodes healthy, primary: %s", expectedTotal, setup.PrimaryName)
-}
-
 // waitForMinWrites polls until at least minWrites successful writes have been recorded.
 func waitForMinWrites(t *testing.T, v *shardsetup.WriterValidator, minWrites int, timeout time.Duration) {
 	t.Helper()
@@ -486,51 +425,4 @@ func waitForWriteProgress(t *testing.T, v *shardsetup.WriterValidator, timeout t
 		s, _ := v.Stats()
 		return s > baseline+5
 	}, timeout, 50*time.Millisecond, "writes should progress beyond baseline of %d", baseline)
-}
-
-// waitForNewPrimary polls the cluster until a primary different from oldPrimaryName is found.
-func waitForNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName string, timeout time.Duration) string {
-	t.Helper()
-
-	check := func() string {
-		for name, inst := range setup.Multipoolers {
-			if name == oldPrimaryName {
-				continue
-			}
-			client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
-			if err != nil {
-				continue
-			}
-			resp, err := client.Manager.Status(
-				utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
-			client.Close()
-			if err != nil {
-				continue
-			}
-			if resp.Status.IsInitialized && resp.Status.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
-				return name
-			}
-		}
-		return ""
-	}
-
-	if name := check(); name != "" {
-		return name
-	}
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	deadline := time.After(timeout)
-	for {
-		select {
-		case <-ticker.C:
-			if name := check(); name != "" {
-				return name
-			}
-			t.Log("Waiting for new primary election...")
-		case <-deadline:
-			t.Fatalf("timeout: new primary not elected within %v", timeout)
-			return ""
-		}
-	}
 }
