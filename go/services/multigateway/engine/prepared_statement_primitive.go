@@ -132,6 +132,11 @@ func (p *PreparedStatementPrimitive) executePrepare(
 // executeExecute delegates to HandleBind to create a portal, then executes it
 // via PortalStreamExecute. We avoid calling HandleExecute directly because it
 // would double-count metrics and spans (HandleQuery already records those).
+//
+// Because the extended protocol returns field metadata via Describe (not Execute),
+// PortalStreamExecute results lack Fields. We call HandleDescribe to obtain them
+// and inject into the first callback so the simple query protocol can emit the
+// required RowDescription before DataRows.
 func (p *PreparedStatementPrimitive) executeExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -151,7 +156,25 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	}
 	defer state.DeletePortalInfo("")
 
-	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, callback)
+	// Get field descriptions via Describe. In the extended protocol this is a
+	// separate step; in the simple protocol it must be folded into the result
+	// stream so the conn writes RowDescription before DataRows.
+	desc, err := conn.Handler().HandleDescribe(ctx, conn, 'P', "")
+	if err != nil {
+		return err
+	}
+
+	// Wrap the callback to inject Fields from Describe into the first result.
+	fieldsInjected := false
+	wrappedCallback := func(ctx context.Context, result *sqltypes.Result) error {
+		if !fieldsInjected && desc != nil && len(desc.Fields) > 0 && len(result.Fields) == 0 {
+			result.Fields = desc.Fields
+			fieldsInjected = true
+		}
+		return callback(ctx, result)
+	}
+
+	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, wrappedCallback)
 }
 
 // executeDeallocate delegates to HandleClose for named statements.
