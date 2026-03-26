@@ -93,6 +93,10 @@ func (h *testHandler) HandleClose(ctx context.Context, conn *Conn, typ byte, nam
 	return nil
 }
 
+func (h *testHandler) HandleCloseAll(ctx context.Context, conn *Conn) error {
+	return nil
+}
+
 func (h *testHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	if h.syncFunc != nil {
 		return h.syncFunc(ctx, conn)

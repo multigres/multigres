@@ -102,6 +102,10 @@ type Handler interface {
 	// name: name of the statement or portal to close
 	HandleClose(ctx context.Context, conn *Conn, typ byte, name string) error
 
+	// HandleCloseAll closes all prepared statements for a connection.
+	// Used by DEALLOCATE ALL in the simple query protocol.
+	HandleCloseAll(ctx context.Context, conn *Conn) error
+
 	// HandleSync processes a Sync message ('S').
 	// Called at the end of an extended query cycle to indicate transaction boundary.
 	HandleSync(ctx context.Context, conn *Conn) error

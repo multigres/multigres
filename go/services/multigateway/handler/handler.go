@@ -399,6 +399,14 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 	}
 }
 
+// HandleCloseAll closes all prepared statements for a connection.
+// Used by DEALLOCATE ALL in the simple query protocol.
+func (h *MultiGatewayHandler) HandleCloseAll(ctx context.Context, conn *server.Conn) error {
+	h.logger.DebugContext(ctx, "close all prepared statements", "connection_id", conn.ConnectionID())
+	h.psc.RemoveConnection(conn.ConnectionID())
+	return nil
+}
+
 // HandleSync processes a Sync message ('S').
 func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	h.logger.DebugContext(ctx, "sync")

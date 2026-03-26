@@ -169,6 +169,12 @@ func (h *fakeHandler) HandleClose(ctx context.Context, conn *server.Conn, typ by
 	return nil
 }
 
+// HandleCloseAll closes all prepared statements.
+func (h *fakeHandler) HandleCloseAll(ctx context.Context, conn *server.Conn) error {
+	clear(h.preparedStatements)
+	return nil
+}
+
 // HandleSync handles a Sync message.
 func (h *fakeHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	// Clear unnamed portal after sync (per PostgreSQL protocol).

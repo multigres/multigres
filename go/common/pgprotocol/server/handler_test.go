@@ -211,6 +211,10 @@ func (h *testHandlerWithState) HandleClose(ctx context.Context, conn *Conn, typ 
 	}
 }
 
+func (h *testHandlerWithState) HandleCloseAll(ctx context.Context, conn *Conn) error {
+	return nil
+}
+
 func (h *testHandlerWithState) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
 }

@@ -263,6 +263,10 @@ func (m *mockHandler) HandleClose(ctx context.Context, conn *Conn, typ byte, nam
 	return nil
 }
 
+func (m *mockHandler) HandleCloseAll(ctx context.Context, conn *Conn) error {
+	return nil
+}
+
 func (m *mockHandler) HandleSync(ctx context.Context, conn *Conn) error {
 	return nil
 }

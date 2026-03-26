@@ -215,6 +215,17 @@ func (c *Conn) ConnectionID() uint32 {
 	return c.connectionID
 }
 
+// Handler returns the protocol handler for this connection.
+func (c *Conn) Handler() Handler {
+	return c.handler
+}
+
+// SetHandler sets the protocol handler for this connection.
+// This is intended for testing and for connections that need to override the handler.
+func (c *Conn) SetHandler(h Handler) {
+	c.handler = h
+}
+
 // User returns the authenticated user.
 func (c *Conn) User() string {
 	return c.user
