@@ -39,6 +39,12 @@ type ExecuteResult struct {
 	// TablesUsed contains deduplicated, schema-qualified table names
 	// referenced by the executed query.
 	TablesUsed []string
+
+	// PlanType is the name of the root primitive (e.g. "Route", "Transaction").
+	PlanType string
+
+	// PlanTime is how long query planning took.
+	PlanTime time.Duration
 }
 
 // Executor defines the interface for query execution.
@@ -171,7 +177,10 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// This handles cases where transactions start/end mid-batch and ensures
 	// proper auto-rollback for implicit transaction segments on failure.
 	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
-	var tablesUsed []string
+	// For multi-statement batches, per-table metrics, span attributes, and query log
+	// enrichment are handled per-statement inside executeWithImplicitTransaction.
+	// The batch-level recordQueryCompletion gets nil result (no plan type for a batch).
+	var result *ExecuteResult
 	if len(asts) > 1 {
 		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
 			"statement_count", len(asts),
@@ -182,11 +191,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])
 		defer cancel()
 
-		var result *ExecuteResult
 		result, err = h.executor.StreamExecute(ctx, conn, st, queryStr, asts[0], countingCallback)
-		if result != nil {
-			tablesUsed = result.TablesUsed
-		}
 		if err != nil {
 			// If we're in an active transaction and the query failed,
 			// transition to aborted state. The client must ROLLBACK to recover.
@@ -198,7 +203,7 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 	execDuration := time.Since(execStart)
 	totalDuration := time.Since(queryStart)
-	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, tablesUsed, err)
+	h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, execDuration, totalDuration, rowCount, result, err)
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
@@ -328,10 +333,6 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	execStart := time.Now()
 	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, countingCallback)
-	var tablesUsed []string
-	if result != nil {
-		tablesUsed = result.TablesUsed
-	}
 	if err != nil {
 		if conn.TxnStatus() == protocol.TxnStatusInBlock {
 			conn.SetTxnStatus(protocol.TxnStatusFailed)
@@ -340,7 +341,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	execDuration := time.Since(execStart)
 	totalDuration := time.Since(queryStart)
-	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, tablesUsed, err)
+	h.recordQueryCompletion(ctx, conn, operationName, "extended", 0, execDuration, totalDuration, rowCount, result, err)
 	if err != nil {
 		recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
 	}
@@ -446,7 +447,7 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	execDuration time.Duration,
 	totalDuration time.Duration,
 	rowCount int64,
-	tablesUsed []string,
+	result *ExecuteResult,
 	err error,
 ) {
 	dbNamespace := conn.Database()
@@ -462,9 +463,21 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	h.metrics.queryDuration.Record(ctx, totalDuration.Seconds(), dbNamespace, operationName, queryProtocol, errorType, status)
 	h.metrics.rowsReturned.Record(ctx, float64(rowCount), dbNamespace, operationName)
 
+	var tablesUsed []string
+	var planType string
+	var planTime time.Duration
+	if result != nil {
+		tablesUsed = result.TablesUsed
+		planType = result.PlanType
+		planTime = result.PlanTime
+	}
+
 	for _, table := range tablesUsed {
 		h.metrics.tableQueries.Add(ctx, dbNamespace, table, operationName)
 	}
+
+	// Enrich the active span with plan metadata.
+	setSpanPlanAttributes(ctx, planType, tablesUsed)
 
 	emitQueryLog(ctx, h.logger, queryLogEntry{
 		User:          conn.User(),
@@ -473,8 +486,11 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 		Protocol:      queryProtocol,
 		TotalDuration: totalDuration,
 		ParseDuration: parseDuration,
+		PlanDuration:  planTime,
 		ExecDuration:  execDuration,
 		RowCount:      rowCount,
+		PlanType:      planType,
+		TablesUsed:    tablesUsed,
 		Error:         err,
 		SQLSTATE:      errorType,
 		ErrorSource:   mterrors.ClassifyErrorSource(err),
