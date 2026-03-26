@@ -57,7 +57,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return "", err
 	}
 
-	// Acquire the action lock to ensure only one mutation runs at a time
+	// Acquire the local action lock first to prevent deadlock with the distributed lease.
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "Backup")
 	if err != nil {
@@ -65,15 +65,23 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	}
 	defer pm.actionLock.Release(ctx)
 
-	return pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+	// Acquire the distributed backup lease via steal protocol.
+	// If another pooler holds the lease, revoke it and acquire a new one.
+	// This ensures the most recent backup request always wins.
+	var backupID string
+	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.multipooler.Id.Name, "backup", pm.logger, func(ctx context.Context) error {
+		var backupErr error
+		backupID, backupErr = pm.backupLocked(ctx, forcePrimary, backupType, jobID, overrides)
+		return backupErr
+	})
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to acquire backup lease")
+	}
+	return backupID, nil
 }
 
-// backupLocked performs a backup. Caller must hold the action lock.
+// backupLocked performs a backup. Caller must hold the action lock and backup lease.
 func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
-	if err := AssertActionLockHeld(ctx); err != nil {
-		return "", err
-	}
-
 	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
 		var err error
 		retBackupID, err = pm.backupLockedInner(ctx, forcePrimary, backupType, jobID, overrides)
@@ -83,7 +91,15 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 }
 
 // backupLockedInner performs the backup steps inside the parent "backup" span.
+// Caller must hold both the action lock and the backup lease.
 func (pm *MultiPoolerManager) backupLockedInner(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
+	if err := AssertActionLockHeld(ctx); err != nil {
+		return "", err
+	}
+	if err := topoclient.AssertBackupLockHeld(ctx, pm.shardKey()); err != nil {
+		return "", mterrors.Wrap(err, "backup lease not held")
+	}
+
 	pm.metrics.IncBackupAttempts(ctx)
 	defer func() {
 		if retErr == nil {
@@ -941,7 +957,6 @@ func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 		}
 	}()
 
-	// Run command in main goroutine
 	output, err := cmd.CombinedOutput()
 
 	cancelLog()

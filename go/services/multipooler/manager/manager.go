@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
@@ -515,6 +516,15 @@ func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	return pm.multipooler.Type
+}
+
+// shardKey returns a ShardKey identifying this pooler's shard.
+func (pm *MultiPoolerManager) shardKey() commontypes.ShardKey {
+	return commontypes.ShardKey{
+		Database:   pm.multipooler.Database,
+		TableGroup: pm.multipooler.TableGroup,
+		Shard:      pm.multipooler.Shard,
+	}
 }
 
 // checkReady returns an error if the manager is not in Ready state
