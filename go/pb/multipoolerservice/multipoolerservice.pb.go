@@ -1786,17 +1786,13 @@ func (x *StreamNotificationsRequest) GetChannels() []string {
 	return nil
 }
 
-// StreamNotificationsResponse delivers a notification or warning from the shared listener.
+// StreamNotificationsResponse delivers a notification from the shared listener.
 type StreamNotificationsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// notification contains the PG notification data.
-	Notification *query.PgNotification `protobuf:"bytes,1,opt,name=notification,proto3" json:"notification,omitempty"`
-	// is_warning indicates this is a reconnect warning, not a real notification.
-	IsWarning bool `protobuf:"varint,2,opt,name=is_warning,json=isWarning,proto3" json:"is_warning,omitempty"`
-	// warning_message contains the warning text when is_warning is true.
-	WarningMessage string `protobuf:"bytes,3,opt,name=warning_message,json=warningMessage,proto3" json:"warning_message,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	Notification  *query.PgNotification `protobuf:"bytes,1,opt,name=notification,proto3" json:"notification,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamNotificationsResponse) Reset() {
@@ -1834,20 +1830,6 @@ func (x *StreamNotificationsResponse) GetNotification() *query.PgNotification {
 		return x.Notification
 	}
 	return nil
-}
-
-func (x *StreamNotificationsResponse) GetIsWarning() bool {
-	if x != nil {
-		return x.IsWarning
-	}
-	return false
-}
-
-func (x *StreamNotificationsResponse) GetWarningMessage() string {
-	if x != nil {
-		return x.WarningMessage
-	}
-	return ""
 }
 
 var File_multipoolerservice_proto protoreflect.FileDescriptor
@@ -1965,12 +1947,9 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\fprimary_term\x18\x02 \x01(\x03R\vprimaryTerm\"_\n" +
 	"\x1aStreamNotificationsRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12\x1a\n" +
-	"\bchannels\x18\x02 \x03(\tR\bchannels\"\xa0\x01\n" +
+	"\bchannels\x18\x02 \x03(\tR\bchannels\"X\n" +
 	"\x1bStreamNotificationsResponse\x129\n" +
-	"\fnotification\x18\x01 \x01(\v2\x15.query.PgNotificationR\fnotification\x12\x1d\n" +
-	"\n" +
-	"is_warning\x18\x02 \x01(\bR\tisWarning\x12'\n" +
-	"\x0fwarning_message\x18\x03 \x01(\tR\x0ewarningMessage*\xba\x01\n" +
+	"\fnotification\x18\x01 \x01(\v2\x15.query.PgNotificationR\fnotification*\xba\x01\n" +
 	"\x11ReservationReason\x12\"\n" +
 	"\x1eRESERVATION_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRESERVATION_REASON_TRANSACTION\x10\x01\x12!\n" +

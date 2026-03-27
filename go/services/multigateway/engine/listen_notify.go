@@ -36,19 +36,19 @@ const (
 type ListenNotifyPrimitive struct {
 	Action  ListenAction
 	Channel string
-	SQL     string
+	Query   string
 }
 
-func NewListenPrimitive(channel, sql string) *ListenNotifyPrimitive {
-	return &ListenNotifyPrimitive{Action: ListenActionListen, Channel: channel, SQL: sql}
+func NewListenPrimitive(channel, query string) *ListenNotifyPrimitive {
+	return &ListenNotifyPrimitive{Action: ListenActionListen, Channel: channel, Query: query}
 }
 
-func NewUnlistenPrimitive(channel, sql string) *ListenNotifyPrimitive {
-	return &ListenNotifyPrimitive{Action: ListenActionUnlisten, Channel: channel, SQL: sql}
+func NewUnlistenPrimitive(channel, query string) *ListenNotifyPrimitive {
+	return &ListenNotifyPrimitive{Action: ListenActionUnlisten, Channel: channel, Query: query}
 }
 
-func NewUnlistenAllPrimitive(sql string) *ListenNotifyPrimitive {
-	return &ListenNotifyPrimitive{Action: ListenActionUnlistenAll, SQL: sql}
+func NewUnlistenAllPrimitive(query string) *ListenNotifyPrimitive {
+	return &ListenNotifyPrimitive{Action: ListenActionUnlistenAll, Query: query}
 }
 
 func (l *ListenNotifyPrimitive) StreamExecute(
@@ -112,7 +112,7 @@ func (l *ListenNotifyPrimitive) String() string {
 
 // GetQuery returns the original SQL string.
 func (l *ListenNotifyPrimitive) GetQuery() string {
-	return l.SQL
+	return l.Query
 }
 
 // GetTableGroup returns empty string — LISTEN/UNLISTEN don't target a tablegroup.

@@ -1002,22 +1002,15 @@ func (c *Conn) handleSync() error {
 
 // notifPusher holds state for async notification delivery.
 type notifPusher struct {
-	ch     chan *NotificationPayload
+	ch     chan *sqltypes.Notification
 	cancel context.CancelFunc
-}
-
-// NotificationPayload carries notification data for async delivery.
-type NotificationPayload struct {
-	PID     int32
-	Channel string
-	Payload string
 }
 
 // EnableAsyncNotifications starts a background goroutine that delivers
 // notifications from notifCh to the client socket. Must be called at most once.
 // Returns a channel that the caller should send notifications to.
-func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *NotificationPayload {
-	ch := make(chan *NotificationPayload, 256)
+func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.Notification {
+	ch := make(chan *sqltypes.Notification, 256)
 	ctx, cancel := context.WithCancel(ctx)
 	c.notifPush = &notifPusher{ch: ch, cancel: cancel}
 

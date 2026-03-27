@@ -589,26 +589,7 @@ func writeString(w io.Writer, s string) error {
 // Format: Byte1('A') + Int32(length) + Int32(pid) + String(channel) + String(payload)
 // This is used to deliver asynchronous notifications to clients that have issued LISTEN.
 func (c *Conn) WriteNotificationResponse(pid int32, channel, payload string) error {
-	// Calculate body size: 4 (pid) + len(channel) + 1 (null) + len(payload) + 1 (null)
-	bodyLen := 4 + len(channel) + 1 + len(payload) + 1
-	body := make([]byte, bodyLen)
-	// Write PID (big-endian int32)
-	body[0] = byte(pid >> 24)
-	body[1] = byte(pid >> 16)
-	body[2] = byte(pid >> 8)
-	body[3] = byte(pid)
-	// Write channel (null-terminated)
-	offset := 4
-	copy(body[offset:], channel)
-	offset += len(channel)
-	body[offset] = 0
-	offset++
-	// Write payload (null-terminated)
-	copy(body[offset:], payload)
-	offset += len(payload)
-	body[offset] = 0
-
-	return c.writeMessage(protocol.MsgNotificationResponse, body)
+	return c.writeNotificationResponseMsg(pid, channel, payload)
 }
 
 // WriteNotice sends a NoticeResponse with the given severity and message to the client.

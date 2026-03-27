@@ -19,7 +19,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -47,20 +46,9 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the pooler starts
 	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, func(p *poolerserver.QueryPoolerServer) {
 		if grpc.CheckServiceMap("pooler", senv) {
-			// Create PubSubListener using the pool manager's connection config.
-			var listener *pubsub.Listener
-			if pm := p.PoolManager(); pm != nil {
-				clientConfig := pm.ListenerClientConfig()
-				listener = pubsub.NewListener(clientConfig, slog.Default())
-			}
-
 			srv := &poolerService{
 				pooler: p,
-				pubsub: listener,
-			}
-			if listener != nil {
-				//nolint:gocritic // PubSubListener is a long-lived background service, not tied to any request.
-				listener.Start(context.Background())
+				pubsub: p.PubSubListener(),
 			}
 			multipoolerpb.RegisterMultiPoolerServiceServer(grpc.Server, srv)
 		}
@@ -644,13 +632,13 @@ func (s *poolerService) StreamNotifications(
 	if len(channels) == 0 {
 		return errors.New("no channels specified")
 	}
-	notifCh := make(chan *pubsub.Notification, 256)
+	notifCh := make(chan *sqltypes.Notification, 256)
 	for _, ch := range channels {
 		s.pubsub.SubscribeCh(ch, notifCh)
 	}
 	defer func() {
 		for _, ch := range channels {
-			s.pubsub.UnsubscribeCh(ch, notifCh)
+			s.pubsub.Unsubscribe(ch, notifCh)
 		}
 	}()
 

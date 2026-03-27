@@ -24,17 +24,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
-
-// Notification wraps a PG notification.
-type Notification struct {
-	PID     int32
-	Channel string
-	Payload string
-}
 
 // request types for the serialized event loop.
 type requestType int
@@ -48,7 +43,7 @@ const (
 type request struct {
 	typ     requestType
 	channel string
-	subCh   chan *Notification
+	subCh   chan *sqltypes.Notification
 	done    chan struct{} // closed when request is processed
 }
 
@@ -83,39 +78,40 @@ func NewListener(config *client.Config, logger *slog.Logger) *Listener {
 	}
 }
 
-// Start begins the background event loop.
+// Start begins the background event loop. Idempotent — no-op if already running.
 func (l *Listener) Start(ctx context.Context) {
+	if l.cancel != nil {
+		return // already running
+	}
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.wg.Add(1)
 	go l.run(ctx)
 }
 
-// Stop shuts down the listener and waits for goroutines to exit.
+// Stop shuts down the listener and waits for goroutines to exit. Idempotent.
 func (l *Listener) Stop() {
-	if l.cancel != nil {
-		l.cancel()
+	if l.cancel == nil {
+		return // not running
 	}
+	l.cancel()
 	l.wg.Wait()
+	l.cancel = nil
 }
 
-// Subscribe registers a subscriber for the given channel.
-// Returns a channel that will receive notifications.
-// The returned channel has buffer of 64 to avoid blocking the fan-out.
-func (l *Listener) Subscribe(channel string) chan *Notification {
-	ch := make(chan *Notification, 64)
-	req := request{
-		typ:     reqSubscribe,
-		channel: channel,
-		subCh:   ch,
-		done:    make(chan struct{}),
+// OnStateChange implements manager.StateAware. The listener runs only when the
+// multipooler is PRIMARY+SERVING; it is stopped on any other state transition.
+func (l *Listener) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+		//nolint:gocritic // Long-lived background listener; must not use the transient state-change ctx.
+		l.Start(context.Background())
+	} else {
+		l.Stop()
 	}
-	l.requests <- req
-	<-req.done
-	return ch
+	return nil
 }
 
 // Unsubscribe removes a subscriber from the given channel.
-func (l *Listener) Unsubscribe(channel string, subCh chan *Notification) {
+func (l *Listener) Unsubscribe(channel string, subCh chan *sqltypes.Notification) {
 	req := request{
 		typ:     reqUnsubscribe,
 		channel: channel,
@@ -127,7 +123,7 @@ func (l *Listener) Unsubscribe(channel string, subCh chan *Notification) {
 }
 
 // UnsubscribeAll removes a subscriber from all channels.
-func (l *Listener) UnsubscribeAll(subCh chan *Notification) {
+func (l *Listener) UnsubscribeAll(subCh chan *sqltypes.Notification) {
 	req := request{
 		typ:   reqUnsubscribeAll,
 		subCh: subCh,
@@ -140,21 +136,9 @@ func (l *Listener) UnsubscribeAll(subCh chan *Notification) {
 // SubscribeCh registers an existing notification channel to receive notifications
 // for the given PG channel name. Unlike Subscribe, this lets multiple PG channels
 // feed into the same notification channel.
-func (l *Listener) SubscribeCh(channel string, notifCh chan *Notification) {
+func (l *Listener) SubscribeCh(channel string, notifCh chan *sqltypes.Notification) {
 	req := request{
 		typ:     reqSubscribe,
-		channel: channel,
-		subCh:   notifCh,
-		done:    make(chan struct{}),
-	}
-	l.requests <- req
-	<-req.done
-}
-
-// UnsubscribeCh removes a subscription for a specific PG channel using the provided channel.
-func (l *Listener) UnsubscribeCh(channel string, notifCh chan *Notification) {
-	req := request{
-		typ:     reqUnsubscribe,
 		channel: channel,
 		subCh:   notifCh,
 		done:    make(chan struct{}),
@@ -188,9 +172,9 @@ func (l *Listener) run(ctx context.Context) {
 	// Channel refcounts: channel name -> number of subscribers.
 	channels := make(map[string]int)
 	// Subscribers: channel name -> list of subscriber channels.
-	subscribers := make(map[string][]chan *Notification)
+	subscribers := make(map[string][]chan *sqltypes.Notification)
 	// All subscriber channels (for broadcast warnings).
-	allSubs := make(map[chan *Notification]struct{})
+	allSubs := make(map[chan *sqltypes.Notification]struct{})
 
 	var conn *client.Conn
 	var readerCh chan readerMessage // receives from reader goroutine
@@ -215,7 +199,7 @@ func (l *Listener) run(ctx context.Context) {
 		// Re-LISTEN all active channels via simple query protocol.
 		// On initial connect this is a no-op (channels map is empty).
 		for ch := range channels {
-			_, err := conn.Query(ctx, "LISTEN "+quoteIdent(ch))
+			_, err := conn.Query(ctx, "LISTEN "+ast.QuoteIdentifier(ch))
 			if err != nil {
 				l.logger.ErrorContext(ctx, "pubsub: failed to re-LISTEN", "channel", ch, "error", err)
 				conn.Close()
@@ -267,7 +251,7 @@ func (l *Listener) run(ctx context.Context) {
 
 				if oldCount == 0 && conn != nil {
 					// First subscriber for this channel — issue LISTEN on the live connection.
-					if err := conn.SendQuery("LISTEN " + quoteIdent(req.channel)); err != nil {
+					if err := conn.SendQuery("LISTEN " + ast.QuoteIdentifier(req.channel)); err != nil {
 						l.logger.ErrorContext(ctx, "pubsub: failed to send LISTEN",
 							"channel", req.channel, "error", err)
 						// Connection is broken, schedule reconnect.
@@ -284,7 +268,7 @@ func (l *Listener) run(ctx context.Context) {
 			case reqUnsubscribe:
 				needsUnlisten := l.removeSub(subscribers, allSubs, channels, req.channel, req.subCh)
 				if needsUnlisten && conn != nil {
-					if err := conn.SendQuery("UNLISTEN " + quoteIdent(req.channel)); err != nil {
+					if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(req.channel)); err != nil {
 						l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
 							"channel", req.channel, "error", err)
 						conn.Close()
@@ -311,7 +295,7 @@ func (l *Listener) run(ctx context.Context) {
 				// Issue UNLISTEN for channels that hit refcount 0.
 				if conn != nil {
 					for _, ch := range toUnlisten {
-						if err := conn.SendQuery("UNLISTEN " + quoteIdent(ch)); err != nil {
+						if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(ch)); err != nil {
 							l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
 								"channel", ch, "error", err)
 							conn.Close()
@@ -344,14 +328,9 @@ func (l *Listener) run(ctx context.Context) {
 			}
 
 			if msg.notification != nil {
-				notif := &Notification{
-					PID:     msg.notification.PID,
-					Channel: msg.notification.Channel,
-					Payload: msg.notification.Payload,
-				}
 				for _, sub := range subscribers[msg.notification.Channel] {
 					select {
-					case sub <- notif:
+					case sub <- msg.notification:
 					default:
 						l.logger.WarnContext(ctx, "pubsub: subscriber channel full, dropping notification",
 							"channel", msg.notification.Channel)
@@ -385,7 +364,7 @@ func (l *Listener) run(ctx context.Context) {
 func (l *Listener) drainCommands(
 	ctx context.Context,
 	readerCh chan readerMessage,
-	subscribers map[string][]chan *Notification,
+	subscribers map[string][]chan *sqltypes.Notification,
 	conn **client.Conn,
 	reconnectTimer *time.Timer,
 	pendingCmds *int,
@@ -409,14 +388,9 @@ func (l *Listener) drainCommands(
 			}
 
 			if msg.notification != nil {
-				notif := &Notification{
-					PID:     msg.notification.PID,
-					Channel: msg.notification.Channel,
-					Payload: msg.notification.Payload,
-				}
 				for _, sub := range subscribers[msg.notification.Channel] {
 					select {
-					case sub <- notif:
+					case sub <- msg.notification:
 					default:
 						l.logger.WarnContext(ctx, "pubsub: subscriber channel full, dropping notification",
 							"channel", msg.notification.Channel)
@@ -483,11 +457,11 @@ func (l *Listener) readLoop(conn *client.Conn, ch chan<- readerMessage) {
 // removeSub removes a single subscriber from a channel.
 // Returns true if the channel's refcount hit 0 and an UNLISTEN should be issued.
 func (l *Listener) removeSub(
-	subscribers map[string][]chan *Notification,
-	allSubs map[chan *Notification]struct{},
+	subscribers map[string][]chan *sqltypes.Notification,
+	allSubs map[chan *sqltypes.Notification]struct{},
 	channels map[string]int,
 	channel string,
-	subCh chan *Notification,
+	subCh chan *sqltypes.Notification,
 ) bool {
 	subs := subscribers[channel]
 	for i, s := range subs {
@@ -505,21 +479,4 @@ func (l *Listener) removeSub(
 		return true // caller should issue UNLISTEN
 	}
 	return false
-}
-
-// quoteIdent quotes a PG identifier for use in LISTEN/UNLISTEN.
-func quoteIdent(s string) string {
-	return `"` + doubleQuoteEscape(s) + `"`
-}
-
-func doubleQuoteEscape(s string) string {
-	result := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		if s[i] == '"' {
-			result = append(result, '"', '"')
-		} else {
-			result = append(result, s[i])
-		}
-	}
-	return string(result)
 }

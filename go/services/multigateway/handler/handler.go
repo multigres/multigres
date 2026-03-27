@@ -548,9 +548,9 @@ func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager) {
 }
 
 // ensureNotifCh creates the notification channel for a connection if needed.
-func (h *MultiGatewayHandler) ensureNotifCh(state *MultiGatewayConnectionState) chan *Notification {
+func (h *MultiGatewayHandler) ensureNotifCh(state *MultiGatewayConnectionState) chan *sqltypes.Notification {
 	if state.NotifCh == nil {
-		state.NotifCh = make(chan *Notification, 256)
+		state.NotifCh = make(chan *sqltypes.Notification, 256)
 	}
 	return state.NotifCh
 }
@@ -600,8 +600,8 @@ func (h *MultiGatewayHandler) syncListenSubscriptions(
 // server.Conn async pusher channel.
 func (h *MultiGatewayHandler) forwardNotifications(
 	ctx context.Context,
-	notifCh chan *Notification,
-	asyncCh chan<- *server.NotificationPayload,
+	notifCh chan *sqltypes.Notification,
+	asyncCh chan<- *sqltypes.Notification,
 ) {
 	for {
 		select {
@@ -611,13 +611,8 @@ func (h *MultiGatewayHandler) forwardNotifications(
 			if !ok {
 				return
 			}
-			payload := &server.NotificationPayload{
-				PID:     notif.PID,
-				Channel: notif.Channel,
-				Payload: notif.Payload,
-			}
 			select {
-			case asyncCh <- payload:
+			case asyncCh <- notif:
 			default:
 				h.logger.WarnContext(ctx, "async notification channel full, dropping notification",
 					"channel", notif.Channel)

@@ -454,14 +454,8 @@ message StreamNotificationsRequest {
   repeated string channels = 2;
 }
 
-// StreamNotificationsResponse delivers a notification or warning from the shared listener.
+// StreamNotificationsResponse delivers a notification from the shared listener.
 message StreamNotificationsResponse {
   // notification contains the PG notification data.
   query.PgNotification notification = 1;
-
-  // is_warning indicates this is a reconnect warning, not a real notification.
-  bool is_warning = 2;
-
-  // warning_message contains the warning text when is_warning is true.
-  string warning_message = 3;
 }

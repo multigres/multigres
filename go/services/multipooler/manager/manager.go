@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/executor"
 	"github.com/multigres/multigres/go/services/multipooler/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/pubsub"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -70,6 +71,7 @@ type MultiPoolerManager struct {
 	serviceID       *clustermetadatapb.ID
 	servicePoolerID poolerID
 	replTracker     *heartbeat.ReplTracker
+	pubsubListener  *pubsub.Listener
 	pgctldClient    pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
@@ -416,6 +418,18 @@ func (pm *MultiPoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	return pm.servingState.RegisterAndSync(ctx, pm.replTracker)
 }
 
+// startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
+// it with the state manager. The listener runs only when PRIMARY+SERVING.
+func (pm *MultiPoolerManager) startPubSubListener(ctx context.Context) error {
+	if pm.connPoolMgr == nil {
+		return nil
+	}
+	clientConfig := pm.connPoolMgr.ListenerClientConfig()
+	pm.pubsubListener = pubsub.NewListener(clientConfig, pm.logger)
+	pm.qsc.SetPubSubListener(pm.pubsubListener)
+	return pm.servingState.RegisterAndSync(ctx, pm.pubsubListener)
+}
+
 // QueryServiceControl returns the query service controller.
 // This follows the TabletManager pattern of exposing the controller.
 func (pm *MultiPoolerManager) QueryServiceControl() poolerserver.PoolerController {
@@ -460,6 +474,13 @@ func (pm *MultiPoolerManager) openConnectionsLocked() {
 			// Don't fail the connection if heartbeat fails
 		}
 	}
+
+	// Start PubSub listener for LISTEN/NOTIFY support.
+	if pm.pubsubListener == nil {
+		if err := pm.startPubSubListener(context.TODO()); err != nil {
+			pm.logger.Error("Failed to start PubSub listener", "error", err)
+		}
+	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -471,6 +492,11 @@ func (pm *MultiPoolerManager) closeConnectionsLocked() {
 	if pm.replTracker != nil {
 		pm.replTracker.Close()
 		pm.replTracker = nil
+	}
+
+	if pm.pubsubListener != nil {
+		pm.pubsubListener.Stop()
+		pm.pubsubListener = nil
 	}
 
 	// Close connection pool manager

@@ -14,33 +14,31 @@
 
 package handler
 
-// Notification represents an async notification from PostgreSQL.
-type Notification struct {
-	PID     int32
-	Channel string
-	Payload string
-}
+import "github.com/multigres/multigres/go/common/sqltypes"
 
 // NotificationManager abstracts LISTEN/NOTIFY subscription management.
 type NotificationManager interface {
 	// Subscribe registers a notification channel to receive notifications
 	// for the given PG channel name. The same notifCh can be used for
 	// multiple PG channels (all notifications delivered to one place).
-	Subscribe(pgChannel string, notifCh chan *Notification)
+	Subscribe(pgChannel string, notifCh chan *sqltypes.Notification)
 
 	// Unsubscribe removes a subscription for a specific PG channel.
-	Unsubscribe(pgChannel string, notifCh chan *Notification)
+	Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification)
 
 	// UnsubscribeAll removes all subscriptions for a given notifCh.
-	UnsubscribeAll(notifCh chan *Notification)
+	UnsubscribeAll(notifCh chan *sqltypes.Notification)
 }
 
 // noopNotificationManager is used when no PubSubListener is configured.
 type noopNotificationManager struct{}
 
-func (n *noopNotificationManager) Subscribe(pgChannel string, notifCh chan *Notification)   {}
-func (n *noopNotificationManager) Unsubscribe(pgChannel string, notifCh chan *Notification) {}
-func (n *noopNotificationManager) UnsubscribeAll(notifCh chan *Notification)                {}
+func (n *noopNotificationManager) Subscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
+}
+
+func (n *noopNotificationManager) Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
+}
+func (n *noopNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notification) {}
 
 // DefaultNotificationManager returns a no-op manager.
 func DefaultNotificationManager() NotificationManager {

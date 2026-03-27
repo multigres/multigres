@@ -21,11 +21,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// GRPCNotificationManager implements handler.NotificationManager by calling
+// GRPCNotificationManager implements sqltypes.NotificationManager by calling
 // the pooler's StreamNotifications gRPC. It manages per-channel streams
 // and fans out notifications to subscriber channels.
 //
@@ -42,7 +42,7 @@ type GRPCNotificationManager struct {
 
 	mu sync.Mutex
 	// channels tracks: pgChannel -> list of subscriber notifCh
-	channels map[string][]chan *handler.Notification
+	channels map[string][]chan *sqltypes.Notification
 	// streams tracks: pgChannel -> cancel func for the gRPC stream
 	streams map[string]context.CancelFunc
 }
@@ -55,13 +55,13 @@ func NewGRPCNotificationManager(
 	return &GRPCNotificationManager{
 		getClient: getClient,
 		logger:    logger,
-		channels:  make(map[string][]chan *handler.Notification),
+		channels:  make(map[string][]chan *sqltypes.Notification),
 		streams:   make(map[string]context.CancelFunc),
 	}
 }
 
 // Subscribe registers notifCh to receive notifications for pgChannel.
-func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *handler.Notification) {
+func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
 	var ready chan struct{}
 
 	m.mu.Lock()
@@ -86,7 +86,7 @@ func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *hand
 }
 
 // Unsubscribe removes notifCh from pgChannel subscribers.
-func (m *GRPCNotificationManager) Unsubscribe(pgChannel string, notifCh chan *handler.Notification) {
+func (m *GRPCNotificationManager) Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -109,7 +109,7 @@ func (m *GRPCNotificationManager) Unsubscribe(pgChannel string, notifCh chan *ha
 }
 
 // UnsubscribeAll removes notifCh from all channels.
-func (m *GRPCNotificationManager) UnsubscribeAll(notifCh chan *handler.Notification) {
+func (m *GRPCNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notification) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -206,7 +206,7 @@ func (m *GRPCNotificationManager) runStream(
 		if resp.Notification == nil {
 			continue
 		}
-		notif := &handler.Notification{
+		notif := &sqltypes.Notification{
 			PID:     resp.Notification.Pid,
 			Channel: resp.Notification.Channel,
 			Payload: resp.Notification.Payload,

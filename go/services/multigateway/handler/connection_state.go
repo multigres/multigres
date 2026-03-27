@@ -19,9 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -74,10 +74,10 @@ type MultiGatewayConnectionState struct {
 	PendingUnlistenAll bool
 
 	// NotifCh receives notifications from the PubSubListener.
-	NotifCh chan *Notification
+	NotifCh chan *sqltypes.Notification
 
 	// AsyncNotifCh is the channel for the server.Conn async notification pusher.
-	AsyncNotifCh chan<- *server.NotificationPayload
+	AsyncNotifCh chan<- *sqltypes.Notification
 
 	// statementTimeout is the session-level statement timeout set via SET statement_timeout.
 	// This is managed entirely by the gateway and is NOT forwarded to PostgreSQL.
