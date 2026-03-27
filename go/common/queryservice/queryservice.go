@@ -242,7 +242,6 @@ type QueryService interface {
 	DiscardTempTables(
 		ctx context.Context,
 		target *query.Target,
-		sql string,
 		options *query.ExecuteOptions,
 	) (*sqltypes.Result, *query.ReservedState, error)
 

@@ -546,12 +546,7 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 		return nil, errors.New("executor not initialized")
 	}
 
-	// Discard temp tables — pass original SQL so DISCARD ALL works correctly
-	sql := req.GetSql()
-	if sql == "" {
-		sql = "DISCARD TEMP" // backward compatibility
-	}
-	result, reservedState, err := executor.DiscardTempTables(ctx, req.Target, sql, req.Options)
+	result, reservedState, err := executor.DiscardTempTables(ctx, req.Target, req.Options)
 	if err != nil {
 		return nil, err
 	}

@@ -699,21 +699,18 @@ func (g *grpcQueryService) ConcludeTransaction(
 func (g *grpcQueryService) DiscardTempTables(
 	ctx context.Context,
 	target *querypb.Target,
-	sql string,
 	options *querypb.ExecuteOptions,
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "discard temp tables",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.TableGroup,
 		"shard", target.Shard,
-		"sql", sql,
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	// Create the request
 	req := &multipoolerservice.DiscardTempTablesRequest{
 		Target:  target,
 		Options: options,
-		Sql:     sql,
 	}
 
 	// Call the gRPC DiscardTempTables

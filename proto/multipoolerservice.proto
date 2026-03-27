@@ -406,11 +406,6 @@ message DiscardTempTablesRequest {
 
   // options must include reserved_connection_id to identify the connection
   query.ExecuteOptions options = 3;
-
-  // sql is the original SQL statement to execute (e.g., "DISCARD TEMP" or "DISCARD ALL").
-  // The multipooler sends this to PostgreSQL instead of hardcoding "DISCARD TEMP",
-  // so that DISCARD ALL correctly resets all session state on the backend.
-  string sql = 4;
 }
 
 // DiscardTempTablesResponse represents the response from discarding temp tables.

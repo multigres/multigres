@@ -929,7 +929,6 @@ func (e *Executor) ConcludeTransaction(
 func (e *Executor) DiscardTempTables(
 	ctx context.Context,
 	target *query.Target,
-	sql string,
 	options *query.ExecuteOptions,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
@@ -940,7 +939,6 @@ func (e *Executor) DiscardTempTables(
 
 	e.logger.DebugContext(ctx, "discard temp tables",
 		"user", user,
-		"sql", sql,
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	// Get the reserved connection
@@ -950,10 +948,10 @@ func (e *Executor) DiscardTempTables(
 		return nil, nil, fmt.Errorf("reserved connection %d not found", options.ReservedConnectionId)
 	}
 
-	// Send the original SQL to PostgreSQL (DISCARD TEMP or DISCARD ALL).
-	if _, err := reservedConn.Query(ctx, sql); err != nil {
+	// Send DISCARD TEMP to PostgreSQL to drop all temp tables on this backend.
+	if _, err := reservedConn.Query(ctx, "DISCARD TEMP"); err != nil {
 		reservedConn.Release(reserved.ReleaseError)
-		return nil, nil, fmt.Errorf("%s failed: %w", sql, err)
+		return nil, nil, fmt.Errorf("DISCARD TEMP failed: %w", err)
 	}
 
 	// Remove the temp table reason

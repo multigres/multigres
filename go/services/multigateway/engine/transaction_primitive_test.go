@@ -120,7 +120,7 @@ func (m *txMockIExecute) ConcludeTransaction(
 	return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
 }
 
-func (m *txMockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn, state *handler.MultiGatewayConnectionState, sql string, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *txMockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn, state *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 

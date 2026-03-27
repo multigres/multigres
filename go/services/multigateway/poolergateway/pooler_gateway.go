@@ -444,7 +444,6 @@ func (pg *PoolerGateway) ConcludeTransaction(
 func (pg *PoolerGateway) DiscardTempTables(
 	ctx context.Context,
 	target *query.Target,
-	sql string,
 	options *query.ExecuteOptions,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
@@ -460,7 +459,7 @@ func (pg *PoolerGateway) DiscardTempTables(
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.QueryService().DiscardTempTables(ctx, target, sql, options)
+	return conn.QueryService().DiscardTempTables(ctx, target, options)
 }
 
 // ReleaseReservedConnection implements queryservice.QueryService.

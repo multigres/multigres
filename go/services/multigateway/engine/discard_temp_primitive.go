@@ -62,7 +62,7 @@ func (d *DiscardTempPrimitive) StreamExecute(
 		// a pending transaction start should not carry over.
 		state.PendingBeginQuery = ""
 
-		err := exec.DiscardTempTables(ctx, conn, state, d.Query, callback)
+		err := exec.DiscardTempTables(ctx, conn, state, callback)
 		if err != nil {
 			return err
 		}
