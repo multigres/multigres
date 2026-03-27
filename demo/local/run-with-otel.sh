@@ -28,11 +28,15 @@ fi
 export OTEL_METRIC_EXPORT_INTERVAL="${OTEL_METRIC_EXPORT_INTERVAL:-5000}"
 export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}"
 export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
-export OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE="${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE:-cumulative}"
+# Force cumulative temporality — Prometheus requires cumulative counters/histograms.
+# This overrides any shell-level setting to prevent silent metric loss.
+export OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE="cumulative"
 export OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-otlp}"
 export OTEL_METRICS_EXPORTER="${OTEL_METRICS_EXPORTER:-otlp}"
 export OTEL_LOGS_EXPORTER="${OTEL_LOGS_EXPORTER:-otlp}"
-export OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION="${OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION:-base2_exponential_bucket_histogram}"
+# Force explicit bucket histograms — Prometheus doesn't support exponential histograms
+# without the native-histograms feature flag.
+export OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION="explicit_bucket_histogram"
 # Custom file-based sampling configuration
 export OTEL_TRACES_SAMPLER="${OTEL_TRACES_SAMPLER:-multigres_custom}"
 export OTEL_TRACES_SAMPLER_CONFIG="${OTEL_TRACES_SAMPLER_CONFIG:-$SCRIPT_DIR/../observability/sampling-config.yaml}"
