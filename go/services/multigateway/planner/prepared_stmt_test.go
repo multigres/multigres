@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -204,7 +205,7 @@ func TestPlanExecuteStmtNonExistent(t *testing.T) {
 
 	_, err := planAndExecute(t, s, "EXECUTE nonexistent")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 }
 
 func TestPlanDeallocateStmt(t *testing.T) {
@@ -225,7 +226,7 @@ func TestPlanDeallocateStmtNonExistent(t *testing.T) {
 
 	_, err := planAndExecute(t, s, "DEALLOCATE nonexistent")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 }
 
 func TestPlanDeallocateAll(t *testing.T) {
@@ -263,5 +264,5 @@ func TestPlanPrepareExecuteDeallocateLifecycle(t *testing.T) {
 
 	_, err = planAndExecute(t, s, "EXECUTE myplan")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 }

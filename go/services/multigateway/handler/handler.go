@@ -263,7 +263,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 	// Get the prepared statement to verify it exists.
 	psi := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), stmtName)
 	if psi == nil {
-		return fmt.Errorf("prepared statement \"%s\" does not exist", stmtName)
+		return mterrors.NewInvalidPreparedStatementError(stmtName)
 	}
 
 	// Get the connection state.
@@ -288,8 +288,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
 	if portalInfo == nil {
-		portalErr := mterrors.NewPgError("ERROR", mterrors.PgSSInvalidCursorName,
-			fmt.Sprintf("portal \"%s\" does not exist", portalName), "")
+		portalErr := mterrors.NewInvalidPortalError(portalName)
 		// Record before span creation since we don't have an operation name yet.
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "extended", 0, 0, time.Since(queryStart), 0, nil, portalErr)
 		return portalErr
@@ -359,7 +358,7 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 	case 'S': // Describe prepared statement
 		stmt := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), name)
 		if stmt == nil {
-			return nil, fmt.Errorf("prepared statement \"%s\" does not exist", name)
+			return nil, mterrors.NewInvalidPreparedStatementError(name)
 		}
 
 		// Call executor to get description from multipooler
@@ -368,7 +367,7 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 	case 'P': // Describe portal
 		portalInfo := state.GetPortalInfo(name)
 		if portalInfo == nil {
-			return nil, fmt.Errorf("portal \"%s\" does not exist", name)
+			return nil, mterrors.NewInvalidPortalError(name)
 		}
 
 		// Call executor to get description from multipooler
@@ -396,7 +395,7 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 
 	case 'D': // Deallocate prepared statement (simple protocol — errors on nonexistent)
 		if h.psc.GetPreparedStatementInfo(conn.ConnectionID(), name) == nil {
-			return fmt.Errorf("prepared statement \"%s\" does not exist", name)
+			return mterrors.NewInvalidPreparedStatementError(name)
 		}
 		h.psc.RemovePreparedStatement(conn.ConnectionID(), name)
 		return nil

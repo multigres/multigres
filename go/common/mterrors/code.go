@@ -24,18 +24,19 @@ import (
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
-	PgSSProtocolViolation     = "08P01" // protocol_violation
-	PgSSFeatureNotSupported   = "0A000" // feature_not_supported
-	PgSSInvalidParameterValue = "22023" // invalid_parameter_value
-	PgSSActiveTransaction     = "25001" // active_sql_transaction
-	PgSSInFailedTransaction   = "25P02" // in_failed_sql_transaction
-	PgSSAuthFailed            = "28P01" // invalid_authorization_specification
-	PgSSInvalidCursorName     = "34000" // invalid_cursor_name
-	PgSSSyntaxError           = "42601" // syntax_error
-	PgSSUndefinedObject       = "42704" // undefined_object
-	PgSSQueryCanceled         = "57014" // query_canceled
-	PgSSInternalError         = "XX000" // internal_error
-	PgSSReadOnlyTransaction   = "25006" // read_only_sql_transaction
+	PgSSProtocolViolation       = "08P01" // protocol_violation
+	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
+	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
+	PgSSActiveTransaction       = "25001" // active_sql_transaction
+	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
+	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
+	PgSSAuthFailed              = "28P01" // invalid_authorization_specification
+	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSSyntaxError             = "42601" // syntax_error
+	PgSSUndefinedObject         = "42704" // undefined_object
+	PgSSQueryCanceled           = "57014" // query_canceled
+	PgSSInternalError           = "XX000" // internal_error
+	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
 )
 
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
@@ -194,6 +195,20 @@ func NewPgError(severity, sqlState, message, detail string) *PgDiagnostic {
 func NewUnrecognizedParameter(name string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSUndefinedObject,
 		fmt.Sprintf("unrecognized configuration parameter %q", name), "")
+}
+
+// NewInvalidPreparedStatementError creates a PgDiagnostic for a reference to
+// a nonexistent prepared statement. SQLSTATE 26000 (invalid_sql_statement_name).
+func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSInvalidSQLStatementName,
+		fmt.Sprintf("prepared statement \"%s\" does not exist", name), "")
+}
+
+// NewInvalidPortalError creates a PgDiagnostic for a reference to
+// a nonexistent portal. SQLSTATE 34000 (invalid_cursor_name).
+func NewInvalidPortalError(name string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSInvalidCursorName,
+		fmt.Sprintf("portal \"%s\" does not exist", name), "")
 }
 
 // IsErrorCode checks whether err (or a wrapped cause) is a *PgDiagnostic
