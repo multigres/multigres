@@ -17,6 +17,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -44,14 +45,19 @@ type TransactionPrimitive struct {
 
 	// TableGroup is the target tablegroup (used for COMMIT/ROLLBACK routing).
 	TableGroup string
+
+	// metrics records transaction duration and count. Nil-safe: if nil,
+	// metrics are silently skipped (e.g., in tests without OTel setup).
+	metrics *TransactionMetrics
 }
 
 // NewTransactionPrimitive creates a new TransactionPrimitive.
-func NewTransactionPrimitive(kind ast.TransactionStmtKind, sql, tableGroup string) *TransactionPrimitive {
+func NewTransactionPrimitive(kind ast.TransactionStmtKind, sql, tableGroup string, metrics *TransactionMetrics) *TransactionPrimitive {
 	return &TransactionPrimitive{
 		Kind:       kind,
 		Query:      sql,
 		TableGroup: tableGroup,
+		metrics:    metrics,
 	}
 }
 
@@ -97,6 +103,9 @@ func (t *TransactionPrimitive) executeBegin(
 	// the correct isolation level and access mode when creating the reserved connection.
 	state.PendingBeginQuery = t.Query
 
+	// Record transaction start time for duration tracking.
+	state.TxnStartTime = time.Now()
+
 	// Return synthetic result to client
 	return callback(ctx, &sqltypes.Result{
 		CommandTag: "BEGIN",
@@ -113,6 +122,9 @@ func (t *TransactionPrimitive) executeCommit(
 ) error {
 	// Clear pending begin query — transaction is ending.
 	state.PendingBeginQuery = ""
+
+	// Record transaction metrics before clearing state.
+	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeCommit)
 
 	// If no reserved connections, just return synthetic result
 	// (empty transaction or deferred BEGIN that was never used)
@@ -147,6 +159,9 @@ func (t *TransactionPrimitive) executeRollback(
 	// Clear pending begin query — transaction is ending.
 	state.PendingBeginQuery = ""
 
+	// Record transaction metrics before clearing state.
+	t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
+
 	// If no reserved connections, just return synthetic result
 	if len(state.ShardStates) == 0 {
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
@@ -166,6 +181,22 @@ func (t *TransactionPrimitive) executeRollback(
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
 
 	return err
+}
+
+// recordTxnMetrics records transaction duration and count if TxnStartTime
+// was set (i.e., a BEGIN was executed). Clears TxnStartTime after recording.
+func (t *TransactionPrimitive) recordTxnMetrics(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultiGatewayConnectionState,
+	outcome string,
+) {
+	if state.TxnStartTime.IsZero() {
+		return
+	}
+	txnDuration := time.Since(state.TxnStartTime)
+	state.TxnStartTime = time.Time{}
+	t.metrics.RecordCompletion(ctx, txnDuration.Seconds(), conn.Database(), outcome)
 }
 
 // GetTableGroup returns the target tablegroup.

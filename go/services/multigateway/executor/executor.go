@@ -52,8 +52,12 @@ type Executor struct {
 // The IExecute parameter provides the execution backend (typically ScatterConn).
 // This dependency injection pattern makes testing much easier.
 func NewExecutor(exec engine.IExecute, logger *slog.Logger) *Executor {
+	txnMetrics, err := engine.NewTransactionMetrics()
+	if err != nil {
+		logger.Warn("failed to initialise some transaction metrics", "error", err)
+	}
 	return &Executor{
-		planner: planner.NewPlanner(DefaultTableGroup, logger),
+		planner: planner.NewPlanner(DefaultTableGroup, logger, txnMetrics),
 		exec:    exec,
 		logger:  logger,
 	}

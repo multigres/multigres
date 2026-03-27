@@ -37,7 +37,7 @@ func TestPrimitiveName(t *testing.T) {
 		},
 		{
 			name:      "Transaction",
-			primitive: engine.NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "BEGIN", "default"),
+			primitive: engine.NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "BEGIN", "default", nil),
 			want:      engine.PlanTypeTransaction,
 		},
 		{

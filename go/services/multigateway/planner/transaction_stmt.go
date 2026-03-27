@@ -34,7 +34,7 @@ func (p *Planner) planTransactionStmt(
 		"kind", stmt.Kind.String(),
 		"sql", sql)
 
-	primitive := engine.NewTransactionPrimitive(stmt.Kind, sql, p.defaultTableGroup)
+	primitive := engine.NewTransactionPrimitive(stmt.Kind, sql, p.defaultTableGroup, p.txnMetrics)
 	plan := engine.NewPlan(sql, primitive)
 
 	p.logger.Debug("created transaction plan",
