@@ -70,14 +70,21 @@ type Listener struct {
 
 	// wg tracks background goroutines.
 	wg sync.WaitGroup
+
+	// stopped is closed when the event loop exits. Public methods select on this
+	// to avoid blocking forever when the Listener is not running.
+	stopped chan struct{}
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
 func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger) *Listener {
+	stopped := make(chan struct{})
+	close(stopped) // initially stopped
 	return &Listener{
 		poolManager: poolManager,
 		logger:      logger,
 		requests:    make(chan request, 64),
+		stopped:     stopped,
 	}
 }
 
@@ -86,6 +93,7 @@ func (l *Listener) Start(ctx context.Context) {
 	if l.cancel != nil {
 		return // already running
 	}
+	l.stopped = make(chan struct{})
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.wg.Add(1)
 	go l.run(ctx)
@@ -114,6 +122,7 @@ func (l *Listener) OnStateChange(_ context.Context, poolerType clustermetadatapb
 }
 
 // Unsubscribe removes a subscriber from the given channel.
+// Returns immediately if the Listener is stopped.
 func (l *Listener) Unsubscribe(channel string, subCh chan *sqltypes.Notification) {
 	req := request{
 		typ:     reqUnsubscribe,
@@ -121,24 +130,32 @@ func (l *Listener) Unsubscribe(channel string, subCh chan *sqltypes.Notification
 		subCh:   subCh,
 		done:    make(chan struct{}),
 	}
-	l.requests <- req
-	<-req.done
+	select {
+	case l.requests <- req:
+		<-req.done
+	case <-l.stopped:
+	}
 }
 
 // UnsubscribeAll removes a subscriber from all channels.
+// Returns immediately if the Listener is stopped.
 func (l *Listener) UnsubscribeAll(subCh chan *sqltypes.Notification) {
 	req := request{
 		typ:   reqUnsubscribeAll,
 		subCh: subCh,
 		done:  make(chan struct{}),
 	}
-	l.requests <- req
-	<-req.done
+	select {
+	case l.requests <- req:
+		<-req.done
+	case <-l.stopped:
+	}
 }
 
 // SubscribeCh registers an existing notification channel to receive notifications
 // for the given PG channel name. Unlike Subscribe, this lets multiple PG channels
 // feed into the same notification channel.
+// Returns immediately if the Listener is stopped.
 func (l *Listener) SubscribeCh(channel string, notifCh chan *sqltypes.Notification) {
 	req := request{
 		typ:     reqSubscribe,
@@ -146,8 +163,11 @@ func (l *Listener) SubscribeCh(channel string, notifCh chan *sqltypes.Notificati
 		subCh:   notifCh,
 		done:    make(chan struct{}),
 	}
-	l.requests <- req
-	<-req.done
+	select {
+	case l.requests <- req:
+		<-req.done
+	case <-l.stopped:
+	}
 }
 
 // readerMessage carries messages from the reader goroutine to the event loop.
@@ -171,6 +191,7 @@ type readerMessage struct {
 // notification loss for existing channels.
 func (l *Listener) run(ctx context.Context) {
 	defer l.wg.Done()
+	defer close(l.stopped)
 
 	// Channel refcounts: channel name -> number of subscribers.
 	channels := make(map[string]int)
@@ -491,13 +512,29 @@ func (l *Listener) removeSub(
 	subCh chan *sqltypes.Notification,
 ) bool {
 	subs := subscribers[channel]
+	found := false
 	for i, s := range subs {
 		if s == subCh {
 			subscribers[channel] = append(subs[:i], subs[i+1:]...)
+			found = true
 			break
 		}
 	}
-	delete(allSubs, subCh)
+	if !found {
+		return false
+	}
+
+	// Only remove from allSubs if the subscriber has no remaining subscriptions.
+	stillSubscribed := false
+	for _, otherSubs := range subscribers {
+		if slices.Contains(otherSubs, subCh) {
+			stillSubscribed = true
+			break
+		}
+	}
+	if !stillSubscribed {
+		delete(allSubs, subCh)
+	}
 
 	channels[channel]--
 	if channels[channel] <= 0 {

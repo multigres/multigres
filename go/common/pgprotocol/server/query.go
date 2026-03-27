@@ -585,13 +585,6 @@ func writeString(w io.Writer, s string) error {
 	return nil
 }
 
-// WriteNotificationResponse writes a NotificationResponse ('A') message to the client.
-// Format: Byte1('A') + Int32(length) + Int32(pid) + String(channel) + String(payload)
-// This is used to deliver asynchronous notifications to clients that have issued LISTEN.
-func (c *Conn) WriteNotificationResponse(pid int32, channel, payload string) error {
-	return c.writeNotificationResponseMsg(pid, channel, payload)
-}
-
 // WriteNotice sends a NoticeResponse with the given severity and message to the client.
 func (c *Conn) WriteNotice(severity, message string) error {
 	diag := &mterrors.PgDiagnostic{

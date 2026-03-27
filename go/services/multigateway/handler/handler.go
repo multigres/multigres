@@ -543,24 +543,16 @@ func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager) {
 }
 
 // flushNotifications delivers any pending notifications to the client.
-// Called after each query completes (after ReadyForQuery would be sent).
+// Called after each query completes (before ReadyForQuery is sent).
+//
+// Notifications flow through a pipeline: NotifCh → forwardNotifications → asyncCh.
+// This method drains the asyncCh (the server.Conn's internal notification channel)
+// with proper bufMu locking, avoiding races with the async pusher goroutine.
 func (h *MultiGatewayHandler) flushNotifications(conn *server.Conn, state *MultiGatewayConnectionState) {
-	if state.NotifCh == nil {
+	if state.AsyncNotifCh == nil {
 		return
 	}
-	for {
-		select {
-		case notif := <-state.NotifCh:
-			if notif == nil {
-				return
-			}
-			if err := conn.WriteNotificationResponse(notif.PID, notif.Channel, notif.Payload); err != nil {
-				h.logger.Error("failed to write notification", "error", err,
-					"channel", notif.Channel)
-			}
-		default:
-			// No more pending notifications
-			return
-		}
+	if err := conn.FlushPendingNotifications(); err != nil {
+		h.logger.Error("failed to flush notifications", "error", err)
 	}
 }

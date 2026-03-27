@@ -1053,6 +1053,38 @@ func (c *Conn) StopAsyncNotifications() {
 	}
 }
 
+// FlushPendingNotifications drains all pending notifications from the async pusher
+// channel and writes them to the client socket. This is called synchronously after
+// each query completes (before ReadyForQuery) to deliver any notifications that
+// arrived during query execution.
+//
+// This is the safe synchronous path: it holds bufMu while writing, preventing
+// races with the async pusher goroutine which also writes with bufMu held.
+func (c *Conn) FlushPendingNotifications() error {
+	if c.notifPush == nil {
+		return nil
+	}
+	c.startWriterBuffering()
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+	if c.bufferedWriter == nil {
+		return nil
+	}
+	for {
+		select {
+		case notif, ok := <-c.notifPush.ch:
+			if !ok || notif == nil {
+				return c.bufferedWriter.Flush()
+			}
+			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
+				return err
+			}
+		default:
+			return c.bufferedWriter.Flush()
+		}
+	}
+}
+
 // writeNotificationResponseMsg writes a NotificationResponse without locking bufMu.
 // Caller must hold bufMu.
 func (c *Conn) writeNotificationResponseMsg(pid int32, channel, payload string) error {
