@@ -307,6 +307,8 @@ enum ReservationReason {
   RESERVATION_REASON_PORTAL = 4;       // 0b0100
   // Connection is reserved for an active COPY operation
   RESERVATION_REASON_COPY = 8;         // 0b1000
+  // Connection is reserved for LISTEN/NOTIFY (dedicated PubSubListener connection)
+  RESERVATION_REASON_LISTEN = 16;      // 0b10000
 }
 
 // ReservationOptions specifies options when creating a reserved connection.

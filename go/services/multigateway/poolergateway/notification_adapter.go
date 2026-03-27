@@ -34,8 +34,8 @@ import (
 // bidirectional stream per gateway-pooler pair with dynamic channel add/remove.
 // The StreamNotifications RPC already accepts repeated channels, so the
 // multipooler side supports multi-channel subscriptions on a single stream.
-// HTTP/2 multiplexes all streams over one TCP connection, so the overhead is
-// small in practice.
+// HTTP/2 multiplexes all streams over one TCP connection, but each stream
+// still requires a goroutine, so this may need revisiting at scale.
 type GRPCNotificationManager struct {
 	getClient func() multipoolerpb.MultiPoolerServiceClient
 	logger    *slog.Logger

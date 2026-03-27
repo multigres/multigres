@@ -424,8 +424,7 @@ func (pm *MultiPoolerManager) startPubSubListener(ctx context.Context) error {
 	if pm.connPoolMgr == nil {
 		return nil
 	}
-	clientConfig := pm.connPoolMgr.ListenerClientConfig()
-	pm.pubsubListener = pubsub.NewListener(clientConfig, pm.logger)
+	pm.pubsubListener = pubsub.NewListener(pm.connPoolMgr, pm.logger)
 	pm.qsc.SetPubSubListener(pm.pubsubListener)
 	return pm.servingState.RegisterAndSync(ctx, pm.pubsubListener)
 }

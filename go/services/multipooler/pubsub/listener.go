@@ -25,10 +25,12 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
-	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/pools/reserved"
 )
 
 // request types for the serialized event loop.
@@ -53,11 +55,12 @@ type request struct {
 // Architecture: split read/write on a single TCP connection.
 // TCP is full-duplex; bufferedReader and bufferedWriter are independent bufio
 // instances. The reader goroutine exclusively reads; the event loop exclusively
-// writes. This avoids reconnecting to issue LISTEN/UNLISTEN commands, which
-// would cause notification loss for existing channels.
+// writes. Because the reader never holds the connection, the event loop can
+// send LISTEN/UNLISTEN at any time without tearing down and re-establishing
+// the connection, which would lose notifications for existing channels.
 type Listener struct {
-	config *client.Config
-	logger *slog.Logger
+	poolManager connpoolmanager.PoolManager
+	logger      *slog.Logger
 
 	// requests is the serialized command channel for the event loop.
 	requests chan request
@@ -70,11 +73,11 @@ type Listener struct {
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
-func NewListener(config *client.Config, logger *slog.Logger) *Listener {
+func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger) *Listener {
 	return &Listener{
-		config:   config,
-		logger:   logger,
-		requests: make(chan request, 64),
+		poolManager: poolManager,
+		logger:      logger,
+		requests:    make(chan request, 64),
 	}
 }
 
@@ -176,25 +179,36 @@ func (l *Listener) run(ctx context.Context) {
 	// All subscriber channels (for broadcast warnings).
 	allSubs := make(map[chan *sqltypes.Notification]struct{})
 
-	var conn *client.Conn
+	var conn *reserved.Conn
 	var readerCh chan readerMessage // receives from reader goroutine
 
-	// connect establishes a new PG connection and starts the reader goroutine.
-	// Used for initial connection and error recovery (reconnect).
+	// releaseConn releases the reserved connection. The readLoop goroutine
+	// will get a read error on the closed socket and exit.
+	// Setting readerCh = nil prevents the event loop from reading stale errors
+	// from the old readLoop after the connection is released.
+	releaseConn := func(reason reserved.ReleaseReason) {
+		if conn != nil {
+			conn.Release(reason)
+			conn = nil
+			readerCh = nil
+		}
+	}
+
+	// connect establishes a new PG connection via the pool manager and starts the
+	// reader goroutine. Used for initial connection and error recovery (reconnect).
 	// On reconnect, re-LISTENs all active channels.
 	connect := func() {
-		if conn != nil {
-			conn.Close()
-			conn = nil
-		}
+		releaseConn(reserved.ReleaseError)
 		var err error
-		conn, err = client.Connect(ctx, ctx, l.config)
+		conn, err = l.poolManager.NewReservedConn(ctx, nil, l.poolManager.PgUser())
 		if err != nil {
-			l.logger.ErrorContext(ctx, "pubsub: failed to connect to PG", "error", err)
+			l.logger.ErrorContext(ctx, "pubsub: failed to acquire reserved connection", "error", err)
 			conn = nil
 			return
 		}
-		l.logger.InfoContext(ctx, "pubsub: connected to PG")
+		conn.AddReservationReason(protoutil.ReasonListen)
+		conn.SetInactivityTimeout(0) // never timeout
+		l.logger.InfoContext(ctx, "pubsub: connected to PG via pool")
 
 		// Re-LISTEN all active channels via simple query protocol.
 		// On initial connect this is a no-op (channels map is empty).
@@ -202,8 +216,7 @@ func (l *Listener) run(ctx context.Context) {
 			_, err := conn.Query(ctx, "LISTEN "+ast.QuoteIdentifier(ch))
 			if err != nil {
 				l.logger.ErrorContext(ctx, "pubsub: failed to re-LISTEN", "channel", ch, "error", err)
-				conn.Close()
-				conn = nil
+				releaseConn(reserved.ReleaseError)
 				return
 			}
 		}
@@ -213,15 +226,10 @@ func (l *Listener) run(ctx context.Context) {
 		go l.readLoop(conn, readerCh)
 	}
 
-	connect()
-
+	// Connection is acquired lazily on first subscribe (not eagerly on startup)
+	// to avoid holding an idle reserved connection in the pool.
 	reconnectTimer := time.NewTimer(0)
 	reconnectTimer.Stop()
-
-	// If the initial connect failed, schedule a retry.
-	if conn == nil {
-		reconnectTimer.Reset(2 * time.Second)
-	}
 
 	// pendingCmds tracks the number of LISTEN/UNLISTEN commands sent
 	// that haven't received a ReadyForQuery yet. This must be a counter
@@ -232,9 +240,7 @@ func (l *Listener) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			if conn != nil {
-				conn.Close()
-			}
+			releaseConn(reserved.ReleaseError)
 			// Close all subscriber channels.
 			for sub := range allSubs {
 				close(sub)
@@ -255,14 +261,18 @@ func (l *Listener) run(ctx context.Context) {
 						l.logger.ErrorContext(ctx, "pubsub: failed to send LISTEN",
 							"channel", req.channel, "error", err)
 						// Connection is broken, schedule reconnect.
-						conn.Close()
-						conn = nil
+						releaseConn(reserved.ReleaseError)
 						reconnectTimer.Reset(2 * time.Second)
 					} else {
 						pendingCmds++
 					}
 				} else if oldCount == 0 && conn == nil {
-					reconnectTimer.Reset(1 * time.Second)
+					// No connection — acquire one. connect() will re-LISTEN
+					// all channels in the map, including the one just added.
+					connect()
+					if conn == nil {
+						reconnectTimer.Reset(2 * time.Second)
+					}
 				}
 
 			case reqUnsubscribe:
@@ -271,8 +281,7 @@ func (l *Listener) run(ctx context.Context) {
 					if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(req.channel)); err != nil {
 						l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
 							"channel", req.channel, "error", err)
-						conn.Close()
-						conn = nil
+						releaseConn(reserved.ReleaseError)
 						reconnectTimer.Reset(2 * time.Second)
 					} else {
 						pendingCmds++
@@ -298,8 +307,7 @@ func (l *Listener) run(ctx context.Context) {
 						if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(ch)); err != nil {
 							l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
 								"channel", ch, "error", err)
-							conn.Close()
-							conn = nil
+							releaseConn(reserved.ReleaseError)
 							reconnectTimer.Reset(2 * time.Second)
 							break
 						}
@@ -312,17 +320,35 @@ func (l *Listener) run(ctx context.Context) {
 			// closing req.done. This ensures all LISTEN/UNLISTEN commands
 			// have completed on PG before we return to the caller.
 			if pendingCmds > 0 {
-				l.drainCommands(ctx, readerCh, subscribers, &conn, reconnectTimer, &pendingCmds)
+				if readerCh != nil {
+					l.drainCommands(ctx, readerCh, subscribers, &conn, reconnectTimer, &pendingCmds)
+					// drainCommands may have released the connection on error.
+					// Nil readerCh to avoid reading stale errors from the old readLoop.
+					if conn == nil {
+						readerCh = nil
+					}
+				} else {
+					// Connection was released during command send — pending commands
+					// are lost with the connection, reset the counter.
+					pendingCmds = 0
+				}
+			}
+
+			// Release the connection when no channels are subscribed.
+			// ReleaseError taints the connection so the pool destroys it (closing the
+			// socket), which stops the readLoop goroutine. We can't use ReleaseRollback
+			// because the readLoop is still active on the socket — returning an active
+			// socket to the pool would corrupt data.
+			// On next subscribe, connect() will acquire a new reserved connection.
+			if len(channels) == 0 && conn != nil {
+				releaseConn(reserved.ReleaseError)
 			}
 			close(req.done)
 
 		case msg := <-readerCh:
 			if msg.err != nil {
 				l.logger.ErrorContext(ctx, "pubsub: reader error, will reconnect", "error", msg.err)
-				if conn != nil {
-					conn.Close()
-					conn = nil
-				}
+				releaseConn(reserved.ReleaseError)
 				reconnectTimer.Reset(2 * time.Second)
 				continue
 			}
@@ -343,7 +369,8 @@ func (l *Listener) run(ctx context.Context) {
 			}
 
 		case <-reconnectTimer.C:
-			if conn == nil {
+			// Only reconnect if we have channels to listen on.
+			if conn == nil && len(channels) > 0 {
 				connect()
 				if conn == nil {
 					reconnectTimer.Reset(5 * time.Second)
@@ -365,7 +392,7 @@ func (l *Listener) drainCommands(
 	ctx context.Context,
 	readerCh chan readerMessage,
 	subscribers map[string][]chan *sqltypes.Notification,
-	conn **client.Conn,
+	conn **reserved.Conn,
 	reconnectTimer *time.Timer,
 	pendingCmds *int,
 ) {
@@ -379,7 +406,7 @@ func (l *Listener) drainCommands(
 				l.logger.ErrorContext(ctx, "pubsub: reader error during command wait, will reconnect",
 					"error", msg.err)
 				if *conn != nil {
-					(*conn).Close()
+					(*conn).Release(reserved.ReleaseError)
 					*conn = nil
 				}
 				reconnectTimer.Reset(2 * time.Second)
@@ -414,7 +441,7 @@ func (l *Listener) drainCommands(
 //   - ReadyForQuery ('Z'): signals command completion to the event loop
 //   - ErrorResponse ('E'): treated as connection error
 //   - ParameterStatus ('S'), NoticeResponse ('N'): ignored
-func (l *Listener) readLoop(conn *client.Conn, ch chan<- readerMessage) {
+func (l *Listener) readLoop(conn *reserved.Conn, ch chan<- readerMessage) {
 	for {
 		msgType, body, err := conn.ReadRawMessage()
 		if err != nil {

@@ -545,9 +545,3 @@ func (m *Manager) HasUserPool(user string) bool {
 	_, ok := (*pools)[user]
 	return ok
 }
-
-// ListenerClientConfig returns a client.Config for creating a dedicated PG
-// connection, e.g. for the LISTEN/NOTIFY shared listener. Uses admin credentials.
-func (m *Manager) ListenerClientConfig() *client.Config {
-	return m.buildClientConfig(m.config.PgUser(), m.config.PgPassword())
-}

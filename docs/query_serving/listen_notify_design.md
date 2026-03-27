@@ -158,8 +158,15 @@ Per-connection state tracked in `MultiGatewayConnectionState`:
 ## PubSubListener
 
 The `PubSubListener` in the multipooler manages a single dedicated
-PostgreSQL connection for all `LISTEN`/`NOTIFY` operations.
+PostgreSQL connection for all `LISTEN`/`NOTIFY` operations. The
+connection is obtained from the pool manager as a reserved connection
+(with `ReasonListen`), so the pool accurately tracks all backend
+connections.
 
+- **Pool-managed connection**: The listener acquires a reserved
+  connection via `PoolManager.NewReservedConn()` (same pattern as
+  COPY). The connection is acquired lazily on first subscribe and
+  released when no channels remain subscribed.
 - **Serialized event loop**: All subscribe/unsubscribe requests are
   serialized through a buffered channel, avoiding the need for locks
   on internal state.
@@ -171,13 +178,14 @@ PostgreSQL connection for all `LISTEN`/`NOTIFY` operations.
   goroutine exclusively reads all PG messages via `ReadRawMessage()`
   (notifications, command completions, errors). The event loop
   exclusively writes `LISTEN`/`UNLISTEN` commands via `SendQuery()`.
-  This allows issuing commands on the live connection without
-  reconnecting, preventing notification loss for existing channels.
-- **Reconnect**: On reader error (connection failure), the connection
-  is closed and reconnected after a delay (2s initial, 5s on repeated
-  failure). All active channels are re-LISTENed on the new connection.
-  Reconnect only happens on actual connection failure, not on
-  subscribe/unsubscribe operations.
+  Because the reader never holds the connection, the event loop can
+  send commands at any time without tearing down and re-establishing
+  the connection, preventing notification loss for existing channels.
+- **Reconnect**: On reader error (connection failure), the reserved
+  connection is released with `ReleaseError` (tainting the connection
+  so the pool destroys it) and a new one is acquired after a delay
+  (2s initial, 5s on repeated failure). All active channels are
+  re-LISTENed on the new connection.
 
 ## Gateway-Side Subscription Management
 
@@ -228,9 +236,10 @@ When a client disconnects:
 - **Single gRPC stream per gateway-pooler pair.**
   `GRPCNotificationManager` currently opens one `StreamNotifications`
   gRPC stream per unique PG channel. If a gateway has clients listening
-  on many distinct channels, this creates many streams. Since HTTP/2
-  multiplexes all streams over a single TCP connection, the overhead is
-  small in practice. However, a single bidirectional stream with dynamic
+  on many distinct channels, this creates many streams (each with its
+  own goroutine). HTTP/2 multiplexes all streams over a single TCP
+  connection, but this may still need revisiting at scale. A single
+  bidirectional stream with dynamic
   channel add/remove would reduce per-channel overhead and simplify
   stream lifecycle management. The `StreamNotifications` RPC already
   accepts `repeated string channels` — the multipooler side supports
