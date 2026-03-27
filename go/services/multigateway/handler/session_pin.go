@@ -22,21 +22,21 @@ func checkAndPinForTempTable(node ast.Stmt, state *MultiGatewayConnectionState) 
 
 	switch stmt := node.(type) {
 	case *ast.CreateStmt:
-		if stmt.Relation != nil && stmt.Relation.RelPersistence == 't' {
+		if stmt.Relation != nil && stmt.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			state.SessionPinned = true
 		}
 	case *ast.CreateTableAsStmt:
 		// Covers CREATE TEMP TABLE AS SELECT.
-		if stmt.Into != nil && stmt.Into.Rel != nil && stmt.Into.Rel.RelPersistence == 't' {
+		if stmt.Into != nil && stmt.Into.Rel != nil && stmt.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			state.SessionPinned = true
 		}
 	case *ast.SelectStmt:
 		// Covers SELECT INTO TEMPORARY TABLE (parsed as SelectStmt with IntoClause).
-		if stmt.IntoClause != nil && stmt.IntoClause.Rel != nil && stmt.IntoClause.Rel.RelPersistence == 't' {
+		if stmt.IntoClause != nil && stmt.IntoClause.Rel != nil && stmt.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			state.SessionPinned = true
 		}
 	case *ast.ViewStmt:
-		if stmt.View != nil && stmt.View.RelPersistence == 't' {
+		if stmt.View != nil && stmt.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			state.SessionPinned = true
 		}
 	}
